@@ -10,10 +10,11 @@ interface MealListProps {
   onMove: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onDuplicate?: (meal: Meal) => void;
   onDrop: (mealId: string) => void;
 }
 
-export function MealList({ title, emoji, meals, direction, onMove, onRename, onDelete, onDrop }: MealListProps) {
+export function MealList({ title, emoji, meals, direction, onMove, onRename, onDelete, onDuplicate, onDrop }: MealListProps) {
   const [dragOver, setDragOver] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -58,6 +59,7 @@ export function MealList({ title, emoji, meals, direction, onMove, onRename, onD
             onMove={() => onMove(meal.id)}
             onRename={(name) => onRename(meal.id, name)}
             onDelete={() => onDelete(meal.id)}
+            onDuplicate={onDuplicate ? () => onDuplicate(meal) : undefined}
             onDragStart={(e) => e.dataTransfer.setData("mealId", meal.id)}
           />
         ))}

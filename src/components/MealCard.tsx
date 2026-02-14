@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Copy, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,10 +16,11 @@ interface MealCardProps {
   onMove: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onDragStart: (e: React.DragEvent) => void;
 }
 
-export function MealCard({ meal, direction, onMove, onRename, onDelete, onDragStart }: MealCardProps) {
+export function MealCard({ meal, direction, onMove, onRename, onDelete, onDuplicate, onDragStart }: MealCardProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(meal.name);
 
@@ -72,6 +73,11 @@ export function MealCard({ meal, direction, onMove, onRename, onDelete, onDragSt
           <DropdownMenuItem onClick={() => { setEditName(meal.name); setEditing(true); }}>
             <Pencil className="mr-2 h-4 w-4" /> Renommer
           </DropdownMenuItem>
+          {onDuplicate && (
+            <DropdownMenuItem onClick={onDuplicate}>
+              <Copy className="mr-2 h-4 w-4" /> Doubler
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={onDelete} className="text-destructive">
             <Trash2 className="mr-2 h-4 w-4" /> Supprimer
           </DropdownMenuItem>

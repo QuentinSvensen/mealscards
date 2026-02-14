@@ -8,7 +8,7 @@ import { useMeals } from "@/hooks/useMeals";
 import { toast } from "@/hooks/use-toast";
 
 const Index = () => {
-  const { allMeals, availableMeals, isLoading, addMeal, toggleAvailability, renameMeal, deleteMeal } = useMeals();
+  const { allMeals, availableMeals, isLoading, addMeal, toggleAvailability, renameMeal, deleteMeal, duplicateMeal, moveBackOrDelete } = useMeals();
   const [newName, setNewName] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -90,9 +90,13 @@ const Index = () => {
             emoji="🍳"
             meals={availableMeals}
             direction="left"
-            onMove={(id) => handleMove(id, false)}
+            onMove={(id) => {
+              const meal = availableMeals.find((m) => m.id === id);
+              if (meal) moveBackOrDelete.mutate(meal);
+            }}
             onRename={(id, name) => renameMeal.mutate({ id, name })}
             onDelete={(id) => deleteMeal.mutate(id)}
+            onDuplicate={(meal) => duplicateMeal.mutate(meal)}
             onDrop={(mealId) => handleDrop(mealId, true)}
           />
         </div>
