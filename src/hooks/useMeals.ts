@@ -74,6 +74,38 @@ export function useMeals() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meals"] }),
   });
 
+  const duplicateMeal = useMutation({
+    mutationFn: async (meal: Meal) => {
+      const { error } = await supabase
+        .from("meals")
+        .insert({ name: meal.name, color: meal.color, is_available: true });
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meals"] }),
+  });
+
+  const moveBackOrDelete = useMutation({
+    mutationFn: async (meal: Meal) => {
+      // Check if same name already exists in "tous" list
+      const hasDuplicate = meals.some(
+        (m) => m.id !== meal.id && m.name === meal.name && !m.is_available
+      );
+      if (hasDuplicate) {
+        // Delete instead of moving back
+        const { error } = await supabase.from("meals").delete().eq("id", meal.id);
+        if (error) throw error;
+      } else {
+        // Move back to "tous"
+        const { error } = await supabase
+          .from("meals")
+          .update({ is_available: false })
+          .eq("id", meal.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["meals"] }),
+  });
+
   const allMeals = meals.filter((m) => !m.is_available);
   const availableMeals = meals.filter((m) => m.is_available);
 
@@ -85,5 +117,7 @@ export function useMeals() {
     toggleAvailability,
     renameMeal,
     deleteMeal,
+    duplicateMeal,
+    moveBackOrDelete,
   };
 }
