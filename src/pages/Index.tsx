@@ -102,7 +102,7 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b1f28]">
+    <div className="min-h-screen bg-[#0b1b28]">
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-4 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <h1 className="text-2xl font-extrabold text-foreground">🍽️ Mes Repas</h1>
