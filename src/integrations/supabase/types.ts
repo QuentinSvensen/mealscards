@@ -16,27 +16,77 @@ export type Database = {
     Tables: {
       meals: {
         Row: {
+          calories: string | null
+          category: string
           color: string
           created_at: string
           id: string
           is_available: boolean
           name: string
+          sort_order: number
         }
         Insert: {
+          calories?: string | null
+          category?: string
           color?: string
           created_at?: string
           id?: string
           is_available?: boolean
           name: string
+          sort_order?: number
         }
         Update: {
+          calories?: string | null
+          category?: string
           color?: string
           created_at?: string
           id?: string
           is_available?: boolean
           name?: string
+          sort_order?: number
         }
         Relationships: []
+      }
+      possible_meals: {
+        Row: {
+          created_at: string
+          day_of_week: string | null
+          expiration_date: string | null
+          id: string
+          meal_id: string
+          meal_time: string | null
+          quantity: number
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          day_of_week?: string | null
+          expiration_date?: string | null
+          id?: string
+          meal_id: string
+          meal_time?: string | null
+          quantity?: number
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          day_of_week?: string | null
+          expiration_date?: string | null
+          id?: string
+          meal_id?: string
+          meal_time?: string | null
+          quantity?: number
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "possible_meals_meal_id_fkey"
+            columns: ["meal_id"]
+            isOneToOne: false
+            referencedRelation: "meals"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
