@@ -20,7 +20,9 @@ export type Database = {
           category: string
           color: string
           created_at: string
+          grams: string | null
           id: string
+          ingredients: string | null
           is_available: boolean
           name: string
           sort_order: number
@@ -30,7 +32,9 @@ export type Database = {
           category?: string
           color?: string
           created_at?: string
+          grams?: string | null
           id?: string
+          ingredients?: string | null
           is_available?: boolean
           name: string
           sort_order?: number
@@ -40,7 +44,9 @@ export type Database = {
           category?: string
           color?: string
           created_at?: string
+          grams?: string | null
           id?: string
+          ingredients?: string | null
           is_available?: boolean
           name?: string
           sort_order?: number
@@ -49,6 +55,7 @@ export type Database = {
       }
       possible_meals: {
         Row: {
+          counter_start_date: string | null
           created_at: string
           day_of_week: string | null
           expiration_date: string | null
@@ -59,6 +66,7 @@ export type Database = {
           sort_order: number
         }
         Insert: {
+          counter_start_date?: string | null
           created_at?: string
           day_of_week?: string | null
           expiration_date?: string | null
@@ -69,6 +77,7 @@ export type Database = {
           sort_order?: number
         }
         Update: {
+          counter_start_date?: string | null
           created_at?: string
           day_of_week?: string | null
           expiration_date?: string | null
@@ -84,6 +93,65 @@ export type Database = {
             columns: ["meal_id"]
             isOneToOne: false
             referencedRelation: "meals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shopping_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      shopping_items: {
+        Row: {
+          checked: boolean
+          created_at: string
+          group_id: string | null
+          id: string
+          name: string
+          quantity: string | null
+          sort_order: number
+        }
+        Insert: {
+          checked?: boolean
+          created_at?: string
+          group_id?: string | null
+          id?: string
+          name: string
+          quantity?: string | null
+          sort_order?: number
+        }
+        Update: {
+          checked?: boolean
+          created_at?: string
+          group_id?: string | null
+          id?: string
+          name?: string
+          quantity?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopping_items_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "shopping_groups"
             referencedColumns: ["id"]
           },
         ]
