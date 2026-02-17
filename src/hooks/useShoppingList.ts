@@ -13,6 +13,7 @@ export interface ShoppingItem {
   group_id: string | null;
   name: string;
   quantity: string | null;
+  brand: string | null;
   checked: boolean;
   sort_order: number;
   created_at: string;
@@ -57,8 +58,7 @@ export function useShoppingList() {
 
   const renameGroup = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
-      const { error } = await (supabase as any)
-        .from("shopping_groups").update({ name }).eq("id", id);
+      const { error } = await (supabase as any).from("shopping_groups").update({ name }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -66,9 +66,17 @@ export function useShoppingList() {
 
   const deleteGroup = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
-        .from("shopping_groups").delete().eq("id", id);
+      const { error } = await (supabase as any).from("shopping_groups").delete().eq("id", id);
       if (error) throw error;
+    },
+    onSuccess: invalidate,
+  });
+
+  const reorderGroups = useMutation({
+    mutationFn: async (items: { id: string; sort_order: number }[]) => {
+      await Promise.all(items.map(item =>
+        (supabase as any).from("shopping_groups").update({ sort_order: item.sort_order }).eq("id", item.id)
+      ));
     },
     onSuccess: invalidate,
   });
@@ -86,8 +94,7 @@ export function useShoppingList() {
 
   const toggleItem = useMutation({
     mutationFn: async ({ id, checked }: { id: string; checked: boolean }) => {
-      const { error } = await (supabase as any)
-        .from("shopping_items").update({ checked }).eq("id", id);
+      const { error } = await (supabase as any).from("shopping_items").update({ checked }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -95,8 +102,15 @@ export function useShoppingList() {
 
   const updateItemQuantity = useMutation({
     mutationFn: async ({ id, quantity }: { id: string; quantity: string | null }) => {
-      const { error } = await (supabase as any)
-        .from("shopping_items").update({ quantity }).eq("id", id);
+      const { error } = await (supabase as any).from("shopping_items").update({ quantity }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+  });
+
+  const updateItemBrand = useMutation({
+    mutationFn: async ({ id, brand }: { id: string; brand: string | null }) => {
+      const { error } = await (supabase as any).from("shopping_items").update({ brand }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -104,8 +118,15 @@ export function useShoppingList() {
 
   const renameItem = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
-      const { error } = await (supabase as any)
-        .from("shopping_items").update({ name }).eq("id", id);
+      const { error } = await (supabase as any).from("shopping_items").update({ name }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+  });
+
+  const moveItem = useMutation({
+    mutationFn: async ({ id, group_id }: { id: string; group_id: string | null }) => {
+      const { error } = await (supabase as any).from("shopping_items").update({ group_id }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -113,8 +134,7 @@ export function useShoppingList() {
 
   const deleteItem = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
-        .from("shopping_items").delete().eq("id", id);
+      const { error } = await (supabase as any).from("shopping_items").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -127,8 +147,8 @@ export function useShoppingList() {
 
   return {
     groups, items, ungroupedItems,
-    addGroup, renameGroup, deleteGroup,
-    addItem, toggleItem, updateItemQuantity, renameItem, deleteItem,
+    addGroup, renameGroup, deleteGroup, reorderGroups,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, moveItem, deleteItem,
     getItemsByGroup,
   };
 }

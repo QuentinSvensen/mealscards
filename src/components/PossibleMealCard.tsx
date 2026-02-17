@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Clock, Timer, Flame, Weight, Pencil, List } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +47,7 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
 
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const counterDays = getCounterDays(pm.counter_start_date);
+  const counterUrgent = counterDays !== null && counterDays >= 3;
 
   const handleSaveEdit = () => {
     const val = editValue.trim() || null;
@@ -62,36 +63,50 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`group flex flex-col rounded-2xl px-4 py-3 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : ''} ${isExpired ? 'opacity-70' : ''}`}
+      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : ''} ${isExpired ? 'opacity-70' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
       {/* Row 1: name + actions */}
-      <div className="flex items-center gap-2">
-        <Button size="icon" variant="ghost" onClick={onRemove} className="h-7 w-7 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-          <ArrowLeft className="h-4 w-4" />
+      <div className="flex items-center gap-1.5">
+        <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+          <ArrowLeft className="h-3.5 w-3.5" />
         </Button>
 
         <span className="flex-1 font-semibold text-white text-sm truncate">{meal.name}</span>
 
-        {meal.grams && (
-          <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30">
-            <Weight className="h-3 w-3" />{meal.grams}
-          </button>
-        )}
-        {meal.calories && (
-          <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30">
-            <Flame className="h-3 w-3" />{meal.calories}
+        {/* Counter - prominent */}
+        {counterDays !== null && (
+          <button
+            onClick={() => onUpdateCounter(null)}
+            className={`text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1 transition-all ${
+              counterUrgent
+                ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
+                : 'bg-white/25 text-white'
+            }`}
+          >
+            <Timer className="h-3.5 w-3.5" /> {counterDays}j
           </button>
         )}
 
-        <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-7 w-7 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
-          <Copy className="h-3.5 w-3.5" />
+        {meal.grams && (
+          <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30">
+            <Weight className="h-2.5 w-2.5" />{meal.grams}
+          </button>
+        )}
+        {meal.calories && (
+          <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30">
+            <Flame className="h-2.5 w-2.5" />{meal.calories}
+          </button>
+        )}
+
+        <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
+          <Copy className="h-3 w-3" />
         </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-              <MoreVertical className="h-4 w-4" />
+            <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+              <MoreVertical className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
@@ -118,28 +133,26 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
       {editing === "ingredients" ? (
         <Textarea autoFocus placeholder="Ingrédient 1, Ingrédient 2, ..." value={editValue}
           onChange={(e) => setEditValue(e.target.value)} onBlur={handleSaveEdit}
-          className="mt-2 min-h-[50px] border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
+          className="mt-1.5 min-h-[50px] border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
       ) : editing ? (
         <Input autoFocus placeholder={editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"} value={editValue}
           onChange={(e) => setEditValue(e.target.value)} onBlur={handleSaveEdit}
           onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
-          className="mt-2 h-7 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
+          className="mt-1.5 h-6 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
       ) : null}
 
-      {/* Row 2: expiration + planning + counter */}
-      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-        <div className="flex items-center gap-0.5">
-          <Calendar className="h-3 w-3 text-white/60" />
-          <Input
-            type="date"
-            value={pm.expiration_date || ""}
-            onChange={(e) => onUpdateExpiration(e.target.value || null)}
-            className={`h-6 w-[120px] border-white/20 bg-white/15 text-white text-[10px] px-1 ${isExpired ? 'text-red-200' : ''}`}
-          />
-        </div>
+      {/* Row 2: expiration + planning */}
+      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+        <Calendar className="h-2.5 w-2.5 text-white/50 shrink-0" />
+        <Input
+          type="date"
+          value={pm.expiration_date || ""}
+          onChange={(e) => onUpdateExpiration(e.target.value || null)}
+          className={`h-5 w-[105px] border-white/20 bg-white/10 text-white text-[10px] px-1 ${isExpired ? 'text-red-200' : ''}`}
+        />
 
         <Select value={pm.day_of_week || "none"} onValueChange={(val) => onUpdatePlanning(val === "none" ? null : val, pm.meal_time)}>
-          <SelectTrigger className="h-6 w-[72px] border-white/20 bg-white/15 text-white text-[10px] px-1">
+          <SelectTrigger className="h-5 w-[58px] border-white/20 bg-white/10 text-white text-[10px] px-1">
             <SelectValue placeholder="Jour" />
           </SelectTrigger>
           <SelectContent>
@@ -151,7 +164,7 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
         </Select>
 
         <Select value={pm.meal_time || "none"} onValueChange={(val) => onUpdatePlanning(pm.day_of_week, val === "none" ? null : val)}>
-          <SelectTrigger className="h-6 w-[62px] border-white/20 bg-white/15 text-white text-[10px] px-1">
+          <SelectTrigger className="h-5 w-[50px] border-white/20 bg-white/10 text-white text-[10px] px-1">
             <SelectValue placeholder="Quand" />
           </SelectTrigger>
           <SelectContent>
@@ -161,17 +174,11 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
             ))}
           </SelectContent>
         </Select>
-
-        {counterDays !== null && (
-          <span className="text-[10px] text-white/80 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-            <Timer className="h-3 w-3" /> {counterDays}j
-          </span>
-        )}
       </div>
 
       {/* Row 3: ingredients */}
       {!editing && meal.ingredients && (
-        <div className="mt-1.5 text-[10px] text-white/65 flex flex-wrap gap-x-1">
+        <div className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1">
           {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => (
             <span key={i}>{ing.trim()}{i < arr.length - 1 ? ' •' : ''}</span>
           ))}

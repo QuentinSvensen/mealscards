@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,6 +14,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { toast } from "@/hooks/use-toast";
 
+const APP_PIN = import.meta.env.VITE_APP_PIN;
+
 const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
   { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
   { value: "entree", label: "Entrées", emoji: "🥗" },
@@ -25,7 +27,50 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
 type SortMode = "manual" | "expiration" | "planning";
 type MainPage = "repas" | "planning" | "courses";
 
+// --- PIN Lock ---
+function PinLock({ onUnlock }: { onUnlock: () => void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = () => {
+    if (pin === APP_PIN) {
+      sessionStorage.setItem("app_unlocked", "true");
+      onUnlock();
+    } else {
+      setError(true);
+      setPin("");
+      setTimeout(() => setError(false), 1500);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4 p-8">
+        <Lock className="h-10 w-10 text-muted-foreground" />
+        <h2 className="text-lg font-bold text-foreground">Code d'accès</h2>
+        <Input
+          type="password"
+          inputMode="numeric"
+          maxLength={4}
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          placeholder="••••"
+          className={`w-32 text-center text-2xl tracking-[0.5em] font-mono ${error ? 'border-destructive animate-shake' : ''}`}
+          autoFocus
+        />
+        <Button onClick={handleSubmit} disabled={pin.length !== 4} className="w-32">
+          Entrer
+        </Button>
+        {error && <p className="text-destructive text-sm">Code incorrect</p>}
+      </div>
+    </div>
+  );
+}
+
 const Index = () => {
+  const [unlocked, setUnlocked] = useState(!APP_PIN || sessionStorage.getItem("app_unlocked") === "true");
+
   const {
     isLoading,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients, deleteMeal, reorderMeals,
@@ -44,7 +89,8 @@ const Index = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [sortModes, setSortModes] = useState<Record<string, SortMode>>({});
 
-  // Sync default category with active tab
+  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+
   const openDialog = (target: "all" | "possible" = "all") => {
     setNewCategory(activeCategory);
     setAddTarget(target);
@@ -115,44 +161,46 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-4 py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-extrabold text-foreground">🍽️ Mes Repas</h1>
-          <div className="flex items-center gap-2">
-            {/* Main page navigation */}
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-3 py-2.5 sm:px-4 sm:py-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+          <h1 className="text-lg sm:text-xl font-extrabold text-foreground shrink-0">🍽️</h1>
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
             <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
-              <button onClick={() => setMainPage("repas")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${mainPage === "repas" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}>
-                <UtensilsCrossed className="h-3.5 w-3.5 inline mr-1" />Repas
+              <button onClick={() => setMainPage("repas")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
+                <UtensilsCrossed className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                <span className={mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}>Repas</span>
               </button>
-              <button onClick={() => setMainPage("planning")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${mainPage === "planning" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}>
-                <CalendarRange className="h-3.5 w-3.5 inline mr-1" />Planning
+              <button onClick={() => setMainPage("planning")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
+                <CalendarRange className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                <span className={mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}>Planning</span>
               </button>
-              <button onClick={() => setMainPage("courses")} className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${mainPage === "courses" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}>
-                <ShoppingCart className="h-3.5 w-3.5 inline mr-1" />Courses
+              <button onClick={() => setMainPage("courses")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
+                <ShoppingCart className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                <span className={mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}>Courses</span>
               </button>
             </div>
-            <ThemeToggle />
           </div>
+          <ThemeToggle />
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-4">
+      <main className="max-w-6xl mx-auto p-3 sm:p-4">
         {mainPage === "courses" && <ShoppingList />}
         {mainPage === "planning" && <WeeklyPlanning />}
         {mainPage === "repas" && (
           <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
-            <div className="flex items-center gap-2 mb-4">
-              <TabsList className="flex-1">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
+              <TabsList className="flex-1 overflow-x-auto">
                 {CATEGORIES.map((c) => (
-                  <TabsTrigger key={c.value} value={c.value} className="text-xs">
-                    {c.emoji} {c.label}
+                  <TabsTrigger key={c.value} value={c.value} className="text-[10px] sm:text-xs px-2 sm:px-3">
+                    {c.emoji} <span className="hidden sm:inline ml-1">{c.label}</span>
                   </TabsTrigger>
                 ))}
               </TabsList>
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button size="sm" className="rounded-full gap-1" onClick={() => openDialog("all")}>
-                    <Plus className="h-3.5 w-3.5" /> Ajouter
+                  <Button size="sm" className="rounded-full gap-1 text-xs shrink-0" onClick={() => openDialog("all")}>
+                    <Plus className="h-3 w-3" /> <span className="hidden sm:inline">Ajouter</span>
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
@@ -172,10 +220,10 @@ const Index = () => {
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
-                      <Button onClick={() => { setAddTarget("all"); handleAdd(); }} disabled={!newName.trim()} className="flex-1">
+                      <Button onClick={() => { setAddTarget("all"); handleAdd(); }} disabled={!newName.trim()} className="flex-1 text-xs">
                         Tous les repas
                       </Button>
-                      <Button onClick={() => { setAddTarget("possible"); handleAdd(); }} disabled={!newName.trim()} variant="secondary" className="flex-1">
+                      <Button onClick={() => { setAddTarget("possible"); handleAdd(); }} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs">
                         Possibles uniquement
                       </Button>
                     </div>
@@ -186,7 +234,7 @@ const Index = () => {
 
             {CATEGORIES.map((cat) => (
               <TabsContent key={cat.value} value={cat.value}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <MasterList
                     category={cat}
                     meals={getMealsByCategory(cat.value)}
@@ -245,7 +293,7 @@ function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onU
 
   return (
     <MealList title={`Tous · ${category.label}`} emoji="📋" count={meals.length}>
-      {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-8 italic">Aucun repas</p>}
+      {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Aucun repas</p>}
       {meals.map((meal, index) => (
         <MealCard key={meal.id} meal={meal}
           onMoveToPossible={() => onMoveToPossible(meal.id)}
@@ -290,11 +338,11 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
   return (
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={items.length} onExternalDrop={onExternalDrop}
       headerActions={<>
-        <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-7 w-7 p-0" title="Ajouter directement"><Plus className="h-3.5 w-3.5" /></Button>
-        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-xs gap-1 h-7"><SortIcon className="h-3 w-3" />{sortLabel}</Button>
-        <Button size="sm" variant="ghost" onClick={onRandomPick} className="h-7 w-7 p-0"><Dice5 className="h-4 w-4" /></Button>
+        <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
+        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5"><SortIcon className="h-3 w-3" /><span className="hidden sm:inline">{sortLabel}</span></Button>
+        <Button size="sm" variant="ghost" onClick={onRandomPick} className="h-6 w-6 p-0"><Dice5 className="h-3.5 w-3.5" /></Button>
       </>}>
-      {items.length === 0 && <p className="text-muted-foreground text-sm text-center py-8 italic">Glisse des repas ici →</p>}
+      {items.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Glisse des repas ici →</p>}
       {items.map((pm, index) => (
         <PossibleMealCard key={pm.id} pm={pm}
           onRemove={() => onRemove(pm.id)}
