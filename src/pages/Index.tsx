@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,7 +15,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { toast } from "@/hooks/use-toast";
 
-const APP_PIN = import.meta.env.VITE_APP_PIN;
+// PIN is verified server-side via edge function — never exposed in client bundle
+const HAS_PIN = true; // Always check with server; server returns success if no PIN configured
 
 const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
   { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
@@ -27,19 +29,33 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
 type SortMode = "manual" | "expiration" | "planning";
 type MainPage = "repas" | "planning" | "courses";
 
-// --- PIN Lock ---
+// --- PIN Lock (server-side verification via edge function) ---
 function PinLock({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
-    if (pin === APP_PIN) {
-      sessionStorage.setItem("app_unlocked", "true");
-      onUnlock();
-    } else {
+  const handleSubmit = async () => {
+    if (pin.length !== 4) return;
+    setLoading(true);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("verify-pin", {
+        body: { pin },
+      });
+      if (fnError || !data?.success) {
+        setError(true);
+        setPin("");
+        setTimeout(() => setError(false), 1500);
+      } else {
+        sessionStorage.setItem("app_unlocked", "true");
+        onUnlock();
+      }
+    } catch {
       setError(true);
       setPin("");
       setTimeout(() => setError(false), 1500);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -58,9 +74,10 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
           placeholder="••••"
           className={`w-32 text-center text-2xl tracking-[0.5em] font-mono ${error ? 'border-destructive animate-shake' : ''}`}
           autoFocus
+          disabled={loading}
         />
-        <Button onClick={handleSubmit} disabled={pin.length !== 4} className="w-32">
-          Entrer
+        <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
         {error && <p className="text-destructive text-sm">Code incorrect</p>}
       </div>
@@ -69,7 +86,7 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
 }
 
 const Index = () => {
-  const [unlocked, setUnlocked] = useState(!APP_PIN || sessionStorage.getItem("app_unlocked") === "true");
+  const [unlocked, setUnlocked] = useState(sessionStorage.getItem("app_unlocked") === "true");
 
   const {
     isLoading,
