@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2 } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,9 +16,6 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { toast } from "@/hooks/use-toast";
 
-// PIN is verified server-side via edge function — never exposed in client bundle
-const HAS_PIN = true; // Always check with server; server returns success if no PIN configured
-
 const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
   { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
   { value: "entree", label: "Entrées", emoji: "🥗" },
@@ -29,7 +27,7 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
 type SortMode = "manual" | "expiration" | "planning";
 type MainPage = "repas" | "planning" | "courses";
 
-// --- PIN Lock (server-side verification via edge function) ---
+// PIN lock — shown on every page load (no sessionStorage persistence)
 function PinLock({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
@@ -47,7 +45,6 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         setPin("");
         setTimeout(() => setError(false), 1500);
       } else {
-        sessionStorage.setItem("app_unlocked", "true");
         onUnlock();
       }
     } catch {
@@ -85,8 +82,28 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
   );
 }
 
+const ROUTE_TO_PAGE: Record<string, MainPage> = {
+  "/": "repas",
+  "/planning": "planning",
+  "/courses": "courses",
+};
+
+const PAGE_TO_ROUTE: Record<MainPage, string> = {
+  repas: "/",
+  planning: "/planning",
+  courses: "/courses",
+};
+
 const Index = () => {
-  const [unlocked, setUnlocked] = useState(sessionStorage.getItem("app_unlocked") === "true");
+  const [unlocked, setUnlocked] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
+
+  const setMainPage = (page: MainPage) => {
+    navigate(PAGE_TO_ROUTE[page]);
+  };
 
   const {
     isLoading,
@@ -97,7 +114,6 @@ const Index = () => {
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible,
   } = useMeals();
 
-  const [mainPage, setMainPage] = useState<MainPage>("repas");
   const [activeCategory, setActiveCategory] = useState<MealCategory>("plat");
   const [newName, setNewName] = useState("");
   const [newCategory, setNewCategory] = useState<MealCategory>("plat");
@@ -220,7 +236,7 @@ const Index = () => {
                     <Plus className="h-3 w-3" /> <span className="hidden sm:inline">Ajouter</span>
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent aria-describedby={undefined}>
                   <DialogHeader>
                     <DialogTitle>Nouveau repas</DialogTitle>
                   </DialogHeader>
@@ -371,7 +387,7 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
           onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal)}
           onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
           onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
-          onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
+          onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
           isHighlighted={highlightedId === pm.id}
