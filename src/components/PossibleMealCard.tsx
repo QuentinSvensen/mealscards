@@ -138,7 +138,7 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
           />
         </div>
 
-        <Select value={pm.day_of_week || ""} onValueChange={(val) => onUpdatePlanning(val || null, pm.meal_time)}>
+        <Select value={pm.day_of_week || "none"} onValueChange={(val) => onUpdatePlanning(val === "none" ? null : val, pm.meal_time)}>
           <SelectTrigger className="h-6 w-[72px] border-white/20 bg-white/15 text-white text-[10px] px-1">
             <SelectValue placeholder="Jour" />
           </SelectTrigger>
@@ -150,7 +150,7 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
           </SelectContent>
         </Select>
 
-        <Select value={pm.meal_time || ""} onValueChange={(val) => onUpdatePlanning(pm.day_of_week, val || null)}>
+        <Select value={pm.meal_time || "none"} onValueChange={(val) => onUpdatePlanning(pm.day_of_week, val === "none" ? null : val)}>
           <SelectTrigger className="h-6 w-[62px] border-white/20 bg-white/15 text-white text-[10px] px-1">
             <SelectValue placeholder="Quand" />
           </SelectTrigger>
