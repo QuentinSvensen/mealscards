@@ -70,7 +70,7 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : ''} ${isExpired ? 'opacity-70' : ''}`}
+      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
       {/* Row 1: name + counter inline + actions */}

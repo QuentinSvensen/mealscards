@@ -83,13 +83,13 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
 }
 
 const ROUTE_TO_PAGE: Record<string, MainPage> = {
-  "/": "repas",
+  "/repas": "repas",
   "/planning": "planning",
   "/courses": "courses",
 };
 
 const PAGE_TO_ROUTE: Record<MainPage, string> = {
-  repas: "/",
+  repas: "/repas",
   planning: "/planning",
   courses: "/courses",
 };
