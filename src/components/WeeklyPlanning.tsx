@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
+import { Timer, Flame, Weight, Calendar } from "lucide-react";
+import { format, parseISO, isToday } from "date-fns";
+import { fr } from "date-fns/locale";
 
 const DAY_LABELS: Record<string, string> = {
   lundi: 'Lundi', mardi: 'Mardi', mercredi: 'Mercredi', jeudi: 'Jeudi',
@@ -8,9 +11,13 @@ const DAY_LABELS: Record<string, string> = {
 
 const TIME_LABELS: Record<string, string> = { midi: 'Midi', soir: 'Soir' };
 
+// Map JS getDay() (0=Sunday) to our day names
+const JS_DAY_TO_KEY: Record<number, string> = {
+  1: 'lundi', 2: 'mardi', 3: 'mercredi', 4: 'jeudi', 5: 'vendredi', 6: 'samedi', 0: 'dimanche',
+};
+
 function getCategoryEmoji(cat?: string) {
   switch (cat) {
-    case 'petit_dejeuner': return '🥐';
     case 'entree': return '🥗';
     case 'plat': return '🍽️';
     case 'dessert': return '🍰';
@@ -19,18 +26,30 @@ function getCategoryEmoji(cat?: string) {
   }
 }
 
+function getCounterDays(startDate: string | null): number | null {
+  if (!startDate) return null;
+  return Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000);
+}
+
+function isExpiredDate(d: string | null) {
+  if (!d) return false;
+  return new Date(d) < new Date(new Date().toDateString());
+}
+
 export function WeeklyPlanning() {
-  const { meals, possibleMeals, updatePlanning, moveToPossible } = useMeals();
+  const { possibleMeals, updatePlanning } = useMeals();
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
+  const [dragOverUnplanned, setDragOverUnplanned] = useState(false);
+
+  const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
+
+  // Exclude petit_dejeuner
+  const planningMeals = possibleMeals.filter(pm => pm.meals?.category !== 'petit_dejeuner');
 
   const getMealsForSlot = (day: string, time: string): PossibleMeal[] =>
-    possibleMeals.filter(pm => pm.day_of_week === day && pm.meal_time === time);
+    planningMeals.filter(pm => pm.day_of_week === day && pm.meal_time === time);
 
-  // All possible meals (including already-planned ones) that can be dragged
-  const allPossibleMeals = possibleMeals;
-
-  // Unplanned: not yet assigned to any slot
-  const unplanned = possibleMeals.filter(pm => !pm.day_of_week || !pm.meal_time);
+  const unplanned = planningMeals.filter(pm => !pm.day_of_week || !pm.meal_time);
 
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
@@ -39,15 +58,8 @@ export function WeeklyPlanning() {
     const mealId = e.dataTransfer.getData("mealId");
 
     if (pmId) {
-      // Already a possible_meal entry — just update its planning slot
       updatePlanning.mutate({ id: pmId, day_of_week: day, meal_time: time });
     } else if (mealId) {
-      // It's a master meal being dragged — move to possible first, then update
-      // We need to add it to possible_meals first then plan it
-      // For simplicity, moveToPossible then re-fetch will handle it
-      // But we need the new id — use a different approach: insert + update in sequence
-      // handled by moveToPossible which fires an invalidate, next render will show it unplanned
-      // Instead let's use supabase directly here
       const { supabase } = await import("@/integrations/supabase/client");
       const { data, error } = await (supabase as any)
         .from("possible_meals")
@@ -55,9 +67,17 @@ export function WeeklyPlanning() {
         .select()
         .single();
       if (!error && data) {
-        // invalidate is done via moveToPossible's pattern — trigger a refetch
         updatePlanning.mutate({ id: data.id, day_of_week: day, meal_time: time });
       }
+    }
+  };
+
+  const handleDropUnplanned = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverUnplanned(false);
+    const pmId = e.dataTransfer.getData("pmId");
+    if (pmId) {
+      updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
     }
   };
 
@@ -66,96 +86,122 @@ export function WeeklyPlanning() {
     setDragOverSlot(slotKey);
   };
 
-  const handleDragLeave = () => setDragOverSlot(null);
-
   const handleRemoveFromSlot = (pm: PossibleMeal) => {
     updatePlanning.mutate({ id: pm.id, day_of_week: null, meal_time: null });
   };
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-3">
-      {DAYS.map((day) => (
-        <div key={day} className="bg-card/80 backdrop-blur-sm rounded-2xl p-3 sm:p-4">
-          <h3 className="text-sm sm:text-base font-bold text-foreground mb-2">{DAY_LABELS[day]}</h3>
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            {TIMES.map((time) => {
-              const slotKey = `${day}-${time}`;
-              const slotMeals = getMealsForSlot(day, time);
-              const isOver = dragOverSlot === slotKey;
-              return (
-                <div key={time}
-                  onDragOver={(e) => handleDragOver(e, slotKey)}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, day, time)}
-                  className={`min-h-[44px] rounded-xl border border-dashed p-1.5 transition-colors ${isOver ? 'border-primary/60 bg-primary/5' : 'border-border/40 hover:border-primary/40'}`}
-                >
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
-                  <div className="mt-0.5 space-y-1">
-                    {slotMeals.length === 0 ? (
-                      <p className="text-[10px] text-muted-foreground/30 italic">—</p>
-                    ) : slotMeals.map(pm => (
-                      <div
-                        key={pm.id}
-                        draggable
-                        onDragStart={(e) => { e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("mealId", pm.meal_id); }}
-                        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-white text-xs font-medium cursor-grab active:cursor-grabbing"
-                        style={{ backgroundColor: pm.meals?.color }}
-                      >
-                        <span className="text-[10px] opacity-70">{getCategoryEmoji(pm.meals?.category)}</span>
-                        <span className="truncate flex-1">{pm.meals?.name}</span>
-                        {pm.meals?.calories && <span className="text-[9px] opacity-60">🔥{pm.meals.calories}</span>}
-                        <button
-                          onClick={() => handleRemoveFromSlot(pm)}
-                          className="text-white/60 hover:text-white text-[10px] leading-none ml-1"
-                          title="Retirer du slot"
-                        >✕</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+  const renderMiniCard = (pm: PossibleMeal, compact = false) => {
+    const meal = pm.meals;
+    if (!meal) return null;
+    const expired = isExpiredDate(pm.expiration_date);
+    const counterDays = getCounterDays(pm.counter_start_date);
+    const counterUrgent = counterDays !== null && counterDays >= 3;
 
-      {/* Unplanned — draggable to any slot */}
-      <div className="bg-card/80 backdrop-blur-sm rounded-2xl p-3 sm:p-4">
-        <h3 className="text-sm sm:text-base font-bold text-foreground mb-2">Hors planning</h3>
-        {unplanned.length === 0 ? (
-          <p className="text-xs text-muted-foreground/50 italic">Tous les repas sont planifiés ✨</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {unplanned.map(pm => (
-              <div key={pm.id} draggable
-                onDragStart={(e) => { e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("mealId", pm.meal_id); }}
-                className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-white text-sm font-medium cursor-grab active:cursor-grabbing hover:scale-105 transition-transform"
-                style={{ backgroundColor: pm.meals?.color }}>
-                <span className="text-xs opacity-70">{getCategoryEmoji(pm.meals?.category)}</span>
-                <span className="truncate">{pm.meals?.name}</span>
-              </div>
-            ))}
+    return (
+      <div
+        key={pm.id}
+        draggable
+        onDragStart={(e) => { e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("mealId", pm.meal_id); }}
+        className={`rounded-xl text-white cursor-grab active:cursor-grabbing transition-transform hover:scale-[1.02] ${expired ? 'ring-2 ring-red-500' : ''} ${compact ? 'px-2 py-1' : 'px-2 py-1.5'}`}
+        style={{ backgroundColor: meal.color }}
+      >
+        {/* Row 1: emoji + name + counter + remove */}
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="text-[10px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
+          <span className="truncate font-semibold text-xs flex-1">{meal.name}</span>
+          {counterDays !== null && (
+            <span className={`text-[9px] font-bold px-1 rounded-full shrink-0 flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/80 animate-pulse' : 'bg-white/25'}`}>
+              <Timer className="h-2 w-2" />{counterDays}j
+            </span>
+          )}
+          {!compact && (
+            <button onClick={() => handleRemoveFromSlot(pm)} className="text-white/60 hover:text-white text-[10px] shrink-0 ml-0.5" title="Retirer">✕</button>
+          )}
+        </div>
+        {/* Row 2: details */}
+        {!compact && (
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+            {pm.expiration_date && (
+              <span className={`text-[9px] flex items-center gap-0.5 ${expired ? 'text-red-200 font-bold' : 'text-white/60'}`}>
+                <Calendar className="h-2 w-2" />
+                {format(parseISO(pm.expiration_date), 'd MMM', { locale: fr })}
+              </span>
+            )}
+            {meal.calories && (
+              <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                <Flame className="h-2 w-2" />{meal.calories}
+              </span>
+            )}
+            {meal.grams && (
+              <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                <Weight className="h-2 w-2" />{meal.grams}
+              </span>
+            )}
+          </div>
+        )}
+        {!compact && meal.ingredients && (
+          <div className="mt-0.5 text-[9px] text-white/50 truncate">
+            {meal.ingredients.split(/[,\n]+/).filter(Boolean).map(s => s.trim()).join(' • ')}
           </div>
         )}
       </div>
+    );
+  };
 
-      {/* All possible meals palette for dragging into planning */}
-      {allPossibleMeals.filter(pm => pm.day_of_week && pm.meal_time).length > 0 && (
-        <div className="bg-card/60 backdrop-blur-sm rounded-2xl p-3 sm:p-4 border border-dashed border-border/30">
-          <h3 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Repas planifiés · glisse pour réassigner</h3>
-          <div className="flex flex-wrap gap-2">
-            {allPossibleMeals.filter(pm => pm.day_of_week && pm.meal_time).map(pm => (
-              <div key={pm.id} draggable
-                onDragStart={(e) => { e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("mealId", pm.meal_id); }}
-                className="flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-white text-xs font-medium cursor-grab active:cursor-grabbing hover:scale-105 transition-transform opacity-80"
-                style={{ backgroundColor: pm.meals?.color }}>
-                <span className="opacity-70">{getCategoryEmoji(pm.meals?.category)}</span>
-                <span className="truncate">{pm.meals?.name}</span>
-              </div>
-            ))}
+  return (
+    <div className="max-w-4xl mx-auto space-y-3">
+      {DAYS.map((day) => {
+        const isToday_ = day === todayKey;
+        return (
+          <div key={day} className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? 'bg-primary/10 ring-2 ring-primary/40' : 'bg-card/80 backdrop-blur-sm'}`}>
+            <h3 className={`text-sm sm:text-base font-bold mb-2 flex items-center gap-2 ${isToday_ ? 'text-primary' : 'text-foreground'}`}>
+              {DAY_LABELS[day]}
+              {isToday_ && <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">Aujourd'hui</span>}
+            </h3>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              {TIMES.map((time) => {
+                const slotKey = `${day}-${time}`;
+                const slotMeals = getMealsForSlot(day, time);
+                const isOver = dragOverSlot === slotKey;
+                return (
+                  <div key={time}
+                    onDragOver={(e) => handleDragOver(e, slotKey)}
+                    onDragLeave={() => setDragOverSlot(null)}
+                    onDrop={(e) => handleDrop(e, day, time)}
+                    className={`min-h-[44px] rounded-xl border border-dashed p-1.5 transition-colors ${isOver ? 'border-primary/60 bg-primary/5' : 'border-border/40 hover:border-primary/40'}`}
+                  >
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
+                    <div className="mt-0.5 space-y-1">
+                      {slotMeals.length === 0 ? (
+                        <p className="text-[10px] text-muted-foreground/30 italic">—</p>
+                      ) : slotMeals.map(pm => renderMiniCard(pm, false))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
+
+      {/* Hors planning — drop zone to unplan */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOverUnplanned(true); }}
+        onDragLeave={() => setDragOverUnplanned(false)}
+        onDrop={handleDropUnplanned}
+        className={`rounded-2xl p-3 sm:p-4 transition-all ${dragOverUnplanned ? 'bg-muted/60 ring-2 ring-border' : 'bg-card/80 backdrop-blur-sm'}`}
+      >
+        <h3 className="text-sm sm:text-base font-bold text-foreground mb-2">Hors planning</h3>
+        {unplanned.length === 0 ? (
+          <p className={`text-xs italic ${dragOverUnplanned ? 'text-foreground/60' : 'text-muted-foreground/50'}`}>
+            {dragOverUnplanned ? 'Relâche pour retirer du planning ↓' : 'Tous les repas sont planifiés ✨'}
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {unplanned.map(pm => renderMiniCard(pm, true))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

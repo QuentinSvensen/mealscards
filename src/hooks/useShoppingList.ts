@@ -132,6 +132,15 @@ export function useShoppingList() {
     onSuccess: invalidate,
   });
 
+  const reorderItems = useMutation({
+    mutationFn: async (updates: { id: string; sort_order: number; group_id: string | null }[]) => {
+      await Promise.all(updates.map(u =>
+        (supabase as any).from("shopping_items").update({ sort_order: u.sort_order, group_id: u.group_id }).eq("id", u.id)
+      ));
+    },
+    onSuccess: invalidate,
+  });
+
   const deleteItem = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await (supabase as any).from("shopping_items").delete().eq("id", id);
@@ -149,6 +158,7 @@ export function useShoppingList() {
     groups, items, ungroupedItems,
     addGroup, renameGroup, deleteGroup, reorderGroups,
     addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, moveItem, deleteItem,
+    reorderItems,
     getItemsByGroup,
   };
 }

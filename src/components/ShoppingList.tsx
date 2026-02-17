@@ -5,12 +5,17 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
 
+// ─── drag state stored as module-level ref to avoid stale closures ───────────
+type DragPayload =
+  | { kind: "item"; id: string; groupId: string | null }
+  | { kind: "group"; id: string };
+
 export function ShoppingList() {
   const {
     groups, ungroupedItems,
     addGroup, renameGroup, deleteGroup,
     addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, deleteItem,
-    getItemsByGroup, moveItem, reorderGroups,
+    getItemsByGroup, reorderItems, reorderGroups,
   } = useShoppingList();
 
   const [newGroupName, setNewGroupName] = useState("");
@@ -18,18 +23,23 @@ export function ShoppingList() {
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [dragItemId, setDragItemId] = useState<string | null>(null);
-  const [dragGroupId, setDragGroupId] = useState<string | null>(null);
 
-  // Debounce timers for text inputs to prevent every-other-letter bug
+  // per-item editing state: "brand" | "qty" | null
+  const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | null>>({});
+
+  // Debounce timers
   const nameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const brandTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const quantityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Local state for controlled inputs (to avoid mutation on every keystroke)
+  // Local state for controlled inputs
   const [localNames, setLocalNames] = useState<Record<string, string>>({});
   const [localBrands, setLocalBrands] = useState<Record<string, string>>({});
   const [localQuantities, setLocalQuantities] = useState<Record<string, string>>({});
+
+  // Drag state
+  const dragPayload = useRef<DragPayload | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null); // "item:{id}" | "group:{id}" | "ungrouped"
 
   const getLocalName = (item: ShoppingItem) => localNames[item.id] ?? item.name;
   const getLocalBrand = (item: ShoppingItem) => localBrands[item.id] ?? (item.brand || "");
@@ -59,6 +69,19 @@ export function ShoppingList() {
     }, 600);
   };
 
+  const commitBrand = (item: ShoppingItem) => {
+    const val = getLocalBrand(item);
+    updateItemBrand.mutate({ id: item.id, brand: val || null });
+    setEditingField(prev => ({ ...prev, [item.id]: null }));
+  };
+
+  const commitQty = (item: ShoppingItem) => {
+    const val = getLocalQuantity(item);
+    updateItemQuantity.mutate({ id: item.id, quantity: val || null });
+    if (val) setEditingField(prev => ({ ...prev, [item.id]: null }));
+    // if empty, keep editing open
+  };
+
   const toggleCollapse = (id: string) => {
     setCollapsedGroups(prev => {
       const next = new Set(prev);
@@ -81,23 +104,65 @@ export function ShoppingList() {
     setNewItemTexts(prev => ({ ...prev, [key]: "" }));
   };
 
-  const handleItemDragStart = (e: React.DragEvent, itemId: string, groupId: string | null) => {
+  // ── Drag & Drop ────────────────────────────────────────────────────────────
+
+  const handleItemDragStart = (e: React.DragEvent, item: ShoppingItem) => {
     e.stopPropagation();
-    setDragItemId(itemId);
-    setDragGroupId(null);
-    e.dataTransfer.setData("itemId", itemId);
-    e.dataTransfer.setData("itemGroupId", groupId || "__ungrouped");
+    dragPayload.current = { kind: "item", id: item.id, groupId: item.group_id };
+    e.dataTransfer.effectAllowed = "move";
   };
 
-  const handleItemDrop = (e: React.DragEvent, targetGroupId: string | null) => {
+  const handleGroupDragStart = (e: React.DragEvent, groupId: string) => {
+    dragPayload.current = { kind: "group", id: groupId };
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  // Drop ON an item → insert before that item in its group
+  const handleDropOnItem = (e: React.DragEvent, targetItem: ShoppingItem) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragItemId) {
-      moveItem.mutate({ id: dragItemId, group_id: targetGroupId });
-      setDragItemId(null);
-    }
-    if (dragGroupId && targetGroupId && dragGroupId !== targetGroupId) {
-      const fromIdx = groups.findIndex(g => g.id === dragGroupId);
+    setDragOverKey(null);
+    const payload = dragPayload.current;
+    if (!payload || payload.kind !== "item") return;
+
+    const targetGroupId = targetItem.group_id;
+    const targetGroupItems = (targetGroupId
+      ? getItemsByGroup(targetGroupId)
+      : ungroupedItems
+    ).filter(i => i.id !== payload.id);
+
+    const targetIdx = targetGroupItems.findIndex(i => i.id === targetItem.id);
+    const insertAt = targetIdx === -1 ? targetGroupItems.length : targetIdx;
+
+    targetGroupItems.splice(insertAt, 0, { id: payload.id } as ShoppingItem);
+    const updates = targetGroupItems.map((i, idx) => ({
+      id: i.id,
+      sort_order: idx,
+      group_id: targetGroupId,
+    }));
+    reorderItems.mutate(updates);
+    dragPayload.current = null;
+  };
+
+  // Drop on group header / container → append to end of that group
+  const handleDropOnGroup = (e: React.DragEvent, targetGroupId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverKey(null);
+    const payload = dragPayload.current;
+    if (!payload) return;
+
+    if (payload.kind === "item") {
+      const groupItems = (targetGroupId ? getItemsByGroup(targetGroupId) : ungroupedItems)
+        .filter(i => i.id !== payload.id);
+      const updates = [...groupItems, { id: payload.id } as ShoppingItem].map((i, idx) => ({
+        id: i.id,
+        sort_order: idx,
+        group_id: targetGroupId,
+      }));
+      reorderItems.mutate(updates);
+    } else if (payload.kind === "group" && targetGroupId && payload.id !== targetGroupId) {
+      const fromIdx = groups.findIndex(g => g.id === payload.id);
       const toIdx = groups.findIndex(g => g.id === targetGroupId);
       if (fromIdx !== -1 && toIdx !== -1) {
         const reordered = [...groups];
@@ -105,50 +170,96 @@ export function ShoppingList() {
         reordered.splice(toIdx, 0, moved);
         reorderGroups.mutate(reordered.map((g, i) => ({ id: g.id, sort_order: i })));
       }
-      setDragGroupId(null);
     }
+    dragPayload.current = null;
   };
 
-  const renderItem = (item: ShoppingItem) => (
-    <div key={item.id}
-      draggable
-      onDragStart={(e) => handleItemDragStart(e, item.id, item.group_id)}
-      className={`flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${!item.checked ? 'opacity-40' : ''}`}
-    >
-      <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-      <Checkbox
-        checked={item.checked}
-        onCheckedChange={(checked) => toggleItem.mutate({ id: item.id, checked: !!checked })}
-        className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
-      />
-      {/* Always-editable name */}
-      <Input
-        value={getLocalName(item)}
-        onChange={(e) => handleNameChange(item, e.target.value)}
-        className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background flex-1 min-w-0 font-medium ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
-      />
-      {/* Always-editable brand */}
-      <Input
-        placeholder="Marque"
-        value={getLocalBrand(item)}
-        onChange={(e) => handleBrandChange(item, e.target.value)}
-        className="h-6 w-20 text-xs italic border-transparent bg-transparent px-1 focus:border-border focus:bg-background text-muted-foreground shrink-0"
-      />
-      {/* Quantity with '' prefix */}
-      <div className="flex items-baseline gap-0.5 shrink-0">
-        <span className="text-sm font-bold text-foreground">''</span>
-        <Input
-          placeholder="Qté"
-          value={getLocalQuantity(item)}
-          onChange={(e) => handleQuantityChange(item, e.target.value)}
-          className="h-6 w-14 text-sm font-bold border-transparent bg-transparent px-1 focus:border-border focus:bg-background text-foreground"
+  // ── Render item ────────────────────────────────────────────────────────────
+
+  const renderItem = (item: ShoppingItem) => {
+    const fieldEditing = editingField[item.id] ?? null;
+    const brand = getLocalBrand(item);
+    const qty = getLocalQuantity(item);
+    const isBrandEditing = fieldEditing === "brand";
+    const isQtyEditing = fieldEditing === "qty";
+    const isOver = dragOverKey === `item:${item.id}`;
+
+    return (
+      <div key={item.id}
+        draggable
+        onDragStart={(e) => handleItemDragStart(e, item)}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(`item:${item.id}`); }}
+        onDragLeave={() => setDragOverKey(null)}
+        onDrop={(e) => handleDropOnItem(e, item)}
+        className={`flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
+      >
+        <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+        <Checkbox
+          checked={item.checked}
+          onCheckedChange={(checked) => toggleItem.mutate({ id: item.id, checked: !!checked })}
+          className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
         />
+        {/* Always-editable name */}
+        <Input
+          value={getLocalName(item)}
+          onChange={(e) => handleNameChange(item, e.target.value)}
+          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background min-w-0 font-medium ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+          style={{ width: `${Math.max(6, getLocalName(item).length)}ch` }}
+        />
+
+        {/* Brand — inline after name */}
+        {isBrandEditing ? (
+          <Input
+            autoFocus
+            placeholder="Marque"
+            value={brand}
+            onChange={(e) => handleBrandChange(item, e.target.value)}
+            onBlur={() => commitBrand(item)}
+            onKeyDown={(e) => { if (e.key === "Enter") commitBrand(item); }}
+            className="h-6 w-24 text-xs italic border-border bg-background px-1 shrink-0"
+          />
+        ) : (
+          <button
+            onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
+            className={`text-xs italic shrink-0 px-1 rounded hover:bg-muted/60 transition-colors ${brand ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}
+          >
+            {brand || <span className="text-[10px]">marque</span>}
+          </button>
+        )}
+
+        {/* Quantity — inline after brand */}
+        {isQtyEditing ? (
+          <div className="flex items-baseline gap-0.5 shrink-0">
+            <span className="text-base font-bold text-foreground">×</span>
+            <Input
+              autoFocus
+              placeholder="Qté"
+              value={qty}
+              onChange={(e) => handleQuantityChange(item, e.target.value)}
+              onBlur={() => commitQty(item)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitQty(item); }}
+              className="h-6 w-14 text-sm font-bold border-border bg-background px-1 shrink-0"
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
+            className="shrink-0 px-1 rounded hover:bg-muted/60 transition-colors"
+          >
+            {qty ? (
+              <span className="text-base font-bold text-foreground">×{qty}</span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground/30">qté</span>
+            )}
+          </button>
+        )}
+
+        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0 ml-auto">
+          <Trash2 className="h-3 w-3" />
+        </Button>
       </div>
-      <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0">
-        <Trash2 className="h-3 w-3" />
-      </Button>
-    </div>
-  );
+    );
+  };
 
   const renderAddInput = (groupId: string | null) => {
     const key = groupId || "__ungrouped";
@@ -171,45 +282,50 @@ export function ShoppingList() {
   return (
     <div className="max-w-2xl mx-auto space-y-3">
       {/* Ungrouped items */}
-      <div className="bg-card/80 backdrop-blur-sm rounded-2xl p-3"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => handleItemDrop(e, null)}>
-        <h3 className="text-xs font-semibold text-foreground mb-1.5">Articles</h3>
+      <div
+        className={`bg-card/80 backdrop-blur-sm rounded-2xl p-3 ${dragOverKey === 'ungrouped' ? 'ring-2 ring-primary/60' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOverKey('ungrouped'); }}
+        onDragLeave={() => setDragOverKey(null)}
+        onDrop={(e) => handleDropOnGroup(e, null)}
+      >
+        <h3 className="text-sm font-bold text-foreground mb-1.5">Articles</h3>
         {ungroupedItems.map(renderItem)}
         {renderAddInput(null)}
       </div>
 
       {/* Groups */}
-      {groups.map((group, groupIdx) => {
+      {groups.map((group) => {
         const groupItems = getItemsByGroup(group.id);
         const isCollapsed = collapsedGroups.has(group.id);
+        const isGroupOver = dragOverKey === `group:${group.id}`;
         return (
           <div key={group.id}
             draggable
-            onDragStart={(e) => { setDragGroupId(group.id); setDragItemId(null); }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => handleItemDrop(e, group.id)}
-            className="bg-card/80 backdrop-blur-sm rounded-2xl p-3 cursor-grab active:cursor-grabbing">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40" />
+            onDragStart={(e) => handleGroupDragStart(e, group.id)}
+            onDragOver={(e) => { e.preventDefault(); setDragOverKey(`group:${group.id}`); }}
+            onDragLeave={() => setDragOverKey(null)}
+            onDrop={(e) => handleDropOnGroup(e, group.id)}
+            className={`bg-card/80 backdrop-blur-sm rounded-2xl p-3 cursor-grab active:cursor-grabbing ${isGroupOver ? 'ring-2 ring-primary/60' : ''}`}>
+            <div className="flex items-center gap-1.5 mb-2">
+              <GripVertical className="h-4 w-4 text-muted-foreground/40" />
               <button onClick={() => toggleCollapse(group.id)} className="text-muted-foreground">
-                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
               {editingGroup === group.id ? (
                 <Input autoFocus value={editGroupName}
                   onChange={(e) => setEditGroupName(e.target.value)}
                   onBlur={() => { if (editGroupName.trim()) renameGroup.mutate({ id: group.id, name: editGroupName.trim() }); setEditingGroup(null); }}
                   onKeyDown={(e) => { if (e.key === "Enter") { if (editGroupName.trim()) renameGroup.mutate({ id: group.id, name: editGroupName.trim() }); setEditingGroup(null); } }}
-                  className="h-6 text-xs font-semibold" />
+                  className="h-7 text-sm font-bold" />
               ) : (
-                <h3 className="text-xs font-semibold text-foreground flex-1">{group.name}</h3>
+                <h3 className="text-sm font-extrabold text-foreground flex-1 tracking-wide uppercase">{group.name}</h3>
               )}
-              <span className="text-[10px] text-muted-foreground">{groupItems.length}</span>
-              <Button size="icon" variant="ghost" onClick={() => { setEditGroupName(group.name); setEditingGroup(group.id); }} className="h-5 w-5 text-muted-foreground">
-                <Pencil className="h-2.5 w-2.5" />
+              <span className="text-xs font-medium text-muted-foreground bg-muted rounded-full px-1.5 py-0.5">{groupItems.length}</span>
+              <Button size="icon" variant="ghost" onClick={() => { setEditGroupName(group.name); setEditingGroup(group.id); }} className="h-6 w-6 text-muted-foreground">
+                <Pencil className="h-3 w-3" />
               </Button>
-              <Button size="icon" variant="ghost" onClick={() => deleteGroup.mutate(group.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive">
-                <Trash2 className="h-2.5 w-2.5" />
+              <Button size="icon" variant="ghost" onClick={() => deleteGroup.mutate(group.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                <Trash2 className="h-3 w-3" />
               </Button>
             </div>
             {!isCollapsed && (
