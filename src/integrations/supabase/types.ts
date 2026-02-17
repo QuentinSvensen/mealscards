@@ -56,6 +56,27 @@ export type Database = {
         }
         Relationships: []
       }
+      pin_attempts: {
+        Row: {
+          created_at: string
+          id: string
+          ip: string
+          success: boolean | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip: string
+          success?: boolean | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip?: string
+          success?: boolean | null
+        }
+        Relationships: []
+      }
       possible_meals: {
         Row: {
           counter_start_date: string | null
