@@ -26,7 +26,6 @@ export type Database = {
           is_available: boolean
           name: string
           sort_order: number
-          user_id: string | null
         }
         Insert: {
           calories?: string | null
@@ -39,7 +38,6 @@ export type Database = {
           is_available?: boolean
           name: string
           sort_order?: number
-          user_id?: string | null
         }
         Update: {
           calories?: string | null
@@ -52,7 +50,6 @@ export type Database = {
           is_available?: boolean
           name?: string
           sort_order?: number
-          user_id?: string | null
         }
         Relationships: []
       }
@@ -67,7 +64,6 @@ export type Database = {
           meal_time: string | null
           quantity: number
           sort_order: number
-          user_id: string | null
         }
         Insert: {
           counter_start_date?: string | null
@@ -79,7 +75,6 @@ export type Database = {
           meal_time?: string | null
           quantity?: number
           sort_order?: number
-          user_id?: string | null
         }
         Update: {
           counter_start_date?: string | null
@@ -91,7 +86,6 @@ export type Database = {
           meal_time?: string | null
           quantity?: number
           sort_order?: number
-          user_id?: string | null
         }
         Relationships: [
           {
@@ -109,21 +103,18 @@ export type Database = {
           id: string
           name: string
           sort_order: number
-          user_id: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           name: string
           sort_order?: number
-          user_id?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           name?: string
           sort_order?: number
-          user_id?: string | null
         }
         Relationships: []
       }
@@ -137,7 +128,6 @@ export type Database = {
           name: string
           quantity: string | null
           sort_order: number
-          user_id: string | null
         }
         Insert: {
           brand?: string | null
@@ -148,7 +138,6 @@ export type Database = {
           name: string
           quantity?: string | null
           sort_order?: number
-          user_id?: string | null
         }
         Update: {
           brand?: string | null
@@ -159,7 +148,6 @@ export type Database = {
           name?: string
           quantity?: string | null
           sort_order?: number
-          user_id?: string | null
         }
         Relationships: [
           {

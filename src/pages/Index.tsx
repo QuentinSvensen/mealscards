@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, LogOut } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -12,8 +12,9 @@ import { ShoppingList } from "@/components/ShoppingList";
 import { WeeklyPlanning } from "@/components/WeeklyPlanning";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
-import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+
+const APP_PIN = import.meta.env.VITE_APP_PIN;
 
 const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
   { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
@@ -26,8 +27,49 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
 type SortMode = "manual" | "expiration" | "planning";
 type MainPage = "repas" | "planning" | "courses";
 
+// --- PIN Lock ---
+function PinLock({ onUnlock }: { onUnlock: () => void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = () => {
+    if (pin === APP_PIN) {
+      sessionStorage.setItem("app_unlocked", "true");
+      onUnlock();
+    } else {
+      setError(true);
+      setPin("");
+      setTimeout(() => setError(false), 1500);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
+      <div className="flex flex-col items-center gap-4 p-8">
+        <Lock className="h-10 w-10 text-muted-foreground" />
+        <h2 className="text-lg font-bold text-foreground">Code d'accès</h2>
+        <Input
+          type="password"
+          inputMode="numeric"
+          maxLength={4}
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          placeholder="••••"
+          className={`w-32 text-center text-2xl tracking-[0.5em] font-mono ${error ? 'border-destructive animate-shake' : ''}`}
+          autoFocus
+        />
+        <Button onClick={handleSubmit} disabled={pin.length !== 4} className="w-32">
+          Entrer
+        </Button>
+        {error && <p className="text-destructive text-sm">Code incorrect</p>}
+      </div>
+    </div>
+  );
+}
+
 const Index = () => {
-  const { signOut } = useAuth();
+  const [unlocked, setUnlocked] = useState(!APP_PIN || sessionStorage.getItem("app_unlocked") === "true");
 
   const {
     isLoading,
@@ -47,7 +89,7 @@ const Index = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [sortModes, setSortModes] = useState<Record<string, SortMode>>({});
 
-  
+  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
 
   const openDialog = (target: "all" | "possible" = "all") => {
     setNewCategory(activeCategory);
@@ -138,12 +180,7 @@ const Index = () => {
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
-            <button onClick={signOut} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground" title="Déconnexion">
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
+          <ThemeToggle />
         </div>
       </header>
 
