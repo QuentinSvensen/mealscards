@@ -22,7 +22,10 @@ export function useAuth() {
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return error;
+    if (error) {
+      return { message: "Email ou mot de passe incorrect" };
+    }
+    return null;
   };
 
   const signUp = async (email: string, password: string) => {
@@ -31,7 +34,10 @@ export function useAuth() {
       password,
       options: { emailRedirectTo: window.location.origin }
     });
-    return error;
+    if (error) {
+      return { message: "Impossible de créer le compte. Vérifie tes informations." };
+    }
+    return null;
   };
 
   const signOut = async () => {
