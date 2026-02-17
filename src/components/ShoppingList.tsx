@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useShoppingList, type ShoppingGroup, type ShoppingItem } from "@/hooks/useShoppingList";
+import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
 
 export function ShoppingList() {
   const {
     groups, ungroupedItems,
     addGroup, renameGroup, deleteGroup,
-    addItem, toggleItem, updateItemQuantity, renameItem, deleteItem,
-    getItemsByGroup,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, deleteItem,
+    getItemsByGroup, moveItem, reorderGroups,
   } = useShoppingList();
 
   const [newGroupName, setNewGroupName] = useState("");
@@ -18,6 +18,8 @@ export function ShoppingList() {
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [dragItemId, setDragItemId] = useState<string | null>(null);
+  const [dragGroupId, setDragGroupId] = useState<string | null>(null);
 
   const toggleCollapse = (id: string) => {
     setCollapsedGroups(prev => {
@@ -41,24 +43,62 @@ export function ShoppingList() {
     setNewItemTexts(prev => ({ ...prev, [key]: "" }));
   };
 
+  const handleGroupDrop = (e: React.DragEvent, targetGroupId: string | null, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Item drop into group
+    if (dragItemId) {
+      moveItem.mutate({ id: dragItemId, group_id: targetGroupId });
+      setDragItemId(null);
+    }
+    // Group reorder
+    if (dragGroupId && targetGroupId && dragGroupId !== targetGroupId) {
+      const fromIdx = groups.findIndex(g => g.id === dragGroupId);
+      const toIdx = groups.findIndex(g => g.id === targetGroupId);
+      if (fromIdx !== -1 && toIdx !== -1) {
+        const reordered = [...groups];
+        const [moved] = reordered.splice(fromIdx, 1);
+        reordered.splice(toIdx, 0, moved);
+        reorderGroups.mutate(reordered.map((g, i) => ({ id: g.id, sort_order: i })));
+      }
+      setDragGroupId(null);
+    }
+  };
+
   const renderItem = (item: ShoppingItem) => (
-    <div key={item.id} className={`flex items-center gap-2 py-1.5 px-2 rounded-lg transition-colors ${item.checked ? 'opacity-40' : ''}`}>
+    <div key={item.id} draggable
+      onDragStart={(e) => { e.stopPropagation(); setDragItemId(item.id); e.dataTransfer.setData("itemId", item.id); }}
+      className={`flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${!item.checked ? 'opacity-40' : ''}`}
+    >
+      <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
       <Checkbox
         checked={item.checked}
         onCheckedChange={(checked) => toggleItem.mutate({ id: item.id, checked: !!checked })}
+        className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
       />
-      <span className={`flex-1 text-sm ${item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+      <span className={`text-sm ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground font-medium'}`}>
         {item.name}
       </span>
-      {item.checked && (
-        <Input
-          placeholder="Qté"
-          value={item.quantity || ""}
-          onChange={(e) => updateItemQuantity.mutate({ id: item.id, quantity: e.target.value || null })}
-          className="h-6 w-16 text-xs"
-        />
+      {item.brand && (
+        <span className="text-xs italic text-muted-foreground">{item.brand}</span>
       )}
-      <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive">
+      {item.checked && (
+        <>
+          <Input
+            placeholder="Marque"
+            value={item.brand || ""}
+            onChange={(e) => updateItemBrand.mutate({ id: item.id, brand: e.target.value || null })}
+            className="h-5 w-20 text-[10px] italic border-muted px-1 ml-auto"
+          />
+          <Input
+            placeholder="Qté"
+            value={item.quantity || ""}
+            onChange={(e) => updateItemQuantity.mutate({ id: item.id, quantity: e.target.value || null })}
+            className="h-5 w-12 text-[10px] border-muted px-1"
+          />
+        </>
+      )}
+      <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0 ml-auto">
         <Trash2 className="h-3 w-3" />
       </Button>
     </div>
@@ -73,9 +113,9 @@ export function ShoppingList() {
           value={newItemTexts[key] || ""}
           onChange={(e) => setNewItemTexts(prev => ({ ...prev, [key]: e.target.value }))}
           onKeyDown={(e) => e.key === "Enter" && handleAddItem(groupId)}
-          className="h-8 text-sm"
+          className="h-7 text-xs"
         />
-        <Button size="sm" onClick={() => handleAddItem(groupId)} className="h-8 shrink-0">
+        <Button size="sm" onClick={() => handleAddItem(groupId)} className="h-7 shrink-0 px-2">
           <Plus className="h-3 w-3" />
         </Button>
       </div>
@@ -83,47 +123,46 @@ export function ShoppingList() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="max-w-2xl mx-auto space-y-3">
       {/* Ungrouped items */}
-      {ungroupedItems.length > 0 && (
-        <div className="bg-card/80 backdrop-blur-sm rounded-2xl p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-2">Articles</h3>
-          {ungroupedItems.map(renderItem)}
-          {renderAddInput(null)}
-        </div>
-      )}
-      {ungroupedItems.length === 0 && groups.length === 0 && (
-        <div className="bg-card/80 backdrop-blur-sm rounded-2xl p-4">
-          <p className="text-muted-foreground text-sm text-center py-4 italic">Aucun article</p>
-          {renderAddInput(null)}
-        </div>
-      )}
+      <div className="bg-card/80 backdrop-blur-sm rounded-2xl p-3"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => handleGroupDrop(e, null, 0)}>
+        <h3 className="text-xs font-semibold text-foreground mb-1.5">Articles</h3>
+        {ungroupedItems.map(renderItem)}
+        {renderAddInput(null)}
+      </div>
 
       {/* Groups */}
-      {groups.map((group) => {
+      {groups.map((group, groupIdx) => {
         const groupItems = getItemsByGroup(group.id);
         const isCollapsed = collapsedGroups.has(group.id);
         return (
-          <div key={group.id} className="bg-card/80 backdrop-blur-sm rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-2">
+          <div key={group.id} draggable
+            onDragStart={(e) => { setDragGroupId(group.id); }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => handleGroupDrop(e, group.id, groupIdx)}
+            className="bg-card/80 backdrop-blur-sm rounded-2xl p-3 cursor-grab active:cursor-grabbing">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40" />
               <button onClick={() => toggleCollapse(group.id)} className="text-muted-foreground">
-                {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
               {editingGroup === group.id ? (
                 <Input autoFocus value={editGroupName}
                   onChange={(e) => setEditGroupName(e.target.value)}
                   onBlur={() => { if (editGroupName.trim()) renameGroup.mutate({ id: group.id, name: editGroupName.trim() }); setEditingGroup(null); }}
                   onKeyDown={(e) => { if (e.key === "Enter") { if (editGroupName.trim()) renameGroup.mutate({ id: group.id, name: editGroupName.trim() }); setEditingGroup(null); } }}
-                  className="h-7 text-sm font-semibold" />
+                  className="h-6 text-xs font-semibold" />
               ) : (
-                <h3 className="text-sm font-semibold text-foreground flex-1">{group.name}</h3>
+                <h3 className="text-xs font-semibold text-foreground flex-1">{group.name}</h3>
               )}
-              <span className="text-xs text-muted-foreground">{groupItems.length}</span>
-              <Button size="icon" variant="ghost" onClick={() => { setEditGroupName(group.name); setEditingGroup(group.id); }} className="h-6 w-6 text-muted-foreground">
-                <Pencil className="h-3 w-3" />
+              <span className="text-[10px] text-muted-foreground">{groupItems.length}</span>
+              <Button size="icon" variant="ghost" onClick={() => { setEditGroupName(group.name); setEditingGroup(group.id); }} className="h-5 w-5 text-muted-foreground">
+                <Pencil className="h-2.5 w-2.5" />
               </Button>
-              <Button size="icon" variant="ghost" onClick={() => deleteGroup.mutate(group.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive">
-                <Trash2 className="h-3 w-3" />
+              <Button size="icon" variant="ghost" onClick={() => deleteGroup.mutate(group.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive">
+                <Trash2 className="h-2.5 w-2.5" />
               </Button>
             </div>
             {!isCollapsed && (
@@ -143,10 +182,10 @@ export function ShoppingList() {
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAddGroup()}
-          className="h-9"
+          className="h-8 text-sm"
         />
-        <Button onClick={handleAddGroup} disabled={!newGroupName.trim()} className="shrink-0 gap-1">
-          <Plus className="h-4 w-4" /> Groupe
+        <Button onClick={handleAddGroup} disabled={!newGroupName.trim()} className="shrink-0 gap-1 text-xs">
+          <Plus className="h-3.5 w-3.5" /> Groupe
         </Button>
       </div>
     </div>

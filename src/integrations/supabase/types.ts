@@ -120,6 +120,7 @@ export type Database = {
       }
       shopping_items: {
         Row: {
+          brand: string | null
           checked: boolean
           created_at: string
           group_id: string | null
@@ -129,6 +130,7 @@ export type Database = {
           sort_order: number
         }
         Insert: {
+          brand?: string | null
           checked?: boolean
           created_at?: string
           group_id?: string | null
@@ -138,6 +140,7 @@ export type Database = {
           sort_order?: number
         }
         Update: {
+          brand?: string | null
           checked?: boolean
           created_at?: string
           group_id?: string | null
