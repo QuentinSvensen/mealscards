@@ -45,6 +45,14 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         setPin("");
         setTimeout(() => setError(false), 1500);
       } else {
+        // Set the real Supabase session returned by the edge function
+        // This makes auth.uid() work in RLS policies, blocking anonymous direct API access
+        if (data.access_token && data.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+          });
+        }
         onUnlock();
       }
     } catch {

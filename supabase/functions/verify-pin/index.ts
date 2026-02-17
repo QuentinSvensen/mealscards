@@ -9,6 +9,9 @@ const corsHeaders = {
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
+// Single shared app-user credentials (created on first run)
+const APP_USER_EMAIL = "app@internal.local";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -20,14 +23,15 @@ serve(async (req) => {
       req.headers.get("x-real-ip") ||
       "unknown";
 
-    const supabase = createClient(
+    const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // Check recent failed attempts from this IP
+    // Rate limiting: check recent failed attempts from this IP
     const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
-    const { data: attempts } = await supabase
+    const { data: attempts } = await supabaseAdmin
       .from("pin_attempts")
       .select("id")
       .eq("ip", clientIp)
@@ -52,33 +56,89 @@ serve(async (req) => {
 
     const serverPin = Deno.env.get("VITE_APP_PIN");
 
-    // If no PIN is configured server-side, allow access
+    // If no PIN configured server-side, deny access (fail secure)
     if (!serverPin) {
       return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: false, error: "PIN non configuré" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const isValid = pin === serverPin;
 
     // Record the attempt
-    await supabase.from("pin_attempts").insert({
+    await supabaseAdmin.from("pin_attempts").insert({
       ip: clientIp,
       success: isValid,
     });
 
-    // Clean up old attempts (older than 15 min) to keep table small
-    await supabase
+    // Clean up old attempts
+    await supabaseAdmin
       .from("pin_attempts")
       .delete()
       .lt("created_at", new Date(Date.now() - WINDOW_MS).toISOString());
 
-    return new Response(
-      JSON.stringify({ success: isValid }),
-      { status: isValid ? 200 : 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    if (!isValid) {
+      return new Response(
+        JSON.stringify({ success: false }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // PIN is valid — ensure the shared app-user exists, then sign in to get a real session
+    const appUserPassword = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!.slice(0, 32);
+
+    // Try to sign in first
+    const supabaseAnon = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
     );
-  } catch {
+
+    let signInResult = await supabaseAnon.auth.signInWithPassword({
+      email: APP_USER_EMAIL,
+      password: appUserPassword,
+    });
+
+    // If user doesn't exist yet, create it
+    if (signInResult.error) {
+      const { error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email: APP_USER_EMAIL,
+        password: appUserPassword,
+        email_confirm: true,
+      });
+
+      if (createError && !createError.message.includes("already been registered")) {
+        console.error("Failed to create app user:", createError);
+        return new Response(
+          JSON.stringify({ success: false, error: "Erreur interne" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Retry sign-in
+      signInResult = await supabaseAnon.auth.signInWithPassword({
+        email: APP_USER_EMAIL,
+        password: appUserPassword,
+      });
+    }
+
+    if (signInResult.error || !signInResult.data?.session) {
+      console.error("Sign-in failed:", signInResult.error);
+      return new Response(
+        JSON.stringify({ success: false, error: "Erreur de session" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const { access_token, refresh_token } = signInResult.data.session;
+
+    return new Response(
+      JSON.stringify({ success: true, access_token, refresh_token }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (e) {
+    console.error("verify-pin error:", e);
     return new Response(
       JSON.stringify({ success: false, error: "Requête invalide" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
