@@ -1,19 +1,31 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const ALLOWED_ORIGINS = [
+  "https://mealscards.lovable.app",
+  "https://id-preview--326b1fb7-892d-4cdb-8e10-68c2c56390f5.lovable.app",
+  "http://localhost:5173",
+  "http://localhost:8080",
+];
+
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin") || "";
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  };
+}
 
 const MAX_ATTEMPTS_PER_IP = 5;
-const GLOBAL_MAX_ATTEMPTS = 50; // Block all requests if > 50 failures globally in window
+const GLOBAL_MAX_ATTEMPTS = 50;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
-// Single shared app-user credentials (created on first run)
 const APP_USER_EMAIL = "app@internal.local";
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -32,7 +44,6 @@ serve(async (req) => {
 
     const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
-    // Parse body
     let body: Record<string, unknown> = {};
     try { body = await req.json(); } catch { /* no body */ }
 
@@ -45,7 +56,7 @@ serve(async (req) => {
       );
     }
 
-    // --- Global rate limit: block all if too many failures from any IP ---
+    // --- Global rate limit ---
     const { data: globalAttempts } = await supabaseAdmin
       .from("pin_attempts")
       .select("id")
@@ -76,7 +87,7 @@ serve(async (req) => {
       );
     }
 
-    // --- Progressive delay: 0s, 1s, 2s, 4s, 8s (exponential backoff per IP) ---
+    // --- Progressive delay (exponential backoff) ---
     if (ipAttemptCount > 0) {
       const delayMs = Math.min(Math.pow(2, ipAttemptCount - 1) * 1000, 16000);
       await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -84,7 +95,6 @@ serve(async (req) => {
 
     const serverPin = Deno.env.get("VITE_APP_PIN");
 
-    // If no PIN configured server-side, deny access (fail secure)
     if (!serverPin) {
       return new Response(
         JSON.stringify({ success: false, error: "PIN non configuré" }),
@@ -94,7 +104,6 @@ serve(async (req) => {
 
     const isValid = pin === serverPin;
 
-    // Only record failed attempts
     if (!isValid) {
       await supabaseAdmin.from("pin_attempts").insert({
         ip: clientIp,
@@ -115,7 +124,7 @@ serve(async (req) => {
       );
     }
 
-    // PIN is valid — ensure the shared app-user exists, then sign in to get a real session
+    // PIN is valid — sign in shared app-user
     const appUserPassword = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!.slice(0, 32);
 
     const supabaseAnon = createClient(
@@ -129,7 +138,6 @@ serve(async (req) => {
       password: appUserPassword,
     });
 
-    // If user doesn't exist yet, create it
     if (signInResult.error) {
       const { error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: APP_USER_EMAIL,
@@ -145,7 +153,6 @@ serve(async (req) => {
         );
       }
 
-      // Retry sign-in
       signInResult = await supabaseAnon.auth.signInWithPassword({
         email: APP_USER_EMAIL,
         password: appUserPassword,
