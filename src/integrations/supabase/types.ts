@@ -22,6 +22,8 @@ export type Database = {
           expiration_date: string | null
           grams: string | null
           id: string
+          is_infinite: boolean
+          is_meal: boolean
           name: string
           sort_order: number
           user_id: string | null
@@ -33,6 +35,8 @@ export type Database = {
           expiration_date?: string | null
           grams?: string | null
           id?: string
+          is_infinite?: boolean
+          is_meal?: boolean
           name: string
           sort_order?: number
           user_id?: string | null
@@ -44,6 +48,8 @@ export type Database = {
           expiration_date?: string | null
           grams?: string | null
           id?: string
+          is_infinite?: boolean
+          is_meal?: boolean
           name?: string
           sort_order?: number
           user_id?: string | null
