@@ -102,7 +102,7 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 };
 
 const Index = () => {
-  const [unlocked, setUnlocked] = useState(false);
+  const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
   const [blockedCount, setBlockedCount] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -113,6 +113,13 @@ const Index = () => {
     navigate(PAGE_TO_ROUTE[page]);
   };
 
+  // ── Synchronise la session auth réelle (défense en profondeur) ───────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+
   // ── Fin de session au refresh/fermeture de page ──────────────────────────────
   useEffect(() => {
     const handleUnload = () => {
@@ -121,6 +128,8 @@ const Index = () => {
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
+
+  const unlocked = !!session;
 
   // ── Fetch blocked IPs count (only when unlocked) ─────────────────────────────
   useEffect(() => {
@@ -168,7 +177,14 @@ const Index = () => {
     });
   };
 
-  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+  // session === undefined means still loading (don't flash PinLock)
+  if (session === undefined) return (
+    <div className="fixed inset-0 bg-background flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+
+  if (!unlocked) return <PinLock onUnlock={() => {}} />;
 
   const openDialog = (target: "all" | "possible" = "all") => {
     setNewCategory(activeCategory);
