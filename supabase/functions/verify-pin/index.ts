@@ -48,8 +48,28 @@ serve(async (req) => {
     let body: Record<string, unknown> = {};
     try { body = await req.json(); } catch { /* no body */ }
 
-    // Admin stats request (no pin needed)
+    // Admin stats request — requires a valid auth session
     if (body.admin_stats) {
+      const authHeader = req.headers.get("authorization");
+      if (!authHeader?.startsWith("Bearer ")) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Non autorisé" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const token = authHeader.replace("Bearer ", "");
+      const supabaseAnon = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+      const { data, error } = await supabaseAnon.auth.getClaims(token);
+      if (error || !data?.claims) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Non autorisé" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       const blocked_count = await getBlockedCount();
       return new Response(
         JSON.stringify({ blocked_count }),
