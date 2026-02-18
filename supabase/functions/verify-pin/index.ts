@@ -6,7 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS_PER_IP = 5;
+const GLOBAL_MAX_ATTEMPTS = 50; // Block all requests if > 50 failures globally in window
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 // Single shared app-user credentials (created on first run)
@@ -31,47 +32,9 @@ serve(async (req) => {
 
     const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
-    // Helper: count currently blocked IPs
-    const getBlockedCount = async (): Promise<number> => {
-      const { data } = await supabaseAdmin
-        .from("pin_attempts")
-        .select("ip")
-        .eq("success", false)
-        .gte("created_at", windowStart);
-      if (!data) return 0;
-      const counts: Record<string, number> = {};
-      data.forEach(r => { counts[r.ip] = (counts[r.ip] || 0) + 1; });
-      return Object.values(counts).filter(c => c >= MAX_ATTEMPTS).length;
-    };
-
-    // Parse body (may be admin_stats request)
+    // Parse body
     let body: Record<string, unknown> = {};
     try { body = await req.json(); } catch { /* no body */ }
-
-    // Admin stats request (no pin needed)
-    if (body.admin_stats) {
-      const blocked_count = await getBlockedCount();
-      return new Response(
-        JSON.stringify({ blocked_count }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Rate limiting: check recent failed attempts from this IP
-    const { data: attempts } = await supabaseAdmin
-      .from("pin_attempts")
-      .select("id")
-      .eq("ip", clientIp)
-      .eq("success", false)
-      .gte("created_at", windowStart);
-
-    if (attempts && attempts.length >= MAX_ATTEMPTS) {
-      const blocked_count = await getBlockedCount();
-      return new Response(
-        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes.", blocked_count }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     const { pin } = body as { pin?: string };
 
@@ -80,6 +43,43 @@ serve(async (req) => {
         JSON.stringify({ success: false, error: "PIN requis" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // --- Global rate limit: block all if too many failures from any IP ---
+    const { data: globalAttempts } = await supabaseAdmin
+      .from("pin_attempts")
+      .select("id")
+      .eq("success", false)
+      .gte("created_at", windowStart);
+
+    if (globalAttempts && globalAttempts.length >= GLOBAL_MAX_ATTEMPTS) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Trop de tentatives globales. Réessayez dans 15 minutes." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- Per-IP rate limit ---
+    const { data: ipAttempts } = await supabaseAdmin
+      .from("pin_attempts")
+      .select("id")
+      .eq("ip", clientIp)
+      .eq("success", false)
+      .gte("created_at", windowStart);
+
+    const ipAttemptCount = ipAttempts?.length ?? 0;
+
+    if (ipAttemptCount >= MAX_ATTEMPTS_PER_IP) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes." }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // --- Progressive delay: 0s, 1s, 2s, 4s, 8s (exponential backoff per IP) ---
+    if (ipAttemptCount > 0) {
+      const delayMs = Math.min(Math.pow(2, ipAttemptCount - 1) * 1000, 16000);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
 
     const serverPin = Deno.env.get("VITE_APP_PIN");
@@ -94,7 +94,7 @@ serve(async (req) => {
 
     const isValid = pin === serverPin;
 
-    // Only record failed attempts (successes are never read and expose login metadata)
+    // Only record failed attempts
     if (!isValid) {
       await supabaseAdmin.from("pin_attempts").insert({
         ip: clientIp,
@@ -118,7 +118,6 @@ serve(async (req) => {
     // PIN is valid — ensure the shared app-user exists, then sign in to get a real session
     const appUserPassword = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!.slice(0, 32);
 
-    // Try to sign in first
     const supabaseAnon = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
