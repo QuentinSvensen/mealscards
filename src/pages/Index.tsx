@@ -27,7 +27,7 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
 type SortMode = "manual" | "expiration" | "planning";
 type MainPage = "repas" | "planning" | "courses";
 
-// PIN lock — shown on every page load (no sessionStorage persistence)
+// PIN lock — shown unless session is active in sessionStorage
 function PinLock({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
@@ -60,6 +60,8 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
             refresh_token: data.refresh_token,
           });
         }
+        // Store unlock state only for this tab session (cleared on close/refresh)
+        sessionStorage.setItem("pin_unlocked", "1");
         onUnlock();
       }
     } catch {
@@ -115,9 +117,22 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 };
 
 const Index = () => {
-  const [unlocked, setUnlocked] = useState(false);
+  // Persist unlock state for current tab only (sessionStorage clears on tab close/refresh)
+  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("pin_unlocked") === "1");
   const navigate = useNavigate();
   const location = useLocation();
+
+  // If the tab was already unlocked this session, make sure the Supabase session is still alive
+  useEffect(() => {
+    if (!unlocked) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        // Session expired (e.g. token rotated out) — force re-PIN
+        sessionStorage.removeItem("pin_unlocked");
+        setUnlocked(false);
+      }
+    });
+  }, [unlocked]);
 
   const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
 
