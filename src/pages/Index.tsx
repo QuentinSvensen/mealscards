@@ -432,21 +432,21 @@ const Index = () => {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
           <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
-              <button onClick={() => setMainPage("aliments")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
-                <Apple className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                <span className={mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}>Aliments</span>
+              <button onClick={() => setMainPage("aliments")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
+                <Apple className="h-3 w-3 shrink-0" />
+                <span className={`text-[10px] sm:text-xs ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
               </button>
-              <button onClick={() => setMainPage("repas")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
-                <UtensilsCrossed className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                <span className={mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}>Repas</span>
+              <button onClick={() => setMainPage("repas")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
+                <UtensilsCrossed className="h-3 w-3 shrink-0" />
+                <span className={`text-[10px] sm:text-xs ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
               </button>
-              <button onClick={() => setMainPage("planning")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
-                <CalendarRange className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                <span className={mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}>Planning</span>
+              <button onClick={() => setMainPage("planning")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
+                <CalendarRange className="h-3 w-3 shrink-0" />
+                <span className={`text-[10px] sm:text-xs ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
               </button>
-              <button onClick={() => setMainPage("courses")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
-                <ShoppingCart className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                <span className={mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}>Courses</span>
+              <button onClick={() => setMainPage("courses")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
+                <ShoppingCart className="h-3 w-3 shrink-0" />
+                <span className={`text-[10px] sm:text-xs ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
               </button>
             </div>
           </div>

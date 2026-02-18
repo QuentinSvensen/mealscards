@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Plus } from "lucide-react";
+import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,13 +21,26 @@ interface MealCardProps {
   isHighlighted?: boolean;
 }
 
+// Ingredient line state for the editor: { qty, name }
+interface IngLine { qty: string; name: string; }
+
+// Parse "100g de pâtes" → { qty: "100g", name: "de pâtes" } or { qty: "", name: original }
+function parseIngredientLine(raw: string): IngLine {
+  const trimmed = raw.trim();
+  const match =
+    trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?\s+(?:de\s+|d')?)(.*)/i) ||
+    trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?)(.*)/i);
+  if (match) return { qty: match[1].trim(), name: match[2].trim() };
+  return { qty: "", name: trimmed };
+}
+
 export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | null>(null);
   const [editValue, setEditValue] = useState("");
-  // Ingredients: managed as array of lines
   const [editingIngredients, setEditingIngredients] = useState(false);
-  const [ingredientLines, setIngredientLines] = useState<string[]>([]);
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [ingLines, setIngLines] = useState<IngLine[]>([]);
+  const qtyRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const nameRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleSave = () => {
     const val = editValue.trim();
@@ -38,45 +51,50 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   };
 
   const openIngredients = () => {
-    const lines = meal.ingredients
+    const raw = meal.ingredients
       ? meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean)
       : [];
-    // Always show at least 2 empty lines
-    while (lines.length < 2) lines.push("");
-    setIngredientLines(lines);
+    const parsed: IngLine[] = raw.map(parseIngredientLine);
+    while (parsed.length < 2) parsed.push({ qty: "", name: "" });
+    setIngLines(parsed);
     setEditingIngredients(true);
   };
 
   const commitIngredients = () => {
-    const joined = ingredientLines.filter(Boolean).join(", ");
-    onUpdateIngredients(joined || null);
+    const parts = ingLines
+      .filter(l => l.qty.trim() || l.name.trim())
+      .map(l => [l.qty.trim(), l.name.trim()].filter(Boolean).join(" "));
+    onUpdateIngredients(parts.length ? parts.join(", ") : null);
     setEditingIngredients(false);
   };
 
-  const handleIngredientChange = (idx: number, value: string) => {
-    setIngredientLines(prev => {
+  const updateLine = (idx: number, field: "qty" | "name", value: string) => {
+    setIngLines(prev => {
       const next = [...prev];
-      next[idx] = value;
-      // Add new line if last line is not empty
-      if (idx === next.length - 1 && value.trim()) {
-        next.push("");
+      next[idx] = { ...next[idx], [field]: value };
+      // Auto-add new line when last name field gets content
+      if (field === "name" && idx === next.length - 1 && value.trim()) {
+        next.push({ qty: "", name: "" });
       }
       return next;
     });
   };
 
-  const handleIngredientKey = (idx: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleIngKeyDown = (idx: number, field: "qty" | "name", e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (idx === ingredientLines.length - 1 && ingredientLines[idx].trim()) {
-        // Move focus to next (new) line
-        setTimeout(() => inputRefs.current[idx + 1]?.focus(), 0);
-      } else if (idx < ingredientLines.length - 1) {
-        inputRefs.current[idx + 1]?.focus();
+      if (field === "qty") {
+        nameRefs.current[idx]?.focus();
+      } else if (idx < ingLines.length - 1) {
+        qtyRefs.current[idx + 1]?.focus();
+      } else if (ingLines[idx].name.trim()) {
+        // last line with content → wait for state update then focus next
+        setTimeout(() => qtyRefs.current[idx + 1]?.focus(), 0);
       } else {
         commitIngredients();
       }
     }
+    if (e.key === "Escape") commitIngredients();
   };
 
   return (
@@ -99,25 +117,33 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           className="h-8 border-white/30 bg-white/20 text-white placeholder:text-white/60 flex-1"
         />
       ) : editingIngredients ? (
+        /* ── Ingredient editor: 2-column grid (qty | name) per line ── */
         <div
           onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-              commitIngredients();
-            }
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) commitIngredients();
           }}
           className="flex flex-col gap-1"
         >
-          {ingredientLines.map((line, idx) => (
-            <Input
-              key={idx}
-              ref={el => { inputRefs.current[idx] = el; }}
-              autoFocus={idx === 0}
-              placeholder={`Ingrédient ${idx + 1}…`}
-              value={line}
-              onChange={(e) => handleIngredientChange(idx, e.target.value)}
-              onKeyDown={(e) => handleIngredientKey(idx, e)}
-              className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-xs px-2"
-            />
+          {ingLines.map((line, idx) => (
+            <div key={idx} className="grid grid-cols-[5.5rem_1fr] gap-1">
+              <Input
+                ref={el => { qtyRefs.current[idx] = el; }}
+                autoFocus={idx === 0}
+                placeholder="Qté"
+                value={line.qty}
+                onChange={e => updateLine(idx, "qty", e.target.value)}
+                onKeyDown={e => handleIngKeyDown(idx, "qty", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
+              />
+              <Input
+                ref={el => { nameRefs.current[idx] = el; }}
+                placeholder={`Ingrédient ${idx + 1}`}
+                value={line.name}
+                onChange={e => updateLine(idx, "name", e.target.value)}
+                onKeyDown={e => handleIngKeyDown(idx, "name", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
+              />
+            </div>
           ))}
           <button onClick={commitIngredients} className="text-[10px] text-white/60 hover:text-white text-left mt-0.5">✓ Valider</button>
         </div>
@@ -164,24 +190,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
             </DropdownMenu>
           </div>
 
-          {/* Ingredients display — two columns: grams | ingredient name */}
+          {/* Ingredients display — inline, separated by • */}
           {meal.ingredients && (
-            <div className="mt-1.5 flex flex-col gap-0.5">
-              {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((ing, i) => {
-                const trimmed = ing.trim();
-                // Try to split "100g de pâtes" → grams="100g" name="de pâtes"
-                const match = trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?\s+(?:de\s+|d')?)(.*)/i) ||
-                              trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?)(.*)/i);
-                const grams = match ? match[1].trim() : null;
-                const name = match ? match[2].trim() : trimmed;
-                return (
-                  <div key={i} className="flex items-baseline gap-1.5 text-xs text-white/70">
-                    {grams && <span className="font-mono text-white/50 text-[10px] shrink-0 w-14 text-right">{grams}</span>}
-                    <span className={grams ? '' : 'pl-0.5'}>{name || grams}</span>
-                  </div>
-                );
-              })}
-            </div>
+            <p className="mt-1 text-[11px] text-white/65 leading-tight">
+              {meal.ingredients.split(/[,\n]+/).filter(Boolean).map(s => s.trim()).join(' • ')}
+            </p>
           )}
         </>
       )}
