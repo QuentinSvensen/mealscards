@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2 } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,14 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [blockedCount, setBlockedCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Fetch blocked IPs count from edge function (admin info)
+    supabase.functions.invoke("verify-pin", { body: { admin_stats: true } })
+      .then(({ data }) => { if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count); })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async () => {
     if (pin.length !== 4) return;
@@ -41,12 +49,11 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         body: { pin },
       });
       if (fnError || !data?.success) {
+        if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count);
         setError(true);
         setPin("");
         setTimeout(() => setError(false), 1500);
       } else {
-        // Set the real Supabase session returned by the edge function
-        // This makes auth.uid() work in RLS policies, blocking anonymous direct API access
         if (data.access_token && data.refresh_token) {
           await supabase.auth.setSession({
             access_token: data.access_token,
@@ -85,6 +92,11 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
         {error && <p className="text-destructive text-sm">Code incorrect</p>}
+        {blockedCount !== null && blockedCount > 0 && (
+          <p className="text-[11px] text-muted-foreground/60 mt-2">
+            🔒 {blockedCount} IP{blockedCount > 1 ? 's bloquées' : ' bloquée'} (15 min)
+          </p>
+        )}
       </div>
     </div>
   );
@@ -129,6 +141,17 @@ const Index = () => {
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [sortModes, setSortModes] = useState<Record<string, SortMode>>({});
+  const [logoClickCount, setLogoClickCount] = useState(0);
+  const [showDevMenu, setShowDevMenu] = useState(false);
+
+  // Triple-clic sur l'emoji pour afficher le menu caché
+  const handleLogoClick = () => {
+    setLogoClickCount(c => {
+      const next = c + 1;
+      if (next >= 3) { setShowDevMenu(true); return 0; }
+      return next;
+    });
+  };
 
   if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
 
@@ -192,6 +215,46 @@ const Index = () => {
     setSortModes((prev) => ({ ...prev, [cat]: "manual" }));
   };
 
+  // ── Export / Import (accessible via triple-clic sur 🍽️) ────────────────────
+  const handleExportMeals = () => {
+    const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
+    const lines = allCats.flatMap(cat => getMealsByCategory(cat)).map(m => {
+      const parts: string[] = [`cat=${m.category}`];
+      if (m.calories) parts.push(`cal=${m.calories}`);
+      if (m.grams) parts.push(`grams=${m.grams}`);
+      if (m.ingredients) parts.push(`ing=${m.ingredients.replace(/\n/g, ', ')}`);
+      return `${m.name} (${parts.join('; ')})`;
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'repas.txt'; a.click();
+    toast({ title: `✅ ${lines.length} repas exportés` });
+    setShowDevMenu(false);
+  };
+
+  const handleImportMeals = () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.txt';
+    input.onchange = async (ev) => {
+      const file = (ev.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      const lineParts = text.split('\n').map(l => l.trim()).filter(Boolean);
+      let count = 0;
+      for (const line of lineParts) {
+        const match = line.match(/^(.+?)\s*\((.+)\)$/);
+        const name = match ? match[1].trim() : line;
+        const paramsStr = match ? match[2] : '';
+        const params: Record<string, string> = {};
+        paramsStr.split(';').forEach(p => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
+        addMeal.mutate({ name, category: (params.cat as MealCategory) || 'plat' });
+        count++;
+      }
+      toast({ title: `✅ ${count} repas importés` });
+      setShowDevMenu(false);
+    };
+    input.click();
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -202,9 +265,28 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Hidden dev menu — triple-clic sur 🍽️ */}
+      {showDevMenu && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
+          <div className="bg-card rounded-2xl p-6 space-y-3 w-72 shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-foreground">🛠 Outils cachés</h3>
+            <p className="text-xs text-muted-foreground">Ces outils permettent d'exporter/importer vos données.</p>
+            <div className="space-y-2">
+              <button onClick={handleExportMeals} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground">
+                <Download className="h-4 w-4" /> Exporter repas (.txt)
+              </button>
+              <button onClick={handleImportMeals} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground">
+                <Upload className="h-4 w-4" /> Importer repas (.txt)
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground/50">Format: NOM (cat=plat; cal=350kcal; ing=riz, légumes)</p>
+            <button onClick={() => setShowDevMenu(false)} className="text-xs text-muted-foreground w-full text-center hover:text-foreground">Fermer</button>
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
-          <h1 className="text-lg sm:text-xl font-extrabold text-foreground shrink-0">🍽️</h1>
+          <h1 className="text-lg sm:text-xl font-extrabold text-foreground shrink-0 cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
             <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
               <button onClick={() => setMainPage("repas")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
@@ -234,7 +316,7 @@ const Index = () => {
               <TabsList className="flex-1 overflow-x-auto">
                 {CATEGORIES.map((c) => (
                   <TabsTrigger key={c.value} value={c.value} className="text-[10px] sm:text-xs px-2 sm:px-3">
-                    {c.emoji} <span className="hidden sm:inline ml-1">{c.label}</span>
+                    {c.emoji} <span className="ml-1">{c.label}</span>
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -331,23 +413,34 @@ function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onU
   onReorder: (fromIndex: number, toIndex: number) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <MealList title={`Tous · ${category.label}`} emoji="📋" count={meals.length}>
-      {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Aucun repas</p>}
-      {meals.map((meal, index) => (
-        <MealCard key={meal.id} meal={meal}
-          onMoveToPossible={() => onMoveToPossible(meal.id)}
-          onRename={(name) => onRename(meal.id, name)}
-          onDelete={() => onDelete(meal.id)}
-          onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
-          onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
-          onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-          onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
-        />
-      ))}
+    <MealList
+      title={`Tous · ${category.label}`}
+      emoji="📋"
+      count={meals.length}
+      collapsed={collapsed}
+      onToggleCollapse={() => setCollapsed(c => !c)}
+    >
+      {!collapsed && (
+        <>
+          {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Aucun repas</p>}
+          {meals.map((meal, index) => (
+            <MealCard key={meal.id} meal={meal}
+              onMoveToPossible={() => onMoveToPossible(meal.id)}
+              onRename={(name) => onRename(meal.id, name)}
+              onDelete={() => onDelete(meal.id)}
+              onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
+              onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
+              onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+              onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
+            />
+          ))}
+        </>
+      )}
     </MealList>
   );
 }

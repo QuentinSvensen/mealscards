@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface MealListProps {
   title: string;
@@ -7,9 +8,11 @@ interface MealListProps {
   children: React.ReactNode;
   onExternalDrop?: (mealId: string) => void;
   headerActions?: React.ReactNode;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export function MealList({ title, emoji, count, children, onExternalDrop, headerActions }: MealListProps) {
+export function MealList({ title, emoji, count, children, onExternalDrop, headerActions, collapsed, onToggleCollapse }: MealListProps) {
   const [dragOver, setDragOver] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -34,11 +37,16 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`flex flex-col rounded-3xl bg-card/80 backdrop-blur-sm p-5 min-h-[200px] transition-all ${
+      className={`flex flex-col rounded-3xl bg-card/80 backdrop-blur-sm p-5 min-h-[80px] transition-all ${
         dragOver ? "ring-4 ring-primary/40 bg-primary/5" : ""
       }`}
     >
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-2">
+        {onToggleCollapse && (
+          <button onClick={onToggleCollapse} className="text-muted-foreground shrink-0">
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        )}
         <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
           <span className="text-2xl">{emoji}</span> {title}
         </h2>
@@ -48,9 +56,11 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 flex-1">
-        {children}
-      </div>
+      {!collapsed && (
+        <div className="flex flex-col gap-2 flex-1 mt-2">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

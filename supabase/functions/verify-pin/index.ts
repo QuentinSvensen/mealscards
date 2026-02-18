@@ -29,8 +29,35 @@ serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // Rate limiting: check recent failed attempts from this IP
     const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
+
+    // Helper: count currently blocked IPs
+    const getBlockedCount = async (): Promise<number> => {
+      const { data } = await supabaseAdmin
+        .from("pin_attempts")
+        .select("ip")
+        .eq("success", false)
+        .gte("created_at", windowStart);
+      if (!data) return 0;
+      const counts: Record<string, number> = {};
+      data.forEach(r => { counts[r.ip] = (counts[r.ip] || 0) + 1; });
+      return Object.values(counts).filter(c => c >= MAX_ATTEMPTS).length;
+    };
+
+    // Parse body (may be admin_stats request)
+    let body: Record<string, unknown> = {};
+    try { body = await req.json(); } catch { /* no body */ }
+
+    // Admin stats request (no pin needed)
+    if (body.admin_stats) {
+      const blocked_count = await getBlockedCount();
+      return new Response(
+        JSON.stringify({ blocked_count }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Rate limiting: check recent failed attempts from this IP
     const { data: attempts } = await supabaseAdmin
       .from("pin_attempts")
       .select("id")
@@ -39,13 +66,14 @@ serve(async (req) => {
       .gte("created_at", windowStart);
 
     if (attempts && attempts.length >= MAX_ATTEMPTS) {
+      const blocked_count = await getBlockedCount();
       return new Response(
-        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes." }),
+        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes.", blocked_count }),
         { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const { pin } = await req.json();
+    const { pin } = body as { pin?: string };
 
     if (!pin || typeof pin !== "string") {
       return new Response(
