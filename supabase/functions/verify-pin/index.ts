@@ -66,10 +66,9 @@ serve(async (req) => {
       .gte("created_at", windowStart);
 
     if (attempts && attempts.length >= MAX_ATTEMPTS) {
-      const blocked_count = await getBlockedCount();
       return new Response(
-        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes.", blocked_count }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: false, error: "Accès refusé. Veuillez réessayer." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -108,7 +107,7 @@ serve(async (req) => {
 
     if (!isValid) {
       return new Response(
-        JSON.stringify({ success: false }),
+        JSON.stringify({ success: false, error: "Accès refusé. Veuillez réessayer." }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
