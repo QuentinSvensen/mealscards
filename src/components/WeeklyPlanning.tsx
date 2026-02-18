@@ -202,9 +202,8 @@ export function WeeklyPlanning() {
       return;
     }
 
-    // Bloque le scroll pendant le drag seulement si possible
+    // Actively dragging
     if (touchDrag.current && e.cancelable) e.preventDefault();
-
     const touch = e.touches[0];
     const state = touchDrag.current;
     const dx = touch.clientX - state.startX;
@@ -288,7 +287,7 @@ export function WeeklyPlanning() {
     return (
       <div
         key={pm.id}
-        draggable={!isTouchDevice}
+        draggable={!isTouchDevice} // desktop drag actif, mobile désactivé
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
