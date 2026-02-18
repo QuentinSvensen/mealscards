@@ -85,7 +85,7 @@ export function useMeals() {
     },
   });
 
-  const isLoading = ml || pl;
+  const isLoading = ml; // Only block on meals loading; possible_meals loads independently
 
   // --- Master meal mutations ---
 

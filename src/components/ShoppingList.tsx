@@ -198,7 +198,14 @@ export function ShoppingList() {
         <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
         <Checkbox
           checked={item.checked}
-          onCheckedChange={(checked) => toggleItem.mutate({ id: item.id, checked: !!checked })}
+          onCheckedChange={(checked) => {
+            toggleItem.mutate({ id: item.id, checked: !!checked });
+            // Réinitialiser la quantité quand l'article est désélectionné
+            if (!checked) {
+              updateItemQuantity.mutate({ id: item.id, quantity: null });
+              setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+            }
+          }}
           className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
         />
 
@@ -268,13 +275,13 @@ export function ShoppingList() {
   const renderAddInput = (groupId: string | null) => {
     const key = groupId || "__ungrouped";
     return (
-      <div className="flex gap-1 mt-1.5 opacity-50 hover:opacity-100 transition-opacity focus-within:opacity-100">
+      <div className="flex gap-1 mt-1.5 opacity-25 hover:opacity-70 transition-opacity focus-within:opacity-100">
         <Input
-          placeholder="Ajouter un article..."
+          placeholder="Ajouter un article…"
           value={newItemTexts[key] || ""}
           onChange={(e) => setNewItemTexts(prev => ({ ...prev, [key]: e.target.value }))}
           onKeyDown={(e) => e.key === "Enter" && handleAddItem(groupId)}
-          className="h-6 text-xs border-dashed"
+          className="h-6 text-xs border-dashed border-border/40 bg-transparent focus:bg-background"
         />
         <Button size="sm" variant="ghost" onClick={() => handleAddItem(groupId)} className="h-6 shrink-0 px-1.5 opacity-60">
           <Plus className="h-3 w-3" />
@@ -344,15 +351,15 @@ export function ShoppingList() {
       })}
 
       {/* Add group — more discreet */}
-      <div className="flex gap-2 opacity-40 hover:opacity-100 transition-opacity focus-within:opacity-100">
+      <div className="flex gap-2 opacity-15 hover:opacity-50 transition-opacity focus-within:opacity-100">
         <Input
-          placeholder="Nouveau groupe (ex: Frais, Sec...)"
+          placeholder="Nouveau groupe…"
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAddGroup()}
-          className="h-7 text-xs border-dashed"
+          className="h-6 text-xs border-dashed border-border/30 bg-transparent focus:bg-background"
         />
-        <Button variant="ghost" onClick={handleAddGroup} disabled={!newGroupName.trim()} className="shrink-0 gap-1 text-xs h-7 border border-dashed">
+        <Button variant="ghost" onClick={handleAddGroup} disabled={!newGroupName.trim()} className="shrink-0 gap-1 text-xs h-6 border border-dashed border-border/30 px-2">
           <Plus className="h-3 w-3" /> Groupe
         </Button>
       </div>

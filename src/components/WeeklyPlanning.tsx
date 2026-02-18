@@ -37,12 +37,20 @@ function isExpiredDate(d: string | null) {
   return new Date(d) < new Date(new Date().toDateString());
 }
 
+function parseCalories(cal: string | null | undefined): number {
+  if (!cal) return 0;
+  const n = parseFloat(cal.replace(/[^0-9.]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
 // Touch-based drag state
 interface TouchDragState {
   pmId: string;
   mealId: string;
   startX: number;
   startY: number;
+  origTop: number;
+  origLeft: number;
   ghost: HTMLElement | null;
 }
 
@@ -53,12 +61,25 @@ export function WeeklyPlanning() {
 
   // For reordering within a slot
   const slotDragRef = useRef<{ pmId: string; slotKey: string } | null>(null);
-  const [slotDragOver, setSlotDragOver] = useState<string | null>(null); // pmId being hovered
+  const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
   // Touch drag state
   const touchDrag = useRef<TouchDragState | null>(null);
 
+  // Refs for today-scroll
+  const todayRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
+
+  // Scroll to today on mount
+  useEffect(() => {
+    if (todayRef.current) {
+      setTimeout(() => {
+        todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, []);
 
   // Exclude petit_dejeuner
   const planningMeals = possibleMeals.filter(pm => pm.meals?.category !== 'petit_dejeuner');
@@ -69,6 +90,14 @@ export function WeeklyPlanning() {
 
   const unplanned = planningMeals.filter(pm => !pm.day_of_week || !pm.meal_time);
 
+  // Compute day calories
+  const getDayCalories = (day: string): number => {
+    return TIMES.reduce((total, time) => {
+      const slots = getMealsForSlot(day, time);
+      return total + slots.reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0);
+    }, 0);
+  };
+
   // ── Desktop drag & drop ──────────────────────────────────────────────────────
 
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
@@ -76,12 +105,8 @@ export function WeeklyPlanning() {
     setDragOverSlot(null);
     const pmId = e.dataTransfer.getData("pmId");
     const mealId = e.dataTransfer.getData("mealId");
-    const source = e.dataTransfer.getData("source");
 
-    if (pmId && source === "planning-slot") {
-      // Reorder within slot or move to new slot
-      updatePlanning.mutate({ id: pmId, day_of_week: day, meal_time: time });
-    } else if (pmId) {
+    if (pmId) {
       updatePlanning.mutate({ id: pmId, day_of_week: day, meal_time: time });
     } else if (mealId) {
       const { data, error } = await (supabase as any)
@@ -95,7 +120,6 @@ export function WeeklyPlanning() {
     }
   };
 
-  // Drop between cards in a slot (for reordering)
   const handleDropOnCard = (e: React.DragEvent, targetPm: PossibleMeal) => {
     e.preventDefault();
     e.stopPropagation();
@@ -120,20 +144,26 @@ export function WeeklyPlanning() {
     }
   };
 
-  // ── Touch drag & drop ────────────────────────────────────────────────────────
+  // ── Touch drag & drop (fixed: use absolute position tracking) ───────────────
 
   const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
     const touch = e.touches[0];
     const el = e.currentTarget as HTMLElement;
     const rect = el.getBoundingClientRect();
 
-    // Create ghost element
     const ghost = el.cloneNode(true) as HTMLElement;
     ghost.style.cssText = `
-      position: fixed; top: ${rect.top}px; left: ${rect.left}px;
-      width: ${rect.width}px; opacity: 0.85; z-index: 9999;
-      pointer-events: none; transform: scale(1.05); transition: none;
-      border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      opacity: 0.85;
+      z-index: 9999;
+      pointer-events: none;
+      transform: scale(1.05);
+      transition: none;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
     `;
     document.body.appendChild(ghost);
 
@@ -142,6 +172,8 @@ export function WeeklyPlanning() {
       mealId: pm.meal_id,
       startX: touch.clientX,
       startY: touch.clientY,
+      origTop: rect.top,
+      origLeft: rect.left,
       ghost,
     };
   };
@@ -150,21 +182,26 @@ export function WeeklyPlanning() {
     if (!touchDrag.current?.ghost) return;
     e.preventDefault();
     const touch = e.touches[0];
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const dx = touch.clientX - touchDrag.current.startX;
     const dy = touch.clientY - touchDrag.current.startY;
-    touchDrag.current.ghost.style.transform = `translate(${dx}px, ${dy}px) scale(1.05)`;
+    touchDrag.current.ghost.style.top = `${touchDrag.current.origTop + dy}px`;
+    touchDrag.current.ghost.style.left = `${touchDrag.current.origLeft + dx}px`;
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (!touchDrag.current) return;
     const { ghost, pmId } = touchDrag.current;
-    if (ghost) document.body.removeChild(ghost);
+    if (ghost) {
+      ghost.style.opacity = '0';
+      setTimeout(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 100);
+    }
 
     const touch = e.changedTouches[0];
+    // Hide ghost before elementFromPoint so it doesn't intercept
+    if (ghost) ghost.style.display = 'none';
     const target = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (ghost) ghost.style.display = '';
 
-    // Find drop zone
     const slotEl = target?.closest("[data-slot]");
     if (slotEl) {
       const day = slotEl.getAttribute("data-day")!;
@@ -219,10 +256,10 @@ export function WeeklyPlanning() {
           <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
           <span className="font-semibold text-xs flex-1 break-words min-w-0">{meal.name}</span>
           {counterDays !== null && (
-            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 
+            <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
               ${counterUrgent
-                ? 'bg-red-500 text-white animate-pulse shadow-md shadow-red-500/40 ring-2 ring-red-300/50'
-                : 'bg-white/30 text-white font-bold'
+                ? 'bg-red-600 text-white border-red-300 shadow-md'
+                : 'bg-black/50 text-white border-white/30'
               }`}>
               <Timer className="h-2.5 w-2.5" />{counterDays}j
             </span>
@@ -261,16 +298,32 @@ export function WeeklyPlanning() {
     );
   };
 
+  // Compute weekly calorie total
+  const weekTotal = DAYS.reduce((sum, day) => sum + getDayCalories(day), 0);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-3">
+    <div ref={containerRef} className="max-w-4xl mx-auto space-y-3">
       {DAYS.map((day) => {
         const isToday_ = day === todayKey;
+        const dayCalories = getDayCalories(day);
         return (
-          <div key={day} className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? 'bg-primary/10 ring-2 ring-primary/40' : 'bg-card/80 backdrop-blur-sm'}`}>
-            <h3 className={`text-sm sm:text-base font-bold mb-2 flex items-center gap-2 ${isToday_ ? 'text-primary' : 'text-foreground'}`}>
-              {DAY_LABELS[day]}
-              {isToday_ && <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">Aujourd'hui</span>}
-            </h3>
+          <div
+            key={day}
+            ref={isToday_ ? todayRef : undefined}
+            className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? 'bg-primary/10 ring-2 ring-primary/40' : 'bg-card/80 backdrop-blur-sm'}`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isToday_ ? 'text-primary' : 'text-foreground'}`}>
+                {DAY_LABELS[day]}
+                {isToday_ && <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">Aujourd'hui</span>}
+              </h3>
+              {/* Calories du jour */}
+              {dayCalories > 0 && (
+                <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 shrink-0">
+                  <Flame className="h-2.5 w-2.5 text-orange-500" />{Math.round(dayCalories)} kcal
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {TIMES.map((time) => {
                 const slotKey = `${day}-${time}`;
@@ -299,6 +352,16 @@ export function WeeklyPlanning() {
           </div>
         );
       })}
+
+      {/* Total calorique de la semaine */}
+      {weekTotal > 0 && (
+        <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
+          <span className="text-sm font-bold text-foreground">Total semaine</span>
+          <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
+            <Flame className="h-4 w-4" />{Math.round(weekTotal)} kcal
+          </span>
+        </div>
+      )}
 
       {/* Hors planning — drop zone to unplan */}
       <div
