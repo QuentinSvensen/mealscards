@@ -39,7 +39,7 @@ export function ShoppingList() {
 
   // Drag state
   const dragPayload = useRef<DragPayload | null>(null);
-  const [dragOverKey, setDragOverKey] = useState<string | null>(null); // "item:{id}" | "group:{id}" | "ungrouped"
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
   const getLocalName = (item: ShoppingItem) => localNames[item.id] ?? item.name;
   const getLocalBrand = (item: ShoppingItem) => localBrands[item.id] ?? (item.brand || "");
@@ -78,8 +78,8 @@ export function ShoppingList() {
   const commitQty = (item: ShoppingItem) => {
     const val = getLocalQuantity(item);
     updateItemQuantity.mutate({ id: item.id, quantity: val || null });
-    if (val) setEditingField(prev => ({ ...prev, [item.id]: null }));
-    // if empty, keep editing open
+    // Always close editing on commit (whether empty or not)
+    setEditingField(prev => ({ ...prev, [item.id]: null }));
   };
 
   const toggleCollapse = (id: string) => {
@@ -183,6 +183,8 @@ export function ShoppingList() {
     const isBrandEditing = fieldEditing === "brand";
     const isQtyEditing = fieldEditing === "qty";
     const isOver = dragOverKey === `item:${item.id}`;
+    // Show quantity input if editing OR if quantity is empty (always allow input when no value)
+    const showQtyInput = isQtyEditing || (!qty && fieldEditing === null && false); // controlled by click
 
     return (
       <div key={item.id}
@@ -199,12 +201,14 @@ export function ShoppingList() {
           onCheckedChange={(checked) => toggleItem.mutate({ id: item.id, checked: !!checked })}
           className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
         />
-        {/* Always-editable name */}
+
+        {/* Always-editable name — width adapts to content */}
         <Input
           value={getLocalName(item)}
           onChange={(e) => handleNameChange(item, e.target.value)}
-          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background min-w-0 font-medium ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
-          style={{ width: `${Math.max(6, getLocalName(item).length)}ch` }}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+          style={{ width: `${Math.max(4, getLocalName(item).length + 1)}ch`, minWidth: '4ch', maxWidth: '60%' }}
         />
 
         {/* Brand — inline after name */}
@@ -221,16 +225,16 @@ export function ShoppingList() {
         ) : (
           <button
             onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
-            className={`text-xs italic shrink-0 px-1 rounded hover:bg-muted/60 transition-colors ${brand ? 'text-muted-foreground' : 'text-muted-foreground/30'}`}
+            className={`text-xs italic shrink-0 px-1 rounded hover:bg-muted/60 transition-colors ${brand ? 'text-muted-foreground' : 'text-muted-foreground/20'}`}
           >
-            {brand || <span className="text-[10px]">marque</span>}
+            {brand || <span className="text-[9px]">Marque</span>}
           </button>
         )}
 
         {/* Quantity — inline after brand */}
         {isQtyEditing ? (
           <div className="flex items-baseline gap-0.5 shrink-0">
-            <span className="text-base font-bold text-foreground">×</span>
+            <span className="text-sm font-bold text-foreground">×</span>
             <Input
               autoFocus
               placeholder="Qté"
@@ -249,7 +253,7 @@ export function ShoppingList() {
             {qty ? (
               <span className="text-base font-bold text-foreground">×{qty}</span>
             ) : (
-              <span className="text-[10px] text-muted-foreground/30">qté</span>
+              <span className="text-[9px] text-muted-foreground/20">Quantité</span>
             )}
           </button>
         )}
@@ -264,15 +268,15 @@ export function ShoppingList() {
   const renderAddInput = (groupId: string | null) => {
     const key = groupId || "__ungrouped";
     return (
-      <div className="flex gap-1 mt-1">
+      <div className="flex gap-1 mt-1.5 opacity-50 hover:opacity-100 transition-opacity focus-within:opacity-100">
         <Input
           placeholder="Ajouter un article..."
           value={newItemTexts[key] || ""}
           onChange={(e) => setNewItemTexts(prev => ({ ...prev, [key]: e.target.value }))}
           onKeyDown={(e) => e.key === "Enter" && handleAddItem(groupId)}
-          className="h-7 text-xs"
+          className="h-6 text-xs border-dashed"
         />
-        <Button size="sm" onClick={() => handleAddItem(groupId)} className="h-7 shrink-0 px-2">
+        <Button size="sm" variant="ghost" onClick={() => handleAddItem(groupId)} className="h-6 shrink-0 px-1.5 opacity-60">
           <Plus className="h-3 w-3" />
         </Button>
       </div>
@@ -288,7 +292,7 @@ export function ShoppingList() {
         onDragLeave={() => setDragOverKey(null)}
         onDrop={(e) => handleDropOnGroup(e, null)}
       >
-        <h3 className="text-sm font-bold text-foreground mb-1.5">Articles</h3>
+        <h3 className="text-xs font-extrabold text-foreground/60 mb-1.5 uppercase tracking-widest">Articles</h3>
         {ungroupedItems.map(renderItem)}
         {renderAddInput(null)}
       </div>
@@ -306,9 +310,10 @@ export function ShoppingList() {
             onDragLeave={() => setDragOverKey(null)}
             onDrop={(e) => handleDropOnGroup(e, group.id)}
             className={`bg-card/80 backdrop-blur-sm rounded-2xl p-3 cursor-grab active:cursor-grabbing ${isGroupOver ? 'ring-2 ring-primary/60' : ''}`}>
-            <div className="flex items-center gap-1.5 mb-2">
-              <GripVertical className="h-4 w-4 text-muted-foreground/40" />
-              <button onClick={() => toggleCollapse(group.id)} className="text-muted-foreground">
+            {/* Group header */}
+            <div className="flex items-center gap-2 mb-2">
+              <GripVertical className="h-4 w-4 text-muted-foreground/30 shrink-0" />
+              <button onClick={() => toggleCollapse(group.id)} className="text-muted-foreground shrink-0">
                 {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
               {editingGroup === group.id ? (
@@ -316,15 +321,15 @@ export function ShoppingList() {
                   onChange={(e) => setEditGroupName(e.target.value)}
                   onBlur={() => { if (editGroupName.trim()) renameGroup.mutate({ id: group.id, name: editGroupName.trim() }); setEditingGroup(null); }}
                   onKeyDown={(e) => { if (e.key === "Enter") { if (editGroupName.trim()) renameGroup.mutate({ id: group.id, name: editGroupName.trim() }); setEditingGroup(null); } }}
-                  className="h-7 text-sm font-bold" />
+                  className="h-7 text-sm font-bold flex-1" />
               ) : (
-                <h3 className="text-sm font-extrabold text-foreground flex-1 tracking-wide uppercase">{group.name}</h3>
+                <h3 className="text-base font-black text-foreground flex-1 tracking-wider uppercase">{group.name}</h3>
               )}
-              <span className="text-xs font-medium text-muted-foreground bg-muted rounded-full px-1.5 py-0.5">{groupItems.length}</span>
-              <Button size="icon" variant="ghost" onClick={() => { setEditGroupName(group.name); setEditingGroup(group.id); }} className="h-6 w-6 text-muted-foreground">
+              <span className="text-[10px] font-bold text-foreground bg-foreground/10 rounded-full px-2 py-0.5 shrink-0">{groupItems.length}</span>
+              <Button size="icon" variant="ghost" onClick={() => { setEditGroupName(group.name); setEditingGroup(group.id); }} className="h-6 w-6 text-muted-foreground/50 hover:text-muted-foreground">
                 <Pencil className="h-3 w-3" />
               </Button>
-              <Button size="icon" variant="ghost" onClick={() => deleteGroup.mutate(group.id)} className="h-6 w-6 text-muted-foreground hover:text-destructive">
+              <Button size="icon" variant="ghost" onClick={() => deleteGroup.mutate(group.id)} className="h-6 w-6 text-muted-foreground/50 hover:text-destructive">
                 <Trash2 className="h-3 w-3" />
               </Button>
             </div>
@@ -338,17 +343,17 @@ export function ShoppingList() {
         );
       })}
 
-      {/* Add group */}
-      <div className="flex gap-2">
+      {/* Add group — more discreet */}
+      <div className="flex gap-2 opacity-40 hover:opacity-100 transition-opacity focus-within:opacity-100">
         <Input
           placeholder="Nouveau groupe (ex: Frais, Sec...)"
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAddGroup()}
-          className="h-8 text-sm"
+          className="h-7 text-xs border-dashed"
         />
-        <Button onClick={handleAddGroup} disabled={!newGroupName.trim()} className="shrink-0 gap-1 text-xs">
-          <Plus className="h-3.5 w-3.5" /> Groupe
+        <Button variant="ghost" onClick={handleAddGroup} disabled={!newGroupName.trim()} className="shrink-0 gap-1 text-xs h-7 border border-dashed">
+          <Plus className="h-3 w-3" /> Groupe
         </Button>
       </div>
     </div>
