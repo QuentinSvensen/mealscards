@@ -84,6 +84,8 @@ export function WeeklyPlanning() {
 
   const todayRef = useRef<HTMLDivElement | null>(null);
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
+  // ✅ Détection device tactile
+  const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
   // Scroll to today on mount
   useEffect(() => {
@@ -97,18 +99,6 @@ export function WeeklyPlanning() {
       }, 200);
     }
   }, []);
-  // ✅ Bloque le scroll pendant le drag tactile
-  useEffect(() => {
-    if (touchDragActive) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [touchDragActive]);
 
   const planningMeals = possibleMeals.filter((pm) => pm.meals?.category !== "petit_dejeuner");
 
@@ -296,7 +286,7 @@ export function WeeklyPlanning() {
     return (
       <div
         key={pm.id}
-        draggable
+        draggable={!isTouchDevice} // ✅ une seule fois
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
