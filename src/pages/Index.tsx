@@ -19,19 +19,19 @@ import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hoo
 import { useShoppingList, type ShoppingItem, type ShoppingGroup } from "@/hooks/useShoppingList";
 import { toast } from "@/hooks/use-toast";
 
-const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
-  { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
-  { value: "entree", label: "Entrées", emoji: "🥗" },
-  { value: "plat", label: "Plats", emoji: "🍽️" },
-  { value: "dessert", label: "Desserts", emoji: "🍰" },
-  { value: "bonus", label: "Bonus", emoji: "⭐" },
-];
+const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
+{ value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
+{ value: "entree", label: "Entrées", emoji: "🥗" },
+{ value: "plat", label: "Plats", emoji: "🍽️" },
+{ value: "dessert", label: "Desserts", emoji: "🍰" },
+{ value: "bonus", label: "Bonus", emoji: "⭐" }];
+
 
 type SortMode = "manual" | "expiration" | "planning";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
 // PIN lock — shown on every page load (no sessionStorage persistence)
-function PinLock({ onUnlock }: { onUnlock: () => void }) {
+function PinLock({ onUnlock }: {onUnlock: () => void;}) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -41,7 +41,7 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
     setLoading(true);
     try {
       const { data, error: fnError } = await supabase.functions.invoke("verify-pin", {
-        body: { pin },
+        body: { pin }
       });
       if (fnError || !data?.success) {
         setError(true);
@@ -51,7 +51,7 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         if (data.access_token && data.refresh_token) {
           await supabase.auth.setSession({
             access_token: data.access_token,
-            refresh_token: data.refresh_token,
+            refresh_token: data.refresh_token
           });
         }
         onUnlock();
@@ -80,29 +80,29 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
           placeholder="••••"
           className={`w-32 text-center text-2xl tracking-[0.5em] font-mono ${error ? 'border-destructive animate-shake' : ''}`}
           autoFocus
-          disabled={loading}
-        />
+          disabled={loading} />
+
         <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
         {error && <p className="text-destructive text-sm">Code incorrect</p>}
       </div>
-    </div>
-  );
+    </div>);
+
 }
 
 const ROUTE_TO_PAGE: Record<string, MainPage> = {
   "/aliments": "aliments",
   "/repas": "repas",
   "/planning": "planning",
-  "/courses": "courses",
+  "/courses": "courses"
 };
 
 const PAGE_TO_ROUTE: Record<MainPage, string> = {
   aliments: "/aliments",
   repas: "/repas",
   planning: "/planning",
-  courses: "/courses",
+  courses: "/courses"
 };
 
 const Index = () => {
@@ -143,7 +143,7 @@ const Index = () => {
       try {
         const { data } = await supabase.functions.invoke("verify-pin", { body: { admin_stats: true } });
         if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count);
-      } catch { /* ignore */ }
+      } catch {/* ignore */}
     };
     fetchBlockedCount();
     const interval = setInterval(fetchBlockedCount, 60_000);
@@ -157,7 +157,7 @@ const Index = () => {
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals,
-    getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible,
+    getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
   } = useMeals();
 
   // Shopping list hook for import/export
@@ -175,9 +175,9 @@ const Index = () => {
 
   // Triple-clic sur l'emoji pour afficher le menu caché
   const handleLogoClick = () => {
-    setLogoClickCount(c => {
+    setLogoClickCount((c) => {
       const next = c + 1;
-      if (next >= 3) { setShowDevMenu(true); return 0; }
+      if (next >= 3) {setShowDevMenu(true);return 0;}
       return next;
     });
   };
@@ -186,8 +186,8 @@ const Index = () => {
   if (session === undefined) return (
     <div className="fixed inset-0 bg-background flex items-center justify-center">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-    </div>
-  );
+    </div>);
+
 
   if (!unlocked) return <PinLock onUnlock={() => {}} />;
 
@@ -201,18 +201,18 @@ const Index = () => {
     if (!newName.trim()) return;
     if (addTarget === "possible") {
       addMealToPossibleDirectly.mutate({ name: newName.trim(), category: newCategory }, {
-        onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" }); }
+        onSuccess: () => {setNewName("");setDialogOpen(false);toast({ title: "Repas ajouté aux possibles 🎉" });}
       });
     } else {
       addMeal.mutate({ name: newName.trim(), category: newCategory }, {
-        onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté 🎉" }); }
+        onSuccess: () => {setNewName("");setDialogOpen(false);toast({ title: "Repas ajouté 🎉" });}
       });
     }
   };
 
   const handleRandomPick = (cat: string) => {
     const pick = getRandomPossible(cat);
-    if (!pick) { toast({ title: "Aucun repas possible" }); return; }
+    if (!pick) {toast({ title: "Aucun repas possible" });return;}
     setHighlightedId(pick.id);
     toast({ title: `🎲 ${pick.meals.name}` });
     setTimeout(() => setHighlightedId(null), 3000);
@@ -254,7 +254,7 @@ const Index = () => {
   // ── Export / Import repas (accessible via triple-clic sur 🍽️) ──────────────
   const handleExportMeals = () => {
     const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
-    const lines = allCats.flatMap(cat => getMealsByCategory(cat)).map(m => {
+    const lines = allCats.flatMap((cat) => getMealsByCategory(cat)).map((m) => {
       const parts: string[] = [`cat=${m.category}`];
       if (m.calories) parts.push(`cal=${m.calories}`);
       if (m.grams) parts.push(`grams=${m.grams}`);
@@ -262,14 +262,14 @@ const Index = () => {
       return `${m.name} (${parts.join('; ')})`;
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'repas.txt'; a.click();
+    const a = document.createElement('a');a.href = URL.createObjectURL(blob);a.download = 'repas.txt';a.click();
     toast({ title: `✅ ${lines.length} repas exportés` });
     setShowDevMenu(false);
   };
 
   const handleImportMeals = () => {
     const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.txt';
+    input.type = 'file';input.accept = '.txt';
     input.onchange = async (ev) => {
       const file = (ev.target as HTMLInputElement).files?.[0];
       if (!file) return;
@@ -279,15 +279,15 @@ const Index = () => {
         return;
       }
       const text = await file.text();
-      const lineParts = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const lineParts = text.split('\n').map((l) => l.trim()).filter(Boolean);
       let count = 0;
       for (const line of lineParts) {
         const match = line.match(/^(.+?)\s*\((.+)\)$/);
         const name = match ? match[1].trim() : line;
         const paramsStr = match ? match[2] : '';
         const params: Record<string, string> = {};
-        paramsStr.split(';').forEach(p => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
-        addMeal.mutate({ name, category: (params.cat as MealCategory) || 'plat' });
+        paramsStr.split(';').forEach((p) => {const [k, ...v] = p.split('=');if (k) params[k.trim()] = v.join('=').trim();});
+        addMeal.mutate({ name, category: params.cat as MealCategory || 'plat' });
         count++;
       }
       toast({ title: `✅ ${count} repas importés` });
@@ -302,7 +302,7 @@ const Index = () => {
     // Groups with their items
     for (const group of shoppingGroups) {
       lines.push(`[${group.name}]`);
-      const groupItems = shoppingItems.filter(i => i.group_id === group.id).sort((a, b) => a.sort_order - b.sort_order);
+      const groupItems = shoppingItems.filter((i) => i.group_id === group.id).sort((a, b) => a.sort_order - b.sort_order);
       for (const item of groupItems) {
         const parts: string[] = [];
         if (item.quantity) parts.push(`qte=${item.quantity}`);
@@ -312,7 +312,7 @@ const Index = () => {
       }
     }
     // Ungrouped items
-    const ungrouped = shoppingItems.filter(i => !i.group_id).sort((a, b) => a.sort_order - b.sort_order);
+    const ungrouped = shoppingItems.filter((i) => !i.group_id).sort((a, b) => a.sort_order - b.sort_order);
     if (ungrouped.length > 0) {
       lines.push(`[Sans groupe]`);
       for (const item of ungrouped) {
@@ -324,14 +324,14 @@ const Index = () => {
       }
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'courses.txt'; a.click();
+    const a = document.createElement('a');a.href = URL.createObjectURL(blob);a.download = 'courses.txt';a.click();
     toast({ title: `✅ Liste de courses exportée` });
     setShowDevMenu(false);
   };
 
   const handleImportShopping = () => {
     const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.txt';
+    input.type = 'file';input.accept = '.txt';
     input.onchange = async (ev) => {
       const file = (ev.target as HTMLInputElement).files?.[0];
       if (!file) return;
@@ -342,7 +342,7 @@ const Index = () => {
       }
       // Import is additive — we don't delete existing items
       const text = await file.text();
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
       // We'll use supabase directly for bulk insert since we need ordering
       const { supabase: sb } = await import('@/integrations/supabase/client');
       let currentGroupId: string | null = null;
@@ -353,7 +353,7 @@ const Index = () => {
         if (line.startsWith('[') && line.endsWith(']')) {
           const groupName = line.slice(1, -1);
           if (groupName !== 'Sans groupe') {
-            const existing = shoppingGroups.find(g => g.name === groupName);
+            const existing = shoppingGroups.find((g) => g.name === groupName);
             if (existing) {
               currentGroupId = existing.id;
             } else {
@@ -369,14 +369,14 @@ const Index = () => {
           const name = match ? match[1].trim() : line;
           const paramsStr = match ? match[2] : '';
           const params: Record<string, string> = {};
-          paramsStr.split(';').forEach(p => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
+          paramsStr.split(';').forEach((p) => {const [k, ...v] = p.split('=');if (k) params[k.trim()] = v.join('=').trim();});
           await (sb as any).from('shopping_items').insert({
             name,
             group_id: currentGroupId,
             quantity: params.qte || null,
             brand: params.marque || null,
             checked: params.coche === '1',
-            sort_order: itemOrder++,
+            sort_order: itemOrder++
           });
           count++;
         }
@@ -390,9 +390,9 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Hidden dev menu — triple-clic sur 🍽️ */}
-      {showDevMenu && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
-          <div className="bg-card rounded-2xl p-6 space-y-3 w-72 shadow-xl" onClick={e => e.stopPropagation()}>
+      {showDevMenu &&
+      <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
+          <div className="bg-card rounded-2xl p-6 space-y-3 w-72 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-bold text-foreground">🛠 Outils cachés</h3>
             <p className="text-xs text-muted-foreground">Ces outils permettent d'exporter/importer vos données.</p>
             <div className="space-y-1">
@@ -417,20 +417,20 @@ const Index = () => {
             <button onClick={() => setShowDevMenu(false)} className="text-xs text-muted-foreground w-full text-center hover:text-foreground">Fermer</button>
           </div>
         </div>
-      )}
+      }
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 shrink-0">
             <h1 className="text-lg sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
             {/* Compteur IPs bloquées — visible uniquement après déverrouillage */}
-            {blockedCount !== null && (
-              <span
-                title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
-                className="flex items-center gap-0.5 text-[10px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1.5 py-0.5 cursor-default"
-              >
+            {blockedCount !== null &&
+            <span
+              title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
+              className="flex items-center gap-0.5 text-[10px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1.5 py-0.5 cursor-default">
+
                 <ShieldAlert className="h-2.5 w-2.5" />{blockedCount}
               </span>
-            )}
+            }
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
           <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
@@ -460,16 +460,16 @@ const Index = () => {
         {mainPage === "aliments" && <FoodItems />}
         {mainPage === "courses" && <ShoppingList />}
         {mainPage === "planning" && <WeeklyPlanning />}
-        {mainPage === "repas" && (
-          <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
+        {mainPage === "repas" &&
+        <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
             <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <TabsList className="flex-1 overflow-x-auto">
-              {CATEGORIES.map((c) => (
-                  <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1">
+              {CATEGORIES.map((c) =>
+              <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1">
                     <span className="mr-0.5">{c.emoji}</span>
                     <span className="text-[9px] sm:text-xs leading-tight">{c.label}</span>
                   </TabsTrigger>
-                ))}
+              )}
               </TabsList>
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogTrigger asChild>
@@ -483,21 +483,21 @@ const Index = () => {
                   </DialogHeader>
                   <div className="flex flex-col gap-3">
                     <Input autoFocus placeholder="Ex: Pâtes carbonara" value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
                     <Select value={newCategory} onValueChange={(v) => setNewCategory(v as MealCategory)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {CATEGORIES.map((c) => (
-                          <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>
-                        ))}
+                        {CATEGORIES.map((c) =>
+                      <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>
+                      )}
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
-                      <Button onClick={() => { setAddTarget("all"); handleAdd(); }} disabled={!newName.trim()} className="flex-1 text-xs">
+                      <Button onClick={() => {setAddTarget("all");handleAdd();}} disabled={!newName.trim()} className="flex-1 text-xs">
                         Tous les repas
                       </Button>
-                      <Button onClick={() => { setAddTarget("possible"); handleAdd(); }} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs">
+                      <Button onClick={() => {setAddTarget("possible");handleAdd();}} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs">
                         Possibles uniquement
                       </Button>
                     </div>
@@ -506,68 +506,68 @@ const Index = () => {
               </Dialog>
             </div>
 
-            {CATEGORIES.map((cat) => (
-              <TabsContent key={cat.value} value={cat.value}>
+            {CATEGORIES.map((cat) =>
+          <TabsContent key={cat.value} value={cat.value}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div className="flex flex-col gap-3 sm:gap-4">
                     <MasterList
-                      category={cat}
-                      meals={getMealsByCategory(cat.value)}
-                      onMoveToPossible={(id) => moveToPossible.mutate(id)}
-                      onRename={(id, name) => renameMeal.mutate({ id, name })}
-                      onDelete={(id) => deleteMeal.mutate(id)}
-                      onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
-                      onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
-                      onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
-                      onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
-                    />
+                  category={cat}
+                  meals={getMealsByCategory(cat.value)}
+                  onMoveToPossible={(id) => moveToPossible.mutate(id)}
+                  onRename={(id, name) => renameMeal.mutate({ id, name })}
+                  onDelete={(id) => deleteMeal.mutate(id)}
+                  onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                  onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
+                  onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
+                  onReorder={(from, to) => handleReorderMeals(cat.value, from, to)} />
+
                     <AvailableList
-                      category={cat}
-                      meals={getMealsByCategory(cat.value)}
-                      foodItems={foodItems}
-                      onMoveToPossible={(id) => moveToPossible.mutate(id)}
-                    />
+                  category={cat}
+                  meals={getMealsByCategory(cat.value)}
+                  foodItems={foodItems}
+                  onMoveToPossible={(id) => moveToPossible.mutate(id)} />
+
                   </div>
                   <PossibleList
-                    category={cat}
-                    items={getSortedPossible(cat.value)}
-                    sortMode={sortModes[cat.value] || "manual"}
-                    onToggleSort={() => toggleSort(cat.value)}
-                    onRandomPick={() => handleRandomPick(cat.value)}
-                    onRemove={(id) => removeFromPossible.mutate(id)}
-                    onDelete={(id) => deletePossibleMeal.mutate(id)}
-                    onDuplicate={(id) => duplicatePossibleMeal.mutate(id)}
-                    onUpdateExpiration={(id, d) => updateExpiration.mutate({ id, expiration_date: d })}
-                    onUpdatePlanning={(id, day, time) => updatePlanning.mutate({ id, day_of_week: day, meal_time: time })}
-                    onUpdateCounter={(id, d) => updateCounter.mutate({ id, counter_start_date: d })}
-                    onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
-                    onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
-                    onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
-                    onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
-                    onExternalDrop={(mealId) => moveToPossible.mutate(mealId)}
-                    highlightedId={highlightedId}
-                    onAddDirectly={() => openDialog("possible")}
-                  />
+                category={cat}
+                items={getSortedPossible(cat.value)}
+                sortMode={sortModes[cat.value] || "manual"}
+                onToggleSort={() => toggleSort(cat.value)}
+                onRandomPick={() => handleRandomPick(cat.value)}
+                onRemove={(id) => removeFromPossible.mutate(id)}
+                onDelete={(id) => deletePossibleMeal.mutate(id)}
+                onDuplicate={(id) => duplicatePossibleMeal.mutate(id)}
+                onUpdateExpiration={(id, d) => updateExpiration.mutate({ id, expiration_date: d })}
+                onUpdatePlanning={(id, day, time) => updatePlanning.mutate({ id, day_of_week: day, meal_time: time })}
+                onUpdateCounter={(id, d) => updateCounter.mutate({ id, counter_start_date: d })}
+                onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
+                onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
+                onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
+                onExternalDrop={(mealId) => moveToPossible.mutate(mealId)}
+                highlightedId={highlightedId}
+                onAddDirectly={() => openDialog("possible")} />
+
                 </div>
               </TabsContent>
-            ))}
+          )}
           </Tabs>
-        )}
+        }
       </main>
-    </div>
-  );
+    </div>);
+
 };
 
 // --- Sub-components ---
 
 // ─── Normalize text for fuzzy ingredient matching ────────────────────────────
 function normalizeForMatch(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, "")
-    .trim();
+  return text.
+  toLowerCase().
+  normalize("NFD").
+  replace(/[\u0300-\u036f]/g, "").
+  replace(/[^a-z0-9\s]/g, "").
+  trim();
 }
 
 // Parse a quantity string like "100g" or "200" → number
@@ -578,7 +578,7 @@ function parseQty(qty: string | null | undefined): number {
 }
 
 // Parse an ingredient line like "100g jambon" → { qty: 100, name: "jambon" }
-function parseIngredientLine(ing: string): { qty: number; name: string } {
+function parseIngredientLine(ing: string): {qty: number;name: string;} {
   const m = ing.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s+(.*)/i);
   if (m) return { qty: parseFloat(m[1].replace(",", ".")), name: normalizeForMatch(m[2]) };
   return { qty: 0, name: normalizeForMatch(ing) };
@@ -612,7 +612,7 @@ function findStockKey(stockMap: Map<string, number>, name: string): string | nul
 function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | null {
   if (!meal.ingredients?.trim()) return null;
 
-  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
   if (ingredients.length === 0) return null;
 
   let multiple = Infinity;
@@ -635,36 +635,36 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | nu
 }
 
 // ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
-function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
-  category: { value: string; label: string; emoji: string };
-  meals: Meal[];
-  foodItems: FoodItem[];
-  onMoveToPossible: (id: string) => void;
-}) {
+function AvailableList({ category, meals, foodItems, onMoveToPossible
+
+
+
+
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;}) {
   const [open, setOpen] = useState(true);
 
   // Aggregate stock from all food items
   const stockMap = buildStockMap(foodItems);
 
   // Meals realizable with current stock
-  const available: { meal: Meal; multiple: number | null }[] = meals
-    .map(meal => ({ meal, multiple: getMealMultiple(meal, stockMap) }))
-    .filter(({ multiple }) => multiple !== null);
+  const available: {meal: Meal;multiple: number | null;}[] = meals.
+  map((meal) => ({ meal, multiple: getMealMultiple(meal, stockMap) })).
+  filter(({ multiple }) => multiple !== null);
 
   // Food items marked as is_meal that no recipe uses OR that appear as standalone
   // (i.e. they can be eaten alone regardless of recipe match)
-  const isMealItems = foodItems.filter(fi => fi.is_meal);
+  const isMealItems = foodItems.filter((fi) => fi.is_meal);
 
   // Also surface food items that no recipe ingredient matches AND is NOT is_meal
   // → these "orphans" are highlighted in available list as a warning
-  const orphanFoodItems = foodItems.filter(fi => {
+  const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false; // already handled above
     const fiKey = normalizeForMatch(fi.name);
     // Check if any meal's ingredients reference this food item
-    const usedByAnyMeal = meals.some(meal => {
+    const usedByAnyMeal = meals.some((meal) => {
       if (!meal.ingredients) return false;
-      const ings = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-      return ings.some(ing => {
+      const ings = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+      return ings.some((ing) => {
         const { name } = parseIngredientLine(ing);
         return fiKey.includes(name) || name.includes(fiKey);
       });
@@ -677,9 +677,9 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
       <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 w-full text-left"
-      >
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 w-full text-left">
+
         {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
         <h2 className="text-base font-bold text-foreground flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-yellow-500" />
@@ -688,84 +688,84 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
         <span className="text-sm font-normal text-muted-foreground">{totalCount}</span>
       </button>
 
-      {open && (
-        <div className="flex flex-col gap-2 mt-3">
+      {open &&
+      <div className="flex flex-col gap-2 mt-3">
           {/* Recipes available */}
-          {available.map(({ meal, multiple }) => (
-            <div key={meal.id} className="relative">
+          {available.map(({ meal, multiple }) =>
+        <div key={meal.id} className="relative">
               <MealCard
-                meal={meal}
-                onMoveToPossible={() => onMoveToPossible(meal.id)}
-                onRename={() => {}}
-                onDelete={() => {}}
-                onUpdateCalories={() => {}}
-                onUpdateGrams={() => {}}
-                onUpdateIngredients={() => {}}
-                onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              />
+            meal={meal}
+            onMoveToPossible={() => onMoveToPossible(meal.id)}
+            onRename={() => {}}
+            onDelete={() => {}}
+            onUpdateCalories={() => {}}
+            onUpdateGrams={() => {}}
+            onUpdateIngredients={() => {}}
+            onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "available");}}
+            onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
+            onDrop={(e) => {e.preventDefault();e.stopPropagation();}} />
+
               {/* Multiple badge */}
-              {multiple !== null && (
-                <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
-                  x{multiple === Infinity ? <InfinityIcon className="h-2.5 w-2.5 inline" /> : multiple}
+              {multiple !== null &&
+          <div className="absolute top-2 right-2 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
+                  x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
                 </div>
-              )}
+          }
             </div>
-          ))}
+        )}
 
           {/* is_meal food items — appear as standalone */}
-          {isMealItems.map(fi => {
-            const fiKey = normalizeForMatch(fi.name);
-            const stock = stockMap.get(fiKey) ?? 0;
-            const qty = fi.is_infinite ? Infinity : stock;
-            return (
-              <div key={fi.id} className="rounded-xl px-3 py-2 bg-secondary text-secondary-foreground text-xs font-semibold flex items-center gap-2 shadow">
+          {isMealItems.map((fi) => {
+          const fiKey = normalizeForMatch(fi.name);
+          const stock = stockMap.get(fiKey) ?? 0;
+          const qty = fi.is_infinite ? Infinity : stock;
+          return (
+            <div key={fi.id} className="rounded-xl px-3 py-2 bg-secondary text-secondary-foreground text-xs font-semibold flex items-center gap-2 shadow">
                 <UtensilsCrossed className="h-3 w-3 shrink-0 opacity-70" />
                 <span className="flex-1">{fi.name}</span>
                 <span className="flex items-center gap-0.5 bg-black/40 px-1.5 py-0.5 rounded-full text-[10px] font-black">
                   x{qty === Infinity ? <InfinityIcon className="h-2.5 w-2.5 inline" /> : Math.floor(qty)}
                 </span>
-              </div>
-            );
-          })}
+              </div>);
+
+        })}
 
           {/* Orphan warning */}
-          {orphanFoodItems.length > 0 && (
-            <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
+          {orphanFoodItems.length > 0 &&
+        <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
               <p className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wide">Aliments inutilisés dans les recettes</p>
               <div className="flex flex-wrap gap-1">
-                {orphanFoodItems.map(fi => (
-                  <span key={fi.id} className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+                {orphanFoodItems.map((fi) =>
+            <span key={fi.id} className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
                     {fi.name}{fi.grams ? ` ${fi.grams}` : ''}
                   </span>
-                ))}
+            )}
               </div>
             </div>
-          )}
+        }
 
-          {totalCount === 0 && orphanFoodItems.length === 0 && (
-            <p className="text-muted-foreground text-sm text-center py-4 italic">
+          {totalCount === 0 && orphanFoodItems.length === 0 &&
+        <p className="text-muted-foreground text-sm text-center py-4 italic">
               Aucun repas réalisable avec les aliments disponibles
             </p>
-          )}
+        }
         </div>
-      )}
-    </div>
-  );
+      }
+    </div>);
+
 }
 
-function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder }: {
-  category: { value: string; label: string; emoji: string };
-  meals: Meal[];
-  onMoveToPossible: (id: string) => void;
-  onRename: (id: string, name: string) => void;
-  onDelete: (id: string) => void;
-  onUpdateCalories: (id: string, cal: string | null) => void;
-  onUpdateGrams: (id: string, g: string | null) => void;
-  onUpdateIngredients: (id: string, ing: string | null) => void;
-  onReorder: (fromIndex: number, toIndex: number) => void;
-}) {
+function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder
+
+
+
+
+
+
+
+
+
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -775,81 +775,81 @@ function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onU
       emoji="📋"
       count={meals.length}
       collapsed={collapsed}
-      onToggleCollapse={() => setCollapsed(c => !c)}
-    >
-      {!collapsed && (
-        <>
+      onToggleCollapse={() => setCollapsed((c) => !c)}>
+
+      {!collapsed &&
+      <>
           {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Aucun repas</p>}
-          {meals.map((meal, index) => (
-            <MealCard key={meal.id} meal={meal}
-              onMoveToPossible={() => onMoveToPossible(meal.id)}
-              onRename={(name) => onRename(meal.id, name)}
-              onDelete={() => onDelete(meal.id)}
-              onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
-              onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
-              onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-              onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
-            />
-          ))}
+          {meals.map((meal, index) =>
+        <MealCard key={meal.id} meal={meal}
+        onMoveToPossible={() => onMoveToPossible(meal.id)}
+        onRename={(name) => onRename(meal.id, name)}
+        onDelete={() => onDelete(meal.id)}
+        onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
+        onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
+        onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+        onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "master");setDragIndex(index);}}
+        onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
+        onDrop={(e) => {e.preventDefault();e.stopPropagation();if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index);setDragIndex(null);}} />
+
+        )}
         </>
-      )}
-    </MealList>
-  );
+      }
+    </MealList>);
+
 }
 
-function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder, onExternalDrop, highlightedId, onAddDirectly }: {
-  category: { value: string; label: string; emoji: string };
-  items: PossibleMeal[];
-  sortMode: SortMode;
-  onToggleSort: () => void;
-  onRandomPick: () => void;
-  onRemove: (id: string) => void;
-  onDelete: (id: string) => void;
-  onDuplicate: (id: string) => void;
-  onUpdateExpiration: (id: string, d: string | null) => void;
-  onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;
-  onUpdateCounter: (id: string, d: string | null) => void;
-  onUpdateCalories: (id: string, cal: string | null) => void;
-  onUpdateGrams: (id: string, g: string | null) => void;
-  onUpdateIngredients: (id: string, ing: string | null) => void;
-  onReorder: (fromIndex: number, toIndex: number) => void;
-  onExternalDrop: (mealId: string) => void;
-  highlightedId: string | null;
-  onAddDirectly: () => void;
-}) {
+function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder, onExternalDrop, highlightedId, onAddDirectly
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;onAddDirectly: () => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
 
   return (
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={items.length} onExternalDrop={onExternalDrop}
-      headerActions={<>
+    headerActions={<>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
         <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5"><SortIcon className="h-3 w-3" /><span className="hidden sm:inline">{sortLabel}</span></Button>
         <Button size="sm" variant="ghost" onClick={onRandomPick} className="h-6 w-6 p-0"><Dice5 className="h-3.5 w-3.5" /></Button>
       </>}>
       {items.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Glisse des repas ici →</p>}
-      {items.map((pm, index) => (
-        <PossibleMealCard key={pm.id} pm={pm}
-          onRemove={() => onRemove(pm.id)}
-          onDelete={() => onDelete(pm.id)}
-          onDuplicate={() => onDuplicate(pm.id)}
-          onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
-          onUpdatePlanning={(day, time) => onUpdatePlanning(pm.id, day, time)}
-          onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
-          onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal)}
-          onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
-          onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
-          onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
-          isHighlighted={highlightedId === pm.id}
-        />
-      ))}
-    </MealList>
-  );
+      {items.map((pm, index) =>
+      <PossibleMealCard key={pm.id} pm={pm}
+      onRemove={() => onRemove(pm.id)}
+      onDelete={() => onDelete(pm.id)}
+      onDuplicate={() => onDuplicate(pm.id)}
+      onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
+      onUpdatePlanning={(day, time) => onUpdatePlanning(pm.id, day, time)}
+      onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
+      onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal)}
+      onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
+      onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
+      onDragStart={(e) => {e.dataTransfer.setData("mealId", pm.meal_id);e.dataTransfer.setData("pmId", pm.id);e.dataTransfer.setData("source", "possible");setDragIndex(index);}}
+      onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
+      onDrop={(e) => {e.preventDefault();e.stopPropagation();if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index);setDragIndex(null);}}
+      isHighlighted={highlightedId === pm.id} />
+
+      )}
+    </MealList>);
+
 }
 
 export default Index;
