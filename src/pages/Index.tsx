@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { ShoppingList } from "@/components/ShoppingList";
 import { WeeklyPlanning } from "@/components/WeeklyPlanning";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
+import { useShoppingList, type ShoppingItem, type ShoppingGroup } from "@/hooks/useShoppingList";
 import { toast } from "@/hooks/use-toast";
 
 const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
@@ -32,14 +33,6 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [blockedCount, setBlockedCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    // Fetch blocked IPs count from edge function (admin info)
-    supabase.functions.invoke("verify-pin", { body: { admin_stats: true } })
-      .then(({ data }) => { if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count); })
-      .catch(() => {});
-  }, []);
 
   const handleSubmit = async () => {
     if (pin.length !== 4) return;
@@ -49,7 +42,6 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         body: { pin },
       });
       if (fnError || !data?.success) {
-        if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count);
         setError(true);
         setPin("");
         setTimeout(() => setError(false), 1500);
@@ -92,11 +84,6 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
         {error && <p className="text-destructive text-sm">Code incorrect</p>}
-        {blockedCount !== null && blockedCount > 0 && (
-          <p className="text-[11px] text-muted-foreground/60 mt-2">
-            🔒 {blockedCount} IP{blockedCount > 1 ? 's bloquées' : ' bloquée'} (15 min)
-          </p>
-        )}
       </div>
     </div>
   );
@@ -116,6 +103,7 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 
 const Index = () => {
   const [unlocked, setUnlocked] = useState(false);
+  const [blockedCount, setBlockedCount] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -125,14 +113,41 @@ const Index = () => {
     navigate(PAGE_TO_ROUTE[page]);
   };
 
+  // ── Fin de session au refresh/fermeture de page ──────────────────────────────
+  useEffect(() => {
+    const handleUnload = () => {
+      supabase.auth.signOut();
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
+  }, []);
+
+  // ── Fetch blocked IPs count (only when unlocked) ─────────────────────────────
+  useEffect(() => {
+    if (!unlocked) return;
+    const fetchBlockedCount = async () => {
+      try {
+        const { data } = await supabase.functions.invoke("verify-pin", { body: { admin_stats: true } });
+        if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count);
+      } catch { /* ignore */ }
+    };
+    fetchBlockedCount();
+    const interval = setInterval(fetchBlockedCount, 60_000);
+    return () => clearInterval(interval);
+  }, [unlocked]);
+
   const {
     isLoading,
+    meals,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible,
   } = useMeals();
+
+  // Shopping list hook for import/export
+  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
 
   const [activeCategory, setActiveCategory] = useState<MealCategory>("plat");
   const [newName, setNewName] = useState("");
@@ -215,7 +230,7 @@ const Index = () => {
     setSortModes((prev) => ({ ...prev, [cat]: "manual" }));
   };
 
-  // ── Export / Import (accessible via triple-clic sur 🍽️) ────────────────────
+  // ── Export / Import repas (accessible via triple-clic sur 🍽️) ──────────────
   const handleExportMeals = () => {
     const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
     const lines = allCats.flatMap(cat => getMealsByCategory(cat)).map(m => {
@@ -237,7 +252,6 @@ const Index = () => {
     input.onchange = async (ev) => {
       const file = (ev.target as HTMLInputElement).files?.[0];
       if (!file) return;
-      // Validate file type — only plain text files accepted
       const isPlainText = file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
       if (!isPlainText) {
         toast({ title: '❌ Format invalide', description: 'Seuls les fichiers .txt sont acceptés.', variant: 'destructive' });
@@ -261,6 +275,97 @@ const Index = () => {
     input.click();
   };
 
+  // ── Export / Import liste de courses ────────────────────────────────────────
+  const handleExportShopping = () => {
+    const lines: string[] = [];
+    // Groups with their items
+    for (const group of shoppingGroups) {
+      lines.push(`[${group.name}]`);
+      const groupItems = shoppingItems.filter(i => i.group_id === group.id).sort((a, b) => a.sort_order - b.sort_order);
+      for (const item of groupItems) {
+        const parts: string[] = [];
+        if (item.quantity) parts.push(`qte=${item.quantity}`);
+        if (item.brand) parts.push(`marque=${item.brand}`);
+        if (item.checked) parts.push(`coche=1`);
+        lines.push(parts.length > 0 ? `${item.name} (${parts.join('; ')})` : item.name);
+      }
+    }
+    // Ungrouped items
+    const ungrouped = shoppingItems.filter(i => !i.group_id).sort((a, b) => a.sort_order - b.sort_order);
+    if (ungrouped.length > 0) {
+      lines.push(`[Sans groupe]`);
+      for (const item of ungrouped) {
+        const parts: string[] = [];
+        if (item.quantity) parts.push(`qte=${item.quantity}`);
+        if (item.brand) parts.push(`marque=${item.brand}`);
+        if (item.checked) parts.push(`coche=1`);
+        lines.push(parts.length > 0 ? `${item.name} (${parts.join('; ')})` : item.name);
+      }
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'courses.txt'; a.click();
+    toast({ title: `✅ Liste de courses exportée` });
+    setShowDevMenu(false);
+  };
+
+  const handleImportShopping = () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.txt';
+    input.onchange = async (ev) => {
+      const file = (ev.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      const isPlainText = file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
+      if (!isPlainText) {
+        toast({ title: '❌ Format invalide', description: 'Seuls les fichiers .txt sont acceptés.', variant: 'destructive' });
+        return;
+      }
+      // Import is additive — we don't delete existing items
+      const text = await file.text();
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      // We'll use supabase directly for bulk insert since we need ordering
+      const { supabase: sb } = await import('@/integrations/supabase/client');
+      let currentGroupId: string | null = null;
+      let groupOrder = shoppingGroups.length;
+      let itemOrder = 0;
+      let count = 0;
+      for (const line of lines) {
+        if (line.startsWith('[') && line.endsWith(']')) {
+          const groupName = line.slice(1, -1);
+          if (groupName !== 'Sans groupe') {
+            const existing = shoppingGroups.find(g => g.name === groupName);
+            if (existing) {
+              currentGroupId = existing.id;
+            } else {
+              const { data } = await (sb as any).from('shopping_groups').insert({ name: groupName, sort_order: groupOrder++ }).select().single();
+              currentGroupId = data?.id ?? null;
+            }
+          } else {
+            currentGroupId = null;
+          }
+          itemOrder = 0;
+        } else {
+          const match = line.match(/^(.+?)\s*\((.+)\)$/);
+          const name = match ? match[1].trim() : line;
+          const paramsStr = match ? match[2] : '';
+          const params: Record<string, string> = {};
+          paramsStr.split(';').forEach(p => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
+          await (sb as any).from('shopping_items').insert({
+            name,
+            group_id: currentGroupId,
+            quantity: params.qte || null,
+            brand: params.marque || null,
+            checked: params.coche === '1',
+            sort_order: itemOrder++,
+          });
+          count++;
+        }
+      }
+      toast({ title: `✅ ${count} articles importés` });
+      setShowDevMenu(false);
+    };
+    input.click();
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -277,7 +382,8 @@ const Index = () => {
           <div className="bg-card rounded-2xl p-6 space-y-3 w-72 shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="font-bold text-foreground">🛠 Outils cachés</h3>
             <p className="text-xs text-muted-foreground">Ces outils permettent d'exporter/importer vos données.</p>
-            <div className="space-y-2">
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Catalogue repas</p>
               <button onClick={handleExportMeals} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground">
                 <Download className="h-4 w-4" /> Exporter repas (.txt)
               </button>
@@ -285,14 +391,34 @@ const Index = () => {
                 <Upload className="h-4 w-4" /> Importer repas (.txt)
               </button>
             </div>
-            <p className="text-[10px] text-muted-foreground/50">Format: NOM (cat=plat; cal=350kcal; ing=riz, légumes)</p>
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Liste de courses</p>
+              <button onClick={handleExportShopping} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground">
+                <Download className="h-4 w-4" /> Exporter courses (.txt)
+              </button>
+              <button onClick={handleImportShopping} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground">
+                <Upload className="h-4 w-4" /> Importer courses (.txt)
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground/50">Format repas: NOM (cat=plat; cal=350kcal; ing=riz, légumes)</p>
             <button onClick={() => setShowDevMenu(false)} className="text-xs text-muted-foreground w-full text-center hover:text-foreground">Fermer</button>
           </div>
         </div>
       )}
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
-          <h1 className="text-lg sm:text-xl font-extrabold text-foreground shrink-0 cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <h1 className="text-lg sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
+            {/* Compteur IPs bloquées — visible uniquement après déverrouillage */}
+            {blockedCount !== null && (
+              <span
+                title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
+                className="flex items-center gap-0.5 text-[10px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1.5 py-0.5 cursor-default"
+              >
+                <ShieldAlert className="h-2.5 w-2.5" />{blockedCount}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
             <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
               <button onClick={() => setMainPage("repas")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
@@ -320,9 +446,10 @@ const Index = () => {
           <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
             <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <TabsList className="flex-1 overflow-x-auto">
-                {CATEGORIES.map((c) => (
-                  <TabsTrigger key={c.value} value={c.value} className="text-[10px] sm:text-xs px-2 sm:px-3">
-                    {c.emoji} <span className="ml-1">{c.label}</span>
+              {CATEGORIES.map((c) => (
+                  <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1">
+                    <span className="mr-0.5">{c.emoji}</span>
+                    <span className="text-[9px] sm:text-xs leading-tight">{c.label}</span>
                   </TabsTrigger>
                 ))}
               </TabsList>
