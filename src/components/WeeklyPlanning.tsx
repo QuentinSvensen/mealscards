@@ -85,7 +85,6 @@ export function WeeklyPlanning() {
   const todayRef = useRef<HTMLDivElement | null>(null);
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
 
-  // ✅ Détection device tactile
   const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
   // Scroll to today on mount
@@ -203,7 +202,7 @@ export function WeeklyPlanning() {
     }
 
     // Actively dragging
-    if (touchDrag.current && e.cancelable) e.preventDefault();
+    e.preventDefault();
     const touch = e.touches[0];
     const state = touchDrag.current;
     const dx = touch.clientX - state.startX;
@@ -287,7 +286,7 @@ export function WeeklyPlanning() {
     return (
       <div
         key={pm.id}
-        draggable={!isTouchDevice} // desktop drag actif, mobile désactivé
+        draggable
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
@@ -312,7 +311,7 @@ export function WeeklyPlanning() {
           ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
           ${compact ? "px-2 py-1" : "px-2 py-1.5"}
         `}
-        style={{ touchAction: touchDragActive ? "none" : "auto", backgroundColor: meal.color }}
+        style={{ backgroundColor: meal.color }}
       >
         {/* Row 1: emoji + name + counter + remove */}
         <div className="flex items-center gap-1 min-w-0 flex-wrap">
