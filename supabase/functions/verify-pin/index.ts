@@ -31,14 +31,14 @@ serve(async (req) => {
 
     const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
-    // Helper: count currently blocked IPs
+    // Helper: count total distinct IPs that were ever blocked (at least MAX_ATTEMPTS failures at some point)
     const getBlockedCount = async (): Promise<number> => {
       const { data } = await supabaseAdmin
         .from("pin_attempts")
         .select("ip")
-        .eq("success", false)
-        .gte("created_at", windowStart);
+        .eq("success", false);
       if (!data) return 0;
+      // Count distinct IPs that have accumulated >= MAX_ATTEMPTS failed attempts total (all time)
       const counts: Record<string, number> = {};
       data.forEach(r => { counts[r.ip] = (counts[r.ip] || 0) + 1; });
       return Object.values(counts).filter(c => c >= MAX_ATTEMPTS).length;

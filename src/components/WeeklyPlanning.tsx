@@ -72,12 +72,16 @@ export function WeeklyPlanning() {
 
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
 
-  // Scroll to today on mount
+  // Scroll to today on mount — offset by header height
   useEffect(() => {
     if (todayRef.current) {
       setTimeout(() => {
-        todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 100);
+        const el = todayRef.current;
+        if (!el) return;
+        const headerHeight = 64; // sticky header height in px
+        const top = el.getBoundingClientRect().top + window.scrollY - headerHeight - 8;
+        window.scrollTo({ top, behavior: "smooth" });
+      }, 150);
     }
   }, []);
 
@@ -198,9 +202,9 @@ export function WeeklyPlanning() {
 
     const touch = e.changedTouches[0];
     // Hide ghost before elementFromPoint so it doesn't intercept
-    if (ghost) ghost.style.display = 'none';
+    if (ghost) ghost.style.visibility = 'hidden';
     const target = document.elementFromPoint(touch.clientX, touch.clientY);
-    if (ghost) ghost.style.display = '';
+    if (ghost) ghost.style.visibility = '';
 
     const slotEl = target?.closest("[data-slot]");
     if (slotEl) {
