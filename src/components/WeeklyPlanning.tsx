@@ -84,6 +84,8 @@ export function WeeklyPlanning() {
 
   const todayRef = useRef<HTMLDivElement | null>(null);
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
+  // ✅ Détection device tactile
+  const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
   // Scroll to today on mount
   useEffect(() => {
@@ -284,8 +286,7 @@ export function WeeklyPlanning() {
     return (
       <div
         key={pm.id}
-        draggable={!("ontouchstart" in window)} // ✅ FIX mobile
-        draggable
+        draggable={!isTouchDevice} // ✅ une seule fois
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
