@@ -237,6 +237,12 @@ const Index = () => {
     input.onchange = async (ev) => {
       const file = (ev.target as HTMLInputElement).files?.[0];
       if (!file) return;
+      // Validate file type — only plain text files accepted
+      const isPlainText = file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt');
+      if (!isPlainText) {
+        toast({ title: '❌ Format invalide', description: 'Seuls les fichiers .txt sont acceptés.', variant: 'destructive' });
+        return;
+      }
       const text = await file.text();
       const lineParts = text.split('\n').map(l => l.trim()).filter(Boolean);
       let count = 0;
