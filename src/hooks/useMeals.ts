@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
@@ -61,6 +62,18 @@ export function useMeals() {
     qc.invalidateQueries({ queryKey: ["possible_meals"] });
   };
 
+  // Re-fetch queries when auth session becomes available
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') {
+        // Invalidate all queries so they re-fetch with the new session
+        qc.invalidateQueries({ queryKey: ["meals"] });
+        qc.invalidateQueries({ queryKey: ["possible_meals"] });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [qc]);
+
   const { data: meals = [], isLoading: ml } = useQuery({
     queryKey: ["meals"],
     queryFn: async () => {
@@ -71,6 +84,8 @@ export function useMeals() {
       if (error) throw error;
       return data as Meal[];
     },
+    retry: 3,
+    retryDelay: 500,
   });
 
   const { data: possibleMeals = [], isLoading: pl } = useQuery({
@@ -83,9 +98,11 @@ export function useMeals() {
       if (error) throw error;
       return data as PossibleMeal[];
     },
+    retry: 3,
+    retryDelay: 500,
   });
 
-  const isLoading = ml; // Only block on meals loading; possible_meals loads independently
+  const isLoading = ml || pl;
 
   // --- Master meal mutations ---
 

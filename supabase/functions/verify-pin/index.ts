@@ -12,6 +12,11 @@ const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 // Single shared app-user credentials (created on first run)
 const APP_USER_EMAIL = "app@internal.local";
 
+// ─── Persistent blocked-IP counter stored in a dedicated DB table ─────────────
+// We use a simple key-value row in pin_attempts_meta (created lazily via upsert).
+// The counter only ever goes up — it tracks how many distinct IPs have EVER been
+// blocked at least once (reached MAX_ATTEMPTS failures).
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -28,21 +33,6 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
-
-    const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
-
-    // Helper: count total distinct IPs that were ever blocked (at least MAX_ATTEMPTS failures at some point)
-    const getBlockedCount = async (): Promise<number> => {
-      const { data } = await supabaseAdmin
-        .from("pin_attempts")
-        .select("ip")
-        .eq("success", false);
-      if (!data) return 0;
-      // Count distinct IPs that have accumulated >= MAX_ATTEMPTS failed attempts total (all time)
-      const counts: Record<string, number> = {};
-      data.forEach(r => { counts[r.ip] = (counts[r.ip] || 0) + 1; });
-      return Object.values(counts).filter(c => c >= MAX_ATTEMPTS).length;
-    };
 
     // Parse body (may be admin_stats request)
     let body: Record<string, unknown> = {};
@@ -70,14 +60,25 @@ serve(async (req) => {
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const blocked_count = await getBlockedCount();
+
+      // Read the persisted cumulative count
+      const { data: metaRow } = await supabaseAdmin
+        .from("pin_attempts_meta")
+        .select("value")
+        .eq("key", "cumulative_blocked_count")
+        .maybeSingle();
+
+      const blocked_count = metaRow ? parseInt(metaRow.value, 10) : 0;
+
       return new Response(
         JSON.stringify({ blocked_count }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Rate limiting: check recent failed attempts from this IP
+    // ── Rate limiting: check recent failed attempts from this IP ──────────────
+    const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
+
     const { data: attempts } = await supabaseAdmin
       .from("pin_attempts")
       .select("id")
@@ -119,18 +120,50 @@ serve(async (req) => {
       success: isValid,
     });
 
-    // Clean up old attempts
-    await supabaseAdmin
-      .from("pin_attempts")
-      .delete()
-      .lt("created_at", new Date(Date.now() - WINDOW_MS).toISOString());
-
+    // ── If this attempt is a failure, check if this IP just hit MAX_ATTEMPTS ──
+    // (i.e. this is the blocking threshold crossing — increment persistent counter)
     if (!isValid) {
+      // Recount failures within window after inserting this one
+      const { data: freshAttempts } = await supabaseAdmin
+        .from("pin_attempts")
+        .select("id")
+        .eq("ip", clientIp)
+        .eq("success", false)
+        .gte("created_at", windowStart);
+
+      const failCount = freshAttempts?.length ?? 0;
+
+      // Exactly at the threshold — this IP just got blocked for the first time
+      // in this window. Increment the cumulative counter.
+      if (failCount === MAX_ATTEMPTS) {
+        // Read current value
+        const { data: metaRow } = await supabaseAdmin
+          .from("pin_attempts_meta")
+          .select("value")
+          .eq("key", "cumulative_blocked_count")
+          .maybeSingle();
+
+        const currentCount = metaRow ? parseInt(metaRow.value, 10) : 0;
+        const newCount = currentCount + 1;
+
+        // Upsert the new value
+        await supabaseAdmin.from("pin_attempts_meta").upsert({
+          key: "cumulative_blocked_count",
+          value: String(newCount),
+        }, { onConflict: "key" });
+      }
+
       return new Response(
         JSON.stringify({ success: false, error: "Accès refusé. Veuillez réessayer." }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Clean up old attempts
+    await supabaseAdmin
+      .from("pin_attempts")
+      .delete()
+      .lt("created_at", new Date(Date.now() - WINDOW_MS).toISOString());
 
     // PIN is valid — ensure the shared app-user exists, then sign in to get a real session
     const appUserPassword = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!.slice(0, 32);
