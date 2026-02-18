@@ -94,13 +94,11 @@ serve(async (req) => {
 
     const isValid = pin === serverPin;
 
-    // Only record failed attempts (successes are never read and expose login metadata)
-    if (!isValid) {
-      await supabaseAdmin.from("pin_attempts").insert({
-        ip: clientIp,
-        success: false,
-      });
-    }
+    // Record the attempt
+    await supabaseAdmin.from("pin_attempts").insert({
+      ip: clientIp,
+      success: isValid,
+    });
 
     // Clean up old attempts
     await supabaseAdmin
