@@ -164,12 +164,23 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
             </DropdownMenu>
           </div>
 
-          {/* Ingredients display */}
+          {/* Ingredients display — two columns: grams | ingredient name */}
           {meal.ingredients && (
-            <div className="mt-1.5 text-xs text-white/70 flex flex-wrap gap-x-1">
-              {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => (
-                <span key={i}>{ing.trim()}{i < arr.length - 1 ? ' •' : ''}</span>
-              ))}
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((ing, i) => {
+                const trimmed = ing.trim();
+                // Try to split "100g de pâtes" → grams="100g" name="de pâtes"
+                const match = trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?\s+(?:de\s+|d')?)(.*)/i) ||
+                              trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?)(.*)/i);
+                const grams = match ? match[1].trim() : null;
+                const name = match ? match[2].trim() : trimmed;
+                return (
+                  <div key={i} className="flex items-baseline gap-1.5 text-xs text-white/70">
+                    {grams && <span className="font-mono text-white/50 text-[10px] shrink-0 w-14 text-right">{grams}</span>}
+                    <span className={grams ? '' : 'pl-0.5'}>{name || grams}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </>

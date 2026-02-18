@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { MealCard } from "@/components/MealCard";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import { ShoppingList } from "@/components/ShoppingList";
 import { WeeklyPlanning } from "@/components/WeeklyPlanning";
+import { FoodItems } from "@/components/FoodItems";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList, type ShoppingItem, type ShoppingGroup } from "@/hooks/useShoppingList";
@@ -26,7 +27,7 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string }[] = [
 ];
 
 type SortMode = "manual" | "expiration" | "planning";
-type MainPage = "repas" | "planning" | "courses";
+type MainPage = "aliments" | "repas" | "planning" | "courses";
 
 // PIN lock — shown on every page load (no sessionStorage persistence)
 function PinLock({ onUnlock }: { onUnlock: () => void }) {
@@ -90,12 +91,14 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
 }
 
 const ROUTE_TO_PAGE: Record<string, MainPage> = {
+  "/aliments": "aliments",
   "/repas": "repas",
   "/planning": "planning",
   "/courses": "courses",
 };
 
 const PAGE_TO_ROUTE: Record<MainPage, string> = {
+  aliments: "/aliments",
   repas: "/repas",
   planning: "/planning",
   courses: "/courses",
@@ -382,14 +385,6 @@ const Index = () => {
     input.click();
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-muted-foreground animate-pulse text-lg">Chargement…</p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       {/* Hidden dev menu — triple-clic sur 🍽️ */}
@@ -436,7 +431,11 @@ const Index = () => {
             )}
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
-            <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
+          <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
+              <button onClick={() => setMainPage("aliments")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
+                <Apple className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                <span className={mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}>Aliments</span>
+              </button>
               <button onClick={() => setMainPage("repas")} className={`px-2.5 sm:px-3 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
                 <UtensilsCrossed className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                 <span className={mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}>Repas</span>
@@ -456,6 +455,7 @@ const Index = () => {
       </header>
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
+        {mainPage === "aliments" && <FoodItems />}
         {mainPage === "courses" && <ShoppingList />}
         {mainPage === "planning" && <WeeklyPlanning />}
         {mainPage === "repas" && (

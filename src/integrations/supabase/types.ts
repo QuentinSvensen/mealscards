@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      food_items: {
+        Row: {
+          calories: string | null
+          counter_start_date: string | null
+          created_at: string
+          expiration_date: string | null
+          grams: string | null
+          id: string
+          name: string
+          sort_order: number
+          user_id: string | null
+        }
+        Insert: {
+          calories?: string | null
+          counter_start_date?: string | null
+          created_at?: string
+          expiration_date?: string | null
+          grams?: string | null
+          id?: string
+          name: string
+          sort_order?: number
+          user_id?: string | null
+        }
+        Update: {
+          calories?: string | null
+          counter_start_date?: string | null
+          created_at?: string
+          expiration_date?: string | null
+          grams?: string | null
+          id?: string
+          name?: string
+          sort_order?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       meals: {
         Row: {
           calories: string | null
