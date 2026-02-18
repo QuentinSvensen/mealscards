@@ -113,6 +113,21 @@ export type Database = {
         }
         Relationships: []
       }
+      pin_attempts_meta: {
+        Row: {
+          key: string
+          value: string
+        }
+        Insert: {
+          key: string
+          value?: string
+        }
+        Update: {
+          key?: string
+          value?: string
+        }
+        Relationships: []
+      }
       possible_meals: {
         Row: {
           counter_start_date: string | null

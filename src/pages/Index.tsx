@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles } from "lucide-react";
+
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import { MealCard } from "@/components/MealCard";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import { ShoppingList } from "@/components/ShoppingList";
 import { WeeklyPlanning } from "@/components/WeeklyPlanning";
-import { FoodItems } from "@/components/FoodItems";
+import { FoodItems, useFoodItems, type FoodItem } from "@/components/FoodItems";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList, type ShoppingItem, type ShoppingGroup } from "@/hooks/useShoppingList";
@@ -106,6 +107,7 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 
 const Index = () => {
   const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
+  const { items: foodItems } = useFoodItems();
   const [blockedCount, setBlockedCount] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -434,19 +436,19 @@ const Index = () => {
           <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
               <button onClick={() => setMainPage("aliments")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
                 <Apple className="h-3 w-3 shrink-0" />
-                <span className={`text-[10px] sm:text-xs ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
+                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
               </button>
               <button onClick={() => setMainPage("repas")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
                 <UtensilsCrossed className="h-3 w-3 shrink-0" />
-                <span className={`text-[10px] sm:text-xs ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
+                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
               </button>
               <button onClick={() => setMainPage("planning")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
                 <CalendarRange className="h-3 w-3 shrink-0" />
-                <span className={`text-[10px] sm:text-xs ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
+                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
               </button>
               <button onClick={() => setMainPage("courses")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
                 <ShoppingCart className="h-3 w-3 shrink-0" />
-                <span className={`text-[10px] sm:text-xs ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
+                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
               </button>
             </div>
           </div>
@@ -507,17 +509,25 @@ const Index = () => {
             {CATEGORIES.map((cat) => (
               <TabsContent key={cat.value} value={cat.value}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                  <MasterList
-                    category={cat}
-                    meals={getMealsByCategory(cat.value)}
-                    onMoveToPossible={(id) => moveToPossible.mutate(id)}
-                    onRename={(id, name) => renameMeal.mutate({ id, name })}
-                    onDelete={(id) => deleteMeal.mutate(id)}
-                    onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
-                    onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
-                    onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
-                    onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
-                  />
+                  <div className="flex flex-col gap-3 sm:gap-4">
+                    <MasterList
+                      category={cat}
+                      meals={getMealsByCategory(cat.value)}
+                      onMoveToPossible={(id) => moveToPossible.mutate(id)}
+                      onRename={(id, name) => renameMeal.mutate({ id, name })}
+                      onDelete={(id) => deleteMeal.mutate(id)}
+                      onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                      onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
+                      onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
+                      onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
+                    />
+                    <AvailableList
+                      category={cat}
+                      meals={getMealsByCategory(cat.value)}
+                      foodItems={foodItems}
+                      onMoveToPossible={(id) => moveToPossible.mutate(id)}
+                    />
+                  </div>
                   <PossibleList
                     category={cat}
                     items={getSortedPossible(cat.value)}
@@ -549,6 +559,122 @@ const Index = () => {
 };
 
 // --- Sub-components ---
+
+// ─── Normalize text for fuzzy ingredient matching ────────────────────────────
+function normalizeForMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9\s]/g, "")
+    .trim();
+}
+
+// Parse a quantity string like "100g" → 100, or "200" → 200
+function parseQty(qty: string | null | undefined): number {
+  if (!qty) return 0;
+  const n = parseFloat(qty.replace(",", ".").replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
+// Check if a meal's ingredients are all available in the foodItems list
+// Ingredient format stored: "100g jambon, 200g pates"
+// FoodItem format: name + grams (e.g. name="Jambon" grams="200g")
+function isMealAvailable(meal: Meal, foodItems: FoodItem[]): boolean {
+  if (!meal.ingredients?.trim()) return false;
+
+  const ingredients = meal.ingredients
+    .split(/[,\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (ingredients.length === 0) return false;
+
+  // Parse each ingredient line: "100g jambon" → { qty: 100, name: "jambon" }
+  const needed = ingredients.map(ing => {
+    // Try to extract leading number + optional unit
+    const m = ing.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s+(.*)/i);
+    if (m) {
+      return { qty: parseFloat(m[1].replace(",", ".")), name: normalizeForMatch(m[2]) };
+    }
+    return { qty: 0, name: normalizeForMatch(ing) };
+  });
+
+  // For each needed ingredient, find a matching food item with enough quantity
+  for (const req of needed) {
+    const match = foodItems.find(fi => {
+      const fiName = normalizeForMatch(fi.name);
+      // Fuzzy match: one contains the other (handles plural/singular)
+      const nameMatch = fiName.includes(req.name) || req.name.includes(fiName);
+      if (!nameMatch) return false;
+      // Quantity check: if a qty is specified, food item must have at least that much
+      if (req.qty > 0) {
+        const fiQty = parseQty(fi.grams);
+        if (fiQty > 0 && fiQty < req.qty) return false;
+      }
+      return true;
+    });
+    if (!match) return false;
+  }
+
+  return true;
+}
+
+// ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
+function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
+  category: { value: string; label: string; emoji: string };
+  meals: Meal[];
+  foodItems: FoodItem[];
+  onMoveToPossible: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const available = meals.filter(m => isMealAvailable(m, foodItems));
+
+  if (available.length === 0 && !open) return null;
+
+  return (
+    <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 w-full text-left"
+      >
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+        <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-yellow-500" />
+          {category.label} au choix
+        </h2>
+        <span className="text-sm font-normal text-muted-foreground">{available.length}</span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-2 mt-3">
+          {available.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-4 italic">
+              Aucun repas réalisable avec les aliments disponibles
+            </p>
+          ) : (
+            available.map(meal => (
+              <MealCard
+                key={meal.id}
+                meal={meal}
+                onMoveToPossible={() => onMoveToPossible(meal.id)}
+                onRename={() => {}}
+                onDelete={() => {}}
+                onUpdateCalories={() => {}}
+                onUpdateGrams={() => {}}
+                onUpdateIngredients={() => {}}
+                onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder }: {
   category: { value: string; label: string; emoji: string };

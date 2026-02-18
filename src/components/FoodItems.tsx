@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,7 +12,7 @@ import { toast } from "@/hooks/use-toast";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-interface FoodItem {
+export interface FoodItem {
   id: string;
   name: string;
   grams: string | null;
@@ -53,7 +53,7 @@ function isExpiredDate(d: string | null) {
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
-function useFoodItems() {
+export function useFoodItems() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
 
@@ -71,9 +71,10 @@ function useFoodItems() {
 
   const addItem = useMutation({
     mutationFn: async (name: string) => {
+      const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase
         .from("food_items")
-        .insert({ name, sort_order: items.length });
+        .insert({ name, sort_order: maxOrder + 1 });
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -102,20 +103,30 @@ function useFoodItems() {
     mutationFn: async (id: string) => {
       const source = items.find(i => i.id === id);
       if (!source) return;
+      const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase.from("food_items").insert({
         name: source.name,
         grams: source.grams,
         calories: source.calories,
         expiration_date: source.expiration_date,
         counter_start_date: source.counter_start_date,
-        sort_order: items.length,
+        sort_order: maxOrder + 1,
       });
       if (error) throw error;
     },
     onSuccess: invalidate,
   });
 
-  return { items, isLoading, addItem, updateItem, deleteItem, duplicateItem };
+  const reorderItems = useMutation({
+    mutationFn: async (ordered: { id: string; sort_order: number }[]) => {
+      await Promise.all(ordered.map(({ id, sort_order }) =>
+        supabase.from("food_items").update({ sort_order }).eq("id", id)
+      ));
+    },
+    onSuccess: invalidate,
+  });
+
+  return { items, isLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems };
 }
 
 // ─── FoodItemCard ────────────────────────────────────────────────────────────
@@ -126,9 +137,12 @@ interface FoodItemCardProps {
   onUpdate: (updates: Partial<FoodItem>) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
 }
 
-function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItemCardProps) {
+function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop }: FoodItemCardProps) {
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
@@ -154,7 +168,11 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
 
   return (
     <div
-      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none ${expired ? 'ring-2 ring-red-500' : ''}`}
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: color }}
     >
       {/* Row 1: name + badges + actions */}
@@ -273,11 +291,29 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
+type SortMode = "manual" | "expiration";
+
 export function FoodItems() {
-  const { items, isLoading, addItem, updateItem, deleteItem, duplicateItem } = useFoodItems();
+  const { items, isLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
   const [newName, setNewName] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("manual");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   const colorMap = useCallback((name: string) => colorFromName(name), []);
+
+  const getSortedItems = (): FoodItem[] => {
+    if (sortMode === "expiration") {
+      return [...items].sort((a, b) => {
+        if (!a.expiration_date && !b.expiration_date) return 0;
+        if (!a.expiration_date) return 1;
+        if (!b.expiration_date) return -1;
+        return a.expiration_date.localeCompare(b.expiration_date);
+      });
+    }
+    return items;
+  };
+
+  const sortedItems = getSortedItems();
 
   const handleAdd = () => {
     const name = newName.trim();
@@ -291,6 +327,17 @@ export function FoodItems() {
       },
     });
   };
+
+  const handleReorder = (fromIndex: number, toIndex: number) => {
+    const reordered = [...sortedItems];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+    reorderItems.mutate(reordered.map((item, i) => ({ id: item.id, sort_order: i })));
+    setSortMode("manual");
+  };
+
+  const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
+  const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
 
   if (isLoading) {
     return (
@@ -320,17 +367,26 @@ export function FoodItems() {
       {/* List */}
       <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
         <div className="flex items-center gap-2 mb-3">
-          <h2 className="text-lg font-bold text-foreground">🥕 Ma cuisine</h2>
+          <h2 className="text-lg font-bold text-foreground flex-1">🥕 Ma cuisine</h2>
           <span className="text-sm font-normal text-muted-foreground">{items.length}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSortMode(m => m === "manual" ? "expiration" : "manual")}
+            className="text-[10px] gap-0.5 h-7 px-2"
+          >
+            <SortIcon className="h-3 w-3" />
+            <span className="hidden sm:inline">{sortLabel}</span>
+          </Button>
         </div>
 
         <div className="flex flex-col gap-2">
-          {items.length === 0 ? (
+          {sortedItems.length === 0 ? (
             <p className="text-muted-foreground text-sm text-center py-8 italic">
               Aucun aliment — ajoutez ce que vous avez dans votre cuisine
             </p>
           ) : (
-            items.map(item => (
+            sortedItems.map((item, index) => (
               <FoodItemCard
                 key={item.id}
                 item={item}
@@ -338,6 +394,19 @@ export function FoodItems() {
                 onUpdate={(updates) => updateItem.mutate({ id: item.id, ...updates })}
                 onDelete={() => deleteItem.mutate(item.id)}
                 onDuplicate={() => duplicateItem.mutate(item.id)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("foodItemIndex", String(index));
+                  setDragIndex(index);
+                }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (dragIndex !== null && dragIndex !== index) {
+                    handleReorder(dragIndex, index);
+                  }
+                  setDragIndex(null);
+                }}
               />
             ))
           )}

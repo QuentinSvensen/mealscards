@@ -24,14 +24,37 @@ interface MealCardProps {
 // Ingredient line state for the editor: { qty, name }
 interface IngLine { qty: string; name: string; }
 
-// Parse "100g de pâtes" → { qty: "100g", name: "de pâtes" } or { qty: "", name: original }
+// Parse "100g de pâtes" → { qty: "100", name: "de pâtes" } or { qty: "", name: original }
 function parseIngredientLine(raw: string): IngLine {
   const trimmed = raw.trim();
-  const match =
-    trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?\s+(?:de\s+|d')?)(.*)/i) ||
-    trimmed.match(/^(\d+\s*[a-zA-Zµ°%]+\.?)(.*)/i);
-  if (match) return { qty: match[1].trim(), name: match[2].trim() };
+  // Extract leading number (with optional unit suffix like g, ml, cl...)
+  const match = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s*(.*)/i);
+  if (match) {
+    const num = match[1];
+    const rest = match[2].trim();
+    return { qty: num, name: rest };
+  }
   return { qty: "", name: trimmed };
+}
+
+// Format qty: if numeric, append 'g'
+function formatQty(qty: string): string {
+  const trimmed = qty.trim();
+  if (!trimmed) return "";
+  // If it's purely numeric, append 'g'
+  if (/^\d+([.,]\d+)?$/.test(trimmed)) return trimmed + "g";
+  return trimmed;
+}
+
+// Serialize IngLine[] to ingredient string
+function serializeIngredients(lines: IngLine[]): string | null {
+  const parts = lines
+    .filter(l => l.qty.trim() || l.name.trim())
+    .map(l => {
+      const qtyStr = formatQty(l.qty);
+      return [qtyStr, l.name.trim()].filter(Boolean).join(" ");
+    });
+  return parts.length ? parts.join(", ") : null;
 }
 
 export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: MealCardProps) {
@@ -61,14 +84,13 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   };
 
   const commitIngredients = () => {
-    const parts = ingLines
-      .filter(l => l.qty.trim() || l.name.trim())
-      .map(l => [l.qty.trim(), l.name.trim()].filter(Boolean).join(" "));
-    onUpdateIngredients(parts.length ? parts.join(", ") : null);
+    onUpdateIngredients(serializeIngredients(ingLines));
     setEditingIngredients(false);
   };
 
   const updateLine = (idx: number, field: "qty" | "name", value: string) => {
+    // For qty field: strip any non-numeric/non-decimal characters if user types letters
+    // (we just store the raw number — 'g' will be appended on save)
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
@@ -88,7 +110,6 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
       } else if (idx < ingLines.length - 1) {
         qtyRefs.current[idx + 1]?.focus();
       } else if (ingLines[idx].name.trim()) {
-        // last line with content → wait for state update then focus next
         setTimeout(() => qtyRefs.current[idx + 1]?.focus(), 0);
       } else {
         commitIngredients();
@@ -117,7 +138,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           className="h-8 border-white/30 bg-white/20 text-white placeholder:text-white/60 flex-1"
         />
       ) : editingIngredients ? (
-        /* ── Ingredient editor: 2-column grid (qty | name) per line ── */
+        /* ── Ingredient editor: 2-column grid (number | ingredient name) per line ── */
         <div
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node)) commitIngredients();
@@ -125,11 +146,12 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           className="flex flex-col gap-1"
         >
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[5.5rem_1fr] gap-1">
+            <div key={idx} className="grid grid-cols-[4rem_1fr] gap-1">
               <Input
                 ref={el => { qtyRefs.current[idx] = el; }}
                 autoFocus={idx === 0}
-                placeholder="Qté"
+                placeholder="g"
+                inputMode="decimal"
                 value={line.qty}
                 onChange={e => updateLine(idx, "qty", e.target.value)}
                 onKeyDown={e => handleIngKeyDown(idx, "qty", e)}
