@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
 import { Timer, Flame, Weight, Calendar } from "lucide-react";
 import { format, parseISO } from "date-fns";
@@ -11,7 +11,6 @@ const DAY_LABELS: Record<string, string> = {
 
 const TIME_LABELS: Record<string, string> = { midi: 'Midi', soir: 'Soir' };
 
-// Map JS getDay() (0=Sunday) to our day names
 const JS_DAY_TO_KEY: Record<number, string> = {
   1: 'lundi', 2: 'mardi', 3: 'mercredi', 4: 'jeudi', 5: 'vendredi', 6: 'samedi', 0: 'dimanche',
 };
@@ -42,46 +41,47 @@ function parseCalories(cal: string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
+// ─── Touch drag state ────────────────────────────────────────────────────────
+interface TouchDragState {
+  pmId: string;
+  ghost: HTMLElement;
+  startX: number;
+  startY: number;
+  origTop: number;
+  origLeft: number;
+}
+
 export function WeeklyPlanning() {
   const { possibleMeals, updatePlanning, reorderPossibleMeals } = useMeals();
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const [dragOverUnplanned, setDragOverUnplanned] = useState(false);
 
-  // For reordering within a slot
+  // For desktop reordering within a slot
   const slotDragRef = useRef<{ pmId: string; slotKey: string } | null>(null);
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
-  // Touch drag state
-  const touchDragRef = useRef<{
-    pmId: string;
-    startX: number;
-    startY: number;
-    ghost: HTMLElement | null;
-    longPressTimer: ReturnType<typeof setTimeout> | null;
-    dragging: boolean;
-    origEl: HTMLElement;
-  } | null>(null);
+  // Touch drag (long-press → ghost follows finger)
+  const touchDrag = useRef<TouchDragState | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [touchDragActive, setTouchDragActive] = useState(false);
+  const [touchHighlight, setTouchHighlight] = useState<string | null>(null); // slot key being hovered
 
-  // Refs for today-scroll
   const todayRef = useRef<HTMLDivElement | null>(null);
-
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
 
-  // Scroll to today on mount — offset by header height + tabs bar
+  // Scroll to today on mount
   useEffect(() => {
     if (todayRef.current) {
       setTimeout(() => {
         const el = todayRef.current;
         if (!el) return;
-        // 56px header + 48px tab bar + 16px breathing room
-        const headerHeight = 120;
+        const headerHeight = 112;
         const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
         window.scrollTo({ top, behavior: "smooth" });
       }, 200);
     }
   }, []);
 
-  // Exclude petit_dejeuner
   const planningMeals = possibleMeals.filter(pm => pm.meals?.category !== 'petit_dejeuner');
 
   const getMealsForSlot = (day: string, time: string): PossibleMeal[] =>
@@ -90,13 +90,9 @@ export function WeeklyPlanning() {
 
   const unplanned = planningMeals.filter(pm => !pm.day_of_week || !pm.meal_time);
 
-  // Compute day calories
-  const getDayCalories = (day: string): number => {
-    return TIMES.reduce((total, time) => {
-      const slots = getMealsForSlot(day, time);
-      return total + slots.reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0);
-    }, 0);
-  };
+  const getDayCalories = (day: string): number =>
+    TIMES.reduce((total, time) =>
+      total + getMealsForSlot(day, time).reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0), 0);
 
   // ── Desktop drag & drop ──────────────────────────────────────────────────────
 
@@ -104,9 +100,7 @@ export function WeeklyPlanning() {
     e.preventDefault();
     setDragOverSlot(null);
     const pmId = e.dataTransfer.getData("pmId");
-    if (pmId) {
-      updatePlanning.mutate({ id: pmId, day_of_week: day, meal_time: time });
-    }
+    if (pmId) updatePlanning.mutate({ id: pmId, day_of_week: day, meal_time: time });
   };
 
   const handleDropOnCard = (e: React.DragEvent, targetPm: PossibleMeal) => {
@@ -115,7 +109,6 @@ export function WeeklyPlanning() {
     setSlotDragOver(null);
     const draggedPmId = e.dataTransfer.getData("pmId");
     if (!draggedPmId || draggedPmId === targetPm.id) return;
-
     const slot = getMealsForSlot(targetPm.day_of_week!, targetPm.meal_time!);
     const filtered = slot.filter(p => p.id !== draggedPmId);
     const targetIdx = filtered.findIndex(p => p.id === targetPm.id);
@@ -128,116 +121,133 @@ export function WeeklyPlanning() {
     e.preventDefault();
     setDragOverUnplanned(false);
     const pmId = e.dataTransfer.getData("pmId");
-    if (pmId) {
-      updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
-    }
+    if (pmId) updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
   };
 
   // ── Touch drag & drop ────────────────────────────────────────────────────────
-  // Long-press (500ms) starts drag. Ghost follows finger. On release, detect
-  // the slot element under the finger and mutate.
+  // Strategy: long-press (500ms) creates a ghost clone. The ghost follows the finger.
+  // On touchend, use elementFromPoint to find the slot and mutate.
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, pm: PossibleMeal) => {
+  const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
     const touch = e.touches[0];
     const origEl = e.currentTarget as HTMLElement;
     const rect = origEl.getBoundingClientRect();
 
-    const timer = setTimeout(() => {
-      const state = touchDragRef.current;
-      if (!state) return;
+    // Cancel any previous timer
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
-      state.dragging = true;
+    longPressTimer.current = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(40);
 
-      // Create ghost clone
+      // Build ghost
       const ghost = origEl.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `
         position: fixed;
         top: ${rect.top}px;
         left: ${rect.left}px;
         width: ${rect.width}px;
-        opacity: 0.85;
         z-index: 9999;
         pointer-events: none;
-        transform: scale(1.06);
+        opacity: 0.85;
+        transform: scale(1.05);
         border-radius: 12px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.35);
         transition: none;
       `;
       document.body.appendChild(ghost);
-      state.ghost = ghost;
 
-      if (navigator.vibrate) navigator.vibrate(40);
+      touchDrag.current = {
+        pmId: pm.id,
+        ghost,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        origTop: rect.top,
+        origLeft: rect.left,
+      };
+      setTouchDragActive(true);
     }, 500);
+  };
 
-    touchDragRef.current = {
-      pmId: pm.id,
-      startX: touch.clientX,
-      startY: touch.clientY,
-      ghost: null,
-      longPressTimer: timer,
-      dragging: false,
-      origEl,
-    };
-  }, []);
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!longPressTimer.current && !touchDrag.current) return;
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const state = touchDragRef.current;
-    if (!state) return;
-
-    const touch = e.touches[0];
-    const dx = touch.clientX - state.startX;
-    const dy = touch.clientY - state.startY;
-
-    if (!state.dragging) {
-      // Cancel long-press if user scrolls before 500ms
-      if (Math.sqrt(dx * dx + dy * dy) > 10) {
-        if (state.longPressTimer) clearTimeout(state.longPressTimer);
-        touchDragRef.current = null;
-      }
+    if (!touchDrag.current) {
+      // Still in long-press window — cancel if user scrolls
+      const touch = e.touches[0];
+      const state = touchDrag.current;
+      if (!state) return;
+      // Will be null before long-press fires — just let scroll happen
       return;
     }
 
-    // Actively dragging — prevent scroll and move ghost
+    // Actively dragging
     e.preventDefault();
+    const touch = e.touches[0];
+    const state = touchDrag.current;
+    const dx = touch.clientX - state.startX;
+    const dy = touch.clientY - state.startY;
 
-    if (state.ghost) {
-      const rect = state.origEl.getBoundingClientRect();
-      state.ghost.style.top = `${rect.top + dy}px`;
-      state.ghost.style.left = `${rect.left + dx}px`;
+    state.ghost.style.top = `${state.origTop + dy}px`;
+    state.ghost.style.left = `${state.origLeft + dx}px`;
+
+    // Highlight slot under finger
+    state.ghost.style.visibility = 'hidden';
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    state.ghost.style.visibility = 'visible';
+
+    const slotEl = el?.closest("[data-slot]");
+    if (slotEl) {
+      const day = slotEl.getAttribute("data-day")!;
+      const time = slotEl.getAttribute("data-time")!;
+      setTouchHighlight(`${day}-${time}`);
+    } else if (el?.closest("[data-unplanned]")) {
+      setTouchHighlight("unplanned");
+    } else {
+      setTouchHighlight(null);
     }
-  }, []);
+  };
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const state = touchDragRef.current;
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+
+    const state = touchDrag.current;
     if (!state) return;
 
-    if (state.longPressTimer) clearTimeout(state.longPressTimer);
-    touchDragRef.current = null;
+    touchDrag.current = null;
+    setTouchDragActive(false);
+    setTouchHighlight(null);
 
-    if (!state.dragging) return;
-
-    // Remove ghost
-    if (state.ghost) {
-      state.ghost.remove();
-    }
-
-    // Find element under finger
+    // Remove ghost, find drop target
     const touch = e.changedTouches[0];
-    // Temporarily hide ghost so elementFromPoint works
-    if (state.ghost) state.ghost.style.display = 'none';
-    const target = document.elementFromPoint(touch.clientX, touch.clientY);
+    state.ghost.style.visibility = 'hidden';
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    state.ghost.remove();
 
-    const slotEl = target?.closest("[data-slot]");
+    const slotEl = el?.closest("[data-slot]");
     if (slotEl) {
       const day = slotEl.getAttribute("data-day")!;
       const time = slotEl.getAttribute("data-time")!;
       updatePlanning.mutate({ id: state.pmId, day_of_week: day, meal_time: time });
-    } else if (target?.closest("[data-unplanned]")) {
+    } else if (el?.closest("[data-unplanned]")) {
       updatePlanning.mutate({ id: state.pmId, day_of_week: null, meal_time: null });
     }
+  };
 
-    setDragOverSlot(null);
-  }, [updatePlanning]);
+  const handleTouchCancel = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (touchDrag.current) {
+      touchDrag.current.ghost.remove();
+      touchDrag.current = null;
+    }
+    setTouchDragActive(false);
+    setTouchHighlight(null);
+  };
 
   const handleRemoveFromSlot = (pm: PossibleMeal) => {
     updatePlanning.mutate({ id: pm.id, day_of_week: null, meal_time: null });
@@ -268,7 +278,10 @@ export function WeeklyPlanning() {
         onTouchStart={(e) => handleTouchStart(e, pm)}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className={`rounded-xl text-white cursor-grab active:cursor-grabbing transition-transform hover:scale-[1.01] select-none touch-none
+        onTouchCancel={handleTouchCancel}
+        className={`rounded-xl text-white select-none
+          ${touchDragActive ? 'cursor-grabbing' : 'cursor-grab active:cursor-grabbing'}
+          transition-transform hover:scale-[1.01]
           ${expired ? 'ring-[3px] ring-red-500 shadow-lg shadow-red-500/30' : ''}
           ${slotDragOver === pm.id ? 'ring-2 ring-white/60' : ''}
           ${compact ? 'px-2 py-1' : 'px-2 py-1.5'}
@@ -322,11 +335,10 @@ export function WeeklyPlanning() {
     );
   };
 
-  // Compute weekly calorie total
   const weekTotal = DAYS.reduce((sum, day) => sum + getDayCalories(day), 0);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-3">
+    <div className={`max-w-4xl mx-auto space-y-3 ${touchDragActive ? 'touch-none' : ''}`}>
       {DAYS.map((day) => {
         const isToday_ = day === todayKey;
         const dayCalories = getDayCalories(day);
@@ -341,7 +353,6 @@ export function WeeklyPlanning() {
                 {DAY_LABELS[day]}
                 {isToday_ && <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">Aujourd'hui</span>}
               </h3>
-              {/* Calories du jour */}
               {dayCalories > 0 && (
                 <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 shrink-0">
                   <Flame className="h-2.5 w-2.5 text-orange-500" />{Math.round(dayCalories)} kcal
@@ -352,7 +363,7 @@ export function WeeklyPlanning() {
               {TIMES.map((time) => {
                 const slotKey = `${day}-${time}`;
                 const slotMeals = getMealsForSlot(day, time);
-                const isOver = dragOverSlot === slotKey;
+                const isOver = dragOverSlot === slotKey || touchHighlight === slotKey;
                 return (
                   <div key={time}
                     data-slot
@@ -393,7 +404,7 @@ export function WeeklyPlanning() {
         onDragOver={(e) => { e.preventDefault(); setDragOverUnplanned(true); }}
         onDragLeave={() => setDragOverUnplanned(false)}
         onDrop={handleDropUnplanned}
-        className={`rounded-2xl p-3 sm:p-4 transition-all ${dragOverUnplanned ? 'bg-muted/60 ring-2 ring-border' : 'bg-card/80 backdrop-blur-sm'}`}
+        className={`rounded-2xl p-3 sm:p-4 transition-all ${dragOverUnplanned || touchHighlight === 'unplanned' ? 'bg-muted/60 ring-2 ring-border' : 'bg-card/80 backdrop-blur-sm'}`}
       >
         <h3 className="text-sm sm:text-base font-bold text-foreground mb-2">Hors planning</h3>
         {unplanned.length === 0 ? (

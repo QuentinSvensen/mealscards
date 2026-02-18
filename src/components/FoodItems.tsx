@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from "react";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -21,6 +21,8 @@ export interface FoodItem {
   counter_start_date: string | null;
   sort_order: number;
   created_at: string;
+  is_meal: boolean;
+  is_infinite: boolean;
 }
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
@@ -65,7 +67,11 @@ export function useFoodItems() {
         .select("*")
         .order("sort_order", { ascending: true });
       if (error) throw error;
-      return data as FoodItem[];
+      return (data as any[]).map(d => ({
+        ...d,
+        is_meal: d.is_meal ?? false,
+        is_infinite: d.is_infinite ?? false,
+      })) as FoodItem[];
     },
   });
 
@@ -74,7 +80,7 @@ export function useFoodItems() {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase
         .from("food_items")
-        .insert({ name, sort_order: maxOrder + 1 });
+        .insert({ name, sort_order: maxOrder + 1 } as any);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -84,7 +90,7 @@ export function useFoodItems() {
     mutationFn: async ({ id, ...updates }: Partial<FoodItem> & { id: string }) => {
       const { error } = await supabase
         .from("food_items")
-        .update(updates)
+        .update(updates as any)
         .eq("id", id);
       if (error) throw error;
     },
@@ -110,8 +116,10 @@ export function useFoodItems() {
         calories: source.calories,
         expiration_date: source.expiration_date,
         counter_start_date: source.counter_start_date,
+        is_meal: source.is_meal,
+        is_infinite: source.is_infinite,
         sort_order: maxOrder + 1,
-      });
+      } as any);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -120,7 +128,7 @@ export function useFoodItems() {
   const reorderItems = useMutation({
     mutationFn: async (ordered: { id: string; sort_order: number }[]) => {
       await Promise.all(ordered.map(({ id, sort_order }) =>
-        supabase.from("food_items").update({ sort_order }).eq("id", id)
+        supabase.from("food_items").update({ sort_order } as any).eq("id", id)
       ));
     },
     onSuccess: invalidate,
@@ -166,6 +174,20 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
 
   const selectedDate = item.expiration_date ? parseISO(item.expiration_date) : undefined;
 
+  // Cycle through grams states: normal → infinite → remove
+  const handleGramsCycle = () => {
+    if (item.is_infinite) {
+      // Turn off infinite, clear grams
+      onUpdate({ is_infinite: false, grams: null });
+    } else if (item.grams) {
+      // Has grams → make infinite
+      onUpdate({ is_infinite: true, grams: null });
+    } else {
+      // No grams → start editing
+      startEdit("grams");
+    }
+  };
+
   return (
     <div
       draggable
@@ -206,11 +228,31 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           </button>
         )}
 
-        {/* Grams */}
-        {editing === "grams" ? (
-          <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 500g" className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
+        {/* Grams / Infinite */}
+        {item.is_infinite ? (
+          <button
+            onClick={handleGramsCycle}
+            className="text-[10px] text-white/90 bg-white/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/40 shrink-0 font-bold"
+            title="Cliquer pour désactiver ∞"
+          >
+            <InfinityIcon className="h-2.5 w-2.5" />∞
+          </button>
+        ) : editing === "grams" ? (
+          <Input
+            autoFocus
+            value={editValue}
+            onChange={e => setEditValue(e.target.value)}
+            onBlur={saveEdit}
+            onKeyDown={e => e.key === "Enter" && saveEdit()}
+            placeholder="Ex: 500"
+            className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
+          />
         ) : item.grams ? (
-          <button onClick={() => startEdit("grams")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
+          <button
+            onClick={handleGramsCycle}
+            className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0"
+            title="Cliquer pour rendre infini"
+          >
             <Weight className="h-2.5 w-2.5" />{item.grams}
           </button>
         ) : null}
@@ -224,6 +266,15 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           </button>
         ) : null}
 
+        {/* is_meal toggle */}
+        <button
+          onClick={() => onUpdate({ is_meal: !item.is_meal })}
+          className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_meal ? 'bg-white/30 text-white border-white/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
+          title={item.is_meal ? "Se mange seul (désactiver)" : "Marquer comme repas à part entière"}
+        >
+          <UtensilsCrossed className="h-2.5 w-2.5" />
+        </button>
+
         <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
           <Copy className="h-3 w-3" />
         </Button>
@@ -234,9 +285,18 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
 
       {/* Row 2: quick-add + expiration + counter */}
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-        {!item.grams && editing !== "grams" && (
-          <button onClick={() => startEdit("grams")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+        {!item.grams && !item.is_infinite && editing !== "grams" && (
+          <button onClick={handleGramsCycle} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             <Weight className="h-2.5 w-2.5" />+ grammes
+          </button>
+        )}
+        {!item.is_infinite && !item.grams && editing !== "grams" && (
+          <button
+            onClick={() => onUpdate({ is_infinite: true })}
+            className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
+            title="Disponible en quantité infinie"
+          >
+            <InfinityIcon className="h-2.5 w-2.5" />∞
           </button>
         )}
         {!item.calories && editing !== "calories" && (

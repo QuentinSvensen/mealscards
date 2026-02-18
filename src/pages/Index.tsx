@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon } from "lucide-react";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -434,21 +434,21 @@ const Index = () => {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
           <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
-              <button onClick={() => setMainPage("aliments")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("aliments")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
                 <Apple className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
+                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
               </button>
-              <button onClick={() => setMainPage("repas")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("repas")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
                 <UtensilsCrossed className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
+                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
               </button>
-              <button onClick={() => setMainPage("planning")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("planning")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
                 <CalendarRange className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
+                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
               </button>
-              <button onClick={() => setMainPage("courses")} className={`px-1.5 sm:px-3 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 sm:gap-1 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("courses")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
                 <ShoppingCart className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[10px] sm:text-xs ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
+                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
               </button>
             </div>
           </div>
@@ -565,59 +565,73 @@ function normalizeForMatch(text: string): string {
   return text
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9\s]/g, "")
     .trim();
 }
 
-// Parse a quantity string like "100g" → 100, or "200" → 200
+// Parse a quantity string like "100g" or "200" → number
 function parseQty(qty: string | null | undefined): number {
   if (!qty) return 0;
   const n = parseFloat(qty.replace(",", ".").replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
-// Check if a meal's ingredients are all available in the foodItems list
-// Ingredient format stored: "100g jambon, 200g pates"
-// FoodItem format: name + grams (e.g. name="Jambon" grams="200g")
-function isMealAvailable(meal: Meal, foodItems: FoodItem[]): boolean {
-  if (!meal.ingredients?.trim()) return false;
+// Parse an ingredient line like "100g jambon" → { qty: 100, name: "jambon" }
+function parseIngredientLine(ing: string): { qty: number; name: string } {
+  const m = ing.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s+(.*)/i);
+  if (m) return { qty: parseFloat(m[1].replace(",", ".")), name: normalizeForMatch(m[2]) };
+  return { qty: 0, name: normalizeForMatch(ing) };
+}
 
-  const ingredients = meal.ingredients
-    .split(/[,\n]+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  if (ingredients.length === 0) return false;
-
-  // Parse each ingredient line: "100g jambon" → { qty: 100, name: "jambon" }
-  const needed = ingredients.map(ing => {
-    // Try to extract leading number + optional unit
-    const m = ing.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s+(.*)/i);
-    if (m) {
-      return { qty: parseFloat(m[1].replace(",", ".")), name: normalizeForMatch(m[2]) };
+// Build aggregated stock map: normalized name → total grams (Infinity if any is_infinite)
+function buildStockMap(foodItems: FoodItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const fi of foodItems) {
+    const key = normalizeForMatch(fi.name);
+    const prev = map.get(key) ?? 0;
+    if (fi.is_infinite || prev === Infinity) {
+      map.set(key, Infinity);
+    } else {
+      map.set(key, prev + parseQty(fi.grams));
     }
-    return { qty: 0, name: normalizeForMatch(ing) };
-  });
+  }
+  return map;
+}
 
-  // For each needed ingredient, find a matching food item with enough quantity
-  for (const req of needed) {
-    const match = foodItems.find(fi => {
-      const fiName = normalizeForMatch(fi.name);
-      // Fuzzy match: one contains the other (handles plural/singular)
-      const nameMatch = fiName.includes(req.name) || req.name.includes(fiName);
-      if (!nameMatch) return false;
-      // Quantity check: if a qty is specified, food item must have at least that much
-      if (req.qty > 0) {
-        const fiQty = parseQty(fi.grams);
-        if (fiQty > 0 && fiQty < req.qty) return false;
-      }
-      return true;
-    });
-    if (!match) return false;
+// Find a stock key that fuzzy-matches the ingredient name
+function findStockKey(stockMap: Map<string, number>, name: string): string | null {
+  for (const key of stockMap.keys()) {
+    if (key.includes(name) || name.includes(key)) return key;
+  }
+  return null;
+}
+
+// Compute how many times a meal can be made given the stock, or null if not possible.
+// Returns Infinity if all matched ingredients are infinite.
+function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | null {
+  if (!meal.ingredients?.trim()) return null;
+
+  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  if (ingredients.length === 0) return null;
+
+  let multiple = Infinity;
+
+  for (const ing of ingredients) {
+    const { qty: needed, name } = parseIngredientLine(ing);
+    const key = findStockKey(stockMap, name);
+    if (key === null) return null; // ingredient not found → can't make
+
+    const available = stockMap.get(key)!;
+    if (available === Infinity) continue; // infinite stock, no constraint
+
+    if (needed <= 0) continue; // no quantity specified — just presence check
+
+    if (available < needed) return null; // not enough
+    multiple = Math.min(multiple, Math.floor(available / needed));
   }
 
-  return true;
+  return multiple === Infinity ? Infinity : multiple;
 }
 
 // ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
@@ -627,11 +641,38 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
   foodItems: FoodItem[];
   onMoveToPossible: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
-  const available = meals.filter(m => isMealAvailable(m, foodItems));
+  // Aggregate stock from all food items
+  const stockMap = buildStockMap(foodItems);
 
-  if (available.length === 0 && !open) return null;
+  // Meals realizable with current stock
+  const available: { meal: Meal; multiple: number | null }[] = meals
+    .map(meal => ({ meal, multiple: getMealMultiple(meal, stockMap) }))
+    .filter(({ multiple }) => multiple !== null);
+
+  // Food items marked as is_meal that no recipe uses OR that appear as standalone
+  // (i.e. they can be eaten alone regardless of recipe match)
+  const isMealItems = foodItems.filter(fi => fi.is_meal);
+
+  // Also surface food items that no recipe ingredient matches AND is NOT is_meal
+  // → these "orphans" are highlighted in available list as a warning
+  const orphanFoodItems = foodItems.filter(fi => {
+    if (fi.is_meal) return false; // already handled above
+    const fiKey = normalizeForMatch(fi.name);
+    // Check if any meal's ingredients reference this food item
+    const usedByAnyMeal = meals.some(meal => {
+      if (!meal.ingredients) return false;
+      const ings = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+      return ings.some(ing => {
+        const { name } = parseIngredientLine(ing);
+        return fiKey.includes(name) || name.includes(fiKey);
+      });
+    });
+    return !usedByAnyMeal;
+  });
+
+  const totalCount = available.length + isMealItems.length;
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
@@ -644,19 +685,15 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
           <Sparkles className="h-4 w-4 text-yellow-500" />
           {category.label} au choix
         </h2>
-        <span className="text-sm font-normal text-muted-foreground">{available.length}</span>
+        <span className="text-sm font-normal text-muted-foreground">{totalCount}</span>
       </button>
 
       {open && (
         <div className="flex flex-col gap-2 mt-3">
-          {available.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-4 italic">
-              Aucun repas réalisable avec les aliments disponibles
-            </p>
-          ) : (
-            available.map(meal => (
+          {/* Recipes available */}
+          {available.map(({ meal, multiple }) => (
+            <div key={meal.id} className="relative">
               <MealCard
-                key={meal.id}
                 meal={meal}
                 onMoveToPossible={() => onMoveToPossible(meal.id)}
                 onRename={() => {}}
@@ -668,7 +705,49 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible }: {
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
               />
-            ))
+              {/* Multiple badge */}
+              {multiple !== null && (
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                  x{multiple === Infinity ? <InfinityIcon className="h-2.5 w-2.5 inline" /> : multiple}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* is_meal food items — appear as standalone */}
+          {isMealItems.map(fi => {
+            const fiKey = normalizeForMatch(fi.name);
+            const stock = stockMap.get(fiKey) ?? 0;
+            const qty = fi.is_infinite ? Infinity : stock;
+            return (
+              <div key={fi.id} className="rounded-xl px-3 py-2 bg-secondary text-secondary-foreground text-xs font-semibold flex items-center gap-2 shadow">
+                <UtensilsCrossed className="h-3 w-3 shrink-0 opacity-70" />
+                <span className="flex-1">{fi.name}</span>
+                <span className="flex items-center gap-0.5 bg-black/40 px-1.5 py-0.5 rounded-full text-[10px] font-black">
+                  x{qty === Infinity ? <InfinityIcon className="h-2.5 w-2.5 inline" /> : Math.floor(qty)}
+                </span>
+              </div>
+            );
+          })}
+
+          {/* Orphan warning */}
+          {orphanFoodItems.length > 0 && (
+            <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
+              <p className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wide">Aliments inutilisés dans les recettes</p>
+              <div className="flex flex-wrap gap-1">
+                {orphanFoodItems.map(fi => (
+                  <span key={fi.id} className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+                    {fi.name}{fi.grams ? ` ${fi.grams}` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {totalCount === 0 && orphanFoodItems.length === 0 && (
+            <p className="text-muted-foreground text-sm text-center py-4 italic">
+              Aucun repas réalisable avec les aliments disponibles
+            </p>
           )}
         </div>
       )}
