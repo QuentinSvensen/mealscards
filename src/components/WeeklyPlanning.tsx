@@ -266,7 +266,7 @@ export function WeeklyPlanning() {
       <div
         key={pm.id}
         draggable={!(typeof window !== "undefined" &&
-  (navigator.maxTouchPoints > 0 || 'ontouchstart' in window);)} // desktop drag actif, mobile désactivé
+          (navigator.maxTouchPoints > 0 || 'ontouchstart' in window))}
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
