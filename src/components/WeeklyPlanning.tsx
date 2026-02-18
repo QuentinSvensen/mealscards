@@ -72,20 +72,22 @@ export function WeeklyPlanning() {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const [dragOverUnplanned, setDragOverUnplanned] = useState(false);
 
-  // For desktop reordering within a slot
   const slotDragRef = useRef<{ pmId: string; slotKey: string } | null>(null);
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
-  // Touch drag (long-press → ghost follows finger)
   const touchDrag = useRef<TouchDragState | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null);
+
+  const LONG_PRESS_DELAY = 350;
+  const MOVE_TOLERANCE = 10;
+
   const [touchDragActive, setTouchDragActive] = useState(false);
-  const [touchHighlight, setTouchHighlight] = useState<string | null>(null); // slot key being hovered
+  const [touchHighlight, setTouchHighlight] = useState<string | null>(null);
 
   const todayRef = useRef<HTMLDivElement | null>(null);
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
 
-  // Scroll to today on mount
   useEffect(() => {
     if (todayRef.current) {
       setTimeout(() => {
@@ -143,22 +145,20 @@ export function WeeklyPlanning() {
     if (pmId) updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
   };
 
-  // ── Touch drag & drop ────────────────────────────────────────────────────────
-  // Strategy: long-press (500ms) creates a ghost clone. The ghost follows the finger.
-  // On touchend, use elementFromPoint to find the slot and mutate.
+  // ── Touch drag & drop corrigé ────────────────────────────────────────────────
 
   const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
     const touch = e.touches[0];
     const origEl = e.currentTarget as HTMLElement;
     const rect = origEl.getBoundingClientRect();
 
-    // Cancel any previous timer
+    touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
     longPressTimer.current = setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(40);
 
-      // Build ghost
       const ghost = origEl.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `
         position: fixed;
@@ -183,16 +183,31 @@ export function WeeklyPlanning() {
         origTop: rect.top,
         origLeft: rect.left,
       };
+
       setTouchDragActive(true);
-    }, 500);
+      longPressTimer.current = null;
+    }, LONG_PRESS_DELAY);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+
+    if (longPressTimer.current && touchStartPos.current) {
+      const dx = Math.abs(touch.clientX - touchStartPos.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPos.current.y);
+
+      if (dx > MOVE_TOLERANCE || dy > MOVE_TOLERANCE) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+        touchStartPos.current = null;
+      }
+      return;
+    }
+
     if (!touchDrag.current) return;
 
-    const touch = e.touches[0];
+    e.preventDefault();
     const state = touchDrag.current;
-
     const dx = touch.clientX - state.startX;
     const dy = touch.clientY - state.startY;
 
@@ -221,6 +236,8 @@ export function WeeklyPlanning() {
       longPressTimer.current = null;
     }
 
+    touchStartPos.current = null;
+
     const state = touchDrag.current;
     if (!state) return;
 
@@ -228,7 +245,6 @@ export function WeeklyPlanning() {
     setTouchDragActive(false);
     setTouchHighlight(null);
 
-    // Remove ghost, find drop target
     const touch = e.changedTouches[0];
     state.ghost.style.visibility = "hidden";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -245,14 +261,10 @@ export function WeeklyPlanning() {
   };
 
   const handleTouchCancel = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    if (touchDrag.current) {
-      touchDrag.current.ghost.remove();
-      touchDrag.current = null;
-    }
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    if (touchDrag.current) touchDrag.current.ghost.remove();
+    touchDrag.current = null;
+    touchStartPos.current = null;
     setTouchDragActive(false);
     setTouchHighlight(null);
   };
@@ -291,7 +303,7 @@ export function WeeklyPlanning() {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className={`rounded-xl text-white select-none touch-none
+        className={`rounded-xl text-white select-none
           ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
           transition-transform hover:scale-[1.01]
           ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
