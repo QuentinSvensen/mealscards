@@ -59,7 +59,7 @@ function parseCalories(cal: string | null | undefined): number {
 
 // ─── Touch drag state ────────────────────────────────────────────────────────
 interface TouchDragState {
-  pmId: string;
+  recipeId: number;
   ghost: HTMLElement;
   startX: number;
   startY: number;
@@ -77,8 +77,9 @@ export function WeeklyPlanning() {
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
   // Touch drag (long-press → ghost follows finger)
+  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const touchDrag = useRef<TouchDragState | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimer = useRef<number | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
   const [touchHighlight, setTouchHighlight] = useState<string | null>(null); // slot key being hovered
 
@@ -185,22 +186,7 @@ export function WeeklyPlanning() {
   const handleTouchMove = (e: React.TouchEvent) => {
     const touch = e.touches[0];
 
-    // Si drag pas encore démarré → vérifier si on dépasse un seuil
-    if (!touchDrag.current) {
-      if (!longPressTimer.current) return;
-
-      const dx = touch.clientX - (touchDrag.current?.startX ?? touch.clientX);
-      const dy = touch.clientY - (touchDrag.current?.startY ?? touch.clientY);
-
-      const threshold = 6; // tolérance en pixels
-
-      if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-      }
-
-      return;
-    }
+    if (!touchDrag.current) return;
 
     const state = touchDrag.current;
 
@@ -227,10 +213,13 @@ export function WeeklyPlanning() {
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    clearTimeout(longPressTimer.current ?? undefined);
-    longPressTimer.current = null;
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
 
-    if (!touchDrag.current) return;
+    const state = touchDrag.current;
+    if (!state) return;
 
     touchDrag.current = null;
     setTouchDragActive(false);
@@ -295,7 +284,7 @@ export function WeeklyPlanning() {
         }}
         onDragLeave={() => setSlotDragOver(null)}
         onDrop={(e) => handleDropOnCard(e, pm)}
-        onTouchStart={(e) => handleTouchStart(e, pm)}
+        onTouchStart={(e) => handleTouchStart(e, pm.id)}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
