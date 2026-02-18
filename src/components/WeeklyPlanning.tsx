@@ -52,6 +52,8 @@ interface TouchDragState {
   origTop: number;
   origLeft: number;
   ghost: HTMLElement | null;
+  longPressTimer: ReturnType<typeof setTimeout> | null;
+  dragging: boolean;
 }
 
 export function WeeklyPlanning() {
@@ -72,14 +74,14 @@ export function WeeklyPlanning() {
 
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
 
-  // Scroll to today on mount — offset by header height
+  // Scroll to today on mount — offset by header height + tabs bar
   useEffect(() => {
     if (todayRef.current) {
       setTimeout(() => {
         const el = todayRef.current;
         if (!el) return;
-        const headerHeight = 64; // sticky header height in px
-        const top = el.getBoundingClientRect().top + window.scrollY - headerHeight - 8;
+        const headerHeight = 96; // sticky header (64px) + some extra margin for the tab bar
+        const top = el.getBoundingClientRect().top + window.scrollY - headerHeight - 16;
         window.scrollTo({ top, behavior: "smooth" });
       }, 150);
     }
@@ -148,28 +150,39 @@ export function WeeklyPlanning() {
     }
   };
 
-  // ── Touch drag & drop (fixed: use absolute position tracking) ───────────────
+  // ── Touch drag & drop — long-press to start drag (prevents accidental scroll) ──
 
   const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
     const touch = e.touches[0];
     const el = e.currentTarget as HTMLElement;
     const rect = el.getBoundingClientRect();
 
-    const ghost = el.cloneNode(true) as HTMLElement;
-    ghost.style.cssText = `
-      position: fixed;
-      top: ${rect.top}px;
-      left: ${rect.left}px;
-      width: ${rect.width}px;
-      opacity: 0.85;
-      z-index: 9999;
-      pointer-events: none;
-      transform: scale(1.05);
-      transition: none;
-      border-radius: 12px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-    `;
-    document.body.appendChild(ghost);
+    // Start a long-press timer (500ms). Before it fires, scroll is not blocked.
+    const timer = setTimeout(() => {
+      if (!touchDrag.current) return;
+      // Mark as dragging — from now on touchmove will preventDefault (blocks scroll)
+      touchDrag.current.dragging = true;
+
+      const ghost = el.cloneNode(true) as HTMLElement;
+      ghost.style.cssText = `
+        position: fixed;
+        top: ${rect.top}px;
+        left: ${rect.left}px;
+        width: ${rect.width}px;
+        opacity: 0.85;
+        z-index: 9999;
+        pointer-events: none;
+        transform: scale(1.05);
+        transition: none;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      `;
+      document.body.appendChild(ghost);
+      touchDrag.current.ghost = ghost;
+
+      // Small vibration feedback if supported
+      if (navigator.vibrate) navigator.vibrate(40);
+    }, 500);
 
     touchDrag.current = {
       pmId: pm.id,
@@ -178,23 +191,52 @@ export function WeeklyPlanning() {
       startY: touch.clientY,
       origTop: rect.top,
       origLeft: rect.left,
-      ghost,
+      ghost: null,
+      longPressTimer: timer,
+      dragging: false,
     };
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchDrag.current?.ghost) return;
-    e.preventDefault();
+    const state = touchDrag.current;
+    if (!state) return;
+
+    // If moved significantly before long-press fires, cancel the drag intention
     const touch = e.touches[0];
-    const dx = touch.clientX - touchDrag.current.startX;
-    const dy = touch.clientY - touchDrag.current.startY;
-    touchDrag.current.ghost.style.top = `${touchDrag.current.origTop + dy}px`;
-    touchDrag.current.ghost.style.left = `${touchDrag.current.origLeft + dx}px`;
+    const dx = touch.clientX - state.startX;
+    const dy = touch.clientY - state.startY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (!state.dragging) {
+      if (dist > 8 && state.longPressTimer) {
+        // User is scrolling — cancel the long-press timer
+        clearTimeout(state.longPressTimer);
+        touchDrag.current = null;
+      }
+      return;
+    }
+
+    // Dragging: block scroll and move ghost
+    e.preventDefault();
+    if (state.ghost) {
+      state.ghost.style.top = `${state.origTop + dy}px`;
+      state.ghost.style.left = `${state.origLeft + dx}px`;
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchDrag.current) return;
-    const { ghost, pmId } = touchDrag.current;
+    const state = touchDrag.current;
+    if (!state) return;
+
+    // Always clear the timer
+    if (state.longPressTimer) clearTimeout(state.longPressTimer);
+
+    if (!state.dragging) {
+      touchDrag.current = null;
+      return;
+    }
+
+    const { ghost, pmId } = state;
     if (ghost) {
       ghost.style.opacity = '0';
       setTimeout(() => { if (ghost.parentNode) ghost.parentNode.removeChild(ghost); }, 100);

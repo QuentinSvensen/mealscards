@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,7 +23,7 @@ interface FoodItem {
   created_at: string;
 }
 
-// ─── Colors (same palette as meals) ─────────────────────────────────────────
+// ─── Colors ─────────────────────────────────────────────────────────────────
 
 const FOOD_COLORS = [
   "hsl(345, 45%, 48%)", "hsl(22, 55%, 48%)", "hsl(155, 35%, 40%)",
@@ -60,7 +60,7 @@ function useFoodItems() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["food_items"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("food_items")
         .select("*")
         .order("sort_order", { ascending: true });
@@ -71,10 +71,9 @@ function useFoodItems() {
 
   const addItem = useMutation({
     mutationFn: async (name: string) => {
-      const maxOrder = items.length;
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("food_items")
-        .insert({ name, color: colorFromName(name), sort_order: maxOrder });
+        .insert({ name, sort_order: items.length });
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -82,7 +81,7 @@ function useFoodItems() {
 
   const updateItem = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<FoodItem> & { id: string }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("food_items")
         .update(updates)
         .eq("id", id);
@@ -93,7 +92,7 @@ function useFoodItems() {
 
   const deleteItem = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any).from("food_items").delete().eq("id", id);
+      const { error } = await supabase.from("food_items").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -103,7 +102,7 @@ function useFoodItems() {
     mutationFn: async (id: string) => {
       const source = items.find(i => i.id === id);
       if (!source) return;
-      const { error } = await (supabase as any).from("food_items").insert({
+      const { error } = await supabase.from("food_items").insert({
         name: source.name,
         grams: source.grams,
         calories: source.calories,
@@ -155,9 +154,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
 
   return (
     <div
-      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none
-        ${expired ? 'ring-2 ring-red-500' : ''}
-      `}
+      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none ${expired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: color }}
     >
       {/* Row 1: name + badges + actions */}
@@ -184,11 +181,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
         {counterDays !== null && (
           <button
             onClick={() => onUpdate({ counter_start_date: null })}
-            className={`text-[11px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0 transition-all
-              ${counterUrgent
-                ? 'bg-red-600 text-white border-red-300 shadow-md animate-pulse'
-                : 'bg-black/40 text-white border-white/30'
-              }`}
+            className={`text-[11px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0 transition-all ${counterUrgent ? 'bg-red-600 text-white border-red-300 shadow-md animate-pulse' : 'bg-black/40 text-white border-white/30'}`}
             title="Cliquer pour arrêter le compteur"
           >
             <Timer className="h-2.5 w-2.5" />{counterDays}j
@@ -197,55 +190,31 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
 
         {/* Grams */}
         {editing === "grams" ? (
-          <Input
-            autoFocus
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={saveEdit}
-            onKeyDown={e => e.key === "Enter" && saveEdit()}
-            placeholder="Ex: 500g"
-            className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
-          />
+          <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 500g" className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
         ) : item.grams ? (
-          <button
-            onClick={() => startEdit("grams")}
-            className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0"
-          >
+          <button onClick={() => startEdit("grams")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
             <Weight className="h-2.5 w-2.5" />{item.grams}
           </button>
         ) : null}
 
         {/* Calories */}
         {editing === "calories" ? (
-          <Input
-            autoFocus
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={saveEdit}
-            onKeyDown={e => e.key === "Enter" && saveEdit()}
-            placeholder="Ex: 200 kcal"
-            className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
-          />
+          <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 200 kcal" className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
         ) : item.calories ? (
-          <button
-            onClick={() => startEdit("calories")}
-            className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0"
-          >
+          <button onClick={() => startEdit("calories")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
             <Flame className="h-2.5 w-2.5" />{item.calories}
           </button>
         ) : null}
 
-        {/* Duplicate */}
         <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
           <Copy className="h-3 w-3" />
         </Button>
-        {/* Delete */}
         <Button size="icon" variant="ghost" onClick={onDelete} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Supprimer">
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
 
-      {/* Row 2: quick-add fields (grams/calories if not set) + expiration + counter start */}
+      {/* Row 2: quick-add + expiration + counter */}
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
         {!item.grams && editing !== "grams" && (
           <button onClick={() => startEdit("grams")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
@@ -258,7 +227,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
           </button>
         )}
 
-        {/* Expiration */}
+        {/* Expiration date picker */}
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
             <button className={`h-5 min-w-[88px] border border-white/20 bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${expired ? 'text-red-200' : ''}`}>
@@ -307,9 +276,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate }: FoodItem
 export function FoodItems() {
   const { items, isLoading, addItem, updateItem, deleteItem, duplicateItem } = useFoodItems();
   const [newName, setNewName] = useState("");
-  const [collapsed, setCollapsed] = useState(false);
 
-  // Derive a stable color per item based on its name
   const colorMap = useCallback((name: string) => colorFromName(name), []);
 
   const handleAdd = () => {
@@ -317,7 +284,11 @@ export function FoodItems() {
     if (!name) return;
     addItem.mutate(name, {
       onSuccess: () => { setNewName(""); toast({ title: "Aliment ajouté 🥕" }); },
-      onError: () => toast({ title: "Erreur", description: "Table food_items manquante ?", variant: "destructive" }),
+      onError: (err: unknown) => {
+        console.error("food_items insert error:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        toast({ title: "Erreur lors de l'ajout", description: msg, variant: "destructive" });
+      },
     });
   };
 
@@ -349,35 +320,28 @@ export function FoodItems() {
       {/* List */}
       <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
         <div className="flex items-center gap-2 mb-3">
-          <button onClick={() => setCollapsed(c => !c)} className="text-muted-foreground shrink-0">
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-            🥕 Ma cuisine
-          </h2>
+          <h2 className="text-lg font-bold text-foreground">🥕 Ma cuisine</h2>
           <span className="text-sm font-normal text-muted-foreground">{items.length}</span>
         </div>
 
-        {!collapsed && (
-          <div className="flex flex-col gap-2">
-            {items.length === 0 ? (
-              <p className="text-muted-foreground text-sm text-center py-8 italic">
-                Aucun aliment — ajoutez ce que vous avez dans votre cuisine
-              </p>
-            ) : (
-              items.map(item => (
-                <FoodItemCard
-                  key={item.id}
-                  item={item}
-                  color={colorMap(item.name)}
-                  onUpdate={(updates) => updateItem.mutate({ id: item.id, ...updates })}
-                  onDelete={() => deleteItem.mutate(item.id)}
-                  onDuplicate={() => duplicateItem.mutate(item.id)}
-                />
-              ))
-            )}
-          </div>
-        )}
+        <div className="flex flex-col gap-2">
+          {items.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-8 italic">
+              Aucun aliment — ajoutez ce que vous avez dans votre cuisine
+            </p>
+          ) : (
+            items.map(item => (
+              <FoodItemCard
+                key={item.id}
+                item={item}
+                color={colorMap(item.name)}
+                onUpdate={(updates) => updateItem.mutate({ id: item.id, ...updates })}
+                onDelete={() => deleteItem.mutate(item.id)}
+                onDuplicate={() => duplicateItem.mutate(item.id)}
+              />
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
