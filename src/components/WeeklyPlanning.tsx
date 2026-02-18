@@ -77,9 +77,8 @@ export function WeeklyPlanning() {
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
   // Touch drag (long-press → ghost follows finger)
-  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const touchDrag = useRef<TouchDragState | null>(null);
-  const longPressTimer = useRef<number | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
   const [touchHighlight, setTouchHighlight] = useState<string | null>(null); // slot key being hovered
 
@@ -148,46 +147,50 @@ export function WeeklyPlanning() {
   // Strategy: long-press (500ms) creates a ghost clone. The ghost follows the finger.
   // On touchend, use elementFromPoint to find the slot and mutate.
 
-  const handleTouchStart = (e: React.TouchEvent, pmId: string) => {
+  const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
     const touch = e.touches[0];
-    const startX = touch.clientX;
-    const startY = touch.clientY;
+    const origEl = e.currentTarget as HTMLElement;
+    const rect = origEl.getBoundingClientRect();
 
-    longPressTimer.current = window.setTimeout(() => {
-      const el = cardRefs.current.get(pmId);
-      if (!el) return;
+    // Cancel any previous timer
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
-      const rect = el.getBoundingClientRect();
-      const ghost = el.cloneNode(true) as HTMLElement;
+    longPressTimer.current = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(40);
 
-      ghost.style.position = "fixed";
-      ghost.style.top = `${rect.top}px`;
-      ghost.style.left = `${rect.left}px`;
-      ghost.style.width = `${rect.width}px`;
-      ghost.style.pointerEvents = "none";
-      ghost.style.opacity = "0.85";
-      ghost.style.zIndex = "9999";
-
+      // Build ghost
+      const ghost = origEl.cloneNode(true) as HTMLElement;
+      ghost.style.cssText = `
+        position: fixed;
+        top: ${rect.top}px;
+        left: ${rect.left}px;
+        width: ${rect.width}px;
+        z-index: 9999;
+        pointer-events: none;
+        opacity: 0.85;
+        transform: scale(1.05);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+        transition: none;
+      `;
       document.body.appendChild(ghost);
 
       touchDrag.current = {
-        pmId,
+        pmId: pm.id,
         ghost,
-        startX,
-        startY,
+        startX: touch.clientX,
+        startY: touch.clientY,
         origTop: rect.top,
         origLeft: rect.left,
       };
-
-      el.style.opacity = "0.3";
-    }, 250);
+      setTouchDragActive(true);
+    }, 500);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    const touch = e.touches[0];
-
     if (!touchDrag.current) return;
 
+    const touch = e.touches[0];
     const state = touchDrag.current;
 
     const dx = touch.clientX - state.startX;
@@ -284,11 +287,11 @@ export function WeeklyPlanning() {
         }}
         onDragLeave={() => setSlotDragOver(null)}
         onDrop={(e) => handleDropOnCard(e, pm)}
-        onTouchStart={(e) => handleTouchStart(e, pm.id)}
+        onTouchStart={(e) => handleTouchStart(e, pm)}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className={`rounded-xl text-white select-none
+        className={`rounded-xl text-white select-none touch-none
           ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
           transition-transform hover:scale-[1.01]
           ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
