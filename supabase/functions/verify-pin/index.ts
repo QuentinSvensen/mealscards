@@ -1,31 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ALLOWED_ORIGINS = [
-  "https://mealscards.lovable.app",
-  "https://id-preview--326b1fb7-892d-4cdb-8e10-68c2c56390f5.lovable.app",
-  "http://localhost:5173",
-  "http://localhost:8080",
-];
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-function getCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") || "";
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  };
-}
-
-const MAX_ATTEMPTS_PER_IP = 5;
-const GLOBAL_MAX_ATTEMPTS = 50;
+const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
+// Single shared app-user credentials (created on first run)
 const APP_USER_EMAIL = "app@internal.local";
 
 serve(async (req) => {
-  const corsHeaders = getCorsHeaders(req);
-
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -44,8 +31,47 @@ serve(async (req) => {
 
     const windowStart = new Date(Date.now() - WINDOW_MS).toISOString();
 
+    // Helper: count currently blocked IPs
+    const getBlockedCount = async (): Promise<number> => {
+      const { data } = await supabaseAdmin
+        .from("pin_attempts")
+        .select("ip")
+        .eq("success", false)
+        .gte("created_at", windowStart);
+      if (!data) return 0;
+      const counts: Record<string, number> = {};
+      data.forEach(r => { counts[r.ip] = (counts[r.ip] || 0) + 1; });
+      return Object.values(counts).filter(c => c >= MAX_ATTEMPTS).length;
+    };
+
+    // Parse body (may be admin_stats request)
     let body: Record<string, unknown> = {};
     try { body = await req.json(); } catch { /* no body */ }
+
+    // Admin stats request (no pin needed)
+    if (body.admin_stats) {
+      const blocked_count = await getBlockedCount();
+      return new Response(
+        JSON.stringify({ blocked_count }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Rate limiting: check recent failed attempts from this IP
+    const { data: attempts } = await supabaseAdmin
+      .from("pin_attempts")
+      .select("id")
+      .eq("ip", clientIp)
+      .eq("success", false)
+      .gte("created_at", windowStart);
+
+    if (attempts && attempts.length >= MAX_ATTEMPTS) {
+      const blocked_count = await getBlockedCount();
+      return new Response(
+        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes.", blocked_count }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     const { pin } = body as { pin?: string };
 
@@ -56,45 +82,9 @@ serve(async (req) => {
       );
     }
 
-    // --- Global rate limit ---
-    const { data: globalAttempts } = await supabaseAdmin
-      .from("pin_attempts")
-      .select("id")
-      .eq("success", false)
-      .gte("created_at", windowStart);
-
-    if (globalAttempts && globalAttempts.length >= GLOBAL_MAX_ATTEMPTS) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Trop de tentatives globales. Réessayez dans 15 minutes." }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // --- Per-IP rate limit ---
-    const { data: ipAttempts } = await supabaseAdmin
-      .from("pin_attempts")
-      .select("id")
-      .eq("ip", clientIp)
-      .eq("success", false)
-      .gte("created_at", windowStart);
-
-    const ipAttemptCount = ipAttempts?.length ?? 0;
-
-    if (ipAttemptCount >= MAX_ATTEMPTS_PER_IP) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Trop de tentatives. Réessayez dans 15 minutes." }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // --- Progressive delay (exponential backoff) ---
-    if (ipAttemptCount > 0) {
-      const delayMs = Math.min(Math.pow(2, ipAttemptCount - 1) * 1000, 16000);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-    }
-
     const serverPin = Deno.env.get("VITE_APP_PIN");
 
+    // If no PIN configured server-side, deny access (fail secure)
     if (!serverPin) {
       return new Response(
         JSON.stringify({ success: false, error: "PIN non configuré" }),
@@ -104,6 +94,7 @@ serve(async (req) => {
 
     const isValid = pin === serverPin;
 
+    // Only record failed attempts (successes are never read and expose login metadata)
     if (!isValid) {
       await supabaseAdmin.from("pin_attempts").insert({
         ip: clientIp,
@@ -124,9 +115,10 @@ serve(async (req) => {
       );
     }
 
-    // PIN is valid — sign in shared app-user
+    // PIN is valid — ensure the shared app-user exists, then sign in to get a real session
     const appUserPassword = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!.slice(0, 32);
 
+    // Try to sign in first
     const supabaseAnon = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
@@ -138,6 +130,7 @@ serve(async (req) => {
       password: appUserPassword,
     });
 
+    // If user doesn't exist yet, create it
     if (signInResult.error) {
       const { error: createError } = await supabaseAdmin.auth.admin.createUser({
         email: APP_USER_EMAIL,
@@ -153,6 +146,7 @@ serve(async (req) => {
         );
       }
 
+      // Retry sign-in
       signInResult = await supabaseAnon.auth.signInWithPassword({
         email: APP_USER_EMAIL,
         password: appUserPassword,

@@ -32,7 +32,14 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [rateLimited, setRateLimited] = useState(false);
+  const [blockedCount, setBlockedCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    // Fetch blocked IPs count from edge function (admin info)
+    supabase.functions.invoke("verify-pin", { body: { admin_stats: true } })
+      .then(({ data }) => { if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count); })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async () => {
     if (pin.length !== 4) return;
@@ -42,8 +49,7 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         body: { pin },
       });
       if (fnError || !data?.success) {
-        const isRateLimit = !data?.success && !fnError && data === null;
-        if (isRateLimit) setRateLimited(true);
+        if (data?.blocked_count !== undefined) setBlockedCount(data.blocked_count);
         setError(true);
         setPin("");
         setTimeout(() => setError(false), 1500);
@@ -58,11 +64,7 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         sessionStorage.setItem("pin_unlocked", "1");
         onUnlock();
       }
-    } catch (err: unknown) {
-      // Detect 429 rate limit response
-      if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 429) {
-        setRateLimited(true);
-      }
+    } catch {
       setError(true);
       setPin("");
       setTimeout(() => setError(false), 1500);
@@ -91,8 +93,12 @@ function PinLock({ onUnlock }: { onUnlock: () => void }) {
         <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
-        {error && !rateLimited && <p className="text-destructive text-sm">Code incorrect</p>}
-        {rateLimited && <p className="text-destructive text-sm text-center max-w-xs">Trop de tentatives. Réessayez dans 15 minutes.</p>}
+        {error && <p className="text-destructive text-sm">Code incorrect</p>}
+        {blockedCount !== null && blockedCount > 0 && (
+          <p className="text-[11px] text-muted-foreground/60 mt-2">
+            🔒 {blockedCount} IP{blockedCount > 1 ? 's bloquées' : ' bloquée'} (15 min)
+          </p>
+        )}
       </div>
     </div>
   );
