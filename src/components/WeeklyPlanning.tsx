@@ -152,27 +152,25 @@ export function WeeklyPlanning() {
     const origEl = e.currentTarget as HTMLElement;
     const rect = origEl.getBoundingClientRect();
 
-    // Cancel any previous timer
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
     longPressTimer.current = setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(40);
 
-      // Build ghost
       const ghost = origEl.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `
-        position: fixed;
-        top: ${rect.top}px;
-        left: ${rect.left}px;
-        width: ${rect.width}px;
-        z-index: 9999;
-        pointer-events: none;
-        opacity: 0.85;
-        transform: scale(1.05);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-        transition: none;
-      `;
+      position: fixed;
+      top: ${rect.top}px;
+      left: ${rect.left}px;
+      width: ${rect.width}px;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0.9;
+      transform: scale(1.05);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+      transition: none;
+    `;
       document.body.appendChild(ghost);
 
       touchDrag.current = {
@@ -183,26 +181,22 @@ export function WeeklyPlanning() {
         origTop: rect.top,
         origLeft: rect.left,
       };
+
       setTouchDragActive(true);
-    }, 500);
+      longPressTimer.current = null;
+    }, 300); // plus réactif
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!longPressTimer.current && !touchDrag.current) return;
-
-    if (!touchDrag.current) {
-      // Still in long-press window — cancel if user scrolls
-      const touch = e.touches[0];
-      const state = touchDrag.current;
-      if (!state) return;
-      // Will be null before long-press fires — just let scroll happen
-      return;
-    }
-
-    // Actively dragging
-    // ✅ FIX — preventDefault seulement si autorisé
-    if (e.cancelable) e.preventDefault();
     const touch = e.touches[0];
+
+    // ✅ Si le drag n'est pas encore actif, on ne fait rien
+    // (on laisse le long-press se déclencher naturellement)
+    if (!touchDrag.current) return;
+
+    // Drag actif
+    if (e.cancelable) e.preventDefault();
+
     const state = touchDrag.current;
     const dx = touch.clientX - state.startX;
     const dy = touch.clientY - state.startY;
@@ -210,7 +204,7 @@ export function WeeklyPlanning() {
     state.ghost.style.top = `${state.origTop + dy}px`;
     state.ghost.style.left = `${state.origLeft + dx}px`;
 
-    // Highlight slot under finger
+    // Détection du slot sous le doigt
     state.ghost.style.visibility = "hidden";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     state.ghost.style.visibility = "visible";
@@ -380,10 +374,7 @@ export function WeeklyPlanning() {
   const weekTotal = DAYS.reduce((sum, day) => sum + getDayCalories(day), 0);
 
   return (
-    <div
-      className="max-w-4xl mx-auto space-y-3"
-      style={{ touchAction: touchDragActive ? "none" : "auto" }} // ✅ FIX
-    >
+    <div className={`max-w-4xl mx-auto space-y-3 ${touchDragActive ? "touch-none" : ""}`}>
       {DAYS.map((day) => {
         const isToday_ = day === todayKey;
         const dayCalories = getDayCalories(day);
