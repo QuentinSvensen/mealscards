@@ -59,7 +59,7 @@ function parseCalories(cal: string | null | undefined): number {
 
 // ─── Touch drag state ────────────────────────────────────────────────────────
 interface TouchDragState {
-  recipeId: number;
+  pmId: string;
   ghost: HTMLElement;
   startX: number;
   startY: number;
@@ -77,7 +77,7 @@ export function WeeklyPlanning() {
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
   // Touch drag (long-press → ghost follows finger)
-  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const touchDrag = useRef<TouchDragState | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
@@ -148,13 +148,13 @@ export function WeeklyPlanning() {
   // Strategy: long-press (500ms) creates a ghost clone. The ghost follows the finger.
   // On touchend, use elementFromPoint to find the slot and mutate.
 
-  const handleTouchStart = (e: React.TouchEvent, recipeId: number) => {
+  const handleTouchStart = (e: React.TouchEvent, pmId: string) => {
     const touch = e.touches[0];
     const startX = touch.clientX;
     const startY = touch.clientY;
 
     longPressTimer.current = window.setTimeout(() => {
-      const el = cardRefs.current.get(recipeId);
+      const el = cardRefs.current.get(pmId);
       if (!el) return;
 
       const rect = el.getBoundingClientRect();
@@ -171,7 +171,7 @@ export function WeeklyPlanning() {
       document.body.appendChild(ghost);
 
       touchDrag.current = {
-        recipeId,
+        pmId,
         ghost,
         startX,
         startY,
