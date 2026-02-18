@@ -147,50 +147,61 @@ export function WeeklyPlanning() {
   // Strategy: long-press (500ms) creates a ghost clone. The ghost follows the finger.
   // On touchend, use elementFromPoint to find the slot and mutate.
 
-  const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
+  const handleTouchStart = (e: React.TouchEvent, recipeId: number) => {
     const touch = e.touches[0];
-    const origEl = e.currentTarget as HTMLElement;
-    const rect = origEl.getBoundingClientRect();
+    const startX = touch.clientX;
+    const startY = touch.clientY;
 
-    // Cancel any previous timer
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      const el = cardRefs.current.get(recipeId);
+      if (!el) return;
 
-    longPressTimer.current = setTimeout(() => {
-      if (navigator.vibrate) navigator.vibrate(40);
+      const rect = el.getBoundingClientRect();
+      const ghost = el.cloneNode(true) as HTMLElement;
 
-      // Build ghost
-      const ghost = origEl.cloneNode(true) as HTMLElement;
-      ghost.style.cssText = `
-        position: fixed;
-        top: ${rect.top}px;
-        left: ${rect.left}px;
-        width: ${rect.width}px;
-        z-index: 9999;
-        pointer-events: none;
-        opacity: 0.85;
-        transform: scale(1.05);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-        transition: none;
-      `;
+      ghost.style.position = "fixed";
+      ghost.style.top = `${rect.top}px`;
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.pointerEvents = "none";
+      ghost.style.opacity = "0.85";
+      ghost.style.zIndex = "9999";
+
       document.body.appendChild(ghost);
 
       touchDrag.current = {
-        pmId: pm.id,
+        recipeId,
         ghost,
-        startX: touch.clientX,
-        startY: touch.clientY,
+        startX,
+        startY,
         origTop: rect.top,
         origLeft: rect.left,
       };
-      setTouchDragActive(true);
-    }, 500);
+
+      el.style.opacity = "0.3";
+    }, 250);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchDrag.current) return;
-
     const touch = e.touches[0];
+
+    // Si drag pas encore démarré → vérifier si on dépasse un seuil
+    if (!touchDrag.current) {
+      if (!longPressTimer.current) return;
+
+      const dx = touch.clientX - (touchDrag.current?.startX ?? touch.clientX);
+      const dy = touch.clientY - (touchDrag.current?.startY ?? touch.clientY);
+
+      const threshold = 6; // tolérance en pixels
+
+      if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+
+      return;
+    }
+
     const state = touchDrag.current;
 
     const dx = touch.clientX - state.startX;
@@ -216,13 +227,10 @@ export function WeeklyPlanning() {
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+    clearTimeout(longPressTimer.current ?? undefined);
+    longPressTimer.current = null;
 
-    const state = touchDrag.current;
-    if (!state) return;
+    if (!touchDrag.current) return;
 
     touchDrag.current = null;
     setTouchDragActive(false);
@@ -291,7 +299,7 @@ export function WeeklyPlanning() {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className={`rounded-xl text-white select-none touch-none
+        className={`rounded-xl text-white select-none
           ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
           transition-transform hover:scale-[1.01]
           ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
