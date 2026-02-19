@@ -31,7 +31,7 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 
 // ─── Validation schema ────────────────────────────────────────────────────────
 const mealSchema = z.object({
-  name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)"),
+  name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)")
 });
 
 
@@ -63,9 +63,9 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
 
       if (fnError) {
         // Distinguish network/cold-start errors from auth errors
-        const msg = fnError.message?.includes("PIN") || fnError.message?.includes("requis")
-          ? "Code incorrect"
-          : "Service indisponible, réessaie";
+        const msg = fnError.message?.includes("PIN") || fnError.message?.includes("requis") ?
+        "Code incorrect" :
+        "Service indisponible, réessaie";
         showError(msg);
       } else if (!data?.success) {
         showError("Code incorrect");
@@ -267,11 +267,11 @@ const Index = () => {
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     reorderMeals.mutate(reordered.map((m, i) => ({ id: m.id, sort_order: i })));
-    setMasterSortModes(prev => ({ ...prev, [cat]: "manual" }));
+    setMasterSortModes((prev) => ({ ...prev, [cat]: "manual" }));
   };
 
   const toggleMasterSort = (cat: string) => {
-    setMasterSortModes(prev => {
+    setMasterSortModes((prev) => {
       const current = prev[cat] || "manual";
       const next = current === "manual" ? "calories" : current === "calories" ? "favorites" : "manual";
       return { ...prev, [cat]: next };
@@ -309,7 +309,7 @@ const Index = () => {
     const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
     const stockMap = buildStockMap(foodItems);
 
-    const updates: Array<{ id: string; grams: string | null; delete?: boolean }> = [];
+    const updates: Array<{id: string;grams: string | null;delete?: boolean;}> = [];
 
     for (const ing of ingredients) {
       const { qty: needed, name } = parseIngredientLine(ing);
@@ -321,7 +321,7 @@ const Index = () => {
       const available = stockMap.get(key)!;
       if (available === Infinity) continue; // infini → on ignore
 
-      const matchingItems = foodItems.filter(fi => {
+      const matchingItems = foodItems.filter((fi) => {
         const fiKey = normalizeForMatch(fi.name);
         return (fiKey.includes(key) || key.includes(fiKey)) && !fi.is_infinite && parseQty(fi.grams) > 0;
       });
@@ -335,16 +335,16 @@ const Index = () => {
         toDeduct -= deduct;
         updates.push({ id: fi.id, grams: newQty > 0 ? String(Math.round(newQty * 10) / 10) : null, delete: newQty === 0 });
         // Update stockMap for next ingredient
-        if (newQty === 0) stockMap.delete(key);
-        else stockMap.set(key, newQty);
+        if (newQty === 0) stockMap.delete(key);else
+        stockMap.set(key, newQty);
       }
     }
 
     // Apply updates
-    await Promise.all(updates.map(u =>
-      u.delete
-        ? supabase.from("food_items").delete().eq("id", u.id)
-        : supabase.from("food_items").update({ grams: u.grams } as any).eq("id", u.id)
+    await Promise.all(updates.map((u) =>
+    u.delete ?
+    supabase.from("food_items").delete().eq("id", u.id) :
+    supabase.from("food_items").update({ grams: u.grams } as any).eq("id", u.id)
     ));
     // Invalidate food_items cache so UI refreshes
     qc.invalidateQueries({ queryKey: ["food_items"] });
@@ -516,13 +516,13 @@ const Index = () => {
             <div className="space-y-1">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Sécurité</p>
               <button onClick={async () => {
-                try {
-                  const { data } = await supabase.functions.invoke("verify-pin", { body: { reset_blocked: true } });
-                  if (data?.success) { setBlockedCount(0); toast({ title: "✅ Score PIN réinitialisé" }); }
-                  else toast({ title: "❌ Erreur", variant: "destructive" });
-                } catch { toast({ title: "❌ Erreur", variant: "destructive" }); }
-                setShowDevMenu(false);
-              }} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive">
+              try {
+                const { data } = await supabase.functions.invoke("verify-pin", { body: { reset_blocked: true } });
+                if (data?.success) {setBlockedCount(0);toast({ title: "✅ Score PIN réinitialisé" });} else
+                toast({ title: "❌ Erreur", variant: "destructive" });
+              } catch {toast({ title: "❌ Erreur", variant: "destructive" });}
+              setShowDevMenu(false);
+            }} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive">
                 <ShieldAlert className="h-4 w-4" /> Réinitialiser score PIN ({blockedCount ?? 0})
               </button>
             </div>
@@ -545,7 +545,7 @@ const Index = () => {
           </div>
           {/* Center tabs — flex-1 takes all available space, max-width keeps tabs compact on large screens */}
           <div className="flex items-center flex-1 min-w-0 justify-center">
-            <div className="flex bg-muted rounded-full p-0.5 gap-0.5 w-full max-w-xs sm:max-w-sm">
+            <div className="bg-muted rounded-full p-0.5 w-full max-w-xs sm:max-w-sm py-[6px] my-0 px-0 flex items-center justify-center gap-[2px]">
               <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
                 <Apple className="h-3 w-3 shrink-0" />
                 <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
@@ -570,12 +570,12 @@ const Index = () => {
       </header>
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
-        {mainPage === "aliments" && (
-          <>
+        {mainPage === "aliments" &&
+        <>
             <FoodItems />
             <FoodItemsSuggestions foodItems={foodItems} />
           </>
-        )}
+        }
         {mainPage === "courses" && <ShoppingList />}
         {mainPage === "planning" && <WeeklyPlanning />}
         {mainPage === "repas" &&
@@ -635,7 +635,7 @@ const Index = () => {
                   sortMode={masterSortModes[cat.value] || "manual"}
                   onToggleSort={() => toggleMasterSort(cat.value)}
                   onMoveToPossible={async (id) => {
-                    const meal = meals.find(m => m.id === id);
+                    const meal = meals.find((m) => m.id === id);
                     if (meal) await deductIngredientsFromStock(meal);
                     moveToPossible.mutate(id);
                   }}
@@ -645,7 +645,7 @@ const Index = () => {
                   onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                   onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
                   onToggleFavorite={(id) => {
-                    const meal = meals.find(m => m.id === id);
+                    const meal = meals.find((m) => m.id === id);
                     if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
                   }}
                   onReorder={(from, to) => handleReorderMeals(cat.value, from, to)} />
@@ -655,14 +655,14 @@ const Index = () => {
                   meals={getMealsByCategory(cat.value)}
                   foodItems={foodItems}
                   onMoveToPossible={async (id) => {
-                    const meal = meals.find(m => m.id === id);
+                    const meal = meals.find((m) => m.id === id);
                     if (meal) await deductIngredientsFromStock(meal);
                     moveToPossible.mutate(id);
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value });
                   }}
-                  onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
+                  onDeleteFoodItem={(id) => {deleteFoodItem(id);}} />
 
                   </div>
                   <PossibleList
@@ -783,9 +783,9 @@ function fuzzyNameMatch(a: string, b: string): boolean {
   if (Math.abs(na.length - nb.length) > 1) return false;
   let diff = 0;
   const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
-  let si = 0, li = 0;
+  let si = 0,li = 0;
   while (si < shorter.length && li < longer.length) {
-    if (shorter[si] !== longer[li]) { diff++; if (diff > 1) return false; li++; } else { si++; li++; }
+    if (shorter[si] !== longer[li]) {diff++;if (diff > 1) return false;li++;} else {si++;li++;}
   }
   return true;
 }
@@ -811,9 +811,9 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
    * for this category. One stock item can match multiple meals (shown once per meal).
    * We exclude items already surfaced as is_meal.
    */
-  type NameMatch = { meal: Meal; fi: FoodItem; portionsAvailable: number | null };
+  type NameMatch = {meal: Meal;fi: FoodItem;portionsAvailable: number | null;};
   const nameMatches: NameMatch[] = [];
-  const isMealIds = new Set(isMealItems.map(fi => fi.id));
+  const isMealIds = new Set(isMealItems.map((fi) => fi.id));
 
   for (const meal of meals) {
     for (const fi of foodItems) {
@@ -827,7 +827,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
   }
 
   // Also surface food items that no recipe ingredient matches AND is NOT is_meal AND not a name-match
-  const nameMatchFiIds = new Set(nameMatches.map(nm => nm.fi.id));
+  const nameMatchFiIds = new Set(nameMatches.map((nm) => nm.fi.id));
   const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false;
     if (nameMatchFiIds.has(fi.id)) return false;
@@ -888,46 +888,46 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
 
           {/* Name-match: stock items whose name matches a meal in "Tous" for this category */}
           {nameMatches.map(({ meal, fi, portionsAvailable }, idx) => {
-            // Build a fake Meal to reuse MealCard, using the meal's color for visual link
-            const fakeMeal: Meal = {
-              id: `nm-${meal.id}-${fi.id}`,
-              name: meal.name,
-              category: meal.category,
-              calories: meal.calories,
-              grams: fi.is_infinite ? "∞" : (fi.grams ?? null),
-              ingredients: meal.ingredients,
-              color: meal.color,
-              sort_order: 0,
-              created_at: fi.created_at,
-              is_available: true,
-              is_favorite: meal.is_favorite,
-            };
-            return (
-              <div key={`nm-${idx}`} className="relative">
+          // Build a fake Meal to reuse MealCard, using the meal's color for visual link
+          const fakeMeal: Meal = {
+            id: `nm-${meal.id}-${fi.id}`,
+            name: meal.name,
+            category: meal.category,
+            calories: meal.calories,
+            grams: fi.is_infinite ? "∞" : fi.grams ?? null,
+            ingredients: meal.ingredients,
+            color: meal.color,
+            sort_order: 0,
+            created_at: fi.created_at,
+            is_available: true,
+            is_favorite: meal.is_favorite
+          };
+          return (
+            <div key={`nm-${idx}`} className="relative">
                 <MealCard
-                  meal={fakeMeal}
-                  onMoveToPossible={() => onMoveToPossible(meal.id)}
-                  onRename={() => {}}
-                  onDelete={() => {}}
-                  onUpdateCalories={() => {}}
-                  onUpdateGrams={() => {}}
-                  onUpdateIngredients={() => {}}
-                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  hideDelete
-                />
+                meal={fakeMeal}
+                onMoveToPossible={() => onMoveToPossible(meal.id)}
+                onRename={() => {}}
+                onDelete={() => {}}
+                onUpdateCalories={() => {}}
+                onUpdateGrams={() => {}}
+                onUpdateIngredients={() => {}}
+                onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "available");}}
+                onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
+                onDrop={(e) => {e.preventDefault();e.stopPropagation();}}
+                hideDelete />
+
                 {/* Quantity badge from stock */}
                 <div className="absolute top-2 right-2 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
-                  {fi.is_infinite ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : (portionsAvailable !== null ? `${portionsAvailable}g` : "")}
+                  {fi.is_infinite ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : portionsAvailable !== null ? `${portionsAvailable}g` : ""}
                 </div>
-              </div>
-            );
-          })}
+              </div>);
+
+        })}
 
           {/* is_meal food items — appear as standalone with full card UI.
-              - Delete option wired to onDeleteFoodItem (removes from food_items)
-              - No quantity badge (user requested) */}
+          - Delete option wired to onDeleteFoodItem (removes from food_items)
+          - No quantity badge (user requested) */}
           {isMealItems.map((fi) => {
           // Build a fake Meal object to reuse MealCard — use same colorFromName for visual consistency
           const fakeMeal: Meal = {
@@ -935,13 +935,13 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             name: fi.name,
             category: "plat",
             calories: fi.calories,
-            grams: fi.is_infinite ? "∞" : (fi.grams ?? null),
+            grams: fi.is_infinite ? "∞" : fi.grams ?? null,
             ingredients: null,
             color: colorFromName(fi.name),
             sort_order: 0,
             created_at: fi.created_at,
             is_available: true,
-            is_favorite: false,
+            is_favorite: false
           };
           return (
             <div key={fi.id} className="relative">
@@ -953,10 +953,10 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
                 onUpdateCalories={() => {}}
                 onUpdateGrams={() => {}}
                 onUpdateIngredients={() => {}}
-                onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              />
+                onDragStart={(e) => {e.dataTransfer.setData("mealId", fi.id);e.dataTransfer.setData("source", "available");}}
+                onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
+                onDrop={(e) => {e.preventDefault();e.stopPropagation();}} />
+
             </div>);
         })}
 
@@ -1001,7 +1001,7 @@ function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible,
       collapsed={collapsed}
       onToggleCollapse={() => setCollapsed((c) => !c)}
       headerActions={
-        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
+      <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
           <SortIcon className={`h-3 w-3 ${sortMode === "favorites" ? "text-yellow-400 fill-yellow-400" : ""}`} />
           <span className="hidden sm:inline">{sortLabel}</span>
         </Button>
