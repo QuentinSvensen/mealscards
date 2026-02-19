@@ -22,6 +22,7 @@ export type Database = {
           expiration_date: string | null
           grams: string | null
           id: string
+          is_dry: boolean
           is_infinite: boolean
           is_meal: boolean
           name: string
@@ -35,6 +36,7 @@ export type Database = {
           expiration_date?: string | null
           grams?: string | null
           id?: string
+          is_dry?: boolean
           is_infinite?: boolean
           is_meal?: boolean
           name: string
@@ -48,6 +50,7 @@ export type Database = {
           expiration_date?: string | null
           grams?: string | null
           id?: string
+          is_dry?: boolean
           is_infinite?: boolean
           is_meal?: boolean
           name?: string

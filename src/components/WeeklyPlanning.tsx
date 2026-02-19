@@ -193,14 +193,13 @@ export function WeeklyPlanning() {
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!longPressTimer.current && !touchDrag.current) return;
-
-    if (!touchDrag.current) {
-      // Still in long-press window — cancel if user scrolls
-      const touch = e.touches[0];
-      const state = touchDrag.current;
-      if (!state) return;
-      // Will be null before long-press fires — just let scroll happen
+    // If a drag is active, always block scroll
+    if (touchDrag.current) {
+      e.preventDefault();
+    } else if (!longPressTimer.current) {
+      return;
+    } else {
+      // Still in long-press window — cancel if user moved too much (let natural scroll happen)
       return;
     }
 

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,6 +23,7 @@ export interface FoodItem {
   created_at: string;
   is_meal: boolean;
   is_infinite: boolean;
+  is_dry: boolean;
 }
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
@@ -71,6 +72,7 @@ export function useFoodItems() {
         ...d,
         is_meal: d.is_meal ?? false,
         is_infinite: d.is_infinite ?? false,
+        is_dry: d.is_dry ?? false,
       })) as FoodItem[];
     },
   });
@@ -275,6 +277,15 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           <UtensilsCrossed className="h-2.5 w-2.5" />
         </button>
 
+        {/* is_dry toggle */}
+        <button
+          onClick={() => onUpdate({ is_dry: !item.is_dry })}
+          className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_dry ? 'bg-amber-500/40 text-white border-amber-300/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
+          title={item.is_dry ? "Produit sec / placard (désactiver)" : "Marquer comme produit sec (placard)"}
+        >
+          <Package className="h-2.5 w-2.5" />
+        </button>
+
         <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
           <Copy className="h-3 w-3" />
         </Button>
@@ -424,36 +435,101 @@ export function FoodItems() {
         </Button>
       </div>
 
-      {/* List */}
-      <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <h2 className="text-lg font-bold text-foreground flex-1">🥕 Ma cuisine</h2>
-          <span className="text-sm font-normal text-muted-foreground">{items.length}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setSortMode(m => m === "manual" ? "expiration" : "manual")}
-            className="text-[10px] gap-0.5 h-7 px-2"
-          >
-            <SortIcon className="h-3 w-3" />
-            <span className="hidden sm:inline">{sortLabel}</span>
-          </Button>
-        </div>
+      {/* Frigo section */}
+      <FoodSection
+        emoji={<Refrigerator className="h-4 w-4 text-blue-400" />}
+        title="Frigo"
+        items={sortedItems.filter(i => !i.is_dry)}
+        colorMap={colorMap}
+        onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
+        onDelete={(id) => deleteItem.mutate(id)}
+        onDuplicate={(id) => duplicateItem.mutate(id)}
+        sortMode={sortMode}
+        onToggleSort={() => setSortMode(m => m === "manual" ? "expiration" : "manual")}
+        sortedItems={sortedItems}
+        onReorder={handleReorder}
+        dragIndex={dragIndex}
+        setDragIndex={setDragIndex}
+      />
 
-        <div className="flex flex-col gap-2">
-          {sortedItems.length === 0 ? (
-            <p className="text-muted-foreground text-sm text-center py-8 italic">
-              Aucun aliment — ajoutez ce que vous avez dans votre cuisine
-            </p>
-          ) : (
-            sortedItems.map((item, index) => (
+      {/* Sec / Placard section */}
+      <div className="mt-4">
+        <FoodSection
+          emoji={<Package className="h-4 w-4 text-amber-500" />}
+          title="Placard sec"
+          items={sortedItems.filter(i => i.is_dry)}
+          colorMap={colorMap}
+          onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
+          onDelete={(id) => deleteItem.mutate(id)}
+          onDuplicate={(id) => duplicateItem.mutate(id)}
+          sortMode={sortMode}
+          onToggleSort={() => setSortMode(m => m === "manual" ? "expiration" : "manual")}
+          sortedItems={sortedItems}
+          onReorder={handleReorder}
+          dragIndex={dragIndex}
+          setDragIndex={setDragIndex}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── FoodSection ─────────────────────────────────────────────────────────────
+
+interface FoodSectionProps {
+  emoji: React.ReactNode;
+  title: string;
+  items: FoodItem[];
+  colorMap: (name: string) => string;
+  onUpdate: (id: string, updates: Partial<FoodItem>) => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  sortMode: SortMode;
+  onToggleSort: () => void;
+  sortedItems: FoodItem[];
+  onReorder: (fromIndex: number, toIndex: number) => void;
+  dragIndex: number | null;
+  setDragIndex: (i: number | null) => void;
+}
+
+function FoodSection({ emoji, title, items, colorMap, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortedItems, onReorder, dragIndex, setDragIndex }: FoodSectionProps) {
+  const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
+  const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
+
+  return (
+    <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-lg font-bold text-foreground flex items-center gap-2 flex-1">
+          {emoji} {title}
+        </h2>
+        <span className="text-sm font-normal text-muted-foreground">{items.length}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onToggleSort}
+          className="text-[10px] gap-0.5 h-7 px-2"
+        >
+          <SortIcon className="h-3 w-3" />
+          <span className="hidden sm:inline">{sortLabel}</span>
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {items.length === 0 ? (
+          <p className="text-muted-foreground text-sm text-center py-6 italic">
+            Aucun aliment — cliquez sur 📦 sur une carte pour la déplacer ici
+          </p>
+        ) : (
+          items.map((item) => {
+            const index = sortedItems.findIndex(i => i.id === item.id);
+            return (
               <FoodItemCard
                 key={item.id}
                 item={item}
                 color={colorMap(item.name)}
-                onUpdate={(updates) => updateItem.mutate({ id: item.id, ...updates })}
-                onDelete={() => deleteItem.mutate(item.id)}
-                onDuplicate={() => duplicateItem.mutate(item.id)}
+                onUpdate={(updates) => onUpdate(item.id, updates)}
+                onDelete={() => onDelete(item.id)}
+                onDuplicate={() => onDuplicate(item.id)}
                 onDragStart={(e) => {
                   e.dataTransfer.setData("foodItemIndex", String(index));
                   setDragIndex(index);
@@ -463,14 +539,14 @@ export function FoodItems() {
                   e.preventDefault();
                   e.stopPropagation();
                   if (dragIndex !== null && dragIndex !== index) {
-                    handleReorder(dragIndex, index);
+                    onReorder(dragIndex, index);
                   }
                   setDragIndex(null);
                 }}
               />
-            ))
-          )}
-        </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
