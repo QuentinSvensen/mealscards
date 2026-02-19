@@ -66,7 +66,7 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary-foreground">
+    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
       <div className="flex flex-col items-center gap-4 p-8">
         <Lock className="h-10 w-10 text-muted-foreground" />
         <h2 className="text-lg font-bold text-foreground">Code d'accès</h2>
@@ -388,7 +388,7 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-primary-foreground">
+    <div className="min-h-screen bg-background">
       {/* Hidden dev menu — triple-clic sur 🍽️ */}
       {showDevMenu &&
       <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
