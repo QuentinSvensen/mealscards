@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, Flame } from "lucide-react";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +28,7 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 
 
 type SortMode = "manual" | "expiration" | "planning";
+type MasterSortMode = "manual" | "calories" | "favorites";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
 // PIN lock — shown on every page load (no sessionStorage persistence)
@@ -153,7 +154,7 @@ const Index = () => {
   const {
     isLoading,
     meals,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients, deleteMeal, reorderMeals,
+    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients, toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals,
@@ -170,6 +171,7 @@ const Index = () => {
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [sortModes, setSortModes] = useState<Record<string, SortMode>>({});
+  const [masterSortModes, setMasterSortModes] = useState<Record<string, MasterSortMode>>({});
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
 
@@ -240,6 +242,31 @@ const Index = () => {
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     reorderMeals.mutate(reordered.map((m, i) => ({ id: m.id, sort_order: i })));
+    setMasterSortModes(prev => ({ ...prev, [cat]: "manual" }));
+  };
+
+  const toggleMasterSort = (cat: string) => {
+    setMasterSortModes(prev => {
+      const current = prev[cat] || "manual";
+      const next = current === "manual" ? "calories" : current === "calories" ? "favorites" : "manual";
+      return { ...prev, [cat]: next };
+    });
+  };
+
+  const getSortedMaster = (cat: string): Meal[] => {
+    const items = getMealsByCategory(cat);
+    const mode = masterSortModes[cat] || "manual";
+    if (mode === "calories") {
+      return [...items].sort((a, b) => {
+        const ca = parseFloat((a.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+        const cb = parseFloat((b.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+        return ca - cb;
+      });
+    }
+    if (mode === "favorites") {
+      return [...items].sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
+    }
+    return items;
   };
 
   const handleReorderPossible = (cat: string, fromIndex: number, toIndex: number) => {
@@ -414,41 +441,53 @@ const Index = () => {
               </button>
             </div>
             <p className="text-[10px] text-muted-foreground/50">Format repas: NOM (cat=plat; cal=350kcal; ing=riz, légumes)</p>
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Sécurité</p>
+              <button onClick={async () => {
+                try {
+                  const { data } = await supabase.functions.invoke("verify-pin", { body: { reset_blocked: true } });
+                  if (data?.success) { setBlockedCount(0); toast({ title: "✅ Score PIN réinitialisé" }); }
+                  else toast({ title: "❌ Erreur", variant: "destructive" });
+                } catch { toast({ title: "❌ Erreur", variant: "destructive" }); }
+                setShowDevMenu(false);
+              }} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive">
+                <ShieldAlert className="h-4 w-4" /> Réinitialiser score PIN ({blockedCount ?? 0})
+              </button>
+            </div>
             <button onClick={() => setShowDevMenu(false)} className="text-xs text-muted-foreground w-full text-center hover:text-foreground">Fermer</button>
           </div>
         </div>
       }
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-3 py-2.5 sm:px-4 sm:py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <h1 className="text-lg sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-1 sm:gap-2">
+          <div className="flex items-center gap-1 shrink-0">
+            <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
             {/* Compteur IPs bloquées — visible uniquement après déverrouillage */}
             {blockedCount !== null &&
             <span
               title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
-              className="flex items-center gap-0.5 text-[10px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1.5 py-0.5 cursor-default">
-
-                <ShieldAlert className="h-2.5 w-2.5" />{blockedCount}
+              className="flex items-center gap-0.5 text-[9px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1 py-0.5 cursor-default shrink-0">
+                <ShieldAlert className="h-2 w-2" />{blockedCount}
               </span>
             }
           </div>
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-1 justify-center">
-          <div className="flex bg-muted rounded-full p-0.5 gap-0.5">
-              <button onClick={() => setMainPage("aliments")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
+          <div className="flex items-center flex-1 justify-center min-w-0">
+            <div className="flex bg-muted rounded-full p-0.5 gap-0.5 w-full max-w-xs sm:max-w-sm">
+              <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
                 <Apple className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
+                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
               </button>
-              <button onClick={() => setMainPage("repas")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("repas")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
                 <UtensilsCrossed className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
+                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
               </button>
-              <button onClick={() => setMainPage("planning")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("planning")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
                 <CalendarRange className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
+                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
               </button>
-              <button onClick={() => setMainPage("courses")} className={`px-1 sm:px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-0.5 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("courses")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
                 <ShoppingCart className="h-3 w-3 shrink-0" />
-                <span className={`hidden xs:inline text-[9px] sm:text-[10px] ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
+                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
               </button>
             </div>
           </div>
@@ -512,20 +551,29 @@ const Index = () => {
                   <div className="flex flex-col gap-3 sm:gap-4">
                     <MasterList
                   category={cat}
-                  meals={getMealsByCategory(cat.value)}
+                  meals={getSortedMaster(cat.value)}
+                  sortMode={masterSortModes[cat.value] || "manual"}
+                  onToggleSort={() => toggleMasterSort(cat.value)}
                   onMoveToPossible={(id) => moveToPossible.mutate(id)}
                   onRename={(id, name) => renameMeal.mutate({ id, name })}
                   onDelete={(id) => deleteMeal.mutate(id)}
                   onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
                   onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                   onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
+                  onToggleFavorite={(id) => {
+                    const meal = meals.find(m => m.id === id);
+                    if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
+                  }}
                   onReorder={(from, to) => handleReorderMeals(cat.value, from, to)} />
 
                     <AvailableList
                   category={cat}
                   meals={getMealsByCategory(cat.value)}
                   foodItems={foodItems}
-                  onMoveToPossible={(id) => moveToPossible.mutate(id)} />
+                  onMoveToPossible={(id) => moveToPossible.mutate(id)}
+                  onMoveFoodItemToPossible={async (fi) => {
+                    await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: "plat" });
+                  }} />
 
                   </div>
                   <PossibleList
@@ -635,12 +683,12 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | nu
 }
 
 // ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
-function AvailableList({ category, meals, foodItems, onMoveToPossible
+function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;}) {
 
 
 
 
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;}) {
   const [open, setOpen] = useState(true);
 
   // Aggregate stock from all food items
@@ -714,20 +762,45 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible
             </div>
         )}
 
-          {/* is_meal food items — appear as standalone */}
+          {/* is_meal food items — appear as standalone with full card UI */}
           {isMealItems.map((fi) => {
           const fiKey = normalizeForMatch(fi.name);
           const stock = stockMap.get(fiKey) ?? 0;
           const qty = fi.is_infinite ? Infinity : stock;
+          // Build a fake Meal object to reuse MealCard
+          const fakeMeal: import("@/hooks/useMeals").Meal = {
+            id: `fi-${fi.id}`,
+            name: fi.name,
+            category: "plat",
+            calories: fi.calories,
+            grams: fi.is_infinite ? "∞" : (fi.grams ?? null),
+            ingredients: null,
+            color: "hsl(215, 45%, 46%)",
+            sort_order: 0,
+            created_at: fi.created_at,
+            is_available: true,
+            is_favorite: false,
+          };
           return (
-            <div key={fi.id} className="rounded-xl px-3 py-2 bg-secondary text-secondary-foreground text-xs font-semibold flex items-center gap-2 shadow">
-                <UtensilsCrossed className="h-3 w-3 shrink-0 opacity-70" />
-                <span className="flex-1">{fi.name}</span>
-                <span className="flex items-center gap-0.5 bg-black/40 px-1.5 py-0.5 rounded-full text-[10px] font-black">
-                  x{qty === Infinity ? <InfinityIcon className="h-2.5 w-2.5 inline" /> : Math.floor(qty)}
-                </span>
-              </div>);
-
+            <div key={fi.id} className="relative">
+              <MealCard
+                meal={fakeMeal}
+                onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
+                onRename={() => {}}
+                onDelete={() => {}}
+                onUpdateCalories={() => {}}
+                onUpdateGrams={() => {}}
+                onUpdateIngredients={() => {}}
+                onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              />
+              {qty !== 0 && (
+                <div className="absolute top-2 right-10 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
+                  {fi.is_infinite ? <><InfinityIcon className="inline h-[13px] w-[13px]" /></> : <>{fi.grams || `${Math.floor(qty)}g`}</>}
+                </div>
+              )}
+            </div>);
         })}
 
           {/* Orphan warning */}
@@ -755,19 +828,13 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible
 
 }
 
-function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder
-
-
-
-
-
-
-
-
-
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
+function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onReorder
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];sortMode: MasterSortMode;onToggleSort: () => void;onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+
+  const SortIcon = sortMode === "calories" ? Flame : sortMode === "favorites" ? Star : ArrowUpDown;
+  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "favorites" ? "Favoris" : "Manuel";
 
   return (
     <MealList
@@ -775,7 +842,13 @@ function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onU
       emoji="📋"
       count={meals.length}
       collapsed={collapsed}
-      onToggleCollapse={() => setCollapsed((c) => !c)}>
+      onToggleCollapse={() => setCollapsed((c) => !c)}
+      headerActions={
+        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
+          <SortIcon className={`h-3 w-3 ${sortMode === "favorites" ? "text-yellow-400 fill-yellow-400" : ""}`} />
+          <span className="hidden sm:inline">{sortLabel}</span>
+        </Button>
+      }>
 
       {!collapsed &&
       <>
@@ -788,6 +861,7 @@ function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onU
         onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
         onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
         onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+        onToggleFavorite={() => onToggleFavorite(meal.id)}
         onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "master");setDragIndex(index);}}
         onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
         onDrop={(e) => {e.preventDefault();e.stopPropagation();if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index);setDragIndex(null);}} />
@@ -798,6 +872,24 @@ function MasterList({ category, meals, onMoveToPossible, onRename, onDelete, onU
     </MealList>);
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder, onExternalDrop, highlightedId, onAddDirectly
 

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List } from "lucide-react";
+import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,6 +15,7 @@ interface MealCardProps {
   onUpdateCalories: (calories: string | null) => void;
   onUpdateGrams: (grams: string | null) => void;
   onUpdateIngredients: (ingredients: string | null) => void;
+  onToggleFavorite?: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -57,7 +58,7 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onDragStart, onDragOver, onDrop, isHighlighted }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -182,6 +183,15 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
               <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                 <Flame className="h-3 w-3" />{meal.calories}
               </span>
+            )}
+            {onToggleFavorite && (
+              <button
+                onClick={onToggleFavorite}
+                className={`h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-all hover:bg-white/20 ${meal.is_favorite ? 'text-yellow-300' : 'text-white/40 hover:text-yellow-200'}`}
+                title={meal.is_favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+              >
+                <Star className={`h-3.5 w-3.5 ${meal.is_favorite ? 'fill-yellow-300' : ''}`} />
+              </button>
             )}
             <Button size="icon" variant="ghost" onClick={onMoveToPossible} className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
               <ArrowRight className="h-4 w-4" />
