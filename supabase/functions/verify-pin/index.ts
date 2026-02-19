@@ -38,6 +38,40 @@ serve(async (req) => {
     let body: Record<string, unknown> = {};
     try { body = await req.json(); } catch { /* no body */ }
 
+    // Reset blocked count — requires a valid auth session
+    if (body.reset_blocked) {
+      const authHeader = req.headers.get("authorization");
+      if (!authHeader?.startsWith("Bearer ")) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Non autorisé" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const token = authHeader.replace("Bearer ", "");
+      const supabaseAnon = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+      const { data, error } = await supabaseAnon.auth.getClaims(token);
+      if (error || !data?.claims) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Non autorisé" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      await supabaseAdmin.from("pin_attempts_meta").upsert({
+        key: "cumulative_blocked_count",
+        value: "0",
+      }, { onConflict: "key" });
+
+      return new Response(
+        JSON.stringify({ success: true }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Admin stats request — requires a valid auth session
     if (body.admin_stats) {
       const authHeader = req.headers.get("authorization");
