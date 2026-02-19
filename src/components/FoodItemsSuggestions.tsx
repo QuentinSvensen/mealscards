@@ -77,6 +77,7 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
     if (foodItems.length === 0) return;
     fetchedRef.current = true;
     fetchSuggestions();
+  // We only care about going from 0→N items (first load)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foodItems.length]);
 

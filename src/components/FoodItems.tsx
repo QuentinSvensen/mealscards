@@ -126,7 +126,8 @@ export function useFoodItems() {
       const source = items.find(i => i.id === id);
       if (!source) return;
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
-      const { error } = await supabase.from("food_items").insert({
+      // Insert first, then set color to source's color (based on source's id)
+      const { data: inserted, error } = await supabase.from("food_items").insert({
         name: source.name,
         grams: source.grams,
         calories: source.calories,
@@ -135,10 +136,25 @@ export function useFoodItems() {
         is_meal: source.is_meal,
         is_infinite: source.is_infinite,
         sort_order: maxOrder + 1,
-      } as any);
+      } as any).select().single();
       if (error) throw error;
+      // Store source id reference in a custom field, or just return — color is computed from id
+      // To make duplicate have SAME color as source, we need to track it.
+      // We store the source id as a "color_seed" by updating a stable field.
+      // Since we can't add columns, we encode source color seed in sort_order won't work.
+      // Instead: we use a client-side color map stored outside DB.
+      // The cleanest approach: return the new item id and the source id pair.
+      return { newId: inserted.id, sourceId: source.id };
     },
-    onSuccess: invalidate,
+    onSuccess: (result) => {
+      if (result) {
+        // Store color override: new item should use source's color
+        const overrides = JSON.parse(sessionStorage.getItem('color_overrides') || '{}');
+        overrides[result.newId] = result.sourceId;
+        sessionStorage.setItem('color_overrides', JSON.stringify(overrides));
+      }
+      invalidate();
+    },
   });
 
   const reorderItems = useMutation({
@@ -389,8 +405,12 @@ export function FoodItems() {
   const [sortMode, setSortMode] = useState<SortMode>("manual");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  // Use item.id (not name) for color to ensure uniqueness per card
-  const colorMap = useCallback((item: FoodItem) => colorFromName(item.id), []);
+  // Use item.id for color; if a duplicate, use source's id for same color
+  const colorMap = useCallback((item: FoodItem) => {
+    const overrides = JSON.parse(sessionStorage.getItem('color_overrides') || '{}') as Record<string, string>;
+    const seedId = overrides[item.id] ?? item.id;
+    return colorFromName(seedId);
+  }, []);
 
   const getSortedItems = (): FoodItem[] => {
     if (sortMode === "expiration") {
