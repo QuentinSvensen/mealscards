@@ -54,27 +54,29 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
     if (pin.length !== 4 || loading) return;
     setLoading(true);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("verify-pin", {
-        body: { pin }
-      });
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/verify-pin`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "apikey": anonKey, "Authorization": `Bearer ${anonKey}` },
+          body: JSON.stringify({ pin }),
+        }
+      );
+      let data: Record<string, unknown> = {};
+      try { data = await res.json(); } catch { /* ignore */ }
 
-      if (fnError) {
-        // 401 = rate limited (too many attempts)
-        if (fnError.message?.includes("401") || fnError.status === 401) {
-          showError("Trop de tentatives, réessaie dans 15 min");
-        } else {
-          showError("Service indisponible, réessaie");
-        }
-      } else if (!data?.success) {
-        showError(data?.error || "Code incorrect");
-      } else {
-        if (data.access_token && data.refresh_token) {
-          await supabase.auth.setSession({
-            access_token: data.access_token,
-            refresh_token: data.refresh_token
-          });
-        }
+      if (data.success && data.access_token && data.refresh_token) {
+        await supabase.auth.setSession({
+          access_token: data.access_token as string,
+          refresh_token: data.refresh_token as string,
+        });
         onUnlock();
+      } else if (res.status === 401 && data.error?.toString().includes("Accès refusé")) {
+        showError("Trop de tentatives, réessaie dans 15 min");
+      } else {
+        showError((data.error as string) || "Code incorrect");
       }
     } catch {
       showError("Service indisponible, réessaie");
