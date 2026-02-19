@@ -388,7 +388,7 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-primary-foreground">
       {/* Hidden dev menu — triple-clic sur 🍽️ */}
       {showDevMenu &&
       <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
