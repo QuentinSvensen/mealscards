@@ -98,11 +98,11 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
           onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
           onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           placeholder="••••"
-          className={`w-32 text-center text-2xl tracking-[0.5em] font-mono ${error ? 'border-destructive animate-shake' : ''}`}
+          className={`w-32 text-center text-2xl tracking-[0.5em] font-mono rounded-xl ${error ? 'border-destructive animate-shake' : ''}`}
           autoFocus
           disabled={loading} />
 
-        <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32">
+        <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32 rounded-xl">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
         {error && <p className="text-destructive text-sm text-center">{errorMsg}</p>}
@@ -128,7 +128,8 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 const Index = () => {
   const qc = useQueryClient();
   const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
-  const { items: foodItems } = useFoodItems();
+  const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems();
+  const deleteFoodItem = (id: string) => deleteFoodItemMutation.mutate(id);
   const [blockedCount, setBlockedCount] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -530,7 +531,7 @@ const Index = () => {
         </div>
       }
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
-        <div className="max-w-6xl mx-auto flex items-center gap-1 sm:gap-2">
+        <div className="max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
           {/* Left: logo + blocked count */}
           <div className="flex items-center gap-1 shrink-0">
             <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
@@ -542,24 +543,24 @@ const Index = () => {
               </span>
             }
           </div>
-          {/* Center tabs — flex-1 takes all available space */}
-          <div className="flex items-center flex-1 min-w-0">
-            <div className="flex bg-muted rounded-full p-0.5 gap-0.5 w-full">
-              <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
+          {/* Center tabs — flex-1 takes all available space, max-width keeps tabs compact on large screens */}
+          <div className="flex items-center flex-1 min-w-0 justify-center">
+            <div className="flex bg-muted rounded-full p-0.5 gap-0.5 w-full max-w-xs sm:max-w-sm">
+              <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
                 <Apple className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
+                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
               </button>
-              <button onClick={() => setMainPage("repas")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("repas")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
                 <UtensilsCrossed className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
+                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
               </button>
-              <button onClick={() => setMainPage("planning")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("planning")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
                 <CalendarRange className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
+                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
               </button>
-              <button onClick={() => setMainPage("courses")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("courses")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
                 <ShoppingCart className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
+                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
               </button>
             </div>
           </div>
@@ -601,9 +602,10 @@ const Index = () => {
                   <div className="flex flex-col gap-3">
                     <Input autoFocus placeholder="Ex: Pâtes carbonara" value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+                  onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                  className="rounded-xl" />
                     <Select value={newCategory} onValueChange={(v) => setNewCategory(v as MealCategory)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {CATEGORIES.map((c) =>
                       <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>
@@ -611,10 +613,10 @@ const Index = () => {
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
-                      <Button onClick={() => {setAddTarget("all");handleAdd();}} disabled={!newName.trim()} className="flex-1 text-xs">
+                      <Button onClick={() => {setAddTarget("all");handleAdd();}} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">
                         Tous les repas
                       </Button>
-                      <Button onClick={() => {setAddTarget("possible");handleAdd();}} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs">
+                      <Button onClick={() => {setAddTarget("possible");handleAdd();}} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">
                         Possibles uniquement
                       </Button>
                     </div>
@@ -659,7 +661,8 @@ const Index = () => {
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: "plat" });
-                  }} />
+                  }}
+                  onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
 
                   </div>
                   <PossibleList
@@ -769,11 +772,8 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | nu
 }
 
 // ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
-function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;}) {
-
-
-
+function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;}) {
 
   const [open, setOpen] = useState(true);
 
@@ -785,16 +785,13 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
   map((meal) => ({ meal, multiple: getMealMultiple(meal, stockMap) })).
   filter(({ multiple }) => multiple !== null);
 
-  // Food items marked as is_meal that no recipe uses OR that appear as standalone
-  // (i.e. they can be eaten alone regardless of recipe match)
+  // Food items marked as is_meal that appear as standalone cards
   const isMealItems = foodItems.filter((fi) => fi.is_meal);
 
   // Also surface food items that no recipe ingredient matches AND is NOT is_meal
-  // → these "orphans" are highlighted in available list as a warning
   const orphanFoodItems = foodItems.filter((fi) => {
-    if (fi.is_meal) return false; // already handled above
+    if (fi.is_meal) return false;
     const fiKey = normalizeForMatch(fi.name);
-    // Check if any meal's ingredients reference this food item
     const usedByAnyMeal = meals.some((meal) => {
       if (!meal.ingredients) return false;
       const ings = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
@@ -824,7 +821,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
 
       {open &&
       <div className="flex flex-col gap-2 mt-3">
-          {/* Recipes available */}
+          {/* Recipes available — no delete option, no quantity badge shown (meals handle it) */}
           {available.map(({ meal, multiple }) =>
         <div key={meal.id} className="relative">
               <MealCard
@@ -837,7 +834,8 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             onUpdateIngredients={() => {}}
             onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "available");}}
             onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
-            onDrop={(e) => {e.preventDefault();e.stopPropagation();}} />
+            onDrop={(e) => {e.preventDefault();e.stopPropagation();}}
+            hideDelete />
 
               {/* Multiple badge */}
               {multiple !== null &&
@@ -848,11 +846,10 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             </div>
         )}
 
-          {/* is_meal food items — appear as standalone with full card UI */}
+          {/* is_meal food items — appear as standalone with full card UI.
+              - Delete option wired to onDeleteFoodItem (removes from food_items)
+              - No quantity badge (user requested) */}
           {isMealItems.map((fi) => {
-          const fiKey = normalizeForMatch(fi.name);
-          const stock = stockMap.get(fiKey) ?? 0;
-          const qty = fi.is_infinite ? Infinity : stock;
           // Build a fake Meal object to reuse MealCard
           const fakeMeal: import("@/hooks/useMeals").Meal = {
             id: `fi-${fi.id}`,
@@ -861,7 +858,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             calories: fi.calories,
             grams: fi.is_infinite ? "∞" : (fi.grams ?? null),
             ingredients: null,
-            color: "hsl(215, 45%, 46%)",
+            color: "hsl(var(--primary))",
             sort_order: 0,
             created_at: fi.created_at,
             is_available: true,
@@ -873,7 +870,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
                 meal={fakeMeal}
                 onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
                 onRename={() => {}}
-                onDelete={() => {}}
+                onDelete={() => onDeleteFoodItem(fi.id)}
                 onUpdateCalories={() => {}}
                 onUpdateGrams={() => {}}
                 onUpdateIngredients={() => {}}
@@ -881,11 +878,6 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
               />
-              {qty !== 0 && (
-                <div className="absolute top-2 right-10 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
-                  {fi.is_infinite ? <><InfinityIcon className="inline h-[13px] w-[13px]" /></> : <>{fi.grams || `${Math.floor(qty)}g`}</>}
-                </div>
-              )}
             </div>);
         })}
 

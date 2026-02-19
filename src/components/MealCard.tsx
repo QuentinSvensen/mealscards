@@ -20,6 +20,8 @@ interface MealCardProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   isHighlighted?: boolean;
+  /** When true, hides the "Supprimer" option in the dropdown */
+  hideDelete?: boolean;
 }
 
 // Ingredient line state for the editor: { qty, name }
@@ -58,7 +60,7 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onDragStart, onDragOver, onDrop, isHighlighted }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -215,9 +217,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                 <DropdownMenuItem onClick={openIngredients}>
                   <List className="mr-2 h-4 w-4" /> Ingrédients
                 </DropdownMenuItem>
+                {!hideDelete && (
                 <DropdownMenuItem onClick={onDelete} className="text-destructive">
                   <Trash2 className="mr-2 h-4 w-4" /> Supprimer
                 </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
