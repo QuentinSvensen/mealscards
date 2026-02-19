@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, Flame } from "lucide-react";
+import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -107,6 +109,7 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 };
 
 const Index = () => {
+  const qc = useQueryClient();
   const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
   const { items: foodItems } = useFoodItems();
   const [blockedCount, setBlockedCount] = useState<number | null>(null);
@@ -278,7 +281,54 @@ const Index = () => {
     setSortModes((prev) => ({ ...prev, [cat]: "manual" }));
   };
 
-  // ── Export / Import repas (accessible via triple-clic sur 🍽️) ──────────────
+  // ── Déduire les ingrédients du stock quand on déplace vers "Possible" ────────
+  const deductIngredientsFromStock = async (meal: Meal) => {
+    if (!meal.ingredients?.trim()) return;
+    const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+    const stockMap = buildStockMap(foodItems);
+
+    const updates: Array<{ id: string; grams: string | null; delete?: boolean }> = [];
+
+    for (const ing of ingredients) {
+      const { qty: needed, name } = parseIngredientLine(ing);
+      if (needed <= 0) continue;
+
+      const key = findStockKey(stockMap, name);
+      if (!key) continue;
+
+      const available = stockMap.get(key)!;
+      if (available === Infinity) continue; // infini → on ignore
+
+      const matchingItems = foodItems.filter(fi => {
+        const fiKey = normalizeForMatch(fi.name);
+        return (fiKey.includes(key) || key.includes(fiKey)) && !fi.is_infinite && parseQty(fi.grams) > 0;
+      });
+
+      let toDeduct = needed;
+      for (const fi of matchingItems) {
+        if (toDeduct <= 0) break;
+        const fiQty = parseQty(fi.grams);
+        const deduct = Math.min(fiQty, toDeduct);
+        const newQty = Math.max(0, fiQty - deduct);
+        toDeduct -= deduct;
+        updates.push({ id: fi.id, grams: newQty > 0 ? String(Math.round(newQty * 10) / 10) : null, delete: newQty === 0 });
+        // Update stockMap for next ingredient
+        if (newQty === 0) stockMap.delete(key);
+        else stockMap.set(key, newQty);
+      }
+    }
+
+    // Apply updates
+    await Promise.all(updates.map(u =>
+      u.delete
+        ? supabase.from("food_items").delete().eq("id", u.id)
+        : supabase.from("food_items").update({ grams: u.grams } as any).eq("id", u.id)
+    ));
+    // Invalidate food_items cache so UI refreshes
+    qc.invalidateQueries({ queryKey: ["food_items"] });
+  };
+
+
   const handleExportMeals = () => {
     const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
     const lines = allCats.flatMap((cat) => getMealsByCategory(cat)).map((m) => {
@@ -459,10 +509,10 @@ const Index = () => {
         </div>
       }
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-1 sm:gap-2">
+        <div className="max-w-6xl mx-auto flex items-center gap-1 sm:gap-2">
+          {/* Left: logo + blocked count */}
           <div className="flex items-center gap-1 shrink-0">
             <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
-            {/* Compteur IPs bloquées — visible uniquement après déverrouillage */}
             {blockedCount !== null &&
             <span
               title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
@@ -471,32 +521,39 @@ const Index = () => {
               </span>
             }
           </div>
-          <div className="flex items-center flex-1 justify-center min-w-0">
-            <div className="flex bg-muted rounded-full p-0.5 gap-0.5 w-full max-w-xs sm:max-w-sm">
-              <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
+          {/* Center tabs — flex-1 takes all available space */}
+          <div className="flex items-center flex-1 min-w-0">
+            <div className="flex bg-muted rounded-full p-0.5 gap-0.5 w-full">
+              <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
                 <Apple className="h-3 w-3 shrink-0" />
-                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
+                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
               </button>
-              <button onClick={() => setMainPage("repas")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("repas")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
                 <UtensilsCrossed className="h-3 w-3 shrink-0" />
-                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
+                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
               </button>
-              <button onClick={() => setMainPage("planning")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("planning")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
                 <CalendarRange className="h-3 w-3 shrink-0" />
-                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
+                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
               </button>
-              <button onClick={() => setMainPage("courses")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 sm:px-2 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
+              <button onClick={() => setMainPage("courses")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-0.5 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
                 <ShoppingCart className="h-3 w-3 shrink-0" />
-                <span className={`text-[8px] min-[320px]:text-[9px] sm:text-xs truncate ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
+                <span className={`text-[9px] min-[360px]:text-[10px] sm:text-xs md:text-sm truncate leading-tight ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
               </button>
             </div>
           </div>
+          {/* Right: theme toggle */}
           <ThemeToggle />
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
-        {mainPage === "aliments" && <FoodItems />}
+        {mainPage === "aliments" && (
+          <>
+            <FoodItems />
+            <FoodItemsSuggestions foodItems={foodItems} />
+          </>
+        )}
         {mainPage === "courses" && <ShoppingList />}
         {mainPage === "planning" && <WeeklyPlanning />}
         {mainPage === "repas" &&
@@ -554,7 +611,11 @@ const Index = () => {
                   meals={getSortedMaster(cat.value)}
                   sortMode={masterSortModes[cat.value] || "manual"}
                   onToggleSort={() => toggleMasterSort(cat.value)}
-                  onMoveToPossible={(id) => moveToPossible.mutate(id)}
+                  onMoveToPossible={async (id) => {
+                    const meal = meals.find(m => m.id === id);
+                    if (meal) await deductIngredientsFromStock(meal);
+                    moveToPossible.mutate(id);
+                  }}
                   onRename={(id, name) => renameMeal.mutate({ id, name })}
                   onDelete={(id) => deleteMeal.mutate(id)}
                   onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
@@ -570,7 +631,11 @@ const Index = () => {
                   category={cat}
                   meals={getMealsByCategory(cat.value)}
                   foodItems={foodItems}
-                  onMoveToPossible={(id) => moveToPossible.mutate(id)}
+                  onMoveToPossible={async (id) => {
+                    const meal = meals.find(m => m.id === id);
+                    if (meal) await deductIngredientsFromStock(meal);
+                    moveToPossible.mutate(id);
+                  }}
                   onMoveFoodItemToPossible={async (fi) => {
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: "plat" });
                   }} />
