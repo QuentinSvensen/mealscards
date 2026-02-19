@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { z } from "zod";
 import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -360,6 +361,11 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
   );
 }
 
+// ─── Validation schema ───────────────────────────────────────────────────────
+const foodItemSchema = z.object({
+  name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)"),
+});
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 type SortMode = "manual" | "expiration";
@@ -387,12 +393,14 @@ export function FoodItems() {
   const sortedItems = getSortedItems();
 
   const handleAdd = () => {
-    const name = newName.trim();
-    if (!name) return;
-    addItem.mutate(name, {
+    const result = foodItemSchema.safeParse({ name: newName });
+    if (!result.success) {
+      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+      return;
+    }
+    addItem.mutate(result.data.name, {
       onSuccess: () => { setNewName(""); toast({ title: "Aliment ajouté 🥕" }); },
       onError: (err: unknown) => {
-        console.error("food_items insert error:", err);
         const msg = err instanceof Error ? err.message : String(err);
         toast({ title: "Erreur lors de l'ajout", description: msg, variant: "destructive" });
       },

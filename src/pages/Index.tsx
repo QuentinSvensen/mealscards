@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, Flame } from "lucide-react";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
@@ -27,6 +28,11 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "plat", label: "Plats", emoji: "🍽️" },
 { value: "dessert", label: "Desserts", emoji: "🍰" },
 { value: "bonus", label: "Bonus", emoji: "⭐" }];
+
+// ─── Validation schema ────────────────────────────────────────────────────────
+const mealSchema = z.object({
+  name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)"),
+});
 
 
 type SortMode = "manual" | "expiration" | "planning";
@@ -203,13 +209,17 @@ const Index = () => {
   };
 
   const handleAdd = () => {
-    if (!newName.trim()) return;
+    const result = mealSchema.safeParse({ name: newName });
+    if (!result.success) {
+      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+      return;
+    }
     if (addTarget === "possible") {
-      addMealToPossibleDirectly.mutate({ name: newName.trim(), category: newCategory }, {
+      addMealToPossibleDirectly.mutate({ name: result.data.name, category: newCategory }, {
         onSuccess: () => {setNewName("");setDialogOpen(false);toast({ title: "Repas ajouté aux possibles 🎉" });}
       });
     } else {
-      addMeal.mutate({ name: newName.trim(), category: newCategory }, {
+      addMeal.mutate({ name: result.data.name, category: newCategory }, {
         onSuccess: () => {setNewName("");setDialogOpen(false);toast({ title: "Repas ajouté 🎉" });}
       });
     }
