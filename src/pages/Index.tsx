@@ -66,7 +66,7 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary-foreground">
       <div className="flex flex-col items-center gap-4 p-8">
         <Lock className="h-10 w-10 text-muted-foreground" />
         <h2 className="text-lg font-bold text-foreground">Code d'accès</h2>
