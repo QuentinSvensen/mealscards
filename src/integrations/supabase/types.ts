@@ -66,6 +66,7 @@ export type Database = {
           id: string
           ingredients: string | null
           is_available: boolean
+          is_favorite: boolean
           name: string
           sort_order: number
           user_id: string | null
@@ -79,6 +80,7 @@ export type Database = {
           id?: string
           ingredients?: string | null
           is_available?: boolean
+          is_favorite?: boolean
           name: string
           sort_order?: number
           user_id?: string | null
@@ -92,6 +94,7 @@ export type Database = {
           id?: string
           ingredients?: string | null
           is_available?: boolean
+          is_favorite?: boolean
           name?: string
           sort_order?: number
           user_id?: string | null

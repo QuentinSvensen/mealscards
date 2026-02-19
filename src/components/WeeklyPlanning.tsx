@@ -159,6 +159,9 @@ export function WeeklyPlanning() {
 
     longPressTimer.current = setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(40);
+      // Freeze body scroll during drag
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
 
       // Build ghost
       const ghost = origEl.cloneNode(true) as HTMLElement;
@@ -240,6 +243,9 @@ export function WeeklyPlanning() {
     touchDrag.current = null;
     setTouchDragActive(false);
     setTouchHighlight(null);
+    // Restore scroll
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
 
     // Remove ghost, find drop target
     const touch = e.changedTouches[0];
@@ -268,6 +274,9 @@ export function WeeklyPlanning() {
     }
     setTouchDragActive(false);
     setTouchHighlight(null);
+    // Restore scroll
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
   };
 
   const handleRemoveFromSlot = (pm: PossibleMeal) => {

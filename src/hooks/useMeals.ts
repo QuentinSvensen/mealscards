@@ -15,6 +15,7 @@ export interface Meal {
   sort_order: number;
   created_at: string;
   is_available: boolean;
+  is_favorite: boolean;
 }
 
 export interface PossibleMeal {
@@ -161,6 +162,14 @@ export function useMeals() {
   const updateIngredients = useMutation({
     mutationFn: async ({ id, ingredients }: { id: string; ingredients: string | null }) => {
       const { error } = await supabase.from("meals").update({ ingredients } as any).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+  });
+
+  const toggleFavorite = useMutation({
+    mutationFn: async ({ id, is_favorite }: { id: string; is_favorite: boolean }) => {
+      const { error } = await supabase.from("meals").update({ is_favorite } as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
@@ -328,7 +337,7 @@ export function useMeals() {
   return {
     meals, possibleMeals, isLoading,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients,
-    deleteMeal, reorderMeals,
+    toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals,
