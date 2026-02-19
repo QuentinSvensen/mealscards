@@ -1,9 +1,20 @@
 import { useState, useRef } from "react";
+import { z } from "zod";
 import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
+import { toast } from "@/hooks/use-toast";
+
+// ─── Validation schemas ───────────────────────────────────────────────────────
+const shoppingItemSchema = z.object({
+  name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)"),
+});
+
+const shoppingGroupSchema = z.object({
+  name: z.string().trim().min(1, "Le nom du groupe est requis").max(60, "Nom trop long (60 car. max)"),
+});
 
 // ─── drag state stored as module-level ref to avoid stale closures ───────────
 type DragPayload =
@@ -91,16 +102,20 @@ export function ShoppingList() {
   };
 
   const handleAddGroup = () => {
-    if (!newGroupName.trim()) return;
-    addGroup.mutate(newGroupName.trim());
+    const result = shoppingGroupSchema.safeParse({ name: newGroupName });
+    if (!result.success) {
+      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+      return;
+    }
+    addGroup.mutate(result.data.name);
     setNewGroupName("");
   };
 
   const handleAddItem = (groupId: string | null) => {
     const key = groupId || "__ungrouped";
-    const text = newItemTexts[key]?.trim();
-    if (!text) return;
-    addItem.mutate({ name: text, group_id: groupId });
+    const result = shoppingItemSchema.safeParse({ name: newItemTexts[key] || "" });
+    if (!result.success) return; // silent: empty field, user hasn't typed yet
+    addItem.mutate({ name: result.data.name, group_id: groupId });
     setNewItemTexts(prev => ({ ...prev, [key]: "" }));
   };
 
