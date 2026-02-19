@@ -543,12 +543,11 @@ const Index = () => {
       </header>
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
-        {mainPage === "aliments" &&
-        <>
-            <FoodItems />
-            <FoodItemsSuggestions foodItems={foodItems} />
-          </>
-        }
+        {/* FoodItemsSuggestions always mounted (hidden when not on aliments) so it generates on session start */}
+        <div className={mainPage === "aliments" ? "" : "hidden"}>
+          <FoodItems />
+          <FoodItemsSuggestions foodItems={foodItems} />
+        </div>
         {mainPage === "courses" && <ShoppingList />}
         {mainPage === "planning" && <WeeklyPlanning />}
         {mainPage === "repas" &&
@@ -631,6 +630,23 @@ const Index = () => {
                     const meal = meals.find((m) => m.id === id);
                     if (meal) await deductIngredientsFromStock(meal);
                     moveToPossible.mutate(id);
+                  }}
+                  onMoveNameMatchToPossible={async (meal, fi) => {
+                    // Deduct meal.grams worth from the matching food item
+                    const mealGrams = parseQty(meal.grams);
+                    if (mealGrams > 0 && !fi.is_infinite) {
+                      const stockGrams = parseQty(fi.grams);
+                      const remaining = Math.max(0, stockGrams - mealGrams);
+                      if (remaining === 0) {
+                        await supabase.from("food_items").delete().eq("id", fi.id);
+                      } else {
+                        await supabase.from("food_items").update({ grams: String(Math.round(remaining * 10) / 10) } as any).eq("id", fi.id);
+                      }
+                      qc.invalidateQueries({ queryKey: ["food_items"] });
+                    }
+                    // Also deduct ingredients if the recipe has them
+                    if (meal.ingredients?.trim()) await deductIngredientsFromStock(meal);
+                    moveToPossible.mutate(meal.id);
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value });
@@ -746,8 +762,8 @@ function fuzzyNameMatch(a: string, b: string): boolean {
 }
 
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;}) {
+function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
 
   const [open, setOpen] = useState(true);
   const stockMap = buildStockMap(foodItems);
@@ -758,9 +774,12 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
     .filter(({ multiple }) => multiple !== null);
   const availableMealIds = new Set(available.map(a => a.meal.id));
 
-  // 2. Name-match: stock item whose name fuzzy-matches a "Tous" meal (not already in ingredients)
+  // 2. Name-match: stock items that fuzzy-match a "Tous" recipe
+  //    Show only the recipe card (with portion count), NOT the raw food item
   type NameMatch = {meal: Meal;fi: FoodItem;portionsAvailable: number | null;};
   const nameMatches: NameMatch[] = [];
+  const nameMatchedFiIds = new Set<string>();
+  const nameMatchedMealIds = new Set<string>();
 
   for (const meal of meals) {
     if (availableMealIds.has(meal.id)) continue;
@@ -768,26 +787,27 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
       if (fuzzyNameMatch(meal.name, fi.name)) {
         const mealGrams = parseQty(meal.grams);
         const stockGrams = fi.is_infinite ? Infinity : parseQty(fi.grams);
-        if (!fi.is_infinite && stockGrams <= 0) continue; // no stock
+        if (!fi.is_infinite && stockGrams <= 0) continue;
         let portions: number | null = null;
         if (!fi.is_infinite && mealGrams > 0) {
           portions = Math.floor(stockGrams / mealGrams);
           if (portions < 1) continue;
         }
         nameMatches.push({ meal, fi, portionsAvailable: fi.is_infinite ? null : portions });
+        nameMatchedFiIds.add(fi.id);
+        nameMatchedMealIds.add(meal.id);
         break;
       }
     }
   }
 
-  // 3. is_meal food items — shown as standalone repas
-  const isMealItems = foodItems.filter((fi) => fi.is_meal);
+  // 3. is_meal food items — only if NOT already covered by a name-match above
+  const isMealItems = foodItems.filter((fi) => fi.is_meal && !nameMatchedFiIds.has(fi.id));
 
-  // Orphan food items
-  const nameMatchFiIds = new Set(nameMatches.map((nm) => nm.fi.id));
+  // Orphan food items (not is_meal, not name-matched, not used in any recipe ingredients)
   const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false;
-    if (nameMatchFiIds.has(fi.id)) return false;
+    if (nameMatchedFiIds.has(fi.id)) return false;
     const fiKey = normalizeForMatch(fi.name);
     const usedByAnyMeal = meals.some((meal) => {
       if (!meal.ingredients) return false;
@@ -800,7 +820,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
     return !usedByAnyMeal;
   });
 
-  const totalCount = available.length + isMealItems.length + nameMatches.length;
+  const totalCount = available.length + nameMatches.length + isMealItems.length;
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
@@ -833,25 +853,20 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             </div>
         )}
 
-          {/* 2. Name-matched stock items */}
+          {/* 2. Name-matched stock items — show the recipe card (with recipe grams/cal), portion badge */}
           {nameMatches.map(({ meal, fi, portionsAvailable }, idx) => {
+          // Use recipe data (meal) for the card display; stock fi for quantities
           const fakeMeal: Meal = {
+            ...meal,
             id: `nm-${meal.id}-${fi.id}`,
-            name: meal.name,
-            category: meal.category,
-            calories: meal.calories,
-            grams: fi.is_infinite ? "∞" : fi.grams ?? null,
-            ingredients: meal.ingredients,
-            color: meal.color, // same color as "Tous" card
-            sort_order: 0,
-            created_at: fi.created_at,
-            is_available: true,
-            is_favorite: meal.is_favorite
+            // Use recipe grams if available, else stock grams
+            grams: meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null),
+            color: meal.color,
           };
           return (
             <div key={`nm-${idx}`} className="relative">
                 <MealCard meal={fakeMeal}
-                onMoveToPossible={() => onMoveToPossible(meal.id)}
+                onMoveToPossible={() => onMoveNameMatchToPossible(meal, fi)}
                 onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
                 onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -865,7 +880,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
               </div>);
         })}
 
-          {/* 3. is_meal standalone items — color = fi.id to match Aliments tab */}
+          {/* 3. is_meal standalone items (only those without a matching recipe) */}
           {isMealItems.map((fi) => {
           const fakeMeal: Meal = {
             id: `fi-${fi.id}`,
