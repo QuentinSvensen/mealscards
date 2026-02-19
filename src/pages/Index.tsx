@@ -59,12 +59,14 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
       });
 
       if (fnError) {
-        const msg = fnError.message?.includes("PIN") || fnError.message?.includes("requis") ?
-        "Code incorrect" :
-        "Service indisponible, réessaie";
-        showError(msg);
+        // 401 = rate limited (too many attempts)
+        if (fnError.message?.includes("401") || fnError.status === 401) {
+          showError("Trop de tentatives, réessaie dans 15 min");
+        } else {
+          showError("Service indisponible, réessaie");
+        }
       } else if (!data?.success) {
-        showError("Code incorrect");
+        showError(data?.error || "Code incorrect");
       } else {
         if (data.access_token && data.refresh_token) {
           await supabase.auth.setSession({

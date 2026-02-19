@@ -174,9 +174,11 @@ serve(async (req) => {
         }, { onConflict: "key" });
       }
 
+      // Return 200 with success:false — wrong PIN, not a system error
+      // Only the rate-limit block returns 401
       return new Response(
-        JSON.stringify({ success: false, error: "Accès refusé. Veuillez réessayer." }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: false, error: "Code incorrect" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
