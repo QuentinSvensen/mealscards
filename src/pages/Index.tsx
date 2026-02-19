@@ -43,19 +43,32 @@ type MainPage = "aliments" | "repas" | "planning" | "courses";
 function PinLock({ onUnlock }: {onUnlock: () => void;}) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("Code incorrect");
   const [loading, setLoading] = useState(false);
 
+  const showError = (msg = "Code incorrect") => {
+    setErrorMsg(msg);
+    setError(true);
+    setPin("");
+    setTimeout(() => setError(false), 2000);
+  };
+
   const handleSubmit = async () => {
-    if (pin.length !== 4) return;
+    if (pin.length !== 4 || loading) return;
     setLoading(true);
     try {
       const { data, error: fnError } = await supabase.functions.invoke("verify-pin", {
         body: { pin }
       });
-      if (fnError || !data?.success) {
-        setError(true);
-        setPin("");
-        setTimeout(() => setError(false), 1500);
+
+      if (fnError) {
+        // Distinguish network/cold-start errors from auth errors
+        const msg = fnError.message?.includes("PIN") || fnError.message?.includes("requis")
+          ? "Code incorrect"
+          : "Service indisponible, réessaie";
+        showError(msg);
+      } else if (!data?.success) {
+        showError("Code incorrect");
       } else {
         if (data.access_token && data.refresh_token) {
           await supabase.auth.setSession({
@@ -66,9 +79,7 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
         onUnlock();
       }
     } catch {
-      setError(true);
-      setPin("");
-      setTimeout(() => setError(false), 1500);
+      showError("Service indisponible, réessaie");
     } finally {
       setLoading(false);
     }
@@ -94,7 +105,7 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
         <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
-        {error && <p className="text-destructive text-sm">Code incorrect</p>}
+        {error && <p className="text-destructive text-sm text-center">{errorMsg}</p>}
       </div>
     </div>);
 
