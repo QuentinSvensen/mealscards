@@ -435,7 +435,7 @@ export function FoodItems() {
           value={newName}
           onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleAdd()}
-          className="flex-1"
+          className="flex-1 rounded-xl"
         />
         <Button onClick={handleAdd} disabled={!newName.trim()} className="rounded-full gap-1 shrink-0">
           <Plus className="h-4 w-4" />
@@ -447,6 +447,7 @@ export function FoodItems() {
       <FoodSection
         emoji={<Refrigerator className="h-4 w-4 text-blue-400" />}
         title="Frigo"
+        isDry={false}
         items={sortedItems.filter(i => !i.is_dry)}
         colorMap={colorMap}
         onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
@@ -465,6 +466,7 @@ export function FoodItems() {
         <FoodSection
           emoji={<Package className="h-4 w-4 text-amber-500" />}
           title="Placard sec"
+          isDry={true}
           items={sortedItems.filter(i => i.is_dry)}
           colorMap={colorMap}
           onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
@@ -487,6 +489,7 @@ export function FoodItems() {
 interface FoodSectionProps {
   emoji: React.ReactNode;
   title: string;
+  isDry: boolean; // whether this section represents dry/placard items
   items: FoodItem[];
   colorMap: (name: string) => string;
   onUpdate: (id: string, updates: Partial<FoodItem>) => void;
@@ -500,12 +503,28 @@ interface FoodSectionProps {
   setDragIndex: (i: number | null) => void;
 }
 
-function FoodSection({ emoji, title, items, colorMap, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortedItems, onReorder, dragIndex, setDragIndex }: FoodSectionProps) {
+function FoodSection({ emoji, title, isDry, items, colorMap, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortedItems, onReorder, dragIndex, setDragIndex }: FoodSectionProps) {
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
+  const [sectionDragOver, setSectionDragOver] = useState(false);
 
   return (
-    <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
+    <div
+      className={`rounded-3xl bg-card/80 backdrop-blur-sm p-4 transition-all ${sectionDragOver ? "ring-2 ring-primary/40" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); setSectionDragOver(true); }}
+      onDragLeave={() => setSectionDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setSectionDragOver(false);
+        // Cross-section drop: move item to this section by toggling is_dry
+        const itemId = e.dataTransfer.getData("foodItemId");
+        const fromDry = e.dataTransfer.getData("foodItemIsDry") === "true";
+        if (itemId && fromDry !== isDry) {
+          onUpdate(itemId, { is_dry: isDry });
+          setDragIndex(null);
+        }
+      }}
+    >
       <div className="flex items-center gap-2 mb-3">
         <h2 className="text-lg font-bold text-foreground flex items-center gap-2 flex-1">
           {emoji} {title}
@@ -525,7 +544,7 @@ function FoodSection({ emoji, title, items, colorMap, onUpdate, onDelete, onDupl
       <div className="flex flex-col gap-2">
         {items.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-6 italic">
-            Aucun aliment — cliquez sur 📦 sur une carte pour la déplacer ici
+            Aucun aliment — glisse une carte depuis l'autre section
           </p>
         ) : (
           items.map((item) => {
@@ -540,14 +559,23 @@ function FoodSection({ emoji, title, items, colorMap, onUpdate, onDelete, onDupl
                 onDuplicate={() => onDuplicate(item.id)}
                 onDragStart={(e) => {
                   e.dataTransfer.setData("foodItemIndex", String(index));
+                  e.dataTransfer.setData("foodItemId", item.id);
+                  e.dataTransfer.setData("foodItemIsDry", String(item.is_dry));
                   setDragIndex(index);
                 }}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onDrop={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (dragIndex !== null && dragIndex !== index) {
+                  const fromId = e.dataTransfer.getData("foodItemId");
+                  const fromDry = e.dataTransfer.getData("foodItemIsDry") === "true";
+                  // Same-section reorder
+                  if (fromDry === isDry && dragIndex !== null && dragIndex !== index) {
                     onReorder(dragIndex, index);
+                  }
+                  // Cross-section move handled by parent onDrop
+                  if (fromId && fromDry !== isDry) {
+                    onUpdate(fromId, { is_dry: isDry });
                   }
                   setDragIndex(null);
                 }}
