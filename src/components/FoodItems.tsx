@@ -36,11 +36,11 @@ const FOOD_COLORS = [
   "hsl(240, 35%, 50%)", "hsl(315, 30%, 46%)", "hsl(60, 35%, 40%)",
 ];
 
-/** Shared deterministic color from a name — exported so other modules can use it */
-export function colorFromName(name: string) {
+/** Deterministic color from any string (id or name) — unique per input */
+export function colorFromName(input: string) {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = ((hash << 5) - hash) + name.charCodeAt(i);
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) - hash) + input.charCodeAt(i);
     hash |= 0;
   }
   return FOOD_COLORS[Math.abs(hash) % FOOD_COLORS.length];
@@ -389,7 +389,8 @@ export function FoodItems() {
   const [sortMode, setSortMode] = useState<SortMode>("manual");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const colorMap = useCallback((name: string) => colorFromName(name), []);
+  // Use item.id (not name) for color to ensure uniqueness per card
+  const colorMap = useCallback((item: FoodItem) => colorFromName(item.id), []);
 
   const getSortedItems = (): FoodItem[] => {
     if (sortMode === "expiration") {
@@ -502,9 +503,9 @@ export function FoodItems() {
 interface FoodSectionProps {
   emoji: React.ReactNode;
   title: string;
-  isDry: boolean; // whether this section represents dry/placard items
+  isDry: boolean;
   items: FoodItem[];
-  colorMap: (name: string) => string;
+  colorMap: (item: FoodItem) => string;
   onUpdate: (id: string, updates: Partial<FoodItem>) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
@@ -529,7 +530,6 @@ function FoodSection({ emoji, title, isDry, items, colorMap, onUpdate, onDelete,
       onDrop={(e) => {
         e.preventDefault();
         setSectionDragOver(false);
-        // Cross-section drop: move item to this section by toggling is_dry
         const itemId = e.dataTransfer.getData("foodItemId");
         const fromDry = e.dataTransfer.getData("foodItemIsDry") === "true";
         if (itemId && fromDry !== isDry) {
@@ -543,12 +543,7 @@ function FoodSection({ emoji, title, isDry, items, colorMap, onUpdate, onDelete,
           {emoji} {title}
         </h2>
         <span className="text-sm font-normal text-muted-foreground">{items.length}</span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onToggleSort}
-          className="text-[10px] gap-0.5 h-7 px-2"
-        >
+        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-7 px-2">
           <SortIcon className="h-3 w-3" />
           <span className="hidden sm:inline">{sortLabel}</span>
         </Button>
@@ -566,7 +561,7 @@ function FoodSection({ emoji, title, isDry, items, colorMap, onUpdate, onDelete,
               <FoodItemCard
                 key={item.id}
                 item={item}
-                color={colorMap(item.name)}
+                color={colorMap(item)}
                 onUpdate={(updates) => onUpdate(item.id, updates)}
                 onDelete={() => onDelete(item.id)}
                 onDuplicate={() => onDuplicate(item.id)}

@@ -92,9 +92,15 @@ export function useMeals() {
   const addMeal = useMutation({
     mutationFn: async ({ name, category }: { name: string; category: string }) => {
       const maxOrder = meals.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order), -1);
-      const { error } = await supabase
+      // Insert first to get the generated id, then update color based on id for uniqueness
+      const { data: inserted, error: insertErr } = await supabase
         .from("meals")
-        .insert({ name, category, color: colorFromName(name), sort_order: maxOrder + 1, is_available: true } as any);
+        .insert({ name, category, color: colorFromName(name), sort_order: maxOrder + 1, is_available: true } as any)
+        .select()
+        .single();
+      if (insertErr) throw insertErr;
+      // Update color using the real id so each card gets a unique color
+      const { error } = await supabase.from("meals").update({ color: colorFromName(inserted.id) }).eq("id", inserted.id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
@@ -108,6 +114,8 @@ export function useMeals() {
         .select()
         .single();
       if (mealError) throw mealError;
+      // Update color to use id for uniqueness
+      await supabase.from("meals").update({ color: colorFromName(mealData.id) }).eq("id", mealData.id);
       const maxOrder = possibleMeals.length;
       const { error } = await (supabase as any)
         .from("possible_meals")
