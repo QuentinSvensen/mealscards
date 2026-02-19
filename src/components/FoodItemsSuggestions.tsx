@@ -17,6 +17,8 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   difficile: "bg-red-500/80",
 };
 
+const SESSION_KEY = "ai_food_suggestions";
+
 interface Props {
   foodItems: FoodItem[];
 }
@@ -28,6 +30,18 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchedRef = useRef(false);
 
+  // On mount: restore from sessionStorage if available
+  useEffect(() => {
+    const cached = sessionStorage.getItem(SESSION_KEY);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as AISuggestion[];
+        setSuggestions(parsed);
+        setHasLoaded(true);
+        fetchedRef.current = true;
+      } catch { /* ignore */ }
+    }
+  }, []);
 
   const fetchSuggestions = async () => {
     if (foodItems.length === 0) return;
@@ -44,8 +58,12 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
         toast({ title: "Erreur IA", description: data.error, variant: "destructive" });
         return;
       }
-      setSuggestions(data?.suggestions || []);
+      const result: AISuggestion[] = data?.suggestions || [];
+      setSuggestions(result);
       setHasLoaded(true);
+      fetchedRef.current = true;
+      // Persist in sessionStorage for the duration of the session
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(result));
     } catch (e) {
       toast({ title: "Erreur", description: "Impossible de contacter l'IA.", variant: "destructive" });
     } finally {
@@ -53,7 +71,7 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
     }
   };
 
-  // Auto-generate suggestions once on mount (when food items are loaded)
+  // Auto-generate once per session when food items are loaded and not yet cached
   useEffect(() => {
     if (fetchedRef.current) return;
     if (foodItems.length === 0) return;
@@ -61,6 +79,13 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
     fetchSuggestions();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foodItems.length]);
+
+  const handleRefresh = () => {
+    // Force re-generate (clears cache)
+    sessionStorage.removeItem(SESSION_KEY);
+    fetchedRef.current = false;
+    fetchSuggestions();
+  };
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
@@ -84,17 +109,17 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
         <Button
           size="sm"
           variant="ghost"
-          onClick={fetchSuggestions}
+          onClick={handleRefresh}
           disabled={loading}
           className="h-7 px-2 gap-1 text-[11px] shrink-0"
-          title="Générer des suggestions IA"
+          title="Régénérer les suggestions IA"
         >
           {loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
             <RefreshCw className="h-3.5 w-3.5" />
           )}
-          <span className="hidden sm:inline">{hasLoaded ? "Actualiser" : "Générer"}</span>
+          <span className="hidden sm:inline">Actualiser</span>
         </Button>
       </div>
 
@@ -104,7 +129,7 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
             <div className="flex flex-col items-center gap-2 py-6 text-center">
               <ChefHat className="h-8 w-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground italic">
-                Clique sur "Générer" pour obtenir des idées de recettes basées sur tes aliments
+                Génération des suggestions en cours…
               </p>
             </div>
           )}

@@ -19,7 +19,7 @@ import { WeeklyPlanning } from "@/components/WeeklyPlanning";
 import { FoodItems, useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
-import { useShoppingList, type ShoppingItem, type ShoppingGroup } from "@/hooks/useShoppingList";
+import { useShoppingList } from "@/hooks/useShoppingList";
 import { toast } from "@/hooks/use-toast";
 
 const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
@@ -29,17 +29,14 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "dessert", label: "Desserts", emoji: "🍰" },
 { value: "bonus", label: "Bonus", emoji: "⭐" }];
 
-// ─── Validation schema ────────────────────────────────────────────────────────
 const mealSchema = z.object({
   name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)")
 });
-
 
 type SortMode = "manual" | "expiration" | "planning";
 type MasterSortMode = "manual" | "calories" | "favorites";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
-// PIN lock — shown on every page load (no sessionStorage persistence)
 function PinLock({ onUnlock }: {onUnlock: () => void;}) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
@@ -62,7 +59,6 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
       });
 
       if (fnError) {
-        // Distinguish network/cold-start errors from auth errors
         const msg = fnError.message?.includes("PIN") || fnError.message?.includes("requis") ?
         "Code incorrect" :
         "Service indisponible, réessaie";
@@ -108,7 +104,6 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
         {error && <p className="text-destructive text-sm text-center">{errorMsg}</p>}
       </div>
     </div>);
-
 }
 
 const ROUTE_TO_PAGE: Record<string, MainPage> = {
@@ -135,30 +130,22 @@ const Index = () => {
   const location = useLocation();
 
   const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
+  const setMainPage = (page: MainPage) => navigate(PAGE_TO_ROUTE[page]);
 
-  const setMainPage = (page: MainPage) => {
-    navigate(PAGE_TO_ROUTE[page]);
-  };
-
-  // ── Synchronise la session auth réelle (défense en profondeur) ───────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Fin de session au refresh/fermeture de page ──────────────────────────────
   useEffect(() => {
-    const handleUnload = () => {
-      supabase.auth.signOut();
-    };
+    const handleUnload = () => { supabase.auth.signOut(); };
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
 
   const unlocked = !!session;
 
-  // ── Fetch blocked IPs count (only when unlocked) ─────────────────────────────
   useEffect(() => {
     if (!unlocked) return;
     const fetchBlockedCount = async () => {
@@ -182,7 +169,6 @@ const Index = () => {
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
   } = useMeals();
 
-  // Shopping list hook for import/export
   const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
 
   const [activeCategory, setActiveCategory] = useState<MealCategory>("plat");
@@ -196,21 +182,18 @@ const Index = () => {
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
 
-  // Triple-clic sur l'emoji pour afficher le menu caché
   const handleLogoClick = () => {
     setLogoClickCount((c) => {
       const next = c + 1;
-      if (next >= 3) {setShowDevMenu(true);return 0;}
+      if (next >= 3) { setShowDevMenu(true); return 0; }
       return next;
     });
   };
 
-  // session === undefined means still loading (don't flash PinLock)
   if (session === undefined) return (
     <div className="fixed inset-0 bg-background flex items-center justify-center">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
     </div>);
-
 
   if (!unlocked) return <PinLock onUnlock={() => {}} />;
 
@@ -228,18 +211,18 @@ const Index = () => {
     }
     if (addTarget === "possible") {
       addMealToPossibleDirectly.mutate({ name: result.data.name, category: newCategory }, {
-        onSuccess: () => {setNewName("");setDialogOpen(false);toast({ title: "Repas ajouté aux possibles 🎉" });}
+        onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" }); }
       });
     } else {
       addMeal.mutate({ name: result.data.name, category: newCategory }, {
-        onSuccess: () => {setNewName("");setDialogOpen(false);toast({ title: "Repas ajouté 🎉" });}
+        onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté 🎉" }); }
       });
     }
   };
 
   const handleRandomPick = (cat: string) => {
     const pick = getRandomPossible(cat);
-    if (!pick) {toast({ title: "Aucun repas possible" });return;}
+    if (!pick) { toast({ title: "Aucun repas possible" }); return; }
     setHighlightedId(pick.id);
     toast({ title: `🎲 ${pick.meals.name}` });
     setTimeout(() => setHighlightedId(null), 3000);
@@ -303,7 +286,6 @@ const Index = () => {
     setSortModes((prev) => ({ ...prev, [cat]: "manual" }));
   };
 
-  // ── Déduire les ingrédients du stock quand on déplace vers "Possible" ────────
   const deductIngredientsFromStock = async (meal: Meal) => {
     if (!meal.ingredients?.trim()) return;
     const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
@@ -319,7 +301,7 @@ const Index = () => {
       if (!key) continue;
 
       const available = stockMap.get(key)!;
-      if (available === Infinity) continue; // infini → on ignore
+      if (available === Infinity) continue;
 
       const matchingItems = foodItems.filter((fi) => {
         const fiKey = normalizeForMatch(fi.name);
@@ -334,22 +316,17 @@ const Index = () => {
         const newQty = Math.max(0, fiQty - deduct);
         toDeduct -= deduct;
         updates.push({ id: fi.id, grams: newQty > 0 ? String(Math.round(newQty * 10) / 10) : null, delete: newQty === 0 });
-        // Update stockMap for next ingredient
-        if (newQty === 0) stockMap.delete(key);else
-        stockMap.set(key, newQty);
+        if (newQty === 0) stockMap.delete(key); else stockMap.set(key, newQty);
       }
     }
 
-    // Apply updates
     await Promise.all(updates.map((u) =>
-    u.delete ?
-    supabase.from("food_items").delete().eq("id", u.id) :
-    supabase.from("food_items").update({ grams: u.grams } as any).eq("id", u.id)
+      u.delete ?
+      supabase.from("food_items").delete().eq("id", u.id) :
+      supabase.from("food_items").update({ grams: u.grams } as any).eq("id", u.id)
     ));
-    // Invalidate food_items cache so UI refreshes
     qc.invalidateQueries({ queryKey: ["food_items"] });
   };
-
 
   const handleExportMeals = () => {
     const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
@@ -361,14 +338,14 @@ const Index = () => {
       return `${m.name} (${parts.join('; ')})`;
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a');a.href = URL.createObjectURL(blob);a.download = 'repas.txt';a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'repas.txt'; a.click();
     toast({ title: `✅ ${lines.length} repas exportés` });
     setShowDevMenu(false);
   };
 
   const handleImportMeals = () => {
     const input = document.createElement('input');
-    input.type = 'file';input.accept = '.txt';
+    input.type = 'file'; input.accept = '.txt';
     input.onchange = async (ev) => {
       const file = (ev.target as HTMLInputElement).files?.[0];
       if (!file) return;
@@ -385,7 +362,7 @@ const Index = () => {
         const name = match ? match[1].trim() : line;
         const paramsStr = match ? match[2] : '';
         const params: Record<string, string> = {};
-        paramsStr.split(';').forEach((p) => {const [k, ...v] = p.split('=');if (k) params[k.trim()] = v.join('=').trim();});
+        paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
         addMeal.mutate({ name, category: params.cat as MealCategory || 'plat' });
         count++;
       }
@@ -395,10 +372,8 @@ const Index = () => {
     input.click();
   };
 
-  // ── Export / Import liste de courses ────────────────────────────────────────
   const handleExportShopping = () => {
     const lines: string[] = [];
-    // Groups with their items
     for (const group of shoppingGroups) {
       lines.push(`[${group.name}]`);
       const groupItems = shoppingItems.filter((i) => i.group_id === group.id).sort((a, b) => a.sort_order - b.sort_order);
@@ -410,7 +385,6 @@ const Index = () => {
         lines.push(parts.length > 0 ? `${item.name} (${parts.join('; ')})` : item.name);
       }
     }
-    // Ungrouped items
     const ungrouped = shoppingItems.filter((i) => !i.group_id).sort((a, b) => a.sort_order - b.sort_order);
     if (ungrouped.length > 0) {
       lines.push(`[Sans groupe]`);
@@ -423,14 +397,14 @@ const Index = () => {
       }
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a');a.href = URL.createObjectURL(blob);a.download = 'courses.txt';a.click();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'courses.txt'; a.click();
     toast({ title: `✅ Liste de courses exportée` });
     setShowDevMenu(false);
   };
 
   const handleImportShopping = () => {
     const input = document.createElement('input');
-    input.type = 'file';input.accept = '.txt';
+    input.type = 'file'; input.accept = '.txt';
     input.onchange = async (ev) => {
       const file = (ev.target as HTMLInputElement).files?.[0];
       if (!file) return;
@@ -439,10 +413,8 @@ const Index = () => {
         toast({ title: '❌ Format invalide', description: 'Seuls les fichiers .txt sont acceptés.', variant: 'destructive' });
         return;
       }
-      // Import is additive — we don't delete existing items
       const text = await file.text();
       const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-      // We'll use supabase directly for bulk insert since we need ordering
       const { supabase: sb } = await import('@/integrations/supabase/client');
       let currentGroupId: string | null = null;
       let groupOrder = shoppingGroups.length;
@@ -468,7 +440,7 @@ const Index = () => {
           const name = match ? match[1].trim() : line;
           const paramsStr = match ? match[2] : '';
           const params: Record<string, string> = {};
-          paramsStr.split(';').forEach((p) => {const [k, ...v] = p.split('=');if (k) params[k.trim()] = v.join('=').trim();});
+          paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
           await (sb as any).from('shopping_items').insert({
             name,
             group_id: currentGroupId,
@@ -488,7 +460,6 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hidden dev menu — triple-clic sur 🍽️ */}
       {showDevMenu &&
       <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
           <div className="bg-card rounded-2xl p-6 space-y-3 w-72 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -516,13 +487,13 @@ const Index = () => {
             <div className="space-y-1">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Sécurité</p>
               <button onClick={async () => {
-              try {
-                const { data } = await supabase.functions.invoke("verify-pin", { body: { reset_blocked: true } });
-                if (data?.success) {setBlockedCount(0);toast({ title: "✅ Score PIN réinitialisé" });} else
-                toast({ title: "❌ Erreur", variant: "destructive" });
-              } catch {toast({ title: "❌ Erreur", variant: "destructive" });}
-              setShowDevMenu(false);
-            }} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive">
+                try {
+                  const { data } = await supabase.functions.invoke("verify-pin", { body: { reset_blocked: true } });
+                  if (data?.success) { setBlockedCount(0); toast({ title: "✅ Score PIN réinitialisé" }); } else
+                  toast({ title: "❌ Erreur", variant: "destructive" });
+                } catch { toast({ title: "❌ Erreur", variant: "destructive" }); }
+                setShowDevMenu(false);
+              }} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive">
                 <ShieldAlert className="h-4 w-4" /> Réinitialiser score PIN ({blockedCount ?? 0})
               </button>
             </div>
@@ -530,6 +501,7 @@ const Index = () => {
           </div>
         </div>
       }
+
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
         <div className="max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
           {/* Left: logo + blocked count */}
@@ -543,27 +515,28 @@ const Index = () => {
               </span>
             }
           </div>
-          {/* Center tabs — flex-1 takes all available space, max-width keeps tabs compact on large screens */}
+
+          {/* Center tabs — compact on small screens, larger text on md+ */}
           <div className="flex items-center flex-1 min-w-0 justify-center">
-            <div className="bg-muted rounded-full p-0.5 w-full max-w-xs sm:max-w-sm py-[6px] my-0 px-0 flex items-center justify-center gap-[2px]">
-              <button onClick={() => setMainPage("aliments")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "aliments" ? "bg-background shadow-sm" : ""}`}>
-                <Apple className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "aliments" ? "text-lime-600 dark:text-lime-400 font-bold" : "text-muted-foreground"}`}>Aliments</span>
-              </button>
-              <button onClick={() => setMainPage("repas")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "repas" ? "bg-background shadow-sm" : ""}`}>
-                <UtensilsCrossed className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "repas" ? "text-orange-500 font-bold" : "text-muted-foreground"}`}>Repas</span>
-              </button>
-              <button onClick={() => setMainPage("planning")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "planning" ? "bg-background shadow-sm" : ""}`}>
-                <CalendarRange className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "planning" ? "text-blue-500 font-bold" : "text-muted-foreground"}`}>Planning</span>
-              </button>
-              <button onClick={() => setMainPage("courses")} className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 min-w-0 px-1 sm:px-2 ${mainPage === "courses" ? "bg-background shadow-sm" : ""}`}>
-                <ShoppingCart className="h-3 w-3 shrink-0" />
-                <span className={`text-[9px] sm:text-[11px] truncate leading-tight ${mainPage === "courses" ? "text-green-500 font-bold" : "text-muted-foreground"}`}>Courses</span>
-              </button>
+            <div className="bg-muted rounded-full p-0.5 w-full max-w-xs md:max-w-md py-[6px] my-0 px-0 flex items-center justify-center gap-[2px]">
+              {([
+                { page: "aliments" as MainPage, icon: <Apple className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
+                { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
+                { page: "planning" as MainPage, icon: <CalendarRange className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Planning", activeColor: "text-blue-500" },
+                { page: "courses" as MainPage, icon: <ShoppingCart className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
+              ] as const).map(({ page, icon, label, activeColor }) => (
+                <button
+                  key={page}
+                  onClick={() => setMainPage(page)}
+                  className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-1 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}
+                >
+                  {icon}
+                  <span className={`text-[9px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
+                </button>
+              ))}
             </div>
           </div>
+
           {/* Right: theme toggle */}
           <ThemeToggle />
         </div>
@@ -613,10 +586,10 @@ const Index = () => {
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
-                      <Button onClick={() => {setAddTarget("all");handleAdd();}} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">
+                      <Button onClick={() => { setAddTarget("all"); handleAdd(); }} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">
                         Tous les repas
                       </Button>
-                      <Button onClick={() => {setAddTarget("possible");handleAdd();}} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">
+                      <Button onClick={() => { setAddTarget("possible"); handleAdd(); }} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">
                         Possibles uniquement
                       </Button>
                     </div>
@@ -662,7 +635,7 @@ const Index = () => {
                   onMoveFoodItemToPossible={async (fi) => {
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value });
                   }}
-                  onDeleteFoodItem={(id) => {deleteFoodItem(id);}} />
+                  onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
 
                   </div>
                   <PossibleList
@@ -692,36 +665,31 @@ const Index = () => {
         }
       </main>
     </div>);
-
 };
 
 // --- Sub-components ---
 
-// ─── Normalize text for fuzzy ingredient matching ────────────────────────────
 function normalizeForMatch(text: string): string {
-  return text.
-  toLowerCase().
-  normalize("NFD").
-  replace(/[\u0300-\u036f]/g, "").
-  replace(/[^a-z0-9\s]/g, "").
-  trim();
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .trim();
 }
 
-// Parse a quantity string like "100g" or "200" → number
 function parseQty(qty: string | null | undefined): number {
   if (!qty) return 0;
   const n = parseFloat(qty.replace(",", ".").replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
-// Parse an ingredient line like "100g jambon" → { qty: 100, name: "jambon" }
 function parseIngredientLine(ing: string): {qty: number;name: string;} {
   const m = ing.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s+(.*)/i);
   if (m) return { qty: parseFloat(m[1].replace(",", ".")), name: normalizeForMatch(m[2]) };
   return { qty: 0, name: normalizeForMatch(ing) };
 }
 
-// Build aggregated stock map: normalized name → total grams (Infinity if any is_infinite)
 function buildStockMap(foodItems: FoodItem[]): Map<string, number> {
   const map = new Map<string, number>();
   for (const fi of foodItems) {
@@ -736,7 +704,6 @@ function buildStockMap(foodItems: FoodItem[]): Map<string, number> {
   return map;
 }
 
-// Find a stock key that fuzzy-matches the ingredient name
 function findStockKey(stockMap: Map<string, number>, name: string): string | null {
   for (const key of stockMap.keys()) {
     if (key.includes(name) || name.includes(key)) return key;
@@ -744,34 +711,23 @@ function findStockKey(stockMap: Map<string, number>, name: string): string | nul
   return null;
 }
 
-// Compute how many times a meal can be made given the stock, or null if not possible.
-// Returns Infinity if all matched ingredients are infinite.
 function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | null {
   if (!meal.ingredients?.trim()) return null;
-
   const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
   if (ingredients.length === 0) return null;
-
   let multiple = Infinity;
-
   for (const ing of ingredients) {
     const { qty: needed, name } = parseIngredientLine(ing);
     const key = findStockKey(stockMap, name);
-    if (key === null) return null; // ingredient not found → can't make
-
+    if (key === null) return null;
     const available = stockMap.get(key)!;
-    if (available === Infinity) continue; // infinite stock, no constraint
-
-    if (needed <= 0) continue; // no quantity specified — just presence check
-
-    if (available < needed) return null; // not enough
+    if (available === Infinity) continue;
+    if (needed <= 0) continue;
+    if (available < needed) return null;
     multiple = Math.min(multiple, Math.floor(available / needed));
   }
-
   return multiple === Infinity ? Infinity : multiple;
 }
-
-// ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
 
 /** Fuzzy match: same after removing diacritics/case/extra-s, or differ by at most 1 char */
 function fuzzyNameMatch(a: string, b: string): boolean {
@@ -779,54 +735,55 @@ function fuzzyNameMatch(a: string, b: string): boolean {
   const nb = normalizeForMatch(b).replace(/s$/, "");
   if (na === nb) return true;
   if (na.includes(nb) || nb.includes(na)) return true;
-  // Levenshtein distance ≤ 1
   if (Math.abs(na.length - nb.length) > 1) return false;
   let diff = 0;
   const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
-  let si = 0,li = 0;
+  let si = 0, li = 0;
   while (si < shorter.length && li < longer.length) {
-    if (shorter[si] !== longer[li]) {diff++;if (diff > 1) return false;li++;} else {si++;li++;}
+    if (shorter[si] !== longer[li]) { diff++; if (diff > 1) return false; li++; } else { si++; li++; }
   }
   return true;
 }
 
+// ─── AvailableList ────────────────────────────────────────────────────────────
 function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;}) {
 
   const [open, setOpen] = useState(true);
-
-  // Aggregate stock from all food items
   const stockMap = buildStockMap(foodItems);
 
-  // Meals realizable with current stock (via ingredients)
-  const available: {meal: Meal;multiple: number | null;}[] = meals.
-  map((meal) => ({ meal, multiple: getMealMultiple(meal, stockMap) })).
-  filter(({ multiple }) => multiple !== null);
+  // 1. Meals realizable via ingredient matching
+  const available: {meal: Meal;multiple: number | null;}[] = meals
+    .map((meal) => ({ meal, multiple: getMealMultiple(meal, stockMap) }))
+    .filter(({ multiple }) => multiple !== null);
+  const availableMealIds = new Set(available.map(a => a.meal.id));
 
-  // Food items marked as is_meal that appear as standalone cards
-  const isMealItems = foodItems.filter((fi) => fi.is_meal);
-
-  /**
-   * Food items from stock whose name fuzzy-matches the name of a meal in "Tous"
-   * for this category. One stock item can match multiple meals (shown once per meal).
-   * We exclude items already surfaced as is_meal.
-   */
+  // 2. Name-match: stock item whose name fuzzy-matches a "Tous" meal (not already in ingredients)
   type NameMatch = {meal: Meal;fi: FoodItem;portionsAvailable: number | null;};
   const nameMatches: NameMatch[] = [];
-  const isMealIds = new Set(isMealItems.map((fi) => fi.id));
 
   for (const meal of meals) {
+    if (availableMealIds.has(meal.id)) continue;
     for (const fi of foodItems) {
-      if (isMealIds.has(fi.id)) continue; // already shown as is_meal
       if (fuzzyNameMatch(meal.name, fi.name)) {
-        // Calculate how many portions possible from stock
-        const qty = fi.is_infinite ? null : parseQty(fi.grams);
-        nameMatches.push({ meal, fi, portionsAvailable: qty });
+        const mealGrams = parseQty(meal.grams);
+        const stockGrams = fi.is_infinite ? Infinity : parseQty(fi.grams);
+        if (!fi.is_infinite && stockGrams <= 0) continue; // no stock
+        let portions: number | null = null;
+        if (!fi.is_infinite && mealGrams > 0) {
+          portions = Math.floor(stockGrams / mealGrams);
+          if (portions < 1) continue;
+        }
+        nameMatches.push({ meal, fi, portionsAvailable: fi.is_infinite ? null : portions });
+        break;
       }
     }
   }
 
-  // Also surface food items that no recipe ingredient matches AND is NOT is_meal AND not a name-match
+  // 3. is_meal food items — shown as standalone repas
+  const isMealItems = foodItems.filter((fi) => fi.is_meal);
+
+  // Orphan food items
   const nameMatchFiIds = new Set(nameMatches.map((nm) => nm.fi.id));
   const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false;
@@ -847,10 +804,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 w-full text-left">
-
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 w-full text-left">
         {open ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
         <h2 className="text-base font-bold text-foreground flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-yellow-500" />
@@ -861,34 +815,26 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
 
       {open &&
       <div className="flex flex-col gap-2 mt-3">
-          {/* Recipes available via ingredients matching */}
+          {/* 1. Ingredient-matched recipes */}
           {available.map(({ meal, multiple }) =>
         <div key={meal.id} className="relative">
-              <MealCard
-            meal={meal}
+              <MealCard meal={meal}
             onMoveToPossible={() => onMoveToPossible(meal.id)}
-            onRename={() => {}}
-            onDelete={() => {}}
-            onUpdateCalories={() => {}}
-            onUpdateGrams={() => {}}
-            onUpdateIngredients={() => {}}
-            onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "available");}}
-            onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
-            onDrop={(e) => {e.preventDefault();e.stopPropagation();}}
+            onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+            onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
             hideDelete />
-
-              {/* Multiple badge */}
               {multiple !== null &&
-          <div className="absolute top-2 right-2 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
+          <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                   x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
                 </div>
           }
             </div>
         )}
 
-          {/* Name-match: stock items whose name matches a meal in "Tous" for this category */}
+          {/* 2. Name-matched stock items */}
           {nameMatches.map(({ meal, fi, portionsAvailable }, idx) => {
-          // Build a fake Meal to reuse MealCard, using the meal's color for visual link
           const fakeMeal: Meal = {
             id: `nm-${meal.id}-${fi.id}`,
             name: meal.name,
@@ -896,7 +842,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             calories: meal.calories,
             grams: fi.is_infinite ? "∞" : fi.grams ?? null,
             ingredients: meal.ingredients,
-            color: meal.color,
+            color: meal.color, // same color as "Tous" card
             sort_order: 0,
             created_at: fi.created_at,
             is_available: true,
@@ -904,32 +850,23 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
           };
           return (
             <div key={`nm-${idx}`} className="relative">
-                <MealCard
-                meal={fakeMeal}
+                <MealCard meal={fakeMeal}
                 onMoveToPossible={() => onMoveToPossible(meal.id)}
-                onRename={() => {}}
-                onDelete={() => {}}
-                onUpdateCalories={() => {}}
-                onUpdateGrams={() => {}}
-                onUpdateIngredients={() => {}}
-                onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "available");}}
-                onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
-                onDrop={(e) => {e.preventDefault();e.stopPropagation();}}
+                onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 hideDelete />
-
-                {/* Quantity badge from stock */}
-                <div className="absolute top-2 right-2 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
-                  {fi.is_infinite ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : portionsAvailable !== null ? `${portionsAvailable}g` : ""}
+                <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                  {fi.is_infinite
+                    ? <InfinityIcon className="inline h-[15px] w-[15px]" />
+                    : portionsAvailable !== null ? `x${portionsAvailable}` : "x1"}
                 </div>
               </div>);
-
         })}
 
-          {/* is_meal food items — appear as standalone with full card UI.
-          - Delete option wired to onDeleteFoodItem (removes from food_items)
-          - No quantity badge (user requested) */}
+          {/* 3. is_meal standalone items — color = fi.id to match Aliments tab */}
           {isMealItems.map((fi) => {
-          // Build a fake Meal object to reuse MealCard — use same colorFromName for visual consistency
           const fakeMeal: Meal = {
             id: `fi-${fi.id}`,
             name: fi.name,
@@ -937,7 +874,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             calories: fi.calories,
             grams: fi.is_infinite ? "∞" : fi.grams ?? null,
             ingredients: null,
-            color: colorFromName(fi.name),
+            color: colorFromName(fi.id),
             sort_order: 0,
             created_at: fi.created_at,
             is_available: true,
@@ -945,22 +882,15 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
           };
           return (
             <div key={fi.id} className="relative">
-              <MealCard
-                meal={fakeMeal}
+              <MealCard meal={fakeMeal}
                 onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
-                onRename={() => {}}
-                onDelete={() => onDeleteFoodItem(fi.id)}
-                onUpdateCalories={() => {}}
-                onUpdateGrams={() => {}}
-                onUpdateIngredients={() => {}}
-                onDragStart={(e) => {e.dataTransfer.setData("mealId", fi.id);e.dataTransfer.setData("source", "available");}}
-                onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
-                onDrop={(e) => {e.preventDefault();e.stopPropagation();}} />
-
+                onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }} />
             </div>);
         })}
 
-          {/* Orphan warning */}
           {orphanFoodItems.length > 0 &&
         <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
               <p className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wide">Aliments inutilisés dans les recettes</p>
@@ -982,7 +912,6 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
         </div>
       }
     </div>);
-
 }
 
 function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onReorder
@@ -1019,54 +948,16 @@ function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible,
         onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
         onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
         onToggleFavorite={() => onToggleFavorite(meal.id)}
-        onDragStart={(e) => {e.dataTransfer.setData("mealId", meal.id);e.dataTransfer.setData("source", "master");setDragIndex(index);}}
-        onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
-        onDrop={(e) => {e.preventDefault();e.stopPropagation();if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index);setDragIndex(null);}} />
-
+        onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }} />
         )}
         </>
       }
     </MealList>);
-
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder, onExternalDrop, highlightedId, onAddDirectly
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;onAddDirectly: () => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
@@ -1091,14 +982,12 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal)}
       onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
       onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
-      onDragStart={(e) => {e.dataTransfer.setData("mealId", pm.meal_id);e.dataTransfer.setData("pmId", pm.id);e.dataTransfer.setData("source", "possible");setDragIndex(index);}}
-      onDragOver={(e) => {e.preventDefault();e.stopPropagation();}}
-      onDrop={(e) => {e.preventDefault();e.stopPropagation();if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index);setDragIndex(null);}}
+      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
       isHighlighted={highlightedId === pm.id} />
-
       )}
     </MealList>);
-
 }
 
 export default Index;
