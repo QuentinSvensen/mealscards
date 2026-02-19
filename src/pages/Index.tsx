@@ -16,7 +16,7 @@ import { MealCard } from "@/components/MealCard";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import { ShoppingList } from "@/components/ShoppingList";
 import { WeeklyPlanning } from "@/components/WeeklyPlanning";
-import { FoodItems, useFoodItems, type FoodItem } from "@/components/FoodItems";
+import { FoodItems, useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList, type ShoppingItem, type ShoppingGroup } from "@/hooks/useShoppingList";
@@ -581,9 +581,9 @@ const Index = () => {
         {mainPage === "repas" &&
         <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
             <div className="flex items-center gap-2 mb-3 sm:mb-4">
-              <TabsList className="flex-1 overflow-x-auto">
+              <TabsList className="flex-1 overflow-x-auto rounded-2xl">
               {CATEGORIES.map((c) =>
-              <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1">
+              <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl">
                     <span className="mr-0.5">{c.emoji}</span>
                     <span className="text-[9px] sm:text-xs leading-tight">{c.label}</span>
                   </TabsTrigger>
@@ -660,7 +660,7 @@ const Index = () => {
                     moveToPossible.mutate(id);
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
-                    await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: "plat" });
+                    await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value });
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
 
@@ -772,6 +772,24 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | nu
 }
 
 // ─── AvailableList — "Au choix" collapsible sub-column ───────────────────────
+
+/** Fuzzy match: same after removing diacritics/case/extra-s, or differ by at most 1 char */
+function fuzzyNameMatch(a: string, b: string): boolean {
+  const na = normalizeForMatch(a).replace(/s$/, "");
+  const nb = normalizeForMatch(b).replace(/s$/, "");
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  // Levenshtein distance ≤ 1
+  if (Math.abs(na.length - nb.length) > 1) return false;
+  let diff = 0;
+  const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
+  let si = 0, li = 0;
+  while (si < shorter.length && li < longer.length) {
+    if (shorter[si] !== longer[li]) { diff++; if (diff > 1) return false; li++; } else { si++; li++; }
+  }
+  return true;
+}
+
 function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;}) {
 
@@ -780,7 +798,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
   // Aggregate stock from all food items
   const stockMap = buildStockMap(foodItems);
 
-  // Meals realizable with current stock
+  // Meals realizable with current stock (via ingredients)
   const available: {meal: Meal;multiple: number | null;}[] = meals.
   map((meal) => ({ meal, multiple: getMealMultiple(meal, stockMap) })).
   filter(({ multiple }) => multiple !== null);
@@ -788,9 +806,31 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
   // Food items marked as is_meal that appear as standalone cards
   const isMealItems = foodItems.filter((fi) => fi.is_meal);
 
-  // Also surface food items that no recipe ingredient matches AND is NOT is_meal
+  /**
+   * Food items from stock whose name fuzzy-matches the name of a meal in "Tous"
+   * for this category. One stock item can match multiple meals (shown once per meal).
+   * We exclude items already surfaced as is_meal.
+   */
+  type NameMatch = { meal: Meal; fi: FoodItem; portionsAvailable: number | null };
+  const nameMatches: NameMatch[] = [];
+  const isMealIds = new Set(isMealItems.map(fi => fi.id));
+
+  for (const meal of meals) {
+    for (const fi of foodItems) {
+      if (isMealIds.has(fi.id)) continue; // already shown as is_meal
+      if (fuzzyNameMatch(meal.name, fi.name)) {
+        // Calculate how many portions possible from stock
+        const qty = fi.is_infinite ? null : parseQty(fi.grams);
+        nameMatches.push({ meal, fi, portionsAvailable: qty });
+      }
+    }
+  }
+
+  // Also surface food items that no recipe ingredient matches AND is NOT is_meal AND not a name-match
+  const nameMatchFiIds = new Set(nameMatches.map(nm => nm.fi.id));
   const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false;
+    if (nameMatchFiIds.has(fi.id)) return false;
     const fiKey = normalizeForMatch(fi.name);
     const usedByAnyMeal = meals.some((meal) => {
       if (!meal.ingredients) return false;
@@ -803,7 +843,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
     return !usedByAnyMeal;
   });
 
-  const totalCount = available.length + isMealItems.length;
+  const totalCount = available.length + isMealItems.length + nameMatches.length;
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
@@ -821,7 +861,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
 
       {open &&
       <div className="flex flex-col gap-2 mt-3">
-          {/* Recipes available — no delete option, no quantity badge shown (meals handle it) */}
+          {/* Recipes available via ingredients matching */}
           {available.map(({ meal, multiple }) =>
         <div key={meal.id} className="relative">
               <MealCard
@@ -846,19 +886,58 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             </div>
         )}
 
+          {/* Name-match: stock items whose name matches a meal in "Tous" for this category */}
+          {nameMatches.map(({ meal, fi, portionsAvailable }, idx) => {
+            // Build a fake Meal to reuse MealCard, using the meal's color for visual link
+            const fakeMeal: Meal = {
+              id: `nm-${meal.id}-${fi.id}`,
+              name: meal.name,
+              category: meal.category,
+              calories: meal.calories,
+              grams: fi.is_infinite ? "∞" : (fi.grams ?? null),
+              ingredients: meal.ingredients,
+              color: meal.color,
+              sort_order: 0,
+              created_at: fi.created_at,
+              is_available: true,
+              is_favorite: meal.is_favorite,
+            };
+            return (
+              <div key={`nm-${idx}`} className="relative">
+                <MealCard
+                  meal={fakeMeal}
+                  onMoveToPossible={() => onMoveToPossible(meal.id)}
+                  onRename={() => {}}
+                  onDelete={() => {}}
+                  onUpdateCalories={() => {}}
+                  onUpdateGrams={() => {}}
+                  onUpdateIngredients={() => {}}
+                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  hideDelete
+                />
+                {/* Quantity badge from stock */}
+                <div className="absolute top-2 right-2 z-10 gap-0.5 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex-row flex items-center justify-center">
+                  {fi.is_infinite ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : (portionsAvailable !== null ? `${portionsAvailable}g` : "")}
+                </div>
+              </div>
+            );
+          })}
+
           {/* is_meal food items — appear as standalone with full card UI.
               - Delete option wired to onDeleteFoodItem (removes from food_items)
               - No quantity badge (user requested) */}
           {isMealItems.map((fi) => {
-          // Build a fake Meal object to reuse MealCard
-          const fakeMeal: import("@/hooks/useMeals").Meal = {
+          // Build a fake Meal object to reuse MealCard — use same colorFromName for visual consistency
+          const fakeMeal: Meal = {
             id: `fi-${fi.id}`,
             name: fi.name,
             category: "plat",
             calories: fi.calories,
             grams: fi.is_infinite ? "∞" : (fi.grams ?? null),
             ingredients: null,
-            color: "hsl(var(--primary))",
+            color: colorFromName(fi.name),
             sort_order: 0,
             created_at: fi.created_at,
             is_available: true,
