@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { z } from "zod";
 import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,8 @@ const FOOD_COLORS = [
   "hsl(240, 35%, 50%)", "hsl(315, 30%, 46%)", "hsl(60, 35%, 40%)",
 ];
 
-function colorFromName(name: string) {
+/** Shared deterministic color from a name — exported so other modules can use it */
+export function colorFromName(name: string) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = ((hash << 5) - hash) + name.charCodeAt(i);
@@ -61,6 +62,16 @@ export function useFoodItems() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
 
+  // Re-fetch when auth session becomes available (mirrors useMeals behavior)
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') {
+        qc.invalidateQueries({ queryKey: ["food_items"] });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [qc]);
+
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["food_items"],
     queryFn: async () => {
@@ -76,6 +87,8 @@ export function useFoodItems() {
         is_dry: d.is_dry ?? false,
       })) as FoodItem[];
     },
+    retry: 3,
+    retryDelay: 500,
   });
 
   const addItem = useMutation({

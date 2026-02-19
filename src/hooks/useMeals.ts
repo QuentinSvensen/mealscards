@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { colorFromName } from "@/components/FoodItems";
 
 export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
 
@@ -29,25 +30,6 @@ export interface PossibleMeal {
   sort_order: number;
   created_at: string;
   meals: Meal;
-}
-
-const MEAL_COLORS = [
-  "hsl(345, 45%, 48%)", "hsl(22, 55%, 48%)", "hsl(155, 35%, 40%)",
-  "hsl(215, 45%, 46%)", "hsl(275, 35%, 48%)", "hsl(40, 50%, 44%)",
-  "hsl(185, 40%, 40%)", "hsl(5, 40%, 46%)", "hsl(130, 30%, 40%)",
-  "hsl(240, 35%, 50%)", "hsl(315, 30%, 46%)", "hsl(60, 35%, 40%)",
-  "hsl(195, 40%, 42%)", "hsl(15, 50%, 45%)", "hsl(170, 35%, 38%)",
-  "hsl(255, 30%, 46%)", "hsl(30, 45%, 42%)", "hsl(200, 40%, 44%)",
-  "hsl(350, 35%, 44%)", "hsl(90, 30%, 40%)",
-];
-
-function colorFromName(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = ((hash << 5) - hash) + name.charCodeAt(i);
-    hash |= 0;
-  }
-  return MEAL_COLORS[Math.abs(hash) % MEAL_COLORS.length];
 }
 
 export const DAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;

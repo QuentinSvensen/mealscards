@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Sparkles, Loader2, RefreshCw, ChefHat } from "lucide-react";
 import type { FoodItem } from "@/components/FoodItems";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,12 +26,11 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const fetchedRef = useRef(false);
+
 
   const fetchSuggestions = async () => {
-    if (foodItems.length === 0) {
-      toast({ title: "Aucun aliment dans le stock", description: "Ajoute des aliments pour obtenir des suggestions.", variant: "destructive" });
-      return;
-    }
+    if (foodItems.length === 0) return;
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("ai-food-suggestions", {
@@ -53,6 +52,15 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
       setLoading(false);
     }
   };
+
+  // Auto-generate suggestions once on mount (when food items are loaded)
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    if (foodItems.length === 0) return;
+    fetchedRef.current = true;
+    fetchSuggestions();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foodItems.length]);
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
