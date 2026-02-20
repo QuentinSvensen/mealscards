@@ -38,7 +38,7 @@ serve(async (req) => {
     let body: Record<string, unknown> = {};
     try { body = await req.json(); } catch { /* no body */ }
 
-    // Helper: verify auth token using getUser
+    // Helper: verify auth token using getClaims (local JWT validation, no server round-trip)
     const verifyAuth = async (authHeader: string | null) => {
       if (!authHeader?.startsWith("Bearer ")) return false;
       const token = authHeader.replace("Bearer ", "");
@@ -47,8 +47,8 @@ serve(async (req) => {
         Deno.env.get("SUPABASE_ANON_KEY")!,
         { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { autoRefreshToken: false, persistSession: false } }
       );
-      const { data, error } = await supabaseAnon.auth.getUser(token);
-      return !error && !!data?.user;
+      const { data, error } = await supabaseAnon.auth.getClaims(token);
+      return !error && !!data?.claims;
     };
 
     // Reset blocked count — requires a valid auth session
