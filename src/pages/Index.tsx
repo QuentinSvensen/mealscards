@@ -105,7 +105,7 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
         <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32 rounded-xl">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
         </Button>
-        {error && <p className="text-destructive text-sm text-center">{errorMsg}</p>}
+        {/* Error message hidden intentionally */}
       </div>
     </div>);
 }
@@ -653,7 +653,7 @@ const Index = () => {
                     moveToPossible.mutate(meal.id);
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
-                    await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value });
+                    await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
 
@@ -914,11 +914,14 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
         <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
               <p className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wide">Aliments inutilisés dans les recettes</p>
               <div className="flex flex-wrap gap-1">
-                {orphanFoodItems.map((fi) =>
-            <span key={fi.id} className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+              {orphanFoodItems.map((fi) => {
+                const isExpired = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
+                return (
+                  <span key={fi.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-500/20 text-red-600 dark:text-red-400 ring-1 ring-red-500/50 font-semibold' : 'bg-muted text-muted-foreground'}`}>
                     {fi.name}{fi.grams ? ` ${fi.grams}` : ''}
                   </span>
-            )}
+                );
+              })}
               </div>
             </div>
         }
