@@ -229,8 +229,8 @@ export function ShoppingList() {
           value={getLocalName(item)}
           onChange={(e) => handleNameChange(item, e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
-          style={{ width: `${Math.max(4, getLocalName(item).length + 1)}ch`, minWidth: '4ch', maxWidth: '60%' }}
+          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium min-w-0 ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+          style={{ width: '100%', maxWidth: '45%', minWidth: '4ch' }}
         />
 
         {/* Brand — inline after name */}
@@ -309,14 +309,23 @@ export function ShoppingList() {
     <div className="max-w-2xl mx-auto space-y-3">
       {/* Ungrouped items */}
       <div
-        className={`bg-card/80 backdrop-blur-sm rounded-2xl p-3 ${dragOverKey === 'ungrouped' ? 'ring-2 ring-primary/60' : ''}`}
+        draggable
+        className={`bg-card/80 backdrop-blur-sm rounded-2xl p-3 cursor-grab active:cursor-grabbing ${dragOverKey === 'ungrouped' ? 'ring-2 ring-primary/60' : ''}`}
+        onDragStart={(e) => { dragPayload.current = { kind: "group", id: "__ungrouped" }; e.dataTransfer.effectAllowed = "move"; }}
         onDragOver={(e) => { e.preventDefault(); setDragOverKey('ungrouped'); }}
         onDragLeave={() => setDragOverKey(null)}
         onDrop={(e) => handleDropOnGroup(e, null)}
       >
-        <h3 className="text-xs font-extrabold text-foreground/60 mb-1.5 uppercase tracking-widest">Articles</h3>
-        {ungroupedItems.map(renderItem)}
-        {renderAddInput(null)}
+        <button onClick={() => toggleCollapse("__ungrouped")} className="flex items-center gap-2 w-full text-left mb-1.5">
+          {collapsedGroups.has("__ungrouped") ? <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+          <h3 className="text-xs font-extrabold text-foreground/60 uppercase tracking-widest">Articles</h3>
+          <span className="text-[10px] font-bold text-foreground bg-foreground/10 rounded-full px-2 py-0.5 shrink-0">{ungroupedItems.length}</span>
+        </button>
+        {collapsedGroups.has("__ungrouped")
+          ? ungroupedItems.filter(i => i.checked).map(renderItem)
+          : ungroupedItems.map(renderItem)
+        }
+        {!collapsedGroups.has("__ungrouped") && renderAddInput(null)}
       </div>
 
       {/* Groups */}
@@ -355,7 +364,9 @@ export function ShoppingList() {
                 <Trash2 className="h-3 w-3" />
               </Button>
             </div>
-            {!isCollapsed && (
+            {isCollapsed
+              ? groupItems.filter(i => i.checked).map(renderItem)
+              : (
               <>
                 {groupItems.map(renderItem)}
                 {renderAddInput(group.id)}

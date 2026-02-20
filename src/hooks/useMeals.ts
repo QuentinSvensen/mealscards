@@ -17,6 +17,8 @@ export interface Meal {
   created_at: string;
   is_available: boolean;
   is_favorite: boolean;
+  oven_temp: string | null;
+  oven_minutes: string | null;
 }
 
 export interface PossibleMeal {
@@ -153,6 +155,22 @@ export function useMeals() {
   const updateIngredients = useMutation({
     mutationFn: async ({ id, ingredients }: { id: string; ingredients: string | null }) => {
       const { error } = await supabase.from("meals").update({ ingredients } as any).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+  });
+
+  const updateOvenTemp = useMutation({
+    mutationFn: async ({ id, oven_temp }: { id: string; oven_temp: string | null }) => {
+      const { error } = await supabase.from("meals").update({ oven_temp } as any).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+  });
+
+  const updateOvenMinutes = useMutation({
+    mutationFn: async ({ id, oven_minutes }: { id: string; oven_minutes: string | null }) => {
+      const { error } = await supabase.from("meals").update({ oven_minutes } as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
@@ -328,6 +346,7 @@ export function useMeals() {
   return {
     meals, possibleMeals, isLoading,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients,
+    updateOvenTemp, updateOvenMinutes,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,

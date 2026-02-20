@@ -166,7 +166,9 @@ const Index = () => {
   const {
     isLoading,
     meals,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients, toggleFavorite, deleteMeal, reorderMeals,
+    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients,
+    updateOvenTemp, updateOvenMinutes,
+    toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals,
@@ -181,8 +183,14 @@ const Index = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const [sortModes, setSortModes] = useState<Record<string, SortMode>>({});
-  const [masterSortModes, setMasterSortModes] = useState<Record<string, MasterSortMode>>({});
+  const [sortModes, setSortModes] = useState<Record<string, SortMode>>(() => {
+    const saved = localStorage.getItem('meal_sort_modes');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [masterSortModes, setMasterSortModes] = useState<Record<string, MasterSortMode>>(() => {
+    const saved = localStorage.getItem('meal_master_sort_modes');
+    return saved ? JSON.parse(saved) : {};
+  });
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
 
@@ -235,8 +243,10 @@ const Index = () => {
   const toggleSort = (cat: string) => {
     setSortModes((prev) => {
       const current = prev[cat] || "manual";
-      const next = current === "manual" ? "expiration" : current === "expiration" ? "planning" : "manual";
-      return { ...prev, [cat]: next };
+      const next: SortMode = current === "manual" ? "expiration" : current === "expiration" ? "planning" : "manual";
+      const updated = { ...prev, [cat]: next };
+      localStorage.setItem('meal_sort_modes', JSON.stringify(updated));
+      return updated;
     });
   };
 
@@ -260,8 +270,10 @@ const Index = () => {
   const toggleMasterSort = (cat: string) => {
     setMasterSortModes((prev) => {
       const current = prev[cat] || "manual";
-      const next = current === "manual" ? "calories" : current === "calories" ? "favorites" : "manual";
-      return { ...prev, [cat]: next };
+      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "favorites" : "manual";
+      const updated = { ...prev, [cat]: next };
+      localStorage.setItem('meal_master_sort_modes', JSON.stringify(updated));
+      return updated;
     });
   };
 
@@ -624,6 +636,8 @@ const Index = () => {
                     const meal = meals.find((m) => m.id === id);
                     if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
                   }}
+                  onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
+                  onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
                   onReorder={(from, to) => handleReorderMeals(cat.value, from, to)} />
 
                     <AvailableList
@@ -897,7 +911,9 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
             sort_order: 0,
             created_at: fi.created_at,
             is_available: true,
-            is_favorite: false
+            is_favorite: false,
+            oven_temp: null,
+            oven_minutes: null,
           };
           return (
             <div key={fi.id} className="relative">
@@ -936,8 +952,8 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
     </div>);
 }
 
-function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onReorder
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];sortMode: MasterSortMode;onToggleSort: () => void;onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
+function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];sortMode: MasterSortMode;onToggleSort: () => void;onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -970,6 +986,8 @@ function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible,
         onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
         onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
         onToggleFavorite={() => onToggleFavorite(meal.id)}
+        onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+        onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
         onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
         onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }} />
