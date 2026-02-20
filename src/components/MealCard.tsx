@@ -24,6 +24,7 @@ interface MealCardProps {
   isHighlighted?: boolean;
   hideDelete?: boolean;
   expirationLabel?: string | null;
+  expirationDate?: string | null;
 }
 
 interface IngLine { qty: string; count: string; name: string; }
@@ -68,7 +69,7 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -204,8 +205,17 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
         <>
           {/* Title always on its own line */}
           <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal">{meal.name}</span>
-          {/* Badges row below title */}
-          <div className="flex items-center gap-1 flex-wrap mt-1">
+          {/* Options row - aligned right */}
+          <div className="flex items-center gap-1 mt-1 justify-end flex-wrap">
+            {expirationLabel && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
+                expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
+                  ? 'text-red-200 bg-red-500/30'
+                  : 'text-white/70 bg-white/20'
+              }`}>
+                📅 {expirationLabel}
+              </span>
+            )}
             {meal.grams && (
               <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                 <Weight className="h-3 w-3" />{meal.grams}
@@ -220,11 +230,6 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
               <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                 <Thermometer className="h-3 w-3" />
                 {ovenTemp ? `${ovenTemp}°C` : ''}{ovenTemp && ovenMinutes ? ' · ' : ''}{ovenMinutes ? `${ovenMinutes}min` : ''}
-              </span>
-            )}
-            {expirationLabel && (
-              <span className="text-xs text-red-200 bg-red-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold">
-                📅 {expirationLabel}
               </span>
             )}
             {onToggleFavorite && (

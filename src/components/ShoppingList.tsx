@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { z } from "zod";
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
+import { usePreferences } from "@/hooks/usePreferences";
 import { toast } from "@/hooks/use-toast";
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
@@ -28,12 +29,22 @@ export function ShoppingList() {
     addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, deleteItem,
     getItemsByGroup, reorderItems, reorderGroups,
   } = useShoppingList();
+  const { getPreference, setPreference } = usePreferences();
 
   const [newGroupName, setNewGroupName] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
+
+  // Load collapsed state from DB
+  const savedCollapsed = getPreference<string[]>('shopping_collapsed_groups', []);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const collapseSynced = useRef(false);
+  useEffect(() => {
+    if (collapseSynced.current || savedCollapsed.length === 0) return;
+    setCollapsedGroups(new Set(savedCollapsed));
+    collapseSynced.current = true;
+  }, [savedCollapsed]);
 
   // per-item editing state: "brand" | "qty" | null
   const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | null>>({});
@@ -97,6 +108,7 @@ export function ShoppingList() {
     setCollapsedGroups(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
+      setPreference.mutate({ key: 'shopping_collapsed_groups', value: Array.from(next) });
       return next;
     });
   };
@@ -208,32 +220,29 @@ export function ShoppingList() {
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(`item:${item.id}`); }}
         onDragLeave={() => setDragOverKey(null)}
         onDrop={(e) => handleDropOnItem(e, item)}
-        className={`flex items-center gap-1.5 py-1.5 px-2 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
+        className={`flex items-center gap-1 py-1.5 px-1.5 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
-        <GripVertical className="h-3 w-3 text-muted-foreground/40 shrink-0" />
         <Checkbox
           checked={item.checked}
           onCheckedChange={(checked) => {
             toggleItem.mutate({ id: item.id, checked: !!checked });
-            // Réinitialiser la quantité quand l'article est désélectionné
             if (!checked) {
               updateItemQuantity.mutate({ id: item.id, quantity: null });
               setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
             }
           }}
-          className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
+          className={`shrink-0 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
 
-        {/* Always-editable name — full width on mobile */}
+        {/* Name */}
         <Input
           value={getLocalName(item)}
           onChange={(e) => handleNameChange(item, e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium min-w-0 ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
-          style={{ width: '100%', flexShrink: 1, flexGrow: 1 }}
+          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium min-w-0 flex-1 ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
         />
 
-        {/* Brand — inline after name */}
+        {/* Brand — inline right after name */}
         {isBrandEditing ? (
           <Input
             autoFocus
@@ -242,18 +251,27 @@ export function ShoppingList() {
             onChange={(e) => handleBrandChange(item, e.target.value)}
             onBlur={() => commitBrand(item)}
             onKeyDown={(e) => { if (e.key === "Enter") commitBrand(item); }}
-            className="h-6 w-24 text-xs italic border-border bg-background px-1 shrink-0"
+            className="h-6 w-20 text-xs italic border-border bg-background px-1 shrink-0"
           />
         ) : (
-          <button
-            onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
-            className={`text-xs italic shrink-0 px-1 rounded hover:bg-muted/60 transition-colors ${brand ? 'text-muted-foreground' : 'text-muted-foreground/20'}`}
-          >
-            {brand || <span className="text-[9px]">Marque</span>}
-          </button>
+          brand ? (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
+              className="text-xs italic shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground"
+            >
+              {brand}
+            </button>
+          ) : (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
+              className="text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
+            >
+              Mq
+            </button>
+          )
         )}
 
-        {/* Quantity — inline after brand */}
+        {/* Quantity — inline right after brand */}
         {isQtyEditing ? (
           <div className="flex items-baseline gap-0.5 shrink-0">
             <span className="text-sm font-bold text-foreground">×</span>
@@ -264,23 +282,28 @@ export function ShoppingList() {
               onChange={(e) => handleQuantityChange(item, e.target.value)}
               onBlur={() => commitQty(item)}
               onKeyDown={(e) => { if (e.key === "Enter") commitQty(item); }}
-              className="h-6 w-14 text-sm font-bold border-border bg-background px-1 shrink-0"
+              className="h-6 w-12 text-sm font-bold border-border bg-background px-1 shrink-0"
             />
           </div>
         ) : (
-          <button
-            onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
-            className="shrink-0 px-1 rounded hover:bg-muted/60 transition-colors"
-          >
-            {qty ? (
-              <span className="text-base font-bold text-foreground">×{qty}</span>
-            ) : (
-              <span className="text-[9px] text-muted-foreground/20">Quantité</span>
-            )}
-          </button>
+          qty ? (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
+              className="shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors"
+            >
+              <span className="text-sm font-bold text-foreground">×{qty}</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
+              className="shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-[9px] text-muted-foreground/20"
+            >
+              Qté
+            </button>
+          )
         )}
 
-        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0 ml-auto">
+        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0">
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
@@ -343,7 +366,6 @@ export function ShoppingList() {
             className={`bg-card/80 backdrop-blur-sm rounded-2xl p-3 cursor-grab active:cursor-grabbing ${isGroupOver ? 'ring-2 ring-primary/60' : ''}`}>
             {/* Group header */}
             <div className="flex items-center gap-2 mb-2">
-              <GripVertical className="h-4 w-4 text-muted-foreground/30 shrink-0" />
               <button onClick={() => toggleCollapse(group.id)} className="text-muted-foreground shrink-0">
                 {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>

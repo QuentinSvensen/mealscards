@@ -411,6 +411,55 @@ const Index = () => {
     qc.invalidateQueries({ queryKey: ["food_items"] });
   };
 
+  /** Restore ingredients to stock (reverse of deductIngredientsFromStock) */
+  const restoreIngredientsToStock = async (meal: Meal) => {
+    if (!meal.ingredients?.trim()) return;
+    const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+
+    for (const ing of ingredients) {
+      const { qty: neededGrams, count: neededCount, name } = parseIngredientLine(ing);
+      const matchingItems = foodItems.filter((fi) => {
+        const fiKey = normalizeForMatch(fi.name);
+        return (fiKey.includes(name) || name.includes(fiKey)) && !fi.is_infinite;
+      });
+
+      if (matchingItems.length === 0) continue;
+      const fi = matchingItems[0];
+
+      if (neededCount > 0) {
+        const newQty = (fi.quantity ?? 1) + neededCount;
+        await supabase.from("food_items").update({ quantity: newQty } as any).eq("id", fi.id);
+      } else if (neededGrams > 0) {
+        const currentGrams = parseQty(fi.grams);
+        const currentTotal = currentGrams * (fi.quantity ?? 1);
+        const newTotal = currentTotal + neededGrams;
+        if (fi.quantity && fi.quantity > 1) {
+          await supabase.from("food_items").update({ grams: String(Math.round((newTotal / fi.quantity) * 10) / 10) } as any).eq("id", fi.id);
+        } else {
+          await supabase.from("food_items").update({ grams: String(Math.round(newTotal * 10) / 10) } as any).eq("id", fi.id);
+        }
+      }
+    }
+
+    // Also restore name-matched grams
+    const mealGrams = parseQty(meal.grams);
+    if (mealGrams > 0) {
+      const nameMatch = foodItems.find(fi => fuzzyNameMatch(fi.name, meal.name) && !fi.is_infinite);
+      if (nameMatch) {
+        const currentGrams = parseQty(nameMatch.grams);
+        const currentTotal = currentGrams * (nameMatch.quantity ?? 1);
+        const newTotal = currentTotal + mealGrams;
+        if (nameMatch.quantity && nameMatch.quantity > 1) {
+          await supabase.from("food_items").update({ grams: String(Math.round((newTotal / nameMatch.quantity) * 10) / 10) } as any).eq("id", nameMatch.id);
+        } else {
+          await supabase.from("food_items").update({ grams: String(Math.round(newTotal * 10) / 10) } as any).eq("id", nameMatch.id);
+        }
+      }
+    }
+
+    qc.invalidateQueries({ queryKey: ["food_items"] });
+  };
+
   const handleExportMeals = () => {
     const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
     const lines = allCats.flatMap((cat) => getMealsByCategory(cat)).map((m) => {
@@ -756,7 +805,14 @@ const Index = () => {
                 onToggleSort={() => toggleSort(cat.value)}
                 onRandomPick={() => handleRandomPick(cat.value)}
                 onRemove={(id) => removeFromPossible.mutate(id)}
-                onReturnWithoutDeduction={(id) => removeFromPossible.mutate(id)}
+                onReturnWithoutDeduction={async (id) => {
+                  const allPossible = getPossibleByCategory(cat.value);
+                  const pm = allPossible.find(p => p.id === id);
+                  if (pm?.meals) {
+                    await restoreIngredientsToStock(pm.meals);
+                  }
+                  removeFromPossible.mutate(id);
+                }}
                 onDelete={(id) => deletePossibleMeal.mutate(id)}
                 onDuplicate={(id) => duplicatePossibleMeal.mutate(id)}
                 onUpdateExpiration={(id, d) => updateExpiration.mutate({ id, expiration_date: d })}
@@ -1006,7 +1062,8 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveToP
       <div className="flex flex-col gap-2 mt-3">
           {/* 1. Ingredient-matched recipes */}
           {available.map(({ meal, multiple }) => {
-            const expLabel = formatExpirationLabel(getEarliestIngredientExpiration(meal, foodItems));
+            const expDate = getEarliestIngredientExpiration(meal, foodItems);
+            const expLabel = formatExpirationLabel(expDate);
             return (
               <div key={meal.id} className="relative">
                 <MealCard meal={meal}
@@ -1016,7 +1073,8 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveToP
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   hideDelete
-                  expirationLabel={expLabel} />
+                  expirationLabel={expLabel}
+                  expirationDate={expDate} />
                 {multiple !== null &&
                   <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                     x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
@@ -1047,7 +1105,8 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveToP
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   hideDelete
-                  expirationLabel={expLabel} />
+                  expirationLabel={expLabel}
+                  expirationDate={fi.expiration_date} />
                 <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                   {fi.is_infinite
                     ? <InfinityIcon className="inline h-[15px] w-[15px]" />
@@ -1087,7 +1146,8 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveToP
                   onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  expirationLabel={expLabel} />
+                  expirationLabel={expLabel}
+                  expirationDate={fi.expiration_date} />
                 {fi.quantity && fi.quantity > 1 && (
                   <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                     x{fi.quantity}
