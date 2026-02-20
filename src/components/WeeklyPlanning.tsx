@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
+import { usePreferences } from "@/hooks/usePreferences";
 import { Timer, Flame, Weight, Calendar } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -68,7 +70,25 @@ interface TouchDragState {
 }
 
 export function WeeklyPlanning() {
-  const { possibleMeals, updatePlanning, reorderPossibleMeals } = useMeals();
+  const { possibleMeals, updatePlanning, reorderPossibleMeals, getMealsByCategory } = useMeals();
+  const { getPreference, setPreference } = usePreferences();
+
+  // Breakfast selections per day
+  const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
+  const petitDejMeals = getMealsByCategory('petit_dejeuner');
+
+  const getBreakfastForDay = (day: string) => {
+    const mealId = breakfastSelections[day];
+    if (!mealId) return null;
+    return petitDejMeals.find(m => m.id === mealId) || null;
+  };
+
+  const setBreakfastForDay = (day: string, mealId: string | null) => {
+    const updated = { ...breakfastSelections };
+    if (mealId) updated[day] = mealId;
+    else delete updated[day];
+    setPreference.mutate({ key: 'planning_breakfast', value: updated });
+  };
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const [dragOverUnplanned, setDragOverUnplanned] = useState(false);
 
@@ -109,11 +129,14 @@ export function WeeklyPlanning() {
 
   const unplanned = planningMeals.filter((pm) => !pm.day_of_week || !pm.meal_time);
 
-  const getDayCalories = (day: string): number =>
-    TIMES.reduce(
+  const getDayCalories = (day: string): number => {
+    const mealCals = TIMES.reduce(
       (total, time) => total + getMealsForSlot(day, time).reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0),
       0,
     );
+    const breakfast = getBreakfastForDay(day);
+    return mealCals + (breakfast ? parseCalories(breakfast.calories) : 0);
+  };
 
   // ── Desktop drag & drop ──────────────────────────────────────────────────────
 
@@ -399,7 +422,7 @@ export function WeeklyPlanning() {
             ref={isToday_ ? todayRef : undefined}
             className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               <h3
                 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isToday_ ? "text-primary" : "text-foreground"}`}
               >
@@ -410,6 +433,31 @@ export function WeeklyPlanning() {
                   </span>
                 )}
               </h3>
+              {/* Petit déj selector */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]">
+                    {getBreakfastForDay(day)?.name || '🥐 Petit déj'}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-52 p-2" align="start">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petit déjeuner</p>
+                  <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                    <button onClick={() => setBreakfastForDay(day, null)} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">
+                      — Aucun
+                    </button>
+                    {petitDejMeals.map(m => (
+                      <button key={m.id} onClick={() => setBreakfastForDay(day, m.id)} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${breakfastSelections[day] === m.id ? 'bg-primary/10 font-bold' : ''}`}>
+                        {m.name} {m.calories ? `(${m.calories})` : ''}
+                      </button>
+                    ))}
+                    {petitDejMeals.length === 0 && (
+                      <p className="text-[10px] text-muted-foreground italic px-2 py-1">Aucun petit déj dans "Tous"</p>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <div className="flex-1" />
               {dayCalories > 0 && (
                 <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 shrink-0">
                   <Flame className="h-2.5 w-2.5 text-orange-500" />
