@@ -26,7 +26,9 @@ export type Database = {
           is_infinite: boolean
           is_meal: boolean
           name: string
+          quantity: number | null
           sort_order: number
+          storage_type: string
           user_id: string | null
         }
         Insert: {
@@ -40,7 +42,9 @@ export type Database = {
           is_infinite?: boolean
           is_meal?: boolean
           name: string
+          quantity?: number | null
           sort_order?: number
+          storage_type?: string
           user_id?: string | null
         }
         Update: {
@@ -54,7 +58,9 @@ export type Database = {
           is_infinite?: boolean
           is_meal?: boolean
           name?: string
+          quantity?: number | null
           sort_order?: number
+          storage_type?: string
           user_id?: string | null
         }
         Relationships: []
@@ -71,6 +77,8 @@ export type Database = {
           is_available: boolean
           is_favorite: boolean
           name: string
+          oven_minutes: string | null
+          oven_temp: string | null
           sort_order: number
           user_id: string | null
         }
@@ -85,6 +93,8 @@ export type Database = {
           is_available?: boolean
           is_favorite?: boolean
           name: string
+          oven_minutes?: string | null
+          oven_temp?: string | null
           sort_order?: number
           user_id?: string | null
         }
@@ -99,6 +109,8 @@ export type Database = {
           is_available?: boolean
           is_favorite?: boolean
           name?: string
+          oven_minutes?: string | null
+          oven_temp?: string | null
           sort_order?: number
           user_id?: string | null
         }

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star } from "lucide-react";
+import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,21 +16,19 @@ interface MealCardProps {
   onUpdateGrams: (grams: string | null) => void;
   onUpdateIngredients: (ingredients: string | null) => void;
   onToggleFavorite?: () => void;
+  onUpdateOvenTemp?: (temp: string | null) => void;
+  onUpdateOvenMinutes?: (minutes: string | null) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   isHighlighted?: boolean;
-  /** When true, hides the "Supprimer" option in the dropdown */
   hideDelete?: boolean;
 }
 
-// Ingredient line state for the editor: { qty, name }
 interface IngLine { qty: string; name: string; }
 
-// Parse "100g de pâtes" → { qty: "100", name: "de pâtes" } or { qty: "", name: original }
 function parseIngredientLine(raw: string): IngLine {
   const trimmed = raw.trim();
-  // Extract leading number (with optional unit suffix like g, ml, cl...)
   const match = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s*(.*)/i);
   if (match) {
     const num = match[1];
@@ -40,16 +38,13 @@ function parseIngredientLine(raw: string): IngLine {
   return { qty: "", name: trimmed };
 }
 
-// Format qty: if numeric, append 'g'
 function formatQty(qty: string): string {
   const trimmed = qty.trim();
   if (!trimmed) return "";
-  // If it's purely numeric, append 'g'
   if (/^\d+([.,]\d+)?$/.test(trimmed)) return trimmed + "g";
   return trimmed;
 }
 
-// Serialize IngLine[] to ingredient string
 function serializeIngredients(lines: IngLine[]): string | null {
   const parts = lines
     .filter(l => l.qty.trim() || l.name.trim())
@@ -60,8 +55,8 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete }: MealCardProps) {
-  const [editing, setEditing] = useState<"name" | "calories" | "grams" | null>(null);
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete }: MealCardProps) {
+  const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
@@ -73,6 +68,8 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
     if (editing === "name" && val && val !== meal.name) onRename(val);
     if (editing === "calories") onUpdateCalories(val || null);
     if (editing === "grams") onUpdateGrams(val || null);
+    if (editing === "oven_temp") onUpdateOvenTemp?.(val || null);
+    if (editing === "oven_minutes") onUpdateOvenMinutes?.(val || null);
     setEditing(null);
   };
 
@@ -92,12 +89,9 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   };
 
   const updateLine = (idx: number, field: "qty" | "name", value: string) => {
-    // For qty field: strip any non-numeric/non-decimal characters if user types letters
-    // (we just store the raw number — 'g' will be appended on save)
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
-      // Auto-add new line when last name field gets content
       if (field === "name" && idx === next.length - 1 && value.trim()) {
         next.push({ qty: "", name: "" });
       }
@@ -121,6 +115,10 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
     if (e.key === "Escape") commitIngredients();
   };
 
+  const ovenTemp = (meal as any).oven_temp;
+  const ovenMinutes = (meal as any).oven_minutes;
+  const hasCuisson = ovenTemp || ovenMinutes;
+
   return (
     <div
       draggable
@@ -133,15 +131,15 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
       {editing ? (
         <Input
           autoFocus
-          placeholder={editing === "name" ? "Nom" : editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"}
+          placeholder={editing === "name" ? "Nom" : editing === "calories" ? "Ex: 350 kcal" : editing === "grams" ? "Ex: 150g" : editing === "oven_temp" ? "Ex: 180" : "Ex: 25"}
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={handleSave}
           onKeyDown={(e) => e.key === "Enter" && handleSave()}
+          inputMode={editing === "oven_temp" || editing === "oven_minutes" ? "numeric" : undefined}
           className="h-8 border-white/30 bg-white/20 text-white placeholder:text-white/60 flex-1"
         />
       ) : editingIngredients ? (
-        /* ── Ingredient editor: 2-column grid (number | ingredient name) per line ── */
         <div
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node)) commitIngredients();
@@ -174,59 +172,77 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
         </div>
       ) : (
         <>
-          <div className="flex items-center gap-2">
-            <span className="flex-1 font-semibold text-white text-sm truncate">{meal.name}</span>
-            {meal.grams && (
-              <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                <Weight className="h-3 w-3" />{meal.grams}
-              </span>
-            )}
-            {meal.calories && (
-              <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                <Flame className="h-3 w-3" />{meal.calories}
-              </span>
-            )}
-            {onToggleFavorite && (
-              <button
-                onClick={onToggleFavorite}
-                className={`h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-all hover:bg-white/20 ${meal.is_favorite ? 'text-yellow-300' : 'text-white/40 hover:text-yellow-200'}`}
-                title={meal.is_favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
-              >
-                <Star className={`h-3.5 w-3.5 ${meal.is_favorite ? 'fill-yellow-300' : ''}`} />
-              </button>
-            )}
-            <Button size="icon" variant="ghost" onClick={onMoveToPossible} className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => { setEditValue(meal.name); setEditing("name"); }}>
-                  <Pencil className="mr-2 h-4 w-4" /> Renommer
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
-                  <Flame className="mr-2 h-4 w-4" /> Calories
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
-                  <Weight className="mr-2 h-4 w-4" /> Grammes
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={openIngredients}>
-                  <List className="mr-2 h-4 w-4" /> Ingrédients
-                </DropdownMenuItem>
-                {!hideDelete && (
-                <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                  <Trash2 className="mr-2 h-4 w-4" /> Supprimer
-                </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-1">{meal.name}</span>
+            <div className="flex items-center gap-1 flex-wrap shrink-0">
+              {meal.grams && (
+                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                  <Weight className="h-3 w-3" />{meal.grams}
+                </span>
+              )}
+              {meal.calories && (
+                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                  <Flame className="h-3 w-3" />{meal.calories}
+                </span>
+              )}
+              {hasCuisson && (
+                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                  <Thermometer className="h-3 w-3" />
+                  {ovenTemp ? `${ovenTemp}°C` : ''}{ovenTemp && ovenMinutes ? ' · ' : ''}{ovenMinutes ? `${ovenMinutes}min` : ''}
+                </span>
+              )}
+              {onToggleFavorite && (
+                <button
+                  onClick={onToggleFavorite}
+                  className={`h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-all hover:bg-white/20 ${meal.is_favorite ? 'text-yellow-300' : 'text-white/40 hover:text-yellow-200'}`}
+                  title={meal.is_favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+                >
+                  <Star className={`h-3.5 w-3.5 ${meal.is_favorite ? 'fill-yellow-300' : ''}`} />
+                </button>
+              )}
+              <Button size="icon" variant="ghost" onClick={onMoveToPossible} className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { setEditValue(meal.name); setEditing("name"); }}>
+                    <Pencil className="mr-2 h-4 w-4" /> Renommer
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
+                    <Flame className="mr-2 h-4 w-4" /> Calories
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
+                    <Weight className="mr-2 h-4 w-4" /> Grammes
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={openIngredients}>
+                    <List className="mr-2 h-4 w-4" /> Ingrédients
+                  </DropdownMenuItem>
+                  {onUpdateOvenTemp && (
+                    <DropdownMenuItem onClick={() => { setEditValue(ovenTemp || ""); setEditing("oven_temp"); }}>
+                      <Thermometer className="mr-2 h-4 w-4" /> Température (°C)
+                    </DropdownMenuItem>
+                  )}
+                  {onUpdateOvenMinutes && (
+                    <DropdownMenuItem onClick={() => { setEditValue(ovenMinutes || ""); setEditing("oven_minutes"); }}>
+                      <Thermometer className="mr-2 h-4 w-4" /> Durée (min)
+                    </DropdownMenuItem>
+                  )}
+                  {!hideDelete && (
+                    <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                      <Trash2 className="mr-2 h-4 w-4" /> Supprimer
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
-          {/* Ingredients display — inline, separated by • */}
+          {/* Ingredients display */}
           {meal.ingredients && (
             <p className="mt-1 text-[11px] text-white/65 leading-tight">
               {meal.ingredients.split(/[,\n]+/).filter(Boolean).map(s => s.trim()).join(' • ')}
