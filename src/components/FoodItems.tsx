@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { z } from "zod";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -594,6 +594,7 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div
@@ -612,9 +613,15 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
       }}
     >
       <div className="flex items-center gap-2 mb-3">
-        <h2 className="text-lg font-bold text-foreground flex items-center gap-2 flex-1">
-          {emoji} {title}
-        </h2>
+        <button onClick={() => setCollapsed(c => !c)} className="flex items-center gap-2 flex-1 text-left">
+          {collapsed
+            ? <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+          }
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+            {emoji} {title}
+          </h2>
+        </button>
         <span className="text-sm font-normal text-muted-foreground">{items.length}</span>
         <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-7 px-2">
           <SortIcon className="h-3 w-3" />
@@ -622,46 +629,46 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
         </Button>
       </div>
 
-      <div className="flex flex-col gap-2">
-        {items.length === 0 ? (
-          <p className="text-muted-foreground text-sm text-center py-6 italic">
-            Aucun aliment — glisse une carte depuis une autre section
-          </p>
-        ) : (
-          items.map((item, sectionIdx) => (
-            <FoodItemCard
-              key={item.id}
-              item={item}
-              color={colorMap(item)}
-              onUpdate={(updates) => onUpdate(item.id, updates)}
-              onDelete={() => onDelete(item.id)}
-              onDuplicate={() => onDuplicate(item.id)}
-              onDragStart={(e) => {
-                e.dataTransfer.setData("foodItemIndex", String(sectionIdx));
-                e.dataTransfer.setData("foodItemId", item.id);
-                e.dataTransfer.setData("foodItemStorage", item.storage_type);
-                setDragIndex(sectionIdx);
-              }}
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const fromId = e.dataTransfer.getData("foodItemId");
-                const fromStorage = e.dataTransfer.getData("foodItemStorage");
-                // Same-section reorder
-                if (fromStorage === storageType && dragIndex !== null && dragIndex !== sectionIdx) {
-                  onReorder(dragIndex, sectionIdx);
-                }
-                // Cross-section move
-                if (fromId && fromStorage !== storageType) {
-                  onChangeStorage(fromId, storageType);
-                }
-                setDragIndex(null);
-              }}
-            />
-          ))
-        )}
-      </div>
+      {!collapsed && (
+        <div className="flex flex-col gap-2">
+          {items.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-6 italic">
+              Aucun aliment — glisse une carte depuis une autre section
+            </p>
+          ) : (
+            items.map((item, sectionIdx) => (
+              <FoodItemCard
+                key={item.id}
+                item={item}
+                color={colorMap(item)}
+                onUpdate={(updates) => onUpdate(item.id, updates)}
+                onDelete={() => onDelete(item.id)}
+                onDuplicate={() => onDuplicate(item.id)}
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("foodItemIndex", String(sectionIdx));
+                  e.dataTransfer.setData("foodItemId", item.id);
+                  e.dataTransfer.setData("foodItemStorage", item.storage_type);
+                  setDragIndex(sectionIdx);
+                }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const fromId = e.dataTransfer.getData("foodItemId");
+                  const fromStorage = e.dataTransfer.getData("foodItemStorage");
+                  if (fromStorage === storageType && dragIndex !== null && dragIndex !== sectionIdx) {
+                    onReorder(dragIndex, sectionIdx);
+                  }
+                  if (fromId && fromStorage !== storageType) {
+                    onChangeStorage(fromId, storageType);
+                  }
+                  setDragIndex(null);
+                }}
+              />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

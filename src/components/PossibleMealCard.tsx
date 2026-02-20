@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, List } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, List, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,6 +17,7 @@ import { fr } from "date-fns/locale";
 interface PossibleMealCardProps {
   pm: PossibleMeal;
   onRemove: () => void;
+  onReturnWithoutDeduction?: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onUpdateExpiration: (date: string | null) => void;
@@ -42,7 +43,7 @@ function getCounterDays(startDate: string | null): number | null {
   return Math.floor(diff / 86400000);
 }
 
-export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
+export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
   const [editing, setEditing] = useState<"calories" | "grams" | "ingredients" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
@@ -119,6 +120,11 @@ export function PossibleMealCard({ pm, onRemove, onDelete, onDuplicate, onUpdate
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {onReturnWithoutDeduction && (
+              <DropdownMenuItem onClick={onReturnWithoutDeduction}>
+                <Undo2 className="mr-2 h-4 w-4" /> Remettre au choix (sans déduire)
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
               <Flame className="mr-2 h-4 w-4" /> Calories
             </DropdownMenuItem>

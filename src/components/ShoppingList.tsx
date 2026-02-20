@@ -224,13 +224,13 @@ export function ShoppingList() {
           className={item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}
         />
 
-        {/* Always-editable name — width adapts to content */}
+        {/* Always-editable name — full width on mobile */}
         <Input
           value={getLocalName(item)}
           onChange={(e) => handleNameChange(item, e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
           className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium min-w-0 ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
-          style={{ width: '100%', maxWidth: '45%', minWidth: '4ch' }}
+          style={{ width: '100%', flexShrink: 1, flexGrow: 1 }}
         />
 
         {/* Brand — inline after name */}
