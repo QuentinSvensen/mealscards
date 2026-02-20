@@ -135,6 +135,7 @@ export function useFoodItems() {
         counter_start_date: source.counter_start_date,
         is_meal: source.is_meal,
         is_infinite: source.is_infinite,
+        is_dry: source.is_dry,
         sort_order: maxOrder + 1,
       } as any).select().single();
       if (error) throw error;
@@ -408,7 +409,13 @@ export function FoodItems() {
   // Use item.id for color; if a duplicate, use source's id for same color
   const colorMap = useCallback((item: FoodItem) => {
     const overrides = JSON.parse(sessionStorage.getItem('color_overrides') || '{}') as Record<string, string>;
-    const seedId = overrides[item.id] ?? item.id;
+    // Chain overrides: if source was also a duplicate, follow the chain
+    let seedId = item.id;
+    let visited = new Set<string>();
+    while (overrides[seedId] && !visited.has(seedId)) {
+      visited.add(seedId);
+      seedId = overrides[seedId];
+    }
     return colorFromName(seedId);
   }, []);
 

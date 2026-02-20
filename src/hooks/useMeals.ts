@@ -107,15 +107,16 @@ export function useMeals() {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category }: { name: string; category: string }) => {
+    mutationFn: async ({ name, category, colorSeed }: { name: string; category: string; colorSeed?: string }) => {
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
         .insert({ name, category, color: colorFromName(name), sort_order: 0, is_available: false } as any)
         .select()
         .single();
       if (mealError) throw mealError;
-      // Update color to use id for uniqueness
-      await supabase.from("meals").update({ color: colorFromName(mealData.id) }).eq("id", mealData.id);
+      // Use colorSeed (e.g. food item id) if provided, otherwise use meal id
+      const seed = colorSeed ?? mealData.id;
+      await supabase.from("meals").update({ color: colorFromName(seed) }).eq("id", mealData.id);
       const maxOrder = possibleMeals.length;
       const { error } = await (supabase as any)
         .from("possible_meals")
