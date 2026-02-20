@@ -20,7 +20,10 @@ import { FoodItems, useFoodItems, colorFromName, type FoodItem } from "@/compone
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
+import { usePreferences } from "@/hooks/usePreferences";
 import { toast } from "@/hooks/use-toast";
+import { format, parseISO } from "date-fns";
+import { fr } from "date-fns/locale";
 
 const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
@@ -176,6 +179,7 @@ const Index = () => {
   } = useMeals();
 
   const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
+  const { getPreference, setPreference } = usePreferences();
 
   const [activeCategory, setActiveCategory] = useState<MealCategory>("plat");
   const [newName, setNewName] = useState("");
@@ -183,6 +187,11 @@ const Index = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  // Sort modes: load from DB preferences, fallback to localStorage, then defaults
+  const dbSortModes = getPreference<Record<string, SortMode>>('meal_sort_modes', {});
+  const dbMasterSortModes = getPreference<Record<string, MasterSortMode>>('meal_master_sort_modes', {});
+
   const [sortModes, setSortModes] = useState<Record<string, SortMode>>(() => {
     const saved = localStorage.getItem('meal_sort_modes');
     return saved ? JSON.parse(saved) : {};
@@ -191,6 +200,22 @@ const Index = () => {
     const saved = localStorage.getItem('meal_master_sort_modes');
     return saved ? JSON.parse(saved) : {};
   });
+
+  // Sync from DB on load (DB takes priority)
+  const dbSyncedRef = useRef(false);
+  useEffect(() => {
+    if (dbSyncedRef.current) return;
+    if (Object.keys(dbSortModes).length > 0) {
+      setSortModes(dbSortModes);
+      dbSyncedRef.current = true;
+    }
+  }, [dbSortModes]);
+  useEffect(() => {
+    if (Object.keys(dbMasterSortModes).length > 0) {
+      setMasterSortModes(dbMasterSortModes);
+    }
+  }, [dbMasterSortModes]);
+
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
 
@@ -246,6 +271,7 @@ const Index = () => {
       const next: SortMode = current === "manual" ? "expiration" : current === "expiration" ? "planning" : "manual";
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_sort_modes', JSON.stringify(updated));
+      setPreference.mutate({ key: 'meal_sort_modes', value: updated });
       return updated;
     });
   };
@@ -264,7 +290,11 @@ const Index = () => {
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     reorderMeals.mutate(reordered.map((m, i) => ({ id: m.id, sort_order: i })));
-    setMasterSortModes((prev) => ({ ...prev, [cat]: "manual" }));
+    setMasterSortModes((prev) => {
+      const updated = { ...prev, [cat]: "manual" as MasterSortMode };
+      setPreference.mutate({ key: 'meal_master_sort_modes', value: updated });
+      return updated;
+    });
   };
 
   const toggleMasterSort = (cat: string) => {
@@ -273,6 +303,7 @@ const Index = () => {
       const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "favorites" : "manual";
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_master_sort_modes', JSON.stringify(updated));
+      setPreference.mutate({ key: 'meal_master_sort_modes', value: updated });
       return updated;
     });
   };
@@ -299,7 +330,11 @@ const Index = () => {
     const [moved] = reordered.splice(fromIndex, 1);
     reordered.splice(toIndex, 0, moved);
     reorderPossibleMeals.mutate(reordered.map((m, i) => ({ id: m.id, sort_order: i })));
-    setSortModes((prev) => ({ ...prev, [cat]: "manual" }));
+    setSortModes((prev) => {
+      const updated = { ...prev, [cat]: "manual" as SortMode };
+      setPreference.mutate({ key: 'meal_sort_modes', value: updated });
+      return updated;
+    });
   };
 
   const deductIngredientsFromStock = async (meal: Meal) => {
@@ -307,39 +342,71 @@ const Index = () => {
     const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
     const stockMap = buildStockMap(foodItems);
 
-    const updates: Array<{id: string;grams: string | null;delete?: boolean;}> = [];
+    const updates: Array<{id: string; grams?: string | null; quantity?: number | null; delete?: boolean;}> = [];
 
     for (const ing of ingredients) {
-      const { qty: needed, name } = parseIngredientLine(ing);
-      if (needed <= 0) continue;
+      const { qty: neededGrams, count: neededCount, name } = parseIngredientLine(ing);
 
       const key = findStockKey(stockMap, name);
       if (!key) continue;
 
-      const available = stockMap.get(key)!;
-      if (available === Infinity) continue;
+      const stockInfo = stockMap.get(key)!;
+      if (stockInfo.infinite) continue;
 
       const matchingItems = foodItems.filter((fi) => {
         const fiKey = normalizeForMatch(fi.name);
-        return (fiKey.includes(key) || key.includes(fiKey)) && !fi.is_infinite && parseQty(fi.grams) > 0;
+        return (fiKey.includes(key) || key.includes(fiKey)) && !fi.is_infinite;
       });
 
-      let toDeduct = needed;
-      for (const fi of matchingItems) {
-        if (toDeduct <= 0) break;
-        const fiQty = parseQty(fi.grams);
-        const deduct = Math.min(fiQty, toDeduct);
-        const newQty = Math.max(0, fiQty - deduct);
-        toDeduct -= deduct;
-        updates.push({ id: fi.id, grams: newQty > 0 ? String(Math.round(newQty * 10) / 10) : null, delete: newQty === 0 });
-        if (newQty === 0) stockMap.delete(key); else stockMap.set(key, newQty);
+      // Deduct by count (e.g., 5 oeufs)
+      if (neededCount > 0) {
+        let toDeduct = neededCount;
+        for (const fi of matchingItems) {
+          if (toDeduct <= 0) break;
+          const fiCount = fi.quantity ?? 1;
+          const deduct = Math.min(fiCount, toDeduct);
+          const remaining = fiCount - deduct;
+          toDeduct -= deduct;
+          if (remaining <= 0) {
+            updates.push({ id: fi.id, delete: true });
+          } else {
+            updates.push({ id: fi.id, quantity: remaining });
+          }
+        }
+      }
+      // Deduct by grams
+      else if (neededGrams > 0) {
+        let toDeduct = neededGrams;
+        for (const fi of matchingItems) {
+          if (toDeduct <= 0) break;
+          const fiGrams = parseQty(fi.grams);
+          const totalGrams = fiGrams * (fi.quantity ?? 1);
+          if (totalGrams <= 0) continue;
+          const deduct = Math.min(totalGrams, toDeduct);
+          const remaining = totalGrams - deduct;
+          toDeduct -= deduct;
+          if (remaining <= 0) {
+            updates.push({ id: fi.id, delete: true });
+          } else {
+            // If item had quantity, try to keep quantity and adjust grams per unit
+            if (fi.quantity && fi.quantity > 1) {
+              const newGramsPerUnit = remaining / fi.quantity;
+              updates.push({ id: fi.id, grams: String(Math.round(newGramsPerUnit * 10) / 10) });
+            } else {
+              updates.push({ id: fi.id, grams: String(Math.round(remaining * 10) / 10) });
+            }
+          }
+        }
       }
     }
 
     await Promise.all(updates.map((u) =>
-      u.delete ?
-      supabase.from("food_items").delete().eq("id", u.id) :
-      supabase.from("food_items").update({ grams: u.grams } as any).eq("id", u.id)
+      u.delete
+        ? supabase.from("food_items").delete().eq("id", u.id)
+        : supabase.from("food_items").update({
+            ...(u.grams !== undefined ? { grams: u.grams } : {}),
+            ...(u.quantity !== undefined ? { quantity: u.quantity } : {}),
+          } as any).eq("id", u.id)
     ));
     qc.invalidateQueries({ queryKey: ["food_items"] });
   };
@@ -520,7 +587,6 @@ const Index = () => {
 
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
         <div className="max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
-          {/* Left: logo + blocked count */}
           <div className="flex items-center gap-1 shrink-0">
             <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
             {blockedCount !== null &&
@@ -532,7 +598,6 @@ const Index = () => {
             }
           </div>
 
-          {/* Center tabs — compact on small screens, larger text on md+ */}
           <div className="flex items-center flex-1 min-w-0 justify-center">
             <div className="bg-muted rounded-full p-0.5 w-full max-w-xs md:max-w-md py-[6px] my-0 px-0 flex items-center justify-center gap-[2px]">
               {([
@@ -553,13 +618,11 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Right: theme toggle */}
           <ThemeToggle />
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
-        {/* FoodItemsSuggestions always mounted (hidden when not on aliments) so it generates on session start */}
         <div className={mainPage === "aliments" ? "" : "hidden"}>
           <FoodItems />
           <FoodItemsSuggestions foodItems={foodItems} />
@@ -597,7 +660,7 @@ const Index = () => {
                       <SelectContent>
                         {CATEGORIES.map((c) =>
                       <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>
-                      )}
+                        )}
                       </SelectContent>
                     </Select>
                     <div className="flex gap-2">
@@ -649,24 +712,38 @@ const Index = () => {
                     if (meal) await deductIngredientsFromStock(meal);
                     moveToPossible.mutate(id);
                   }}
+                  onMoveToPossibleWithoutDeduction={(id) => {
+                    moveToPossible.mutate(id);
+                  }}
                   onMoveNameMatchToPossible={async (meal, fi) => {
-                    // Deduct meal.grams worth from the matching food item
                     const mealGrams = parseQty(meal.grams);
                     if (mealGrams > 0 && !fi.is_infinite) {
-                      const stockGrams = parseQty(fi.grams);
+                      const stockGrams = parseQty(fi.grams) * (fi.quantity ?? 1);
                       const remaining = Math.max(0, stockGrams - mealGrams);
                       if (remaining === 0) {
                         await supabase.from("food_items").delete().eq("id", fi.id);
                       } else {
-                        await supabase.from("food_items").update({ grams: String(Math.round(remaining * 10) / 10) } as any).eq("id", fi.id);
+                        if (fi.quantity && fi.quantity > 1) {
+                          const newGramsPerUnit = remaining / fi.quantity;
+                          await supabase.from("food_items").update({ grams: String(Math.round(newGramsPerUnit * 10) / 10) } as any).eq("id", fi.id);
+                        } else {
+                          await supabase.from("food_items").update({ grams: String(Math.round(remaining * 10) / 10) } as any).eq("id", fi.id);
+                        }
                       }
                       qc.invalidateQueries({ queryKey: ["food_items"] });
                     }
-                    // Also deduct ingredients if the recipe has them
                     if (meal.ingredients?.trim()) await deductIngredientsFromStock(meal);
                     moveToPossible.mutate(meal.id);
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
+                    // Deduct one quantity when moving food item to possible
+                    if (fi.quantity && fi.quantity > 1) {
+                      await supabase.from("food_items").update({ quantity: fi.quantity - 1 } as any).eq("id", fi.id);
+                      qc.invalidateQueries({ queryKey: ["food_items"] });
+                    } else if (!fi.is_infinite) {
+                      await supabase.from("food_items").delete().eq("id", fi.id);
+                      qc.invalidateQueries({ queryKey: ["food_items"] });
+                    }
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
@@ -679,6 +756,7 @@ const Index = () => {
                 onToggleSort={() => toggleSort(cat.value)}
                 onRandomPick={() => handleRandomPick(cat.value)}
                 onRemove={(id) => removeFromPossible.mutate(id)}
+                onReturnWithoutDeduction={(id) => removeFromPossible.mutate(id)}
                 onDelete={(id) => deletePossibleMeal.mutate(id)}
                 onDuplicate={(id) => duplicatePossibleMeal.mutate(id)}
                 onUpdateExpiration={(id, d) => updateExpiration.mutate({ id, expiration_date: d })}
@@ -718,47 +796,86 @@ function parseQty(qty: string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
-function parseIngredientLine(ing: string): {qty: number;name: string;} {
-  const m = ing.match(/^(\d+(?:[.,]\d+)?)\s*(?:[a-zA-Zµ°%]+\.?)?\s+(.*)/i);
-  if (m) return { qty: parseFloat(m[1].replace(",", ".")), name: normalizeForMatch(m[2]) };
-  return { qty: 0, name: normalizeForMatch(ing) };
+function parseIngredientLine(ing: string): {qty: number; count: number; name: string;} {
+  const trimmed = ing.trim();
+  // Try: "150g 5 oeufs" (grams + count + name)
+  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
+  if (matchFull) {
+    return {
+      qty: parseFloat(matchFull[1].replace(",", ".")),
+      count: parseFloat(matchFull[3].replace(",", ".")),
+      name: normalizeForMatch(matchFull[4])
+    };
+  }
+  // Try: "150g oeufs" (grams + name)
+  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s+(.*)/i);
+  if (matchUnit) {
+    return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[3]) };
+  }
+  // Try: "5 oeufs" (count + name, bare number = count)
+  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
+  if (matchNum) {
+    return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]) };
+  }
+  return { qty: 0, count: 0, name: normalizeForMatch(trimmed) };
 }
 
-function buildStockMap(foodItems: FoodItem[]): Map<string, number> {
-  const map = new Map<string, number>();
+interface StockInfo {
+  grams: number;
+  count: number;
+  infinite: boolean;
+}
+
+function buildStockMap(foodItems: FoodItem[]): Map<string, StockInfo> {
+  const map = new Map<string, StockInfo>();
   for (const fi of foodItems) {
     const key = normalizeForMatch(fi.name);
-    const prev = map.get(key) ?? 0;
-    if (fi.is_infinite || prev === Infinity) {
-      map.set(key, Infinity);
+    const prev = map.get(key) ?? { grams: 0, count: 0, infinite: false };
+    if (fi.is_infinite) {
+      map.set(key, { ...prev, infinite: true });
     } else {
-      map.set(key, prev + parseQty(fi.grams));
+      const itemGrams = parseQty(fi.grams);
+      const itemQty = fi.quantity ?? 1;
+      // Total grams = grams_per_unit * quantity
+      const totalGrams = itemGrams * itemQty;
+      map.set(key, {
+        grams: prev.grams + totalGrams,
+        count: prev.count + itemQty,
+        infinite: prev.infinite,
+      });
     }
   }
   return map;
 }
 
-function findStockKey(stockMap: Map<string, number>, name: string): string | null {
+function findStockKey(stockMap: Map<string, StockInfo>, name: string): string | null {
   for (const key of stockMap.keys()) {
     if (key.includes(name) || name.includes(key)) return key;
   }
   return null;
 }
 
-function getMealMultiple(meal: Meal, stockMap: Map<string, number>): number | null {
+function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number | null {
   if (!meal.ingredients?.trim()) return null;
   const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
   if (ingredients.length === 0) return null;
   let multiple = Infinity;
   for (const ing of ingredients) {
-    const { qty: needed, name } = parseIngredientLine(ing);
+    const { qty: neededGrams, count: neededCount, name } = parseIngredientLine(ing);
     const key = findStockKey(stockMap, name);
     if (key === null) return null;
-    const available = stockMap.get(key)!;
-    if (available === Infinity) continue;
-    if (needed <= 0) continue;
-    if (available < needed) return null;
-    multiple = Math.min(multiple, Math.floor(available / needed));
+    const stock = stockMap.get(key)!;
+    if (stock.infinite) continue;
+    // Check by count if specified
+    if (neededCount > 0) {
+      if (stock.count < neededCount) return null;
+      multiple = Math.min(multiple, Math.floor(stock.count / neededCount));
+    }
+    // Check by grams
+    else if (neededGrams > 0) {
+      if (stock.grams < neededGrams) return null;
+      multiple = Math.min(multiple, Math.floor(stock.grams / neededGrams));
+    }
   }
   return multiple === Infinity ? Infinity : multiple;
 }
@@ -779,9 +896,44 @@ function fuzzyNameMatch(a: string, b: string): boolean {
   return true;
 }
 
+/** Find earliest expiration date among food items that match any ingredient of a meal */
+function getEarliestIngredientExpiration(meal: Meal, foodItems: FoodItem[]): string | null {
+  if (!meal.ingredients?.trim()) return null;
+  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  let earliest: string | null = null;
+
+  for (const ing of ingredients) {
+    const { name } = parseIngredientLine(ing);
+    for (const fi of foodItems) {
+      const fiKey = normalizeForMatch(fi.name);
+      if ((fiKey.includes(name) || name.includes(fiKey)) && fi.expiration_date) {
+        if (!earliest || fi.expiration_date < earliest) {
+          earliest = fi.expiration_date;
+        }
+      }
+    }
+  }
+  return earliest;
+}
+
+/** Same for name-matched items */
+function getEarliestExpirationForNameMatch(fi: FoodItem, foodItems: FoodItem[]): string | null {
+  // For name-matched food items, just use the item's own expiration
+  return fi.expiration_date || null;
+}
+
+function formatExpirationLabel(dateStr: string | null): string | null {
+  if (!dateStr) return null;
+  try {
+    return format(parseISO(dateStr), 'd MMM', { locale: fr });
+  } catch {
+    return null;
+  }
+}
+
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
+function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveToPossibleWithoutDeduction, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];onMoveToPossible: (id: string) => void;onMoveToPossibleWithoutDeduction: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
 
   const [open, setOpen] = useState(true);
   const stockMap = buildStockMap(foodItems);
@@ -793,7 +945,6 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
   const availableMealIds = new Set(available.map(a => a.meal.id));
 
   // 2. Name-match: stock items that fuzzy-match a "Tous" recipe
-  //    Show only the recipe card (with portion count), NOT the raw food item
   type NameMatch = {meal: Meal;fi: FoodItem;portionsAvailable: number | null;};
   const nameMatches: NameMatch[] = [];
   const nameMatchedFiIds = new Set<string>();
@@ -804,7 +955,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
     for (const fi of foodItems) {
       if (fuzzyNameMatch(meal.name, fi.name)) {
         const mealGrams = parseQty(meal.grams);
-        const stockGrams = fi.is_infinite ? Infinity : parseQty(fi.grams);
+        const stockGrams = fi.is_infinite ? Infinity : parseQty(fi.grams) * (fi.quantity ?? 1);
         if (!fi.is_infinite && stockGrams <= 0) continue;
         let portions: number | null = null;
         if (!fi.is_infinite && mealGrams > 0) {
@@ -854,77 +1005,96 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
       {open &&
       <div className="flex flex-col gap-2 mt-3">
           {/* 1. Ingredient-matched recipes */}
-          {available.map(({ meal, multiple }) =>
-        <div key={meal.id} className="relative">
-              <MealCard meal={meal}
-            onMoveToPossible={() => onMoveToPossible(meal.id)}
-            onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
-            onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
-            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            hideDelete />
-              {multiple !== null &&
-          <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-                  x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
-                </div>
-          }
-            </div>
-        )}
+          {available.map(({ meal, multiple }) => {
+            const expLabel = formatExpirationLabel(getEarliestIngredientExpiration(meal, foodItems));
+            return (
+              <div key={meal.id} className="relative">
+                <MealCard meal={meal}
+                  onMoveToPossible={() => onMoveToPossible(meal.id)}
+                  onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  hideDelete
+                  expirationLabel={expLabel} />
+                {multiple !== null &&
+                  <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                    x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
+                  </div>
+                }
+              </div>
+            );
+          })}
 
-          {/* 2. Name-matched stock items — show the recipe card (with recipe grams/cal), portion badge */}
+          {/* 2. Name-matched stock items */}
           {nameMatches.map(({ meal, fi, portionsAvailable }, idx) => {
-          // Use recipe data (meal) for the card display; stock fi for quantities
-          const fakeMeal: Meal = {
-            ...meal,
-            id: `nm-${meal.id}-${fi.id}`,
-            // Use recipe grams if available, else stock grams
-            grams: meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null),
-            color: meal.color,
-          };
-          return (
-            <div key={`nm-${idx}`} className="relative">
+            const expLabel = formatExpirationLabel(fi.expiration_date);
+            const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
+              ? `${parseQty(fi.grams) * fi.quantity}g`
+              : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
+            const fakeMeal: Meal = {
+              ...meal,
+              id: `nm-${meal.id}-${fi.id}`,
+              grams: displayGrams,
+              color: meal.color,
+            };
+            return (
+              <div key={`nm-${idx}`} className="relative">
                 <MealCard meal={fakeMeal}
-                onMoveToPossible={() => onMoveNameMatchToPossible(meal, fi)}
-                onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
-                onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                hideDelete />
+                  onMoveToPossible={() => onMoveNameMatchToPossible(meal, fi)}
+                  onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  hideDelete
+                  expirationLabel={expLabel} />
                 <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                   {fi.is_infinite
                     ? <InfinityIcon className="inline h-[15px] w-[15px]" />
-                    : portionsAvailable !== null ? `x${portionsAvailable}` : "x1"}
+                    : portionsAvailable !== null ? `x${portionsAvailable}` : `x${fi.quantity ?? 1}`}
                 </div>
               </div>);
-        })}
+          })}
 
-          {/* 3. is_meal standalone items (only those without a matching recipe) */}
+          {/* 3. is_meal standalone items */}
           {isMealItems.map((fi) => {
-          const fakeMeal: Meal = {
-            id: `fi-${fi.id}`,
-            name: fi.name,
-            category: "plat",
-            calories: fi.calories,
-            grams: fi.is_infinite ? "∞" : fi.grams ?? null,
-            ingredients: null,
-            color: colorFromName(fi.id),
-            sort_order: 0,
-            created_at: fi.created_at,
-            is_available: true,
-            is_favorite: false,
-            oven_temp: null,
-            oven_minutes: null,
-          };
-          return (
-            <div key={fi.id} className="relative">
-              <MealCard meal={fakeMeal}
-                onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
-                onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
-                onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }} />
-            </div>);
-        })}
+            const expLabel = formatExpirationLabel(fi.expiration_date);
+            const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
+              ? `${parseQty(fi.grams) * fi.quantity}g`
+              : (fi.is_infinite ? "∞" : fi.grams ?? null);
+            const fakeMeal: Meal = {
+              id: `fi-${fi.id}`,
+              name: fi.name,
+              category: "plat",
+              calories: fi.quantity && fi.quantity > 1 && fi.calories
+                ? `${parseFloat(fi.calories.replace(/[^0-9.]/g, '')) * fi.quantity}`
+                : fi.calories,
+              grams: displayGrams,
+              ingredients: null,
+              color: colorFromName(fi.id),
+              sort_order: 0,
+              created_at: fi.created_at,
+              is_available: true,
+              is_favorite: false,
+              oven_temp: null,
+              oven_minutes: null,
+            };
+            return (
+              <div key={fi.id} className="relative">
+                <MealCard meal={fakeMeal}
+                  onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
+                  onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                  onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  expirationLabel={expLabel} />
+                {fi.quantity && fi.quantity > 1 && (
+                  <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                    x{fi.quantity}
+                  </div>
+                )}
+              </div>);
+          })}
 
           {orphanFoodItems.length > 0 &&
         <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
@@ -934,7 +1104,7 @@ function AvailableList({ category, meals, foodItems, onMoveToPossible, onMoveFoo
                 const isExpired = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
                 return (
                   <span key={fi.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-500/20 text-red-600 dark:text-red-400 ring-1 ring-red-500/50 font-semibold' : 'bg-muted text-muted-foreground'}`}>
-                    {fi.name}{fi.grams ? ` ${fi.grams}` : ''}
+                    {fi.name}{fi.grams ? ` ${fi.grams}` : ''}{fi.quantity && fi.quantity > 1 ? ` x${fi.quantity}` : ''}
                   </span>
                 );
               })}
@@ -997,8 +1167,8 @@ function MasterList({ category, meals, sortMode, onToggleSort, onMoveToPossible,
     </MealList>);
 }
 
-function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder, onExternalDrop, highlightedId, onAddDirectly
-}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;onAddDirectly: () => void;}) {
+function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onReorder, onExternalDrop, highlightedId, onAddDirectly
+}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;onAddDirectly: () => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
@@ -1014,6 +1184,7 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       {items.map((pm, index) =>
       <PossibleMealCard key={pm.id} pm={pm}
       onRemove={() => onRemove(pm.id)}
+      onReturnWithoutDeduction={() => onReturnWithoutDeduction(pm.id)}
       onDelete={() => onDelete(pm.id)}
       onDuplicate={() => onDuplicate(pm.id)}
       onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
