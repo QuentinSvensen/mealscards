@@ -25,16 +25,16 @@ interface MealCardProps {
   hideDelete?: boolean;
   expirationLabel?: string | null;
   expirationDate?: string | null;
+  /** Ingredient name with earliest expiration (to highlight) */
+  expiringIngredientName?: string | null;
+  /** Max counter days among ingredients */
+  maxIngredientCounter?: number | null;
 }
 
 interface IngLine { qty: string; count: string; name: string; }
 
 function parseIngredientLine(raw: string): IngLine {
   const trimmed = raw.trim();
-  // Try pattern: "150g 5 oeufs" or "5 oeufs" or "150g oeufs"
-  // Format: [grams_with_unit] [count_without_unit] name
-  // Or: qty_with_unit name
-  // Or: count name
   const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
   if (matchFull) {
     return { qty: matchFull[1], count: matchFull[3], name: matchFull[4].trim() };
@@ -45,7 +45,6 @@ function parseIngredientLine(raw: string): IngLine {
   }
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
   if (matchNum) {
-    // Bare number = count (not grams)
     return { qty: "", count: matchNum[1], name: matchNum[2].trim() };
   }
   return { qty: "", count: "", name: trimmed };
@@ -69,7 +68,11 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate }: MealCardProps) {
+function normalizeIngName(name: string): string {
+  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/,"").trim();
+}
+
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expiringIngredientName, maxIngredientCounter }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -135,6 +138,12 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   const ovenTemp = (meal as any).oven_temp;
   const ovenMinutes = (meal as any).oven_minutes;
   const hasCuisson = ovenTemp || ovenMinutes;
+
+  // Determine if the expiring ingredient name should be highlighted in ingredients display
+  const normalizedExpiringIng = expiringIngredientName ? normalizeIngName(expiringIngredientName) : null;
+
+  // Check if there are enough options to need wrapping
+  const hasOptions = !!(meal.grams || meal.calories || hasCuisson || onToggleFavorite || expirationLabel);
 
   return (
     <div
@@ -203,90 +212,110 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
         </div>
       ) : (
         <>
-          {/* Title always on its own line */}
-          <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal">{meal.name}</span>
-          {/* Options row - aligned right */}
-          <div className="flex items-center gap-1 mt-1 justify-end flex-wrap">
-            {expirationLabel && (
-              <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
-                expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
-                  ? 'text-red-200 bg-red-500/30'
-                  : 'text-white/70 bg-white/20'
-              }`}>
-                📅 {expirationLabel}
-              </span>
-            )}
-            {meal.grams && (
-              <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                <Weight className="h-3 w-3" />{meal.grams}
-              </span>
-            )}
-            {meal.calories && (
-              <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                <Flame className="h-3 w-3" />{meal.calories}
-              </span>
-            )}
-            {hasCuisson && (
-              <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                <Thermometer className="h-3 w-3" />
-                {ovenTemp ? `${ovenTemp}°C` : ''}{ovenTemp && ovenMinutes ? ' · ' : ''}{ovenMinutes ? `${ovenMinutes}min` : ''}
-              </span>
-            )}
-            {onToggleFavorite && (
-              <button
-                onClick={onToggleFavorite}
-                className={`h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-all hover:bg-white/20 ${meal.is_favorite ? 'text-yellow-300' : 'text-white/40 hover:text-yellow-200'}`}
-                title={meal.is_favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
-              >
-                <Star className={`h-3.5 w-3.5 ${meal.is_favorite ? 'fill-yellow-300' : ''}`} />
-              </button>
-            )}
-            <Button size="icon" variant="ghost" onClick={onMoveToPossible} className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => { setEditValue(meal.name); setEditing("name"); }}>
-                  <Pencil className="mr-2 h-4 w-4" /> Renommer
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
-                  <Flame className="mr-2 h-4 w-4" /> Calories
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
-                  <Weight className="mr-2 h-4 w-4" /> Grammes
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={openIngredients}>
-                  <List className="mr-2 h-4 w-4" /> Ingrédients
-                </DropdownMenuItem>
-                {onUpdateOvenTemp && (
-                  <DropdownMenuItem onClick={() => { setEditValue(ovenTemp || ""); setEditing("oven_temp"); }}>
-                    <Thermometer className="mr-2 h-4 w-4" /> Température (°C)
+          {/* Title + options row: flex-wrap so options go below when title is long */}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-1">{meal.name}</span>
+            {/* Options inline, will wrap to next line if needed */}
+            <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+              {maxIngredientCounter !== null && maxIngredientCounter !== undefined && maxIngredientCounter > 0 && (
+                <span className="text-xs text-white/80 bg-orange-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold">
+                  ⏱ {maxIngredientCounter}j
+                </span>
+              )}
+              {meal.grams && (
+                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                  <Weight className="h-3 w-3" />{meal.grams}
+                </span>
+              )}
+              {meal.calories && (
+                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                  <Flame className="h-3 w-3" />{meal.calories}
+                </span>
+              )}
+              {hasCuisson && (
+                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                  <Thermometer className="h-3 w-3" />
+                  {ovenTemp ? `${ovenTemp}°C` : ''}{ovenTemp && ovenMinutes ? ' · ' : ''}{ovenMinutes ? `${ovenMinutes}min` : ''}
+                </span>
+              )}
+              {onToggleFavorite && (
+                <button
+                  onClick={onToggleFavorite}
+                  className={`h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-all hover:bg-white/20 ${meal.is_favorite ? 'text-yellow-300' : 'text-white/40 hover:text-yellow-200'}`}
+                  title={meal.is_favorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+                >
+                  <Star className={`h-3.5 w-3.5 ${meal.is_favorite ? 'fill-yellow-300' : ''}`} />
+                </button>
+              )}
+              <Button size="icon" variant="ghost" onClick={onMoveToPossible} className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { setEditValue(meal.name); setEditing("name"); }}>
+                    <Pencil className="mr-2 h-4 w-4" /> Renommer
                   </DropdownMenuItem>
-                )}
-                {onUpdateOvenMinutes && (
-                  <DropdownMenuItem onClick={() => { setEditValue(ovenMinutes || ""); setEditing("oven_minutes"); }}>
-                    <Thermometer className="mr-2 h-4 w-4" /> Durée (min)
+                  <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
+                    <Flame className="mr-2 h-4 w-4" /> Calories
                   </DropdownMenuItem>
-                )}
-                {!hideDelete && (
-                  <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" /> Supprimer
+                  <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
+                    <Weight className="mr-2 h-4 w-4" /> Grammes
                   </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <DropdownMenuItem onClick={openIngredients}>
+                    <List className="mr-2 h-4 w-4" /> Ingrédients
+                  </DropdownMenuItem>
+                  {onUpdateOvenTemp && (
+                    <DropdownMenuItem onClick={() => { setEditValue(ovenTemp || ""); setEditing("oven_temp"); }}>
+                      <Thermometer className="mr-2 h-4 w-4" /> Température (°C)
+                    </DropdownMenuItem>
+                  )}
+                  {onUpdateOvenMinutes && (
+                    <DropdownMenuItem onClick={() => { setEditValue(ovenMinutes || ""); setEditing("oven_minutes"); }}>
+                      <Thermometer className="mr-2 h-4 w-4" /> Durée (min)
+                    </DropdownMenuItem>
+                  )}
+                  {!hideDelete && (
+                    <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                      <Trash2 className="mr-2 h-4 w-4" /> Supprimer
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
-          {/* Ingredients display */}
-          {meal.ingredients && (
-            <p className="mt-1 text-[11px] text-white/65 leading-tight">
-              {meal.ingredients.split(/[,\n]+/).filter(Boolean).map(s => s.trim()).join(' • ')}
-            </p>
+          {/* Expiration + Ingredients display */}
+          {(expirationLabel || meal.ingredients) && (
+            <div className="flex items-start gap-2 mt-1">
+              {expirationLabel && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
+                  expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
+                    ? 'text-red-200 bg-red-500/30'
+                    : 'text-white/70 bg-white/20'
+                }`}>
+                  📅 {expirationLabel}
+                </span>
+              )}
+              {meal.ingredients && (
+                <p className="text-[11px] text-white/65 leading-tight flex-1 flex flex-wrap gap-x-1">
+                  {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((s, i, arr) => {
+                    const ingName = s.trim();
+                    const parsed = parseIngredientLine(ingName);
+                    const isExpiring = normalizedExpiringIng && normalizeIngName(parsed.name) === normalizedExpiringIng;
+                    return (
+                      <span key={i} className={isExpiring ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold' : ''}>
+                        {ingName}{i < arr.length - 1 ? ' •' : ''}
+                      </span>
+                    );
+                  })}
+                </p>
+              )}
+            </div>
           )}
         </>
       )}

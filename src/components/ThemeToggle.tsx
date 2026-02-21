@@ -1,20 +1,15 @@
-import { Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
+import { format } from "date-fns";
+import { fr } from "date-fns/locale";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const today = new Date();
+  const dayName = format(today, 'EEE', { locale: fr });
+  const dayNum = format(today, 'd');
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="rounded-full"
-    >
-      <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-      <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-      <span className="sr-only">Thème</span>
-    </Button>
+    <div className="flex items-center gap-1 bg-muted/60 rounded-full px-2.5 py-1 text-foreground select-none">
+      <span className="text-[10px] font-semibold capitalize">{dayName}</span>
+      <span className="text-sm font-black">{dayNum}</span>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { z } from "zod";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -39,6 +39,14 @@ const FOOD_COLORS = [
   "hsl(215, 45%, 46%)", "hsl(275, 35%, 48%)", "hsl(40, 50%, 44%)",
   "hsl(185, 40%, 40%)", "hsl(5, 40%, 46%)", "hsl(130, 30%, 40%)",
   "hsl(240, 35%, 50%)", "hsl(315, 30%, 46%)", "hsl(60, 35%, 40%)",
+  "hsl(0, 60%, 42%)", "hsl(30, 65%, 40%)", "hsl(90, 35%, 38%)",
+  "hsl(170, 45%, 35%)", "hsl(200, 50%, 42%)", "hsl(250, 40%, 45%)",
+  "hsl(290, 35%, 42%)", "hsl(330, 45%, 44%)", "hsl(15, 50%, 45%)",
+  "hsl(50, 45%, 38%)", "hsl(110, 30%, 36%)", "hsl(145, 40%, 38%)",
+  "hsl(180, 35%, 38%)", "hsl(220, 40%, 40%)", "hsl(260, 30%, 48%)",
+  "hsl(300, 30%, 40%)", "hsl(340, 40%, 42%)", "hsl(10, 45%, 43%)",
+  "hsl(70, 40%, 36%)", "hsl(120, 35%, 42%)", "hsl(160, 30%, 40%)",
+  "hsl(190, 45%, 36%)", "hsl(230, 35%, 44%)", "hsl(270, 40%, 42%)",
 ];
 
 /** Deterministic color from any string (id or name) — unique per input */
@@ -222,6 +230,16 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     }
   };
 
+  const handleDecrementQuantity = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const currentQty = item.quantity ?? 1;
+    if (currentQty <= 1) {
+      onDelete();
+    } else {
+      onUpdate({ quantity: currentQty - 1 });
+    }
+  };
+
   return (
     <div
       draggable
@@ -262,7 +280,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           </button>
         )}
 
-        {/* Quantity (item count) */}
+        {/* Quantity (item count) with decrement button */}
         {editing === "quantity" ? (
           <Input
             autoFocus
@@ -275,13 +293,22 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             className="h-6 w-14 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
           />
         ) : item.quantity ? (
-          <button
-            onClick={() => startEdit("quantity")}
-            className="text-[10px] text-white/90 bg-white/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/35 shrink-0 font-bold"
-            title="Quantité"
-          >
-            <Hash className="h-2.5 w-2.5" />{item.quantity}
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={handleDecrementQuantity}
+              className="h-5 w-5 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 text-white/80 hover:text-white transition-all"
+              title="Retirer 1"
+            >
+              <Minus className="h-2.5 w-2.5" />
+            </button>
+            <button
+              onClick={() => startEdit("quantity")}
+              className="text-[10px] text-white/90 bg-white/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/35 font-bold"
+              title="Quantité"
+            >
+              <Hash className="h-2.5 w-2.5" />{item.quantity}
+            </button>
+          </div>
         ) : null}
 
         {/* Grams / Infinite */}
@@ -430,6 +457,7 @@ export function FoodItems() {
   const [newName, setNewName] = useState("");
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
   const [pendingName, setPendingName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Independent sort per section
   const [sortModes, setSortModes] = useState<Record<StorageType, SortMode>>(() => {
@@ -456,17 +484,63 @@ export function FoodItems() {
     return colorFromName(seedId);
   }, []);
 
+  const normalizeSearch = (text: string) =>
+    text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/g, "");
+
+  const filterBySearch = (itemsList: FoodItem[]): FoodItem[] => {
+    if (!searchQuery.trim()) return itemsList;
+    const q = normalizeSearch(searchQuery);
+    return itemsList.filter(item => normalizeSearch(item.name).includes(q));
+  };
+
   const getSortedItems = (storageType: StorageType): FoodItem[] => {
     const sectionItems = items.filter(i => i.storage_type === storageType);
+    let sorted: FoodItem[];
     if (sortModes[storageType] === "expiration") {
-      return [...sectionItems].sort((a, b) => {
+      sorted = [...sectionItems].sort((a, b) => {
+        const aExpired = isExpiredDate(a.expiration_date);
+        const bExpired = isExpiredDate(b.expiration_date);
+        const aCounter = getCounterDays(a.counter_start_date);
+        const bCounter = getCounterDays(b.counter_start_date);
+
+        // Group 1: expired WITH counter (highest counter first, then earliest date)
+        const aG1 = aExpired && aCounter !== null;
+        const bG1 = bExpired && bCounter !== null;
+        if (aG1 && !bG1) return -1;
+        if (!aG1 && bG1) return 1;
+        if (aG1 && bG1) {
+          if (aCounter !== bCounter) return (bCounter ?? 0) - (aCounter ?? 0);
+          return (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+        }
+
+        // Group 2: not expired WITH counter
+        const aG2 = !aExpired && aCounter !== null;
+        const bG2 = !bExpired && bCounter !== null;
+        if (aG2 && !bG2) return -1;
+        if (!aG2 && bG2) return 1;
+        if (aG2 && bG2) {
+          return (bCounter ?? 0) - (aCounter ?? 0);
+        }
+
+        // Group 3: expired WITHOUT counter
+        const aG3 = aExpired && aCounter === null;
+        const bG3 = bExpired && bCounter === null;
+        if (aG3 && !bG3) return -1;
+        if (!aG3 && bG3) return 1;
+        if (aG3 && bG3) {
+          return (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+        }
+
+        // Group 4: not expired, no counter — nearest first
         if (!a.expiration_date && !b.expiration_date) return 0;
         if (!a.expiration_date) return 1;
         if (!b.expiration_date) return -1;
         return a.expiration_date.localeCompare(b.expiration_date);
       });
+    } else {
+      sorted = sectionItems;
     }
-    return sectionItems;
+    return filterBySearch(sorted);
   };
 
   const handleAdd = () => {
@@ -508,7 +582,7 @@ export function FoodItems() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Add form */}
+      {/* Add form + search */}
       <div className="flex gap-2 mb-4">
         <Input
           placeholder="Nom de l'aliment (ex : Crème fraîche)"
@@ -517,6 +591,15 @@ export function FoodItems() {
           onKeyDown={e => e.key === "Enter" && handleAdd()}
           className="flex-1 rounded-xl"
         />
+        <div className="relative shrink-0">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Rechercher…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-28 sm:w-36 rounded-xl pl-7 h-10"
+          />
+        </div>
         <Button onClick={handleAdd} disabled={!newName.trim()} className="rounded-full gap-1 shrink-0">
           <Plus className="h-4 w-4" />
           <span className="hidden sm:inline">Ajouter</span>
