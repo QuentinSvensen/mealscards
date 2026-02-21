@@ -220,7 +220,7 @@ export function ShoppingList() {
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(`item:${item.id}`); }}
         onDragLeave={() => setDragOverKey(null)}
         onDrop={(e) => handleDropOnItem(e, item)}
-        className={`flex items-center gap-1 py-1.5 px-1.5 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
+        className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
         <Checkbox
           checked={item.checked}
@@ -234,12 +234,13 @@ export function ShoppingList() {
           className={`shrink-0 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
 
-        {/* Name */}
-        <Input
+        {/* Name — auto-width */}
+        <input
           value={getLocalName(item)}
           onChange={(e) => handleNameChange(item, e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          className={`h-6 text-sm border-transparent bg-transparent px-1 focus:border-border focus:bg-background font-medium min-w-0 flex-1 ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+          size={Math.max(1, getLocalName(item).length)}
+          className={`h-6 text-sm bg-transparent px-0.5 font-medium min-w-[2ch] outline-none focus:ring-1 focus:ring-ring rounded ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
         />
 
         {/* Brand — inline right after name */}
@@ -303,6 +304,7 @@ export function ShoppingList() {
           )
         )}
 
+        <div className="flex-1" />
         <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0">
           <Trash2 className="h-3 w-3" />
         </Button>

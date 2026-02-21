@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, Flame } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, Flame, Search } from "lucide-react";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
 
 import { useNavigate, useLocation } from "react-router-dom";
