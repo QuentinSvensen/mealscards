@@ -25,8 +25,11 @@ serve(async (req) => {
       return `- ${fi.name} (${qty})`;
     }).join("\n");
 
-    const systemPrompt = `Tu es un assistant culinaire. On te donne une liste d'aliments disponibles. 
+    const existingMealNames = (await req.json()).existingMealNames || "";
+
+    const systemPrompt = `Tu es un assistant culinaire. On te donne une liste d'aliments disponibles et une liste de recettes déjà enregistrées.
 Propose 3 à 5 recettes simples réalisables avec ces ingrédients (on peut utiliser des basiques de placard : sel, poivre, huile, eau).
+IMPORTANT: Ne propose PAS de recettes qui existent déjà dans la liste des recettes enregistrées.
 Réponds UNIQUEMENT en JSON valide avec ce format exact :
 {
   "suggestions": [
@@ -34,7 +37,7 @@ Réponds UNIQUEMENT en JSON valide avec ce format exact :
   ]
 }`;
 
-    const userPrompt = `Voici mes aliments disponibles :\n${ingredientLines}\n\nPropose des recettes.`;
+    const userPrompt = `Voici mes aliments disponibles :\n${ingredientLines}\n\nRecettes déjà enregistrées (à NE PAS proposer) :\n${existingMealNames || "Aucune"}\n\nPropose des recettes nouvelles.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
