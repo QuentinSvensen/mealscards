@@ -28,6 +28,9 @@ const JS_DAY_TO_KEY: Record<number, string> = {
   0: "dimanche",
 };
 
+const DAILY_GOAL = 2750;
+const WEEKLY_GOAL = 19250;
+
 function getCategoryEmoji(cat?: string) {
   switch (cat) {
     case "entree":
@@ -59,7 +62,6 @@ function parseCalories(cal: string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
-// ─── Touch drag state ────────────────────────────────────────────────────────
 interface TouchDragState {
   pmId: string;
   ghost: HTMLElement;
@@ -92,22 +94,18 @@ export function WeeklyPlanning() {
   const [dragOverSlot, setDragOverSlot] = useState<string | null>(null);
   const [dragOverUnplanned, setDragOverUnplanned] = useState(false);
 
-  // For desktop reordering within a slot
   const slotDragRef = useRef<{ pmId: string; slotKey: string } | null>(null);
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
-  // Touch drag (long-press → ghost follows finger)
   const touchDrag = useRef<TouchDragState | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
-  const [touchHighlight, setTouchHighlight] = useState<string | null>(null); // slot key being hovered
+  const [touchHighlight, setTouchHighlight] = useState<string | null>(null);
 
   const todayRef = useRef<HTMLDivElement | null>(null);
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
-  // ✅ Détection device tactile
   const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
-  // Scroll to today on mount
   useEffect(() => {
     if (todayRef.current) {
       setTimeout(() => {
@@ -138,8 +136,6 @@ export function WeeklyPlanning() {
     return mealCals + (breakfast ? parseCalories(breakfast.calories) : 0);
   };
 
-  // ── Desktop drag & drop ──────────────────────────────────────────────────────
-
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
     setDragOverSlot(null);
@@ -168,25 +164,18 @@ export function WeeklyPlanning() {
     if (pmId) updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
   };
 
-  // ── Touch drag & drop ────────────────────────────────────────────────────────
-  // Strategy: long-press (500ms) creates a ghost clone. The ghost follows the finger.
-  // On touchend, use elementFromPoint to find the slot and mutate.
-
   const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
     const touch = e.touches[0];
     const origEl = e.currentTarget as HTMLElement;
     const rect = origEl.getBoundingClientRect();
 
-    // Cancel any previous timer
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
 
     longPressTimer.current = setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(40);
-      // Freeze body scroll during drag
       document.body.style.overflow = "hidden";
       document.body.style.touchAction = "none";
 
-      // Build ghost
       const ghost = origEl.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `
         position: fixed;
@@ -216,17 +205,14 @@ export function WeeklyPlanning() {
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    // If a drag is active, always block scroll
     if (touchDrag.current) {
       e.preventDefault();
     } else if (!longPressTimer.current) {
       return;
     } else {
-      // Still in long-press window — cancel if user moved too much (let natural scroll happen)
       return;
     }
 
-    // Actively dragging
     e.preventDefault();
     const touch = e.touches[0];
     const state = touchDrag.current;
@@ -236,7 +222,6 @@ export function WeeklyPlanning() {
     state.ghost.style.top = `${state.origTop + dy}px`;
     state.ghost.style.left = `${state.origLeft + dx}px`;
 
-    // Highlight slot under finger
     state.ghost.style.visibility = "hidden";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     state.ghost.style.visibility = "visible";
@@ -265,11 +250,9 @@ export function WeeklyPlanning() {
     touchDrag.current = null;
     setTouchDragActive(false);
     setTouchHighlight(null);
-    // Restore scroll
     document.body.style.overflow = "";
     document.body.style.touchAction = "";
 
-    // Remove ghost, find drop target
     const touch = e.changedTouches[0];
     state.ghost.style.visibility = "hidden";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -296,7 +279,6 @@ export function WeeklyPlanning() {
     }
     setTouchDragActive(false);
     setTouchHighlight(null);
-    // Restore scroll
     document.body.style.overflow = "";
     document.body.style.touchAction = "";
   };
@@ -304,8 +286,6 @@ export function WeeklyPlanning() {
   const handleRemoveFromSlot = (pm: PossibleMeal) => {
     updatePlanning.mutate({ id: pm.id, day_of_week: null, meal_time: null });
   };
-
-  // ── Render mini card ─────────────────────────────────────────────────────────
 
   const renderMiniCard = (pm: PossibleMeal, compact = false) => {
     const meal = pm.meals;
@@ -317,7 +297,7 @@ export function WeeklyPlanning() {
     return (
       <div
         key={pm.id}
-        draggable={!isTouchDevice} // ✅ une seule fois
+        draggable={!isTouchDevice}
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
@@ -344,7 +324,6 @@ export function WeeklyPlanning() {
         `}
         style={{ backgroundColor: meal.color }}
       >
-        {/* Row 1: emoji + name + counter + remove */}
         <div className="flex items-center gap-1 min-w-0 flex-wrap">
           <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
           <span className="font-semibold text-xs flex-1 break-words min-w-0">{meal.name}</span>
@@ -371,7 +350,6 @@ export function WeeklyPlanning() {
             </button>
           )}
         </div>
-        {/* Row 2: details */}
         {!compact && (
           <div className="flex items-center gap-1 mt-0.5 flex-wrap">
             {pm.expiration_date && (
@@ -458,12 +436,10 @@ export function WeeklyPlanning() {
                 </PopoverContent>
               </Popover>
               <div className="flex-1" />
-              {dayCalories > 0 && (
-                <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 shrink-0">
-                  <Flame className="h-2.5 w-2.5 text-orange-500" />
-                  {Math.round(dayCalories)} kcal
-                </span>
-              )}
+              <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 shrink-0">
+                <Flame className="h-2.5 w-2.5 text-orange-500" />
+                {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {TIMES.map((time) => {
@@ -503,15 +479,13 @@ export function WeeklyPlanning() {
       })}
 
       {/* Total calorique de la semaine */}
-      {weekTotal > 0 && (
-        <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
-          <span className="text-sm font-bold text-foreground">Total semaine</span>
-          <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-            <Flame className="h-4 w-4" />
-            {Math.round(weekTotal)} kcal
-          </span>
-        </div>
-      )}
+      <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
+        <span className="text-sm font-bold text-foreground">Total semaine</span>
+        <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
+          <Flame className="h-4 w-4" />
+          {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
+        </span>
+      </div>
 
       {/* Hors planning — drop zone to unplan */}
       <div

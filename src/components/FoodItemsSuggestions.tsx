@@ -21,14 +21,21 @@ const SESSION_KEY = "ai_food_suggestions";
 
 interface Props {
   foodItems: FoodItem[];
+  existingMealNames?: string[];
 }
 
-export function FoodItemsSuggestions({ foodItems }: Props) {
+export function FoodItemsSuggestions({ foodItems, existingMealNames = [] }: Props) {
   const [open, setOpen] = useState(true);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchedRef = useRef(false);
+
+  // Normalize for comparison
+  const normalizeForCompare = (name: string) =>
+    name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/, "").trim();
+
+  const existingNormalized = new Set(existingMealNames.map(normalizeForCompare));
 
   // On mount: restore from sessionStorage if available
   useEffect(() => {
@@ -47,8 +54,12 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
     if (foodItems.length === 0) return;
     setLoading(true);
     try {
+      const existingNames = existingMealNames.join(", ");
       const { data, error } = await supabase.functions.invoke("ai-food-suggestions", {
-        body: { foodItems: foodItems.map(fi => ({ name: fi.name, grams: fi.grams, is_infinite: fi.is_infinite })) },
+        body: { 
+          foodItems: foodItems.map(fi => ({ name: fi.name, grams: fi.grams, is_infinite: fi.is_infinite })),
+          existingMealNames: existingNames,
+        },
       });
       if (error) {
         toast({ title: "Erreur IA", description: error.message, variant: "destructive" });
@@ -62,7 +73,6 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
       setSuggestions(result);
       setHasLoaded(true);
       fetchedRef.current = true;
-      // Persist in sessionStorage for the duration of the session
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(result));
     } catch (e) {
       toast({ title: "Erreur", description: "Impossible de contacter l'IA.", variant: "destructive" });
@@ -77,16 +87,19 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
     if (foodItems.length === 0) return;
     fetchedRef.current = true;
     fetchSuggestions();
-  // We only care about going from 0→N items (first load)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foodItems.length]);
 
   const handleRefresh = () => {
-    // Force re-generate (clears cache)
     sessionStorage.removeItem(SESSION_KEY);
     fetchedRef.current = false;
     fetchSuggestions();
   };
+
+  // Filter out suggestions that already exist in "Tous"
+  const filteredSuggestions = suggestions.filter(s => 
+    !existingNormalized.has(normalizeForCompare(s.name))
+  );
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
@@ -104,7 +117,7 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
             <Sparkles className="h-4 w-4 text-yellow-500" />
             Suggestions IA
           </h2>
-          {hasLoaded && <span className="text-sm font-normal text-muted-foreground">{suggestions.length}</span>}
+          {hasLoaded && <span className="text-sm font-normal text-muted-foreground">{filteredSuggestions.length}</span>}
         </button>
 
         <Button
@@ -142,15 +155,15 @@ export function FoodItemsSuggestions({ foodItems }: Props) {
             </div>
           )}
 
-          {hasLoaded && !loading && suggestions.length === 0 && (
+          {hasLoaded && !loading && filteredSuggestions.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-4 italic">
               Aucune suggestion trouvée pour ces aliments.
             </p>
           )}
 
-          {!loading && suggestions.length > 0 && (
+          {!loading && filteredSuggestions.length > 0 && (
             <div className="flex flex-col gap-2">
-              {suggestions.map((s, i) => (
+              {filteredSuggestions.map((s, i) => (
                 <div
                   key={i}
                   className="flex flex-col rounded-2xl px-3 py-2.5 bg-primary/10 border border-primary/20"

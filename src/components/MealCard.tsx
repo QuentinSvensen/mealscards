@@ -27,6 +27,8 @@ interface MealCardProps {
   expirationDate?: string | null;
   /** Ingredient name with earliest expiration (to highlight) */
   expiringIngredientName?: string | null;
+  /** Set of expired ingredient names (normalized) */
+  expiredIngredientNames?: Set<string>;
   /** Max counter days among ingredients */
   maxIngredientCounter?: number | null;
 }
@@ -72,7 +74,7 @@ function normalizeIngName(name: string): string {
   return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/,"").trim();
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expiringIngredientName, maxIngredientCounter }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expiringIngredientName, expiredIngredientNames, maxIngredientCounter }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -138,12 +140,6 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   const ovenTemp = (meal as any).oven_temp;
   const ovenMinutes = (meal as any).oven_minutes;
   const hasCuisson = ovenTemp || ovenMinutes;
-
-  // Determine if the expiring ingredient name should be highlighted in ingredients display
-  const normalizedExpiringIng = expiringIngredientName ? normalizeIngName(expiringIngredientName) : null;
-
-  // Check if there are enough options to need wrapping
-  const hasOptions = !!(meal.grams || meal.calories || hasCuisson || onToggleFavorite || expirationLabel);
 
   return (
     <div
@@ -306,9 +302,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                   {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((s, i, arr) => {
                     const ingName = s.trim();
                     const parsed = parseIngredientLine(ingName);
-                    const isExpiring = normalizedExpiringIng && normalizeIngName(parsed.name) === normalizedExpiringIng;
+                    const normalizedName = normalizeIngName(parsed.name);
+                    // Check if this ingredient is expired
+                    const isExpired = expiredIngredientNames?.has(normalizedName);
                     return (
-                      <span key={i} className={isExpiring ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold' : ''}>
+                      <span key={i} className={isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold' : ''}>
                         {ingName}{i < arr.length - 1 ? ' •' : ''}
                       </span>
                     );
