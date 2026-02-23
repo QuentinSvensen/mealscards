@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, Flame, Search } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search } from "lucide-react";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
 
 import { useNavigate, useLocation } from "react-router-dom";
@@ -37,7 +37,7 @@ const mealSchema = z.object({
 });
 
 type SortMode = "manual" | "expiration" | "planning";
-type MasterSortMode = "manual" | "calories" | "favorites";
+type MasterSortMode = "manual" | "calories" | "favorites" | "ingredients";
 type AvailableSortMode = "manual" | "calories" | "expiration";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
@@ -169,7 +169,7 @@ const Index = () => {
 
   const {
     isLoading,
-    meals,
+    meals, possibleMeals,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients,
     updateOvenTemp, updateOvenMinutes,
     toggleFavorite, deleteMeal, reorderMeals,
@@ -224,7 +224,7 @@ const Index = () => {
   const [showDevMenu, setShowDevMenu] = useState(false);
 
   // Session-only collapse state for categories (reset on reconnect)
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({ 'master-plat': true });
   const toggleSectionCollapse = (key: string) => {
     setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -310,7 +310,7 @@ const Index = () => {
   const toggleMasterSort = (cat: string) => {
     setMasterSortModes((prev) => {
       const current = prev[cat] || "manual";
-      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "favorites" : "manual";
+      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "favorites" : current === "favorites" ? "ingredients" : "manual";
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_master_sort_modes', JSON.stringify(updated));
       setPreference.mutate({ key: 'meal_master_sort_modes', value: updated });
@@ -330,6 +330,13 @@ const Index = () => {
     }
     if (mode === "favorites") {
       return [...items].sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
+    }
+    if (mode === "ingredients") {
+      return [...items].sort((a, b) => {
+        const aCount = a.ingredients ? a.ingredients.split(/[,\n]+/).filter(Boolean).length : 0;
+        const bCount = b.ingredients ? b.ingredients.split(/[,\n]+/).filter(Boolean).length : 0;
+        return aCount - bCount;
+      });
     }
     return items;
   };
@@ -400,16 +407,25 @@ const Index = () => {
           const fiGrams = parseQty(fi.grams);
           if (fiGrams <= 0) continue;
           
-          if (fi.quantity && fi.quantity > 1) {
-            // Quantity mode: each unit = fiGrams. Deduct whole units.
-            const unitsNeeded = Math.ceil(toDeduct / fiGrams);
-            const unitsToDeduct = Math.min(fi.quantity, unitsNeeded);
-            const remaining = fi.quantity - unitsToDeduct;
-            toDeduct -= unitsToDeduct * fiGrams;
+          if (fi.quantity && fi.quantity >= 1) {
+            // Quantity mode: total = qty * per_unit_grams, deduct from total, recalculate
+            const perUnit = fiGrams;
+            const totalAvailable = perUnit * fi.quantity;
+            const deduct = Math.min(totalAvailable, toDeduct);
+            const remaining = totalAvailable - deduct;
+            toDeduct -= deduct;
             if (remaining <= 0) {
               updates.push({ id: fi.id, delete: true });
             } else {
-              updates.push({ id: fi.id, quantity: remaining });
+              const fullUnits = Math.floor(remaining / perUnit);
+              const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
+              if (remainder > 0) {
+                updates.push({ id: fi.id, quantity: fullUnits + 1, grams: String(remainder) });
+              } else if (fullUnits > 0) {
+                updates.push({ id: fi.id, quantity: fullUnits });
+              } else {
+                updates.push({ id: fi.id, delete: true });
+              }
             }
           } else {
             // No quantity: grams is total
@@ -766,13 +782,13 @@ const Index = () => {
                     <MasterList
                   category={cat}
                   meals={getSortedMaster(cat.value)}
+                  foodItems={foodItems}
                   sortMode={masterSortModes[cat.value] || "manual"}
                   onToggleSort={() => toggleMasterSort(cat.value)}
                   collapsed={collapsedSections[`master-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`master-${cat.value}`)}
                   onMoveToPossible={(id) => {
-                    // NO stock deduction when moving to possible
-                    moveToPossible.mutate(id);
+                    moveToPossible.mutate({ mealId: id });
                   }}
                   onRename={(id, name) => renameMeal.mutate({ id, name })}
                   onDelete={(id) => deleteMeal.mutate(id)}
@@ -792,23 +808,23 @@ const Index = () => {
                   meals={getMealsByCategory(cat.value)}
                   allMeals={meals}
                   foodItems={foodItems}
+                  possibleMeals={possibleMeals}
                   sortMode={availableSortModes[cat.value] || "manual"}
                   onToggleSort={() => toggleAvailableSort(cat.value)}
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
-                  onMoveToPossible={(id) => {
-                    // NO stock deduction when moving to possible
-                    moveToPossible.mutate(id);
+                  onMoveToPossible={(mealId) => {
+                    const meal = meals.find(m => m.id === mealId);
+                    const expDate = meal ? getEarliestIngredientExpiration(meal, foodItems) : null;
+                    moveToPossible.mutate({ mealId, expiration_date: expDate });
                   }}
                   onMoveToPossibleWithoutDeduction={(id) => {
-                    moveToPossible.mutate(id);
+                    moveToPossible.mutate({ mealId: id });
                   }}
-                  onMoveNameMatchToPossible={(meal, _fi) => {
-                    // NO stock deduction when moving to possible
-                    moveToPossible.mutate(meal.id);
+                  onMoveNameMatchToPossible={(meal, fi) => {
+                    moveToPossible.mutate({ mealId: meal.id, expiration_date: fi.expiration_date });
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
-                    // NO stock deduction when moving to possible
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
@@ -867,7 +883,7 @@ const Index = () => {
                 onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                 onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
                 onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
-                onExternalDrop={(mealId) => moveToPossible.mutate(mealId)}
+                onExternalDrop={(mealId) => moveToPossible.mutate({ mealId })}
                 highlightedId={highlightedId}
                 onAddDirectly={() => openDialog("possible")} />
 
@@ -1095,18 +1111,36 @@ function isFoodUsedInMeals(fi: FoodItem, mealsToCheck: Meal[]): boolean {
   });
 }
 
+/** Get missing ingredient names for a meal (not in stock) */
+function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Set<string> {
+  const missing = new Set<string>();
+  if (!meal.ingredients?.trim()) return missing;
+  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  for (const ing of ingredients) {
+    const { name } = parseIngredientLine(ing);
+    const key = findStockKey(stockMap, name);
+    if (!key) missing.add(name);
+  }
+  return missing;
+}
+
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, allMeals, foodItems, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveToPossibleWithoutDeduction, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveToPossibleWithoutDeduction: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
+function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveToPossibleWithoutDeduction, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];possibleMeals: PossibleMeal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveToPossibleWithoutDeduction: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
 
   const stockMap = buildStockMap(foodItems);
 
-  // 1. Meals realizable via ingredient matching
-  // Only show if meal has ingredients AND all ingredients are in stock
+  // 1. Meals realizable via ingredient matching — subtract those already in possible
   const available: {meal: Meal;multiple: number | null;}[] = meals
-    .filter(meal => meal.ingredients?.trim()) // must have ingredients
-    .map((meal) => ({ meal, multiple: getMealMultiple(meal, stockMap) }))
-    .filter(({ multiple }) => multiple !== null);
+    .filter(meal => meal.ingredients?.trim())
+    .map((meal) => {
+      const rawMultiple = getMealMultiple(meal, stockMap);
+      if (rawMultiple === null) return { meal, multiple: null };
+      const inPossible = possibleMeals.filter(pm => pm.meal_id === meal.id).length;
+      const adjusted = rawMultiple === Infinity ? Infinity : rawMultiple - inPossible;
+      return { meal, multiple: adjusted };
+    })
+    .filter(({ multiple }) => multiple !== null && (multiple === Infinity || (multiple as number) > 0));
   const availableMealIds = new Set(available.map(a => a.meal.id));
 
   // 2. Name-match: stock items that strict-match a "Tous" recipe WITHOUT ingredients
@@ -1117,16 +1151,20 @@ function AvailableList({ category, meals, allMeals, foodItems, sortMode, onToggl
 
   for (const meal of meals) {
     if (availableMealIds.has(meal.id)) continue;
-    // If meal has ingredients, it was already checked above and failed → don't show
     if (meal.ingredients?.trim()) continue;
     for (const fi of foodItems) {
       if (strictNameMatch(meal.name, fi.name)) {
         const mealGrams = parseQty(meal.grams);
         const stockGrams = fi.is_infinite ? Infinity : parseQty(fi.grams) * (fi.quantity ?? 1);
         if (!fi.is_infinite && stockGrams <= 0) continue;
+        const inPossible = possibleMeals.filter(pm => pm.meal_id === meal.id).length;
         let portions: number | null = null;
         if (!fi.is_infinite && mealGrams > 0) {
-          portions = Math.floor(stockGrams / mealGrams);
+          portions = Math.floor(stockGrams / mealGrams) - inPossible;
+          if (portions < 1) continue;
+        } else if (!fi.is_infinite) {
+          const rawPortions = fi.quantity ?? 1;
+          portions = rawPortions - inPossible;
           if (portions < 1) continue;
         }
         nameMatches.push({ meal, fi, portionsAvailable: fi.is_infinite ? null : portions });
@@ -1140,16 +1178,15 @@ function AvailableList({ category, meals, allMeals, foodItems, sortMode, onToggl
   // 3. is_meal food items — only if NOT already covered by a name-match above
   const isMealItems = foodItems.filter((fi) => fi.is_meal && !nameMatchedFiIds.has(fi.id));
 
-  // Orphan food items: not is_meal, not name-matched, not used in any recipe of ANY category
+  // Orphan food items: not is_meal, not name-matched, not "toujours", not used in any recipe
   const allAvailableMeals = allMeals.filter(m => m.is_available);
   const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false;
+    if ((fi as any).storage_type === 'toujours') return false;
     if (nameMatchedFiIds.has(fi.id)) return false;
-    // Check if used in any recipe across ALL categories
     if (isFoodUsedInMeals(fi, allAvailableMeals)) return false;
     return true;
   }).sort((a, b) => {
-    // Sort by expiration
     if (!a.expiration_date && !b.expiration_date) return 0;
     if (!a.expiration_date) return 1;
     if (!b.expiration_date) return -1;
@@ -1371,12 +1408,13 @@ function AvailableList({ category, meals, allMeals, foodItems, sortMode, onToggl
     </div>);
 }
 
-function MasterList({ category, meals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];sortMode: MasterSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
+function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];sortMode: MasterSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const stockMap = buildStockMap(foodItems);
 
-  const SortIcon = sortMode === "calories" ? Flame : sortMode === "favorites" ? Star : ArrowUpDown;
-  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "favorites" ? "Favoris" : "Manuel";
+  const SortIcon = sortMode === "calories" ? Flame : sortMode === "favorites" ? Star : sortMode === "ingredients" ? List : ArrowUpDown;
+  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
 
   return (
     <MealList
@@ -1395,21 +1433,25 @@ function MasterList({ category, meals, sortMode, onToggleSort, collapsed, onTogg
       {!collapsed &&
       <>
           {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Aucun repas</p>}
-          {meals.map((meal, index) =>
-        <MealCard key={meal.id} meal={meal}
-        onMoveToPossible={() => onMoveToPossible(meal.id)}
-        onRename={(name) => onRename(meal.id, name)}
-        onDelete={() => onDelete(meal.id)}
-        onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
-        onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
-        onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-        onToggleFavorite={() => onToggleFavorite(meal.id)}
-        onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
-        onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-        onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
-        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }} />
-        )}
+          {meals.map((meal, index) => {
+            const missingIngs = getMissingIngredients(meal, stockMap);
+            return (
+              <MealCard key={meal.id} meal={meal}
+                onMoveToPossible={() => onMoveToPossible(meal.id)}
+                onRename={(name) => onRename(meal.id, name)}
+                onDelete={() => onDelete(meal.id)}
+                onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
+                onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
+                onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                onToggleFavorite={() => onToggleFavorite(meal.id)}
+                onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+                missingIngredientNames={missingIngs.size > 0 ? missingIngs : undefined}
+                onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }} />
+            );
+          })}
         </>
       }
     </MealList>);

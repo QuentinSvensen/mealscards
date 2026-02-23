@@ -31,6 +31,8 @@ interface MealCardProps {
   expiredIngredientNames?: Set<string>;
   /** Max counter days among ingredients */
   maxIngredientCounter?: number | null;
+  /** Set of missing ingredient names (normalized, not in stock) */
+  missingIngredientNames?: Set<string>;
 }
 
 interface IngLine { qty: string; count: string; name: string; }
@@ -74,7 +76,7 @@ function normalizeIngName(name: string): string {
   return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/,"").trim();
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expiringIngredientName, expiredIngredientNames, maxIngredientCounter }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -303,10 +305,13 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                     const ingName = s.trim();
                     const parsed = parseIngredientLine(ingName);
                     const normalizedName = normalizeIngName(parsed.name);
-                    // Check if this ingredient is expired
                     const isExpired = expiredIngredientNames?.has(normalizedName);
+                    const isMissing = missingIngredientNames?.has(normalizedName);
+                    const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
+                      : isMissing ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
+                      : '';
                     return (
-                      <span key={i} className={isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold' : ''}>
+                      <span key={i} className={cls}>
                         {ingName}{i < arr.length - 1 ? ' •' : ''}
                       </span>
                     );

@@ -14,7 +14,7 @@ import { toast } from "@/hooks/use-toast";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type StorageType = 'frigo' | 'sec' | 'surgele';
+export type StorageType = 'frigo' | 'sec' | 'surgele' | 'toujours';
 
 export interface FoodItem {
   id: string;
@@ -450,6 +450,7 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
   { type: 'frigo', label: 'Frigo', emoji: <Refrigerator className="h-4 w-4 text-blue-400" /> },
   { type: 'sec', label: 'Placard sec', emoji: <Package className="h-4 w-4 text-amber-500" /> },
   { type: 'surgele', label: 'Surgelés', emoji: <Snowflake className="h-4 w-4 text-cyan-400" /> },
+  { type: 'toujours', label: 'Toujours présent', emoji: <span className="text-base">📌</span> },
 ];
 
 export function FoodItems() {
@@ -462,7 +463,7 @@ export function FoodItems() {
   // Independent sort per section
   const [sortModes, setSortModes] = useState<Record<StorageType, SortMode>>(() => {
     const saved = localStorage.getItem('food_sort_modes');
-    return saved ? JSON.parse(saved) : { frigo: 'manual', sec: 'manual', surgele: 'manual' };
+    return saved ? JSON.parse(saved) : { frigo: 'manual', sec: 'manual', surgele: 'manual', toujours: 'manual' };
   });
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -498,6 +499,10 @@ export function FoodItems() {
     let sorted: FoodItem[];
     if (sortModes[storageType] === "expiration") {
       sorted = [...sectionItems].sort((a, b) => {
+        // is_meal items without expiration date go first
+        if (a.is_meal && !a.expiration_date && !(b.is_meal && !b.expiration_date)) return -1;
+        if (b.is_meal && !b.expiration_date && !(a.is_meal && !a.expiration_date)) return 1;
+
         const aExpired = isExpiredDate(a.expiration_date);
         const bExpired = isExpiredDate(b.expiration_date);
         const aCounter = getCounterDays(a.counter_start_date);
@@ -677,7 +682,7 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(storageType === 'toujours');
 
   return (
     <div
