@@ -78,6 +78,7 @@ export function WeeklyPlanning() {
   // Breakfast selections per day
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
+  const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
@@ -129,7 +130,13 @@ export function WeeklyPlanning() {
 
   const getDayCalories = (day: string): number => {
     const mealCals = TIMES.reduce(
-      (total, time) => total + getMealsForSlot(day, time).reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0),
+      (total, time) => {
+        const slotMeals = getMealsForSlot(day, time);
+        if (slotMeals.length > 0) {
+          return total + slotMeals.reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0);
+        }
+        return total + (manualCalories[`${day}-${time}`] || 0);
+      },
       0,
     );
     const breakfast = getBreakfastForDay(day);
@@ -465,7 +472,25 @@ export function WeeklyPlanning() {
                     </span>
                     <div className="mt-0.5 space-y-1">
                       {slotMeals.length === 0 ? (
-                        <p className="text-[10px] text-muted-foreground/30 italic">—</p>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            placeholder="kcal"
+                            key={`manual-${day}-${time}`}
+                            defaultValue={manualCalories[`${day}-${time}`] || ''}
+                            onBlur={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              const key = `${day}-${time}`;
+                              const updated = { ...manualCalories };
+                              if (val > 0) updated[key] = val;
+                              else delete updated[key];
+                              setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            className="w-16 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40"
+                          />
+                        </div>
                       ) : (
                         slotMeals.map((pm) => renderMiniCard(pm, false))
                       )}
