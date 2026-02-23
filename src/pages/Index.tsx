@@ -518,16 +518,20 @@ const Index = () => {
       const text = await file.text();
       const lineParts = text.split('\n').map((l) => l.trim()).filter(Boolean);
       let count = 0;
+      let skipped = 0;
       for (const line of lineParts) {
         const match = line.match(/^(.+?)\s*\((.+)\)$/);
         const name = match ? match[1].trim() : line;
         const paramsStr = match ? match[2] : '';
         const params: Record<string, string> = {};
         paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
-        addMeal.mutate({ name, category: params.cat as MealCategory || 'plat' });
+        const result = mealSchema.safeParse({ name });
+        if (!result.success) { skipped++; continue; }
+        addMeal.mutate({ name: result.data.name, category: params.cat as MealCategory || 'plat' });
         count++;
       }
-      toast({ title: `✅ ${count} repas importés` });
+      const msg = skipped > 0 ? `✅ ${count} repas importés (${skipped} ignorés)` : `✅ ${count} repas importés`;
+      toast({ title: msg });
       setShowDevMenu(false);
     };
     input.click();
@@ -598,12 +602,13 @@ const Index = () => {
           itemOrder = 0;
         } else {
           const match = line.match(/^(.+?)\s*\((.+)\)$/);
-          const name = match ? match[1].trim() : line;
+          const rawName = match ? match[1].trim() : line;
+          if (!rawName || rawName.length > 100) continue;
           const paramsStr = match ? match[2] : '';
           const params: Record<string, string> = {};
           paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
           await (sb as any).from('shopping_items').insert({
-            name,
+            name: rawName,
             group_id: currentGroupId,
             quantity: params.qte || null,
             brand: params.marque || null,
