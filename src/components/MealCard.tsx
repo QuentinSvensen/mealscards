@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer, Hash } from "lucide-react";
+import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer, Hash, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,33 +25,36 @@ interface MealCardProps {
   hideDelete?: boolean;
   expirationLabel?: string | null;
   expirationDate?: string | null;
-  /** Ingredient name with earliest expiration (to highlight) */
   expiringIngredientName?: string | null;
-  /** Set of expired ingredient names (normalized) */
   expiredIngredientNames?: Set<string>;
-  /** Max counter days among ingredients */
   maxIngredientCounter?: number | null;
-  /** Set of missing ingredient names (normalized, not in stock) */
   missingIngredientNames?: Set<string>;
 }
 
-interface IngLine { qty: string; count: string; name: string; }
+interface IngLine { qty: string; count: string; name: string; isOr: boolean; }
 
+/**
+ * Parse a single ingredient token (within one OR-group alternative).
+ * Fix: unit suffix must be adjacent to number (no space), so "3 oeufs" → count=3, name=oeufs.
+ */
 function parseIngredientLine(raw: string): IngLine {
   const trimmed = raw.trim();
-  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
+  // e.g. "100g 3 oeufs" → qty=100, count=3, name=oeufs
+  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
   if (matchFull) {
-    return { qty: matchFull[1], count: matchFull[3], name: matchFull[4].trim() };
+    return { qty: matchFull[1], count: matchFull[3], name: matchFull[4].trim(), isOr: false };
   }
-  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s*(.*)/i);
+  // e.g. "100g poulet" (unit attached to number, no space between)
+  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(.*)/i);
   if (matchUnit) {
-    return { qty: matchUnit[1], count: "", name: matchUnit[3].trim() };
+    return { qty: matchUnit[1], count: "", name: matchUnit[3].trim(), isOr: false };
   }
+  // e.g. "3 oeufs" → count=3, name=oeufs
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
   if (matchNum) {
-    return { qty: "", count: matchNum[1], name: matchNum[2].trim() };
+    return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false };
   }
-  return { qty: "", count: "", name: trimmed };
+  return { qty: "", count: "", name: trimmed, isOr: false };
 }
 
 function formatQty(qty: string): string {
@@ -61,15 +64,53 @@ function formatQty(qty: string): string {
   return trimmed;
 }
 
-function serializeIngredients(lines: IngLine[]): string | null {
-  const parts = lines
-    .filter(l => l.qty.trim() || l.count.trim() || l.name.trim())
-    .map(l => {
-      const qtyStr = formatQty(l.qty);
-      const countStr = l.count.trim();
-      return [qtyStr, countStr, l.name.trim()].filter(Boolean).join(" ");
+/**
+ * Parse ingredient string into IngLines with OR support.
+ * Format: "100g poulet | 80g dinde, 50g salade" 
+ * → groups separated by ",", alternatives within group by "|"
+ */
+function parseIngredientsToLines(raw: string | null): IngLine[] {
+  if (!raw) return [{ qty: "", count: "", name: "", isOr: false }];
+  const groups = raw.split(/,/).map(s => s.trim()).filter(Boolean);
+  const lines: IngLine[] = [];
+  for (const group of groups) {
+    const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+    alts.forEach((alt, i) => {
+      const parsed = parseIngredientLine(alt);
+      parsed.isOr = i > 0;
+      lines.push(parsed);
     });
-  return parts.length ? parts.join(", ") : null;
+  }
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", isOr: false });
+  return lines;
+}
+
+function serializeIngredients(lines: IngLine[]): string | null {
+  const result: string[] = [];
+  let currentGroup: string[] = [];
+
+  const flushGroup = () => {
+    if (currentGroup.length > 0) {
+      result.push(currentGroup.join(" | "));
+      currentGroup = [];
+    }
+  };
+
+  for (const l of lines) {
+    const qtyStr = formatQty(l.qty);
+    const countStr = l.count.trim();
+    const nameStr = l.name.trim();
+    if (!qtyStr && !countStr && !nameStr) continue;
+    const token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
+    if (l.isOr) {
+      currentGroup.push(token);
+    } else {
+      flushGroup();
+      currentGroup.push(token);
+    }
+  }
+  flushGroup();
+  return result.length ? result.join(", ") : null;
 }
 
 function normalizeIngName(name: string): string {
@@ -96,11 +137,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   };
 
   const openIngredients = () => {
-    const raw = meal.ingredients
-      ? meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean)
-      : [];
-    const parsed: IngLine[] = raw.map(parseIngredientLine);
-    while (parsed.length < 2) parsed.push({ qty: "", count: "", name: "" });
+    const parsed = parseIngredientsToLines(meal.ingredients);
     setIngLines(parsed);
     setEditingIngredients(true);
   };
@@ -115,8 +152,17 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "" });
+        next.push({ qty: "", count: "", name: "", isOr: false });
       }
+      return next;
+    });
+  };
+
+  const toggleOr = (idx: number) => {
+    if (idx === 0) return; // First line can't be OR
+    setIngLines(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], isOr: !next[idx].isOr };
       return next;
     });
   };
@@ -170,13 +216,30 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           }}
           className="flex flex-col gap-1"
         >
-          <div className="grid grid-cols-[3.5rem_2.5rem_1fr] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_3.5rem_2.5rem_1fr] gap-1 mb-0.5">
+            <span className="text-[9px] text-white/50 text-center">Ou</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[3.5rem_2.5rem_1fr] gap-1">
+            <div key={idx} className="grid grid-cols-[1.5rem_3.5rem_2.5rem_1fr] gap-1">
+              {/* OR toggle */}
+              <button
+                type="button"
+                onClick={() => toggleOr(idx)}
+                className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
+                  idx === 0
+                    ? 'text-white/15 cursor-default'
+                    : line.isOr
+                      ? 'bg-yellow-400/30 text-yellow-200 border border-yellow-400/50'
+                      : 'text-white/30 hover:text-white/60 hover:bg-white/10'
+                }`}
+                disabled={idx === 0}
+                title={idx === 0 ? "" : line.isOr ? "Cet ingrédient est un OU du précédent" : "Marquer comme alternative (OU)"}
+              >
+                {line.isOr ? "ou" : idx > 0 ? "+" : ""}
+              </button>
               <Input
                 ref={el => { qtyRefs.current[idx] = el; }}
                 autoFocus={idx === 0}
@@ -301,21 +364,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
               )}
               {meal.ingredients && (
                 <p className="text-[11px] text-white/65 leading-tight flex-1 flex flex-wrap gap-x-1">
-                  {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((s, i, arr) => {
-                    const ingName = s.trim();
-                    const parsed = parseIngredientLine(ingName);
-                    const normalizedName = normalizeIngName(parsed.name);
-                    const isExpired = expiredIngredientNames?.has(normalizedName);
-                    const isMissing = missingIngredientNames?.has(normalizedName);
-                    const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
-                      : isMissing ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
-                      : '';
-                    return (
-                      <span key={i} className={cls}>
-                        {ingName}{i < arr.length - 1 ? ' •' : ''}
-                      </span>
-                    );
-                  })}
+                  {renderIngredientDisplay(meal.ingredients, expiredIngredientNames, missingIngredientNames)}
                 </p>
               )}
             </div>
@@ -324,4 +373,42 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
       )}
     </div>
   );
+}
+
+/** Render ingredient display with OR groups, expired/missing highlighting */
+function renderIngredientDisplay(
+  ingredients: string,
+  expiredIngredientNames?: Set<string>,
+  missingIngredientNames?: Set<string>,
+) {
+  // Split by comma to get groups, within each group split by | for alternatives
+  const groups = ingredients.split(/,/).map(s => s.trim()).filter(Boolean);
+  const elements: React.ReactNode[] = [];
+  
+  groups.forEach((group, gi) => {
+    const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+    alts.forEach((alt, ai) => {
+      const parsed = parseIngredientLine(alt);
+      const normalizedName = normalizeIngName(parsed.name);
+      const isExpired = expiredIngredientNames?.has(normalizedName);
+      const isMissing = missingIngredientNames?.has(normalizedName);
+      const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
+        : isMissing ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
+        : '';
+      
+      const key = `${gi}-${ai}`;
+      if (ai > 0) {
+        elements.push(
+          <span key={`or-${key}`} className="text-yellow-300/70 text-[9px] font-bold">ou</span>
+        );
+      }
+      elements.push(
+        <span key={key} className={cls}>
+          {alt.trim()}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
+        </span>
+      );
+    });
+  });
+  
+  return elements;
 }

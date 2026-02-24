@@ -9,7 +9,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { foodItems } = await req.json();
+    const body = await req.json();
+    const { foodItems, existingMealNames } = body;
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
@@ -19,13 +20,10 @@ serve(async (req) => {
       });
     }
 
-    // Build a concise list of available ingredients for the prompt
     const ingredientLines = foodItems.map((fi: { name: string; grams?: string | null; is_infinite?: boolean }) => {
       const qty = fi.is_infinite ? "∞" : (fi.grams || "?");
       return `- ${fi.name} (${qty})`;
     }).join("\n");
-
-    const existingMealNames = (await req.json()).existingMealNames || "";
 
     const systemPrompt = `Tu es un assistant culinaire. On te donne une liste d'aliments disponibles et une liste de recettes déjà enregistrées.
 Propose 3 à 5 recettes simples réalisables avec ces ingrédients (on peut utiliser des basiques de placard : sel, poivre, huile, eau).
