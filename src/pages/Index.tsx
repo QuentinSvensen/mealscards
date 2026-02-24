@@ -935,7 +935,8 @@ function parseQty(qty: string | null | undefined): number {
 
 function parseIngredientLine(ing: string): {qty: number; count: number; name: string;} {
   const trimmed = ing.trim();
-  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
+  // e.g. "100g 3 oeufs" — unit attached to number
+  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
   if (matchFull) {
     return {
       qty: parseFloat(matchFull[1].replace(",", ".")),
@@ -943,10 +944,12 @@ function parseIngredientLine(ing: string): {qty: number; count: number; name: st
       name: normalizeForMatch(matchFull[4])
     };
   }
-  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zA-Zµ°%]+\.?)\s+(.*)/i);
+  // e.g. "100g poulet" — unit attached to number (no space between number and unit)
+  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(.*)/i);
   if (matchUnit) {
     return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[3]) };
   }
+  // e.g. "3 oeufs" — plain number + name
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
   if (matchNum) {
     return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]) };
