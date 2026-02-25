@@ -175,7 +175,7 @@ export function PossibleMealCard({
           <DropdownMenuContent align="end">
             {onReturnWithoutDeduction && (
               <DropdownMenuItem onClick={onReturnWithoutDeduction}>
-                <Undo2 className="mr-2 h-4 w-4" /> Remettre dans au choix
+                <Undo2 className="mr-2 h-4 w-4" /> Remettre au choix (sans déduire)
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
