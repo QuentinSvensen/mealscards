@@ -25,6 +25,7 @@ interface MealCardProps {
   hideDelete?: boolean;
   expirationLabel?: string | null;
   expirationDate?: string | null;
+  expirationIsToday?: boolean;
   expiringIngredientName?: string | null;
   expiredIngredientNames?: Set<string>;
   maxIngredientCounter?: number | null;
@@ -33,23 +34,16 @@ interface MealCardProps {
 
 interface IngLine { qty: string; count: string; name: string; isOr: boolean; }
 
-/**
- * Parse a single ingredient token (within one OR-group alternative).
- * Fix: unit suffix must be adjacent to number (no space), so "3 oeufs" → count=3, name=oeufs.
- */
 function parseIngredientLine(raw: string): IngLine {
   const trimmed = raw.trim();
-  // e.g. "100g 3 oeufs" → qty=100, count=3, name=oeufs
   const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
   if (matchFull) {
     return { qty: matchFull[1], count: matchFull[3], name: matchFull[4].trim(), isOr: false };
   }
-  // e.g. "100g poulet" (unit attached to number, no space between)
   const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(.*)/i);
   if (matchUnit) {
     return { qty: matchUnit[1], count: "", name: matchUnit[3].trim(), isOr: false };
   }
-  // e.g. "3 oeufs" → count=3, name=oeufs
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
   if (matchNum) {
     return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false };
@@ -64,11 +58,6 @@ function formatQty(qty: string): string {
   return trimmed;
 }
 
-/**
- * Parse ingredient string into IngLines with OR support.
- * Format: "100g poulet | 80g dinde, 50g salade" 
- * → groups separated by ",", alternatives within group by "|"
- */
 function parseIngredientsToLines(raw: string | null): IngLine[] {
   if (!raw) return [{ qty: "", count: "", name: "", isOr: false }];
   const groups = raw.split(/,/).map(s => s.trim()).filter(Boolean);
@@ -117,7 +106,7 @@ function normalizeIngName(name: string): string {
   return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/,"").trim();
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -159,7 +148,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
   };
 
   const toggleOr = (idx: number) => {
-    if (idx === 0) return; // First line can't be OR
+    if (idx === 0) return;
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], isOr: !next[idx].isOr };
@@ -224,7 +213,6 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           </div>
           {ingLines.map((line, idx) => (
             <div key={idx} className="grid grid-cols-[1.5rem_3.5rem_2.5rem_1fr] gap-1">
-              {/* OR toggle */}
               <button
                 type="button"
                 onClick={() => toggleOr(idx)}
@@ -273,10 +261,10 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
         </div>
       ) : (
         <>
-          {/* Title + options row: flex-wrap so options go below when title is long */}
-          <div className="flex items-center gap-1 flex-wrap">
-            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-1">{meal.name}</span>
-            {/* Options inline, will wrap to next line if needed */}
+          {/* Title row */}
+          <div className="flex items-start gap-1 flex-wrap">
+            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">{meal.name}</span>
+            {/* Options row - wraps below title on narrow screens */}
             <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
               {maxIngredientCounter !== null && maxIngredientCounter !== undefined && maxIngredientCounter > 0 && (
                 <span className="text-xs text-white/80 bg-orange-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold">
@@ -355,9 +343,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
             <div className="flex items-start gap-2 mt-1">
               {expirationLabel && (
                 <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
-                  expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
-                    ? 'text-red-200 bg-red-500/30'
-                    : 'text-white/70 bg-white/20'
+                  expirationIsToday
+                    ? 'text-red-200 bg-red-500/30 ring-2 ring-red-500'
+                    : expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
+                      ? 'text-red-200 bg-red-500/30'
+                      : 'text-white/70 bg-white/20'
                 }`}>
                   📅 {expirationLabel}
                 </span>
@@ -381,7 +371,6 @@ function renderIngredientDisplay(
   expiredIngredientNames?: Set<string>,
   missingIngredientNames?: Set<string>,
 ) {
-  // Split by comma to get groups, within each group split by | for alternatives
   const groups = ingredients.split(/,/).map(s => s.trim()).filter(Boolean);
   const elements: React.ReactNode[] = [];
   

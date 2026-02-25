@@ -52,6 +52,11 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
   if (!meal) return null;
 
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
+  const expIsToday = pm.expiration_date ? (() => {
+    const d = new Date(pm.expiration_date!);
+    const today = new Date();
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  })() : false;
   const counterDays = getCounterDays(pm.counter_start_date);
   const counterUrgent = counterDays !== null && counterDays >= 3;
 
@@ -71,7 +76,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : isExpired ? 'ring-2 ring-red-500' : ''}`}
+      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
       {/* Row 1: name + counter inline + actions */}
@@ -164,7 +169,9 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
             <button
-              className={`h-5 min-w-[88px] border border-white/20 bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center hover:bg-white/20 transition-colors ${isExpired ? 'text-red-200' : ''}`}
+              className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center hover:bg-white/20 transition-colors ${
+                expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200' : isExpired ? 'border-white/20 text-red-200' : 'border-white/20'
+              }`}
             >
               {pm.expiration_date
                 ? format(parseISO(pm.expiration_date), 'd MMM yy', { locale: fr })
