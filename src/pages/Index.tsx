@@ -362,17 +362,21 @@ const Index = () => {
     });
   };
 
-  /** Deduct ingredients from stock — called ONLY when removing from possible (consuming) */
+  /** Deduct ingredients from stock */
   const deductIngredientsFromStock = async (meal: Meal) => {
     if (!meal.ingredients?.trim()) return;
-    const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+    // Parse OR groups: for each group, pick the first alternative that exists in stock
+    const groups = parseIngredientGroups(meal.ingredients);
     const stockMap = buildStockMap(foodItems);
 
     const updates: Array<{id: string; grams?: string | null; quantity?: number | null; delete?: boolean;}> = [];
 
-    for (const ing of ingredients) {
-      const { qty: neededGrams, count: neededCount, name } = parseIngredientLine(ing);
+    for (const group of groups) {
+      // Find the best alternative in stock
+      const alt = pickBestAlternative(group, stockMap);
+      if (!alt) continue;
 
+      const { qty: neededGrams, count: neededCount, name } = alt;
       const key = findStockKey(stockMap, name);
       if (!key) continue;
 
@@ -383,7 +387,6 @@ const Index = () => {
         return strictNameMatch(fi.name, key) && !fi.is_infinite;
       });
 
-      // Deduct by count (e.g., 5 oeufs)
       if (neededCount > 0) {
         let toDeduct = neededCount;
         for (const fi of matchingItems) {
@@ -398,9 +401,7 @@ const Index = () => {
             updates.push({ id: fi.id, quantity: remaining });
           }
         }
-      }
-      // Deduct by grams — use quantity-based deduction if item has quantity
-      else if (neededGrams > 0) {
+      } else if (neededGrams > 0) {
         let toDeduct = neededGrams;
         for (const fi of matchingItems) {
           if (toDeduct <= 0) break;
@@ -408,7 +409,6 @@ const Index = () => {
           if (fiGrams <= 0) continue;
           
           if (fi.quantity && fi.quantity >= 1) {
-            // Quantity mode: total = qty * per_unit_grams, deduct from total, recalculate
             const perUnit = fiGrams;
             const totalAvailable = perUnit * fi.quantity;
             const deduct = Math.min(totalAvailable, toDeduct);
@@ -420,7 +420,8 @@ const Index = () => {
               const fullUnits = Math.floor(remaining / perUnit);
               const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
               if (remainder > 0) {
-                updates.push({ id: fi.id, quantity: fullUnits + 1, grams: String(remainder) });
+                // Keep the default grams, but adjust quantity and store remainder
+                updates.push({ id: fi.id, quantity: fullUnits + 1 });
               } else if (fullUnits > 0) {
                 updates.push({ id: fi.id, quantity: fullUnits });
               } else {
@@ -428,7 +429,6 @@ const Index = () => {
               }
             }
           } else {
-            // No quantity: grams is total
             const totalGrams = fiGrams;
             const deduct = Math.min(totalGrams, toDeduct);
             const remaining = totalGrams - deduct;
@@ -457,10 +457,15 @@ const Index = () => {
   /** Restore ingredients to stock (reverse of deductIngredientsFromStock) */
   const restoreIngredientsToStock = async (meal: Meal) => {
     if (!meal.ingredients?.trim()) return;
-    const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
+    const groups = parseIngredientGroups(meal.ingredients);
 
-    for (const ing of ingredients) {
-      const { qty: neededGrams, count: neededCount, name } = parseIngredientLine(ing);
+    for (const group of groups) {
+      // Restore the first alternative found in stock (or first alt if none found)
+      const stockMap = buildStockMap(foodItems);
+      const alt = pickBestAlternative(group, stockMap) || group[0];
+      if (!alt) continue;
+
+      const { qty: neededGrams, count: neededCount, name } = alt;
       const matchingItems = foodItems.filter((fi) => {
         return strictNameMatch(fi.name, name) && !fi.is_infinite;
       });
@@ -474,7 +479,6 @@ const Index = () => {
       } else if (neededGrams > 0) {
         const fiGrams = parseQty(fi.grams);
         if (fi.quantity && fi.quantity >= 1 && fiGrams > 0) {
-          // Quantity mode: restore whole units
           const unitsToRestore = Math.ceil(neededGrams / fiGrams);
           const newQty = (fi.quantity) + unitsToRestore;
           await supabase.from("food_items").update({ quantity: newQty } as any).eq("id", fi.id);
@@ -503,6 +507,54 @@ const Index = () => {
     }
 
     qc.invalidateQueries({ queryKey: ["food_items"] });
+  };
+
+  /** Deduct name-match stock (for is_meal food items or name-matched recipes) */
+  const deductNameMatchStock = async (meal: Meal) => {
+    const mealGrams = parseQty(meal.grams);
+    if (mealGrams <= 0) {
+      // No grams specified — deduct 1 from quantity
+      const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
+      if (nameMatch) {
+        const currentQty = nameMatch.quantity ?? 1;
+        if (currentQty <= 1) {
+          await supabase.from("food_items").delete().eq("id", nameMatch.id);
+        } else {
+          await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", nameMatch.id);
+        }
+        qc.invalidateQueries({ queryKey: ["food_items"] });
+      }
+      return;
+    }
+    const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
+    if (nameMatch) {
+      const fiGrams = parseQty(nameMatch.grams);
+      if (nameMatch.quantity && nameMatch.quantity >= 1 && fiGrams > 0) {
+        const totalAvailable = fiGrams * nameMatch.quantity;
+        const remaining = totalAvailable - mealGrams;
+        if (remaining <= 0) {
+          await supabase.from("food_items").delete().eq("id", nameMatch.id);
+        } else {
+          const fullUnits = Math.floor(remaining / fiGrams);
+          const remainder = Math.round((remaining - fullUnits * fiGrams) * 10) / 10;
+          if (remainder > 0) {
+            await supabase.from("food_items").update({ quantity: fullUnits + 1 } as any).eq("id", nameMatch.id);
+          } else if (fullUnits > 0) {
+            await supabase.from("food_items").update({ quantity: fullUnits } as any).eq("id", nameMatch.id);
+          } else {
+            await supabase.from("food_items").delete().eq("id", nameMatch.id);
+          }
+        }
+      } else {
+        const remaining = Math.max(0, fiGrams - mealGrams);
+        if (remaining <= 0) {
+          await supabase.from("food_items").delete().eq("id", nameMatch.id);
+        } else {
+          await supabase.from("food_items").update({ grams: String(Math.round(remaining * 10) / 10) } as any).eq("id", nameMatch.id);
+        }
+      }
+      qc.invalidateQueries({ queryKey: ["food_items"] });
+    }
   };
 
   const handleExportMeals = () => {
@@ -813,18 +865,31 @@ const Index = () => {
                   onToggleSort={() => toggleAvailableSort(cat.value)}
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
-                  onMoveToPossible={(mealId) => {
+                  onMoveToPossible={async (mealId) => {
+                    // Deduct stock when moving to possible
                     const meal = meals.find(m => m.id === mealId);
+                    if (meal) {
+                      await deductIngredientsFromStock(meal);
+                    }
                     const expDate = meal ? getEarliestIngredientExpiration(meal, foodItems) : null;
                     moveToPossible.mutate({ mealId, expiration_date: expDate });
                   }}
-                  onMoveToPossibleWithoutDeduction={(id) => {
-                    moveToPossible.mutate({ mealId: id });
-                  }}
-                  onMoveNameMatchToPossible={(meal, fi) => {
+                  onMoveNameMatchToPossible={async (meal, fi) => {
+                    // Deduct name-match stock
+                    await deductNameMatchStock(meal);
                     moveToPossible.mutate({ mealId: meal.id, expiration_date: fi.expiration_date });
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
+                    // Deduct 1 from food item quantity
+                    if (!fi.is_infinite) {
+                      const currentQty = fi.quantity ?? 1;
+                      if (currentQty <= 1) {
+                        await supabase.from("food_items").delete().eq("id", fi.id);
+                      } else {
+                        await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", fi.id);
+                      }
+                      qc.invalidateQueries({ queryKey: ["food_items"] });
+                    }
                     await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
@@ -836,33 +901,28 @@ const Index = () => {
                 sortMode={sortModes[cat.value] || "manual"}
                 onToggleSort={() => toggleSort(cat.value)}
                 onRandomPick={() => handleRandomPick(cat.value)}
-                onRemove={async (id) => {
-                  // Deduct stock ONLY when removing from possible (consuming)
+                onRemove={(id) => {
+                  // Arrow (consume): just remove, stock already deducted
+                  removeFromPossible.mutate(id);
+                }}
+                onReturnWithoutDeduction={async (id) => {
+                  // Restore stock and remove from possible
                   const allPossible = getPossibleByCategory(cat.value);
                   const pm = allPossible.find(p => p.id === id);
                   if (pm?.meals) {
-                    await deductIngredientsFromStock(pm.meals);
-                    // Also deduct name-match grams if applicable
+                    await restoreIngredientsToStock(pm.meals);
+                    // Also restore name-match
                     const mealGrams = parseQty(pm.meals.grams);
                     if (mealGrams > 0) {
                       const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
                       if (nameMatch) {
                         const fiGrams = parseQty(nameMatch.grams);
                         if (nameMatch.quantity && nameMatch.quantity >= 1 && fiGrams > 0) {
-                          const unitsNeeded = Math.ceil(mealGrams / fiGrams);
-                          const remaining = Math.max(0, (nameMatch.quantity) - unitsNeeded);
-                          if (remaining <= 0) {
-                            await supabase.from("food_items").delete().eq("id", nameMatch.id);
-                          } else {
-                            await supabase.from("food_items").update({ quantity: remaining } as any).eq("id", nameMatch.id);
-                          }
+                          const unitsToRestore = Math.ceil(mealGrams / fiGrams);
+                          await supabase.from("food_items").update({ quantity: (nameMatch.quantity) + unitsToRestore } as any).eq("id", nameMatch.id);
                         } else {
-                          const remaining = Math.max(0, fiGrams - mealGrams);
-                          if (remaining <= 0) {
-                            await supabase.from("food_items").delete().eq("id", nameMatch.id);
-                          } else {
-                            await supabase.from("food_items").update({ grams: String(Math.round(remaining * 10) / 10) } as any).eq("id", nameMatch.id);
-                          }
+                          const newTotal = fiGrams + mealGrams;
+                          await supabase.from("food_items").update({ grams: String(Math.round(newTotal * 10) / 10) } as any).eq("id", nameMatch.id);
                         }
                         qc.invalidateQueries({ queryKey: ["food_items"] });
                       }
@@ -870,11 +930,10 @@ const Index = () => {
                   }
                   removeFromPossible.mutate(id);
                 }}
-                onReturnWithoutDeduction={(id) => {
-                  // Just remove from possible, no stock change at all
-                  removeFromPossible.mutate(id);
+                onDelete={(id) => {
+                  // Delete: just remove, stock already deducted
+                  deletePossibleMeal.mutate(id);
                 }}
-                onDelete={(id) => deletePossibleMeal.mutate(id)}
                 onDuplicate={(id) => duplicatePossibleMeal.mutate(id)}
                 onUpdateExpiration={(id, d) => updateExpiration.mutate({ id, expiration_date: d })}
                 onUpdatePlanning={(id, day, time) => updatePlanning.mutate({ id, day_of_week: day, meal_time: time })}
@@ -909,14 +968,12 @@ function normalizeForMatch(text: string): string {
 
 /**
  * Strict name matching: handles singular/plural ('s'), case, diacritics, 
- * and at most 1 extra/missing character. Does NOT allow partial substring 
- * matching (e.g. "chocolat" ≠ "pain au chocolat").
+ * and at most 1 extra/missing character.
  */
 function strictNameMatch(a: string, b: string): boolean {
   const na = normalizeForMatch(a).replace(/s$/, "");
   const nb = normalizeForMatch(b).replace(/s$/, "");
   if (na === nb) return true;
-  // Allow at most 1 character difference (typo tolerance)
   if (Math.abs(na.length - nb.length) > 1) return false;
   let diff = 0;
   const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
@@ -935,7 +992,6 @@ function parseQty(qty: string | null | undefined): number {
 
 function parseIngredientLine(ing: string): {qty: number; count: number; name: string;} {
   const trimmed = ing.trim();
-  // e.g. "100g 3 oeufs" — unit attached to number
   const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
   if (matchFull) {
     return {
@@ -944,17 +1000,50 @@ function parseIngredientLine(ing: string): {qty: number; count: number; name: st
       name: normalizeForMatch(matchFull[4])
     };
   }
-  // e.g. "100g poulet" — unit attached to number (no space between number and unit)
   const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(.*)/i);
   if (matchUnit) {
     return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[3]) };
   }
-  // e.g. "3 oeufs" — plain number + name
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
   if (matchNum) {
     return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]) };
   }
   return { qty: 0, count: 0, name: normalizeForMatch(trimmed) };
+}
+
+/**
+ * Parse ingredient string into OR groups.
+ * Format: "100g poulet | 80g dinde, 50g salade"
+ * Returns: [[{poulet}, {dinde}], [{salade}]]
+ * Each inner array = OR alternatives for a single ingredient slot.
+ */
+function parseIngredientGroups(raw: string): Array<Array<{qty: number; count: number; name: string}>> {
+  if (!raw?.trim()) return [];
+  const groups = raw.split(/,/).map(s => s.trim()).filter(Boolean);
+  return groups.map(group => {
+    const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+    return alts.map(alt => parseIngredientLine(alt));
+  });
+}
+
+/**
+ * For an OR group, pick the first alternative that exists in stock with sufficient quantity.
+ * Returns the parsed ingredient line of the best match, or null if none match.
+ */
+function pickBestAlternative(
+  alts: Array<{qty: number; count: number; name: string}>,
+  stockMap: Map<string, StockInfo>
+): {qty: number; count: number; name: string} | null {
+  for (const alt of alts) {
+    const key = findStockKey(stockMap, alt.name);
+    if (!key) continue;
+    const stock = stockMap.get(key)!;
+    if (stock.infinite) return alt;
+    if (alt.count > 0 && stock.count >= alt.count) return alt;
+    if (alt.qty > 0 && stock.grams >= alt.qty) return alt;
+    if (alt.count === 0 && alt.qty === 0) return alt; // Name-only match
+  }
+  return null;
 }
 
 interface StockInfo {
@@ -992,24 +1081,47 @@ function findStockKey(stockMap: Map<string, StockInfo>, name: string): string | 
   return null;
 }
 
+/**
+ * Get meal multiple: how many times this recipe can be made.
+ * Now supports OR groups — for each group, at least one alternative must be available.
+ */
 function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number | null {
   if (!meal.ingredients?.trim()) return null;
-  const ingredients = meal.ingredients.split(/[,\n]+/).map((s) => s.trim()).filter(Boolean);
-  if (ingredients.length === 0) return null;
+  const groups = parseIngredientGroups(meal.ingredients);
+  if (groups.length === 0) return null;
   let multiple = Infinity;
-  for (const ing of ingredients) {
-    const { qty: neededGrams, count: neededCount, name } = parseIngredientLine(ing);
-    const key = findStockKey(stockMap, name);
-    if (key === null) return null;
-    const stock = stockMap.get(key)!;
-    if (stock.infinite) continue;
-    if (neededCount > 0) {
-      if (stock.count < neededCount) return null;
-      multiple = Math.min(multiple, Math.floor(stock.count / neededCount));
-    } else if (neededGrams > 0) {
-      if (stock.grams < neededGrams) return null;
-      multiple = Math.min(multiple, Math.floor(stock.grams / neededGrams));
+
+  for (const group of groups) {
+    // For each group, find the best alternative and compute how many times it can provide
+    let bestGroupMultiple = 0;
+    let anyMatch = false;
+
+    for (const alt of group) {
+      const key = findStockKey(stockMap, alt.name);
+      if (key === null) continue;
+      const stock = stockMap.get(key)!;
+      if (stock.infinite) { bestGroupMultiple = Infinity; anyMatch = true; break; }
+      let altMultiple = 0;
+      if (alt.count > 0) {
+        if (stock.count >= alt.count) {
+          altMultiple = Math.floor(stock.count / alt.count);
+          anyMatch = true;
+        }
+      } else if (alt.qty > 0) {
+        if (stock.grams >= alt.qty) {
+          altMultiple = Math.floor(stock.grams / alt.qty);
+          anyMatch = true;
+        }
+      } else {
+        // Name-only match (no qty/grams required)
+        altMultiple = Infinity;
+        anyMatch = true;
+      }
+      bestGroupMultiple = Math.max(bestGroupMultiple, altMultiple);
     }
+
+    if (!anyMatch) return null;
+    multiple = Math.min(multiple, bestGroupMultiple);
   }
   return multiple === Infinity ? Infinity : multiple;
 }
@@ -1017,15 +1129,16 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number |
 /** Find earliest expiration date among food items that match any ingredient of a meal */
 function getEarliestIngredientExpiration(meal: Meal, foodItems: FoodItem[]): string | null {
   if (!meal.ingredients?.trim()) return null;
-  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  const groups = parseIngredientGroups(meal.ingredients);
   let earliest: string | null = null;
 
-  for (const ing of ingredients) {
-    const { name } = parseIngredientLine(ing);
-    for (const fi of foodItems) {
-      if (strictNameMatch(fi.name, name) && fi.expiration_date) {
-        if (!earliest || fi.expiration_date < earliest) {
-          earliest = fi.expiration_date;
+  for (const group of groups) {
+    for (const alt of group) {
+      for (const fi of foodItems) {
+        if (strictNameMatch(fi.name, alt.name) && fi.expiration_date) {
+          if (!earliest || fi.expiration_date < earliest) {
+            earliest = fi.expiration_date;
+          }
         }
       }
     }
@@ -1036,17 +1149,18 @@ function getEarliestIngredientExpiration(meal: Meal, foodItems: FoodItem[]): str
 /** Get the ingredient name with earliest expiration */
 function getExpiringIngredientName(meal: Meal, foodItems: FoodItem[]): string | null {
   if (!meal.ingredients?.trim()) return null;
-  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  const groups = parseIngredientGroups(meal.ingredients);
   let earliest: string | null = null;
   let earliestIngName: string | null = null;
 
-  for (const ing of ingredients) {
-    const { name } = parseIngredientLine(ing);
-    for (const fi of foodItems) {
-      if (strictNameMatch(fi.name, name) && fi.expiration_date) {
-        if (!earliest || fi.expiration_date < earliest) {
-          earliest = fi.expiration_date;
-          earliestIngName = name;
+  for (const group of groups) {
+    for (const alt of group) {
+      for (const fi of foodItems) {
+        if (strictNameMatch(fi.name, alt.name) && fi.expiration_date) {
+          if (!earliest || fi.expiration_date < earliest) {
+            earliest = fi.expiration_date;
+            earliestIngName = alt.name;
+          }
         }
       }
     }
@@ -1059,14 +1173,15 @@ function getExpiredIngredientNames(meal: Meal, foodItems: FoodItem[]): Set<strin
   const expired = new Set<string>();
   if (!meal.ingredients?.trim()) return expired;
   const today = new Date(new Date().toDateString());
-  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  const groups = parseIngredientGroups(meal.ingredients);
   
-  for (const ing of ingredients) {
-    const { name } = parseIngredientLine(ing);
-    for (const fi of foodItems) {
-      if (strictNameMatch(fi.name, name) && fi.expiration_date) {
-        if (new Date(fi.expiration_date) < today) {
-          expired.add(name);
+  for (const group of groups) {
+    for (const alt of group) {
+      for (const fi of foodItems) {
+        if (strictNameMatch(fi.name, alt.name) && fi.expiration_date) {
+          if (new Date(fi.expiration_date) < today) {
+            expired.add(alt.name);
+          }
         }
       }
     }
@@ -1077,15 +1192,16 @@ function getExpiredIngredientNames(meal: Meal, foodItems: FoodItem[]): Set<strin
 /** Get max counter days among all ingredients of a meal */
 function getMaxIngredientCounter(meal: Meal, foodItems: FoodItem[]): number | null {
   if (!meal.ingredients?.trim()) return null;
-  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
+  const groups = parseIngredientGroups(meal.ingredients);
   let maxDays: number | null = null;
 
-  for (const ing of ingredients) {
-    const { name } = parseIngredientLine(ing);
-    for (const fi of foodItems) {
-      if (strictNameMatch(fi.name, name) && fi.counter_start_date) {
-        const days = Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000);
-        if (maxDays === null || days > maxDays) maxDays = days;
+  for (const group of groups) {
+    for (const alt of group) {
+      for (const fi of foodItems) {
+        if (strictNameMatch(fi.name, alt.name) && fi.counter_start_date) {
+          const days = Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000);
+          if (maxDays === null || days > maxDays) maxDays = days;
+        }
       }
     }
   }
@@ -1106,30 +1222,45 @@ function isFoodUsedInMeals(fi: FoodItem, mealsToCheck: Meal[]): boolean {
   const fiKey = normalizeForMatch(fi.name);
   return mealsToCheck.some(meal => {
     if (!meal.ingredients) return false;
-    const ings = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-    return ings.some(ing => {
-      const { name } = parseIngredientLine(ing);
-      return strictNameMatch(fiKey, name);
-    });
+    const groups = parseIngredientGroups(meal.ingredients);
+    return groups.some(group =>
+      group.some(alt => strictNameMatch(fiKey, alt.name))
+    );
   });
 }
 
-/** Get missing ingredient names for a meal (not in stock) */
+/** Get missing ingredient names for a meal (not in stock) — OR-aware */
 function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Set<string> {
   const missing = new Set<string>();
   if (!meal.ingredients?.trim()) return missing;
-  const ingredients = meal.ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  for (const ing of ingredients) {
-    const { name } = parseIngredientLine(ing);
-    const key = findStockKey(stockMap, name);
-    if (!key) missing.add(name);
+  const groups = parseIngredientGroups(meal.ingredients);
+
+  for (const group of groups) {
+    // For an OR group, if ANY alternative is in stock, the group is satisfied
+    let groupSatisfied = false;
+    for (const alt of group) {
+      const key = findStockKey(stockMap, alt.name);
+      if (key) {
+        const stock = stockMap.get(key)!;
+        if (stock.infinite) { groupSatisfied = true; break; }
+        if (alt.count > 0 && stock.count >= alt.count) { groupSatisfied = true; break; }
+        if (alt.qty > 0 && stock.grams >= alt.qty) { groupSatisfied = true; break; }
+        if (alt.count === 0 && alt.qty === 0) { groupSatisfied = true; break; }
+      }
+    }
+    if (!groupSatisfied) {
+      // Mark all alternatives in the group as missing
+      for (const alt of group) {
+        missing.add(alt.name);
+      }
+    }
   }
   return missing;
 }
 
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveToPossibleWithoutDeduction, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];possibleMeals: PossibleMeal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveToPossibleWithoutDeduction: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
+function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];possibleMeals: PossibleMeal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
 
   const stockMap = buildStockMap(foodItems);
 
@@ -1181,13 +1312,15 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
   // 3. is_meal food items — only if NOT already covered by a name-match above
   const isMealItems = foodItems.filter((fi) => fi.is_meal && !nameMatchedFiIds.has(fi.id));
 
-  // Orphan food items: not is_meal, not name-matched, not "toujours", not used in any recipe
-  const allAvailableMeals = allMeals.filter(m => m.is_available);
+  // Orphan food items: not is_meal, not name-matched, not "toujours",
+  // not used in any available recipe of THIS category specifically
+  const categoryMeals = allMeals.filter(m => m.is_available && m.category === category.value);
   const orphanFoodItems = foodItems.filter((fi) => {
     if (fi.is_meal) return false;
     if ((fi as any).storage_type === 'toujours') return false;
     if (nameMatchedFiIds.has(fi.id)) return false;
-    if (isFoodUsedInMeals(fi, allAvailableMeals)) return false;
+    // Check if used in ANY recipe of this category
+    if (isFoodUsedInMeals(fi, categoryMeals)) return false;
     return true;
   }).sort((a, b) => {
     if (!a.expiration_date && !b.expiration_date) return 0;
@@ -1207,7 +1340,6 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
     sortedNameMatches.sort((a, b) => parseCal(a.meal.calories) - parseCal(b.meal.calories));
     sortedIsMealItems.sort((a, b) => parseCal(a.calories) - parseCal(b.calories));
   } else if (sortMode === "expiration") {
-    // Sort by earliest ingredient expiration, expired first with highest counter days first
     const getExpSort = (meal: Meal) => {
       const exp = getEarliestIngredientExpiration(meal, foodItems);
       const counter = getMaxIngredientCounter(meal, foodItems);
@@ -1219,18 +1351,15 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
       const today = new Date(new Date().toDateString());
       const aExpired = sa.exp && new Date(sa.exp) < today;
       const bExpired = sb.exp && new Date(sb.exp) < today;
-      // Expired with counter first (highest counter first)
       if (aExpired && sa.counter !== null && (!bExpired || sb.counter === null)) return -1;
       if (bExpired && sb.counter !== null && (!aExpired || sa.counter === null)) return 1;
       if (aExpired && bExpired && sa.counter !== null && sb.counter !== null) {
         if (sb.counter !== sa.counter) return sb.counter - sa.counter;
         return (sa.exp || "").localeCompare(sb.exp || "");
       }
-      // Non-expired with counter
       if (sa.counter !== null && sb.counter === null) return -1;
       if (sb.counter !== null && sa.counter === null) return 1;
       if (sa.counter !== null && sb.counter !== null) return sb.counter - sa.counter;
-      // By expiration date
       if (!sa.exp && !sb.exp) return 0;
       if (!sa.exp) return 1;
       if (!sb.exp) return -1;
@@ -1259,6 +1388,13 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
   const SortIcon = sortMode === "calories" ? Flame : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
   const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "expiration" ? "Péremption" : "Manuel";
 
+  const isToday = (dateStr: string | null) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    const today = new Date();
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  };
+
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
       <div className="flex items-center gap-2 w-full">
@@ -1282,6 +1418,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
           {sortedIsMealItems.map((fi) => {
             const expLabel = formatExpirationLabel(fi.expiration_date);
             const isExpired = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
+            const expIsToday = isToday(fi.expiration_date);
             const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
               ? `${parseQty(fi.grams) * fi.quantity}g`
               : (fi.is_infinite ? "∞" : fi.grams ?? null);
@@ -1313,6 +1450,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   expirationLabel={expLabel}
                   expirationDate={fi.expiration_date}
+                  expirationIsToday={expIsToday}
                   maxIngredientCounter={counterDays} />
                 {fi.quantity && fi.quantity > 1 && (
                   <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
@@ -1329,6 +1467,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
             const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
               ? `${parseQty(fi.grams) * fi.quantity}g`
               : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
+            const expIsToday = isToday(fi.expiration_date);
             const fakeMeal: Meal = {
               ...meal,
               id: `nm-${meal.id}-${fi.id}`,
@@ -1346,6 +1485,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
                   hideDelete
                   expirationLabel={expLabel}
                   expirationDate={fi.expiration_date}
+                  expirationIsToday={expIsToday}
                   maxIngredientCounter={counterDays} />
                 <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                   {fi.is_infinite
@@ -1362,6 +1502,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
             const expiringIng = getExpiringIngredientName(meal, foodItems);
             const expiredIngs = getExpiredIngredientNames(meal, foodItems);
             const maxCounter = getMaxIngredientCounter(meal, foodItems);
+            const expIsToday = isToday(expDate);
             return (
               <div key={meal.id} className="relative">
                 <MealCard meal={meal}
@@ -1373,6 +1514,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
                   hideDelete
                   expirationLabel={expLabel}
                   expirationDate={expDate}
+                  expirationIsToday={expIsToday}
                   expiringIngredientName={expiringIng}
                   expiredIngredientNames={expiredIngs}
                   maxIngredientCounter={maxCounter} />

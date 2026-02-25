@@ -199,6 +199,11 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
   const [calOpen, setCalOpen] = useState(false);
 
   const expired = isExpiredDate(item.expiration_date);
+  const expIsToday = item.expiration_date ? (() => {
+    const d = new Date(item.expiration_date!);
+    const today = new Date();
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  })() : false;
   const counterDays = getCounterDays(item.counter_start_date);
   const counterUrgent = counterDays !== null && counterDays >= 3;
 
@@ -248,7 +253,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500' : ''}`}
+      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500' : ''} ${expIsToday ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: color }}
     >
       {/* Row 1: name + badges + actions */}
@@ -398,7 +403,9 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
         {/* Expiration date picker */}
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
-            <button className={`h-5 min-w-[88px] border border-white/20 bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${expired ? 'text-red-200' : ''}`}>
+            <button className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${
+              expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200' : expired ? 'border-white/20 text-red-200' : 'border-white/20'
+            }`}>
               <Calendar className="h-2.5 w-2.5 shrink-0" />
               {item.expiration_date
                 ? format(parseISO(item.expiration_date), 'd MMM yy', { locale: fr })
