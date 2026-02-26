@@ -1596,17 +1596,68 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
     return true;
    });
 
-  // 4. Unused food items: items not used in ANY recipe across ALL categories, excluding "toujours"
+  // 4. Unused food items: items whose stock is not consumed by any AVAILABLE recipe across ALL categories
   const unusedFoodItems = (() => {
-    const nonToujoursItems = foodItems.filter(fi => fi.storage_type !== 'toujours' && !fi.is_infinite);
+    const nonToujoursItems = foodItems.filter(fi => fi.storage_type !== 'toujours');
+
+    // Build a global list of available meals (feasible, multiple > 0) across ALL categories
+    const globalAvailableMeals: Meal[] = allMeals.filter(meal => {
+      if (!meal.ingredients?.trim()) return false;
+      const m = getMealMultiple(meal, stockMap);
+      return m !== null && m > 0;
+    });
+
+    // Also consider name-match meals (meals without ingredients that match a food item name)
+    const nameMatchMealNames = new Set<string>();
+    for (const meal of allMeals) {
+      if (meal.ingredients?.trim()) continue;
+      for (const fi of foodItems) {
+        if (strictNameMatch(meal.name, fi.name)) {
+          nameMatchMealNames.add(normalizeForMatch(fi.name));
+          break;
+        }
+      }
+    }
+
+    // Build a set of all ingredient names used by available recipes
+    const usedIngredientKeys = new Set<string>();
+    for (const meal of globalAvailableMeals) {
+      const groups = parseIngredientGroups(meal.ingredients!);
+      for (const group of groups) {
+        // Find which alternative is actually available in stock
+        for (const alt of group) {
+          const key = findStockKey(stockMap, alt.name);
+          if (key !== null) {
+            const stock = stockMap.get(key)!;
+            if (stock.infinite || stock.grams > 0 || stock.count > 0) {
+              usedIngredientKeys.add(key);
+            }
+          }
+        }
+      }
+    }
+
+    // Also add name-match items as "used"
+    for (const nmKey of nameMatchMealNames) {
+      usedIngredientKeys.add(nmKey);
+    }
+
     return nonToujoursItems.filter(fi => {
+      if (fi.is_infinite) {
+        // Infinite items are unused only if no available recipe uses them
+        const fiKey = normalizeForMatch(fi.name);
+        // Check with strict matching
+        for (const usedKey of usedIngredientKeys) {
+          if (strictNameMatch(fiKey, usedKey)) return false;
+        }
+        return true;
+      }
       const fiKey = normalizeForMatch(fi.name);
-      // Check if this item is used as ingredient in any available recipe across ALL categories
-      return !allMeals.some(meal => {
-        if (!meal.ingredients) return false;
-        const groups = parseIngredientGroups(meal.ingredients);
-        return groups.some(group => group.some(alt => strictNameMatch(fiKey, alt.name)));
-      });
+      // Check with strict matching against used ingredient keys
+      for (const usedKey of usedIngredientKeys) {
+        if (strictNameMatch(fiKey, usedKey)) return false;
+      }
+      return true;
     });
   })();
 
