@@ -26,6 +26,7 @@ interface PossibleMealCardProps {
   onUpdateCalories: (cal: string | null) => void;
   onUpdateGrams: (g: string | null) => void;
   onUpdateIngredients: (ing: string | null) => void;
+  onUpdatePossibleIngredients?: (newIngredients: string | null) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -43,13 +44,16 @@ function getCounterDays(startDate: string | null): number | null {
   return Math.floor(diff / 86400000);
 }
 
-export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
+export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
   const [editing, setEditing] = useState<"calories" | "grams" | "ingredients" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
 
   const meal = pm.meals;
   if (!meal) return null;
+
+  // Use override if available, otherwise fall back to recipe ingredients
+  const displayIngredients = pm.ingredients_override ?? meal.ingredients;
 
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const expIsToday = pm.expiration_date ? (() => {
@@ -64,7 +68,14 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
     const val = editValue.trim() || null;
     if (editing === "calories") onUpdateCalories(val);
     if (editing === "grams") onUpdateGrams(val);
-    if (editing === "ingredients") onUpdateIngredients(val);
+    if (editing === "ingredients") {
+      // Save to possible_meals override (not the source recipe)
+      if (onUpdatePossibleIngredients) {
+        onUpdatePossibleIngredients(val);
+      } else {
+        onUpdateIngredients(val);
+      }
+    }
     setEditing(null);
   };
 
@@ -136,7 +147,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
             <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
               <Weight className="mr-2 h-4 w-4" /> Grammes
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { setEditValue(meal.ingredients || ""); setEditing("ingredients"); }}>
+            <DropdownMenuItem onClick={() => { setEditValue(displayIngredients || ""); setEditing("ingredients"); }}>
               <List className="mr-2 h-4 w-4" /> Ingrédients
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onUpdateCounter(pm.counter_start_date ? null : new Date().toISOString())}>
@@ -228,9 +239,9 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
       </div>
 
       {/* Row 3: ingredients */}
-      {!editing && meal.ingredients && (
+      {!editing && displayIngredients && (
         <div className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1">
-          {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => (
+          {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => (
             <span key={i}>{ing.trim()}{i < arr.length - 1 ? ' •' : ''}</span>
           ))}
         </div>

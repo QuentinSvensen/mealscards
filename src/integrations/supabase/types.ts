@@ -159,6 +159,7 @@ export type Database = {
           day_of_week: string | null
           expiration_date: string | null
           id: string
+          ingredients_override: string | null
           meal_id: string
           meal_time: string | null
           quantity: number
@@ -171,6 +172,7 @@ export type Database = {
           day_of_week?: string | null
           expiration_date?: string | null
           id?: string
+          ingredients_override?: string | null
           meal_id: string
           meal_time?: string | null
           quantity?: number
@@ -183,6 +185,7 @@ export type Database = {
           day_of_week?: string | null
           expiration_date?: string | null
           id?: string
+          ingredients_override?: string | null
           meal_id?: string
           meal_time?: string | null
           quantity?: number

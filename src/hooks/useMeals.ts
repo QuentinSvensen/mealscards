@@ -32,6 +32,7 @@ export interface PossibleMeal {
   sort_order: number;
   created_at: string;
   meals: Meal;
+  ingredients_override: string | null;
 }
 
 export const DAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
@@ -319,7 +320,17 @@ export function useMeals() {
     onSuccess: invalidateAll,
   });
 
-  // --- Helpers ---
+  const updatePossibleIngredients = useMutation({
+    mutationFn: async ({ id, ingredients_override }: { id: string; ingredients_override: string | null }) => {
+      const { error } = await (supabase as any)
+        .from("possible_meals")
+        .update({ ingredients_override })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+  });
+
 
   const getMealsByCategory = (cat: string) =>
     meals.filter((m) => m.category === cat && m.is_available).sort((a, b) => a.sort_order - b.sort_order);
@@ -358,7 +369,7 @@ export function useMeals() {
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
-    deletePossibleMeal, reorderPossibleMeals,
+    deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible,
   };
 }
