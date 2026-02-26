@@ -194,7 +194,13 @@ const Index = () => {
   const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
   const { getPreference, setPreference } = usePreferences();
 
-  const [activeCategory, setActiveCategory] = useState<MealCategory>("plat");
+  const [activeCategory, setActiveCategory] = useState<MealCategory>(() => {
+    if (location.pathname === '/repas') {
+      const hour = new Date().getHours();
+      return hour < 11 ? "petit_dejeuner" : "plat";
+    }
+    return "plat";
+  });
   const [newName, setNewName] = useState("");
   const [newCategory, setNewCategory] = useState<MealCategory>("plat");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1046,9 +1052,7 @@ const Index = () => {
                     <AvailableList
                   category={cat}
                   meals={getMealsByCategory(cat.value)}
-                  allMeals={meals}
                   foodItems={foodItems}
-                  possibleMeals={possibleMeals}
                   sortMode={availableSortModes[cat.value] || "manual"}
                   onToggleSort={() => toggleAvailableSort(cat.value)}
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
@@ -1513,9 +1517,9 @@ function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Se
       }
     }
     if (!groupSatisfied) {
-      // Mark all alternatives in the group as missing
+      // Mark all alternatives in the group as missing (strip trailing 's' to match MealCard normalization)
       for (const alt of group) {
-        missing.add(alt.name);
+        missing.add(alt.name.replace(/s$/, ""));
       }
     }
   }
@@ -1523,8 +1527,8 @@ function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Se
 }
 
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];possibleMeals: PossibleMeal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
+function AvailableList({ category, meals, foodItems, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
 
   const stockMap = buildStockMap(foodItems);
 
@@ -1534,9 +1538,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
     .map((meal) => {
       const rawMultiple = getMealMultiple(meal, stockMap);
       if (rawMultiple === null) return { meal, multiple: null };
-      const inPossible = possibleMeals.filter(pm => pm.meal_id === meal.id).length;
-      const adjusted = rawMultiple === Infinity ? Infinity : rawMultiple - inPossible;
-      return { meal, multiple: adjusted };
+      return { meal, multiple: rawMultiple };
     })
     .filter(({ multiple }) => multiple !== null && (multiple === Infinity || (multiple as number) > 0));
   const availableMealIds = new Set(available.map(a => a.meal.id));
@@ -1557,14 +1559,13 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
         const mealGrams = parseQty(meal.grams);
         const stockGrams = fi.is_infinite ? Infinity : getFoodItemTotalGrams(fi);
         if (!fi.is_infinite && stockGrams <= 0) continue;
-        const inPossible = possibleMeals.filter(pm => pm.meal_id === meal.id).length;
         let portions: number | null = null;
         if (!fi.is_infinite && mealGrams > 0) {
-          portions = Math.floor(stockGrams / mealGrams) - inPossible;
+          portions = Math.floor(stockGrams / mealGrams);
           if (portions < 1) continue;
         } else if (!fi.is_infinite) {
           const rawPortions = fi.quantity ?? 1;
-          portions = rawPortions - inPossible;
+          portions = rawPortions;
           if (portions < 1) continue;
         }
         nameMatches.push({ meal, fi, portionsAvailable: fi.is_infinite ? null : portions });
@@ -1586,86 +1587,8 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
     return true;
   });
 
-  // Orphan food items: items from Aliments not used in ANY "au choix" recipe in THIS category
-  // Exception: "toujours" items never appear; infinite items never appear
-  // Cross-category: subtract usage from ALL other categories' realizable "au choix" recipes
-  // Only show the surplus that remains
-  const allAvailableMeals = allMeals.filter(m => m.is_available);
-  const thisCategoryMeals = allAvailableMeals.filter(m => m.category === category.value);
 
-  // Calculate total usage from ALL categories' realizable "au choix" recipes (except this one)
-  const otherCatMeals = allAvailableMeals.filter(m => m.category !== category.value);
-  const otherCatUsage = new Map<string, { grams: number; count: number }>();
-  for (const meal of otherCatMeals) {
-    if (!meal.ingredients?.trim()) continue;
-    const multiple = getMealMultiple(meal, stockMap);
-    if (multiple === null || multiple <= 0) continue;
-    const groups = parseIngredientGroups(meal.ingredients);
-    for (const group of groups) {
-      const alt = pickBestAlternative(group, stockMap);
-      if (!alt) continue;
-      const key = findStockKey(stockMap, alt.name);
-      if (!key) continue;
-      const prev = otherCatUsage.get(key) ?? { grams: 0, count: 0 };
-      if (alt.qty > 0) prev.grams += alt.qty;
-      if (alt.count > 0) prev.count += alt.count;
-      otherCatUsage.set(key, prev);
-    }
-  }
 
-  // Also calculate usage from THIS category's recipes (to exclude items that ARE used here)
-  const thisCatUsage = new Map<string, boolean>();
-  for (const meal of thisCategoryMeals) {
-    if (!meal.ingredients?.trim()) continue;
-    const groups = parseIngredientGroups(meal.ingredients);
-    for (const group of groups) {
-      for (const alt of group) {
-        const key = findStockKey(stockMap, alt.name);
-        if (key) thisCatUsage.set(key, true);
-      }
-    }
-  }
-
-  const orphanFoodItems: { fi: FoodItem; surplusGrams: number; surplusCount: number }[] = [];
-  const processedNames = new Set<string>();
-  for (const fi of foodItems) {
-    if (fi.is_meal) continue;
-    if (fi.storage_type === 'toujours') continue;
-    if (fi.is_infinite) continue;
-
-    const fiKey = normalizeForMatch(fi.name);
-    if (processedNames.has(fiKey)) continue;
-
-    const stockKey = findStockKey(stockMap, fiKey);
-    if (!stockKey) continue;
-
-    // If this ingredient IS used in this category's recipes, skip
-    if (thisCatUsage.has(stockKey)) continue;
-
-    const stock = stockMap.get(stockKey);
-    if (!stock || stock.infinite) continue;
-
-    processedNames.add(fiKey);
-
-    const otherUsage = otherCatUsage.get(stockKey);
-    const usedGrams = otherUsage?.grams ?? 0;
-    const usedCount = otherUsage?.count ?? 0;
-
-    const surplusGrams = stock.grams - usedGrams;
-    const surplusCount = stock.count - usedCount;
-
-    if (surplusGrams <= 0 && surplusCount <= 0) continue;
-
-    orphanFoodItems.push({ fi, surplusGrams, surplusCount });
-  }
-
-  // Already deduplicated by processedNames above, just sort by expiration
-  const dedupedOrphans = [...orphanFoodItems].sort((a, b) => {
-    if (!a.fi.expiration_date && !b.fi.expiration_date) return 0;
-    if (!a.fi.expiration_date) return 1;
-    if (!b.fi.expiration_date) return -1;
-    return a.fi.expiration_date.localeCompare(b.fi.expiration_date);
-  });
 
   // Sort available items based on sortMode
   let sortedAvailable = [...available];
@@ -1871,24 +1794,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
             );
           })}
 
-          {dedupedOrphans.length > 0 &&
-        <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
-              <p className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wide">Aliments inutilisés dans les recettes</p>
-              <div className="flex flex-wrap gap-1">
-              {dedupedOrphans.map(({ fi, surplusGrams }) => {
-                const isExpired = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
-                const displayGrams = surplusGrams > 0 ? `${formatNumeric(surplusGrams)}g` : null;
-                return (
-                  <span key={fi.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-500/20 text-red-600 dark:text-red-400 ring-1 ring-red-500/50 font-semibold' : 'bg-muted text-muted-foreground'}`}>
-                    {fi.name}{displayGrams ? ` ${displayGrams}` : ''}{fi.quantity && fi.quantity > 1 ? ` x${fi.quantity}` : ''}
-                  </span>
-                );
-              })}
-              </div>
-            </div>
-        }
-
-          {totalCount === 0 && dedupedOrphans.length === 0 &&
+          {totalCount === 0 &&
         <p className="text-muted-foreground text-sm text-center py-4 italic">
               Aucun repas réalisable avec les aliments disponibles
             </p>
@@ -1920,15 +1826,17 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
       onToggleCollapse={onToggleCollapse}
       headerActions={
       <>
-        <div className="relative mr-1">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-          <Input
-            placeholder="Rechercher..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="h-6 w-24 sm:w-32 pl-6 text-[10px] rounded-lg"
-          />
-        </div>
+        {!collapsed && (
+          <div className="relative mr-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-6 w-24 sm:w-32 pl-6 text-[10px] rounded-xl"
+            />
+          </div>
+        )}
         <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
           <SortIcon className={`h-3 w-3 ${sortMode === "favorites" ? "text-yellow-400 fill-yellow-400" : ""}`} />
           <span className="hidden sm:inline">{sortLabel}</span>
