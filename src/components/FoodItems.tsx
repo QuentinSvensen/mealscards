@@ -79,14 +79,14 @@ const FOOD_COLORS = [
   "hsl(325, 45%, 44%)",  // magenta rose
 ];
 
-/** Deterministic color from any string (id or name) — unique per input */
+/** Deterministic color from any string (id or name) — unique per input, FNV-1a for better distribution */
 export function colorFromName(input: string) {
-  let hash = 0;
+  let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
-    hash = ((hash << 5) - hash) + input.charCodeAt(i);
-    hash |= 0;
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
   }
-  return FOOD_COLORS[Math.abs(hash) % FOOD_COLORS.length];
+  return FOOD_COLORS[((hash >>> 0) % FOOD_COLORS.length)];
 }
 
 function getCounterDays(startDate: string | null): number | null {
@@ -387,7 +387,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             inputMode="numeric"
             className="h-6 w-14 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
           />
-        ) : item.quantity && item.quantity > 1 ? (
+        ) : item.quantity && item.quantity >= 1 ? (
           <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={handleDecrementQuantity}
@@ -463,7 +463,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
 
       {/* Row 2: quick-add + expiration + counter + reste */}
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-        {!item.quantity && editing !== "quantity" && (
+        {(!item.quantity || item.quantity < 1) && editing !== "quantity" && (
           <button onClick={() => startEdit("quantity")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             <Hash className="h-2.5 w-2.5" />+ quantité
           </button>
