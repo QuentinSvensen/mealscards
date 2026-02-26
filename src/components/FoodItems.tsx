@@ -90,6 +90,12 @@ function parseStoredGrams(raw: string | null | undefined): { unit: number | null
   return { unit, remainder };
 }
 
+function encodeStoredGrams(unit: number, remainder: number | null): string {
+  const unitText = formatNumeric(unit);
+  if (!remainder || remainder <= 0 || remainder >= unit) return unitText;
+  return `${unitText}|${formatNumeric(remainder)}`;
+}
+
 function isExpiredDate(d: string | null) {
   if (!d) return false;
   return new Date(d) < new Date(new Date().toDateString());
@@ -218,7 +224,7 @@ interface FoodItemCardProps {
 }
 
 function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop }: FoodItemCardProps) {
-  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "quantity" | null>(null);
+  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
 
@@ -233,21 +239,38 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
   const gramsData = parseStoredGrams(item.grams);
   const displayDefaultGrams = gramsData.unit !== null ? `${formatNumeric(gramsData.unit)}g` : item.grams;
   const displayPartialGrams = gramsData.remainder !== null ? `${formatNumeric(gramsData.remainder)}g` : null;
+  const canEditPartial = !item.is_infinite && !!item.quantity && item.quantity > 1 && gramsData.unit !== null;
 
   const saveEdit = () => {
-    const val = editValue.trim() || null;
+    const val = editValue.trim();
     if (editing === "name" && val) onUpdate({ name: val });
-    if (editing === "grams") onUpdate({ grams: val });
-    if (editing === "calories") onUpdate({ calories: val });
+    if (editing === "grams") onUpdate({ grams: val || null });
+    if (editing === "calories") onUpdate({ calories: val || null });
     if (editing === "quantity") onUpdate({ quantity: val ? parseInt(val) || null : null });
+    if (editing === "partial" && gramsData.unit !== null) {
+      if (!val) {
+        onUpdate({ grams: formatNumeric(gramsData.unit) });
+      } else {
+        const parsed = parseFloat(val.replace(",", "."));
+        if (!isNaN(parsed) && parsed > 0 && parsed < gramsData.unit) {
+          onUpdate({ grams: encodeStoredGrams(gramsData.unit, parsed) });
+        }
+      }
+    }
     setEditing(null);
   };
 
-  const startEdit = (field: "name" | "grams" | "calories" | "quantity") => {
+  const startEdit = (field: "name" | "grams" | "calories" | "quantity" | "partial") => {
     if (field === "quantity") {
       setEditValue(item.quantity ? String(item.quantity) : "");
+    } else if (field === "grams") {
+      setEditValue(gramsData.unit !== null ? formatNumeric(gramsData.unit) : "");
+    } else if (field === "calories") {
+      setEditValue(item.calories ?? "");
+    } else if (field === "partial") {
+      setEditValue(gramsData.remainder !== null ? formatNumeric(gramsData.remainder) : "");
     } else {
-      setEditValue(field === "name" ? item.name : field === "grams" ? (gramsData.unit !== null ? formatNumeric(gramsData.unit) : "") : (item.calories ?? ""));
+      setEditValue(item.name);
     }
     setEditing(field);
   };
@@ -400,7 +423,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
         </Button>
       </div>
 
-      {/* Row 2: quick-add + expiration + counter */}
+      {/* Row 2: quick-add + expiration + counter + reste */}
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
         {!item.quantity && editing !== "quantity" && (
           <button onClick={() => startEdit("quantity")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
@@ -468,14 +491,31 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           <Timer className="h-2.5 w-2.5" />
           {item.counter_start_date ? 'Stop' : 'Compteur'}
         </button>
-      </div>
 
-      {displayPartialGrams && !item.is_infinite && (
-        <div className="mt-1 text-[10px] text-white/90 bg-white/15 rounded-md px-1.5 py-1 inline-flex items-center gap-1 w-fit">
-          <Weight className="h-2.5 w-2.5" />
-          Reste de la dernière quantité : {displayPartialGrams}
-        </div>
-      )}
+        {canEditPartial && (
+          editing === "partial" ? (
+            <Input
+              autoFocus
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={e => e.key === "Enter" && saveEdit()}
+              placeholder="Reste"
+              inputMode="decimal"
+              className="h-5 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1 ml-auto"
+            />
+          ) : (
+            <button
+              onClick={() => startEdit("partial")}
+              className="ml-auto text-[10px] text-white/90 bg-white/20 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 hover:bg-white/30"
+              title="Modifier le reste de la dernière quantité"
+            >
+              <Weight className="h-2.5 w-2.5" />
+              Reste {displayPartialGrams ?? displayDefaultGrams}
+            </button>
+          )
+        )}
+      </div>
     </div>
   );
 }
