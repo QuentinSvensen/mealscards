@@ -188,6 +188,7 @@ const Index = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
 
   // Sort modes: load from DB preferences, fallback to localStorage, then defaults
   const dbSortModes = getPreference<Record<string, SortMode>>('meal_sort_modes', {});
@@ -362,17 +363,21 @@ const Index = () => {
     });
   };
 
-  /** Deduct ingredients from stock */
-  const deductIngredientsFromStock = async (meal: Meal) => {
-    if (!meal.ingredients?.trim()) return;
-    // Parse OR groups: for each group, pick the first alternative that exists in stock
+  /** Deduct ingredients from stock and return pre-deduction snapshots for exact rollback */
+  const deductIngredientsFromStock = async (meal: Meal): Promise<FoodItem[]> => {
+    if (!meal.ingredients?.trim()) return [];
+
     const groups = parseIngredientGroups(meal.ingredients);
     const stockMap = buildStockMap(foodItems);
 
-    const updates: Array<{id: string; grams?: string | null; quantity?: number | null; delete?: boolean;}> = [];
+    const snapshotsById = new Map<string, FoodItem>();
+    const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean }>();
+
+    const rememberSnapshot = (fi: FoodItem) => {
+      if (!snapshotsById.has(fi.id)) snapshotsById.set(fi.id, { ...fi });
+    };
 
     for (const group of groups) {
-      // Find the best alternative in stock
       const alt = pickBestAlternative(group, stockMap);
       if (!alt) continue;
 
@@ -380,12 +385,10 @@ const Index = () => {
       const key = findStockKey(stockMap, name);
       if (!key) continue;
 
-      const stockInfo = stockMap.get(key)!;
-      if (stockInfo.infinite) continue;
+      const stockInfo = stockMap.get(key);
+      if (!stockInfo || stockInfo.infinite) continue;
 
-      const matchingItems = foodItems.filter((fi) => {
-        return strictNameMatch(fi.name, key) && !fi.is_infinite;
-      });
+      const matchingItems = foodItems.filter((fi) => strictNameMatch(fi.name, key) && !fi.is_infinite);
 
       if (neededCount > 0) {
         let toDeduct = neededCount;
@@ -395,55 +398,62 @@ const Index = () => {
           const deduct = Math.min(fiCount, toDeduct);
           const remaining = fiCount - deduct;
           toDeduct -= deduct;
+
+          rememberSnapshot(fi);
           if (remaining <= 0) {
-            updates.push({ id: fi.id, delete: true });
+            updatesById.set(fi.id, { id: fi.id, delete: true });
           } else {
-            updates.push({ id: fi.id, quantity: remaining });
+            // quantity is an integer column, keep persistence safe for fractional recipes
+            updatesById.set(fi.id, { id: fi.id, quantity: Math.ceil(remaining) });
           }
         }
       } else if (neededGrams > 0) {
         let toDeduct = neededGrams;
         for (const fi of matchingItems) {
           if (toDeduct <= 0) break;
-          const fiGrams = parseQty(fi.grams);
-          if (fiGrams <= 0) continue;
-          
+
+          const perUnit = parseQty(fi.grams);
+          if (perUnit <= 0) continue;
+
+          const totalAvailable = getFoodItemTotalGrams(fi);
+          const deduct = Math.min(totalAvailable, toDeduct);
+          const remaining = totalAvailable - deduct;
+          toDeduct -= deduct;
+
+          rememberSnapshot(fi);
+
+          if (remaining <= 0) {
+            updatesById.set(fi.id, { id: fi.id, delete: true });
+            continue;
+          }
+
           if (fi.quantity && fi.quantity >= 1) {
-            const perUnit = fiGrams;
-            const totalAvailable = perUnit * fi.quantity;
-            const deduct = Math.min(totalAvailable, toDeduct);
-            const remaining = totalAvailable - deduct;
-            toDeduct -= deduct;
-            if (remaining <= 0) {
-              updates.push({ id: fi.id, delete: true });
+            const fullUnits = Math.floor(remaining / perUnit);
+            const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
+
+            if (remainder > 0) {
+              updatesById.set(fi.id, {
+                id: fi.id,
+                quantity: Math.max(1, fullUnits + 1),
+                grams: encodeStoredGrams(perUnit, remainder),
+              });
+            } else if (fullUnits > 0) {
+              updatesById.set(fi.id, {
+                id: fi.id,
+                quantity: fullUnits,
+                grams: formatNumeric(perUnit),
+              });
             } else {
-              const fullUnits = Math.floor(remaining / perUnit);
-              const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
-              if (remainder > 0) {
-                // Keep the default grams, but adjust quantity and store remainder
-                updates.push({ id: fi.id, quantity: fullUnits + 1 });
-              } else if (fullUnits > 0) {
-                updates.push({ id: fi.id, quantity: fullUnits });
-              } else {
-                updates.push({ id: fi.id, delete: true });
-              }
+              updatesById.set(fi.id, { id: fi.id, delete: true });
             }
           } else {
-            const totalGrams = fiGrams;
-            const deduct = Math.min(totalGrams, toDeduct);
-            const remaining = totalGrams - deduct;
-            toDeduct -= deduct;
-            if (remaining <= 0) {
-              updates.push({ id: fi.id, delete: true });
-            } else {
-              updates.push({ id: fi.id, grams: String(Math.round(remaining * 10) / 10) });
-            }
+            updatesById.set(fi.id, { id: fi.id, grams: formatNumeric(remaining) });
           }
         }
       }
     }
 
-    await Promise.all(updates.map((u) =>
+    await Promise.all(Array.from(updatesById.values()).map((u) =>
       u.delete
         ? supabase.from("food_items").delete().eq("id", u.id)
         : supabase.from("food_items").update({
@@ -451,57 +461,87 @@ const Index = () => {
             ...(u.quantity !== undefined ? { quantity: u.quantity } : {}),
           } as any).eq("id", u.id)
     ));
+
     qc.invalidateQueries({ queryKey: ["food_items"] });
+    return Array.from(snapshotsById.values());
   };
 
   /** Restore ingredients to stock (reverse of deductIngredientsFromStock) */
-  const restoreIngredientsToStock = async (meal: Meal) => {
+  const restoreIngredientsToStock = async (meal: Meal, snapshots?: FoodItem[]) => {
+    if (snapshots && snapshots.length > 0) {
+      await Promise.all(snapshots.map((fi) =>
+        (supabase as any).from("food_items").upsert({
+          id: fi.id,
+          name: fi.name,
+          grams: fi.grams,
+          calories: fi.calories,
+          expiration_date: fi.expiration_date,
+          counter_start_date: fi.counter_start_date,
+          sort_order: fi.sort_order,
+          created_at: fi.created_at,
+          is_meal: fi.is_meal,
+          is_infinite: fi.is_infinite,
+          is_dry: fi.is_dry,
+          storage_type: fi.storage_type,
+          quantity: fi.quantity,
+        })
+      ));
+      qc.invalidateQueries({ queryKey: ["food_items"] });
+      return;
+    }
+
     if (!meal.ingredients?.trim()) return;
     const groups = parseIngredientGroups(meal.ingredients);
 
     for (const group of groups) {
-      // Restore the first alternative found in stock (or first alt if none found)
-      const stockMap = buildStockMap(foodItems);
-      const alt = pickBestAlternative(group, stockMap) || group[0];
+      const liveStockMap = buildStockMap(foodItems);
+      const alt = pickBestAlternative(group, liveStockMap) || group[0];
       if (!alt) continue;
 
       const { qty: neededGrams, count: neededCount, name } = alt;
-      const matchingItems = foodItems.filter((fi) => {
-        return strictNameMatch(fi.name, name) && !fi.is_infinite;
-      });
-
+      const matchingItems = foodItems.filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite);
       if (matchingItems.length === 0) continue;
       const fi = matchingItems[0];
 
       if (neededCount > 0) {
         const newQty = (fi.quantity ?? 1) + neededCount;
-        await supabase.from("food_items").update({ quantity: newQty } as any).eq("id", fi.id);
+        await supabase.from("food_items").update({ quantity: Math.ceil(newQty) } as any).eq("id", fi.id);
       } else if (neededGrams > 0) {
         const fiGrams = parseQty(fi.grams);
         if (fi.quantity && fi.quantity >= 1 && fiGrams > 0) {
-          const unitsToRestore = Math.ceil(neededGrams / fiGrams);
-          const newQty = (fi.quantity) + unitsToRestore;
-          await supabase.from("food_items").update({ quantity: newQty } as any).eq("id", fi.id);
+          const currentTotal = getFoodItemTotalGrams(fi);
+          const newTotal = currentTotal + neededGrams;
+          const fullUnits = Math.floor(newTotal / fiGrams);
+          const remainder = Math.round((newTotal - fullUnits * fiGrams) * 10) / 10;
+          await supabase.from("food_items").update({
+            quantity: remainder > 0 ? fullUnits + 1 : fullUnits,
+            grams: encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null),
+          } as any).eq("id", fi.id);
         } else {
           const currentTotal = fiGrams;
           const newTotal = currentTotal + neededGrams;
-          await supabase.from("food_items").update({ grams: String(Math.round(newTotal * 10) / 10) } as any).eq("id", fi.id);
+          await supabase.from("food_items").update({ grams: formatNumeric(newTotal) } as any).eq("id", fi.id);
         }
       }
     }
 
-    // Also restore name-matched grams
     const mealGrams = parseQty(meal.grams);
     if (mealGrams > 0) {
       const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch) {
-        const fiGrams = parseQty(nameMatch.grams);
-        if (nameMatch.quantity && nameMatch.quantity >= 1 && fiGrams > 0) {
-          const unitsToRestore = Math.ceil(mealGrams / fiGrams);
-          await supabase.from("food_items").update({ quantity: (nameMatch.quantity) + unitsToRestore } as any).eq("id", nameMatch.id);
+        const unit = parseQty(nameMatch.grams);
+        if (nameMatch.quantity && nameMatch.quantity >= 1 && unit > 0) {
+          const currentTotal = getFoodItemTotalGrams(nameMatch);
+          const newTotal = currentTotal + mealGrams;
+          const fullUnits = Math.floor(newTotal / unit);
+          const remainder = Math.round((newTotal - fullUnits * unit) * 10) / 10;
+          await supabase.from("food_items").update({
+            quantity: remainder > 0 ? fullUnits + 1 : fullUnits,
+            grams: encodeStoredGrams(unit, remainder > 0 ? remainder : null),
+          } as any).eq("id", nameMatch.id);
         } else {
-          const newTotal = fiGrams + mealGrams;
-          await supabase.from("food_items").update({ grams: String(Math.round(newTotal * 10) / 10) } as any).eq("id", nameMatch.id);
+          const newTotal = unit + mealGrams;
+          await supabase.from("food_items").update({ grams: formatNumeric(newTotal) } as any).eq("id", nameMatch.id);
         }
       }
     }
@@ -512,49 +552,51 @@ const Index = () => {
   /** Deduct name-match stock (for is_meal food items or name-matched recipes) */
   const deductNameMatchStock = async (meal: Meal) => {
     const mealGrams = parseQty(meal.grams);
-    if (mealGrams <= 0) {
-      // No grams specified — deduct 1 from quantity
-      const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
-      if (nameMatch) {
-        const currentQty = nameMatch.quantity ?? 1;
-        if (currentQty <= 1) {
-          await supabase.from("food_items").delete().eq("id", nameMatch.id);
-        } else {
-          await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", nameMatch.id);
-        }
-        qc.invalidateQueries({ queryKey: ["food_items"] });
-      }
-      return;
-    }
     const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
-    if (nameMatch) {
-      const fiGrams = parseQty(nameMatch.grams);
-      if (nameMatch.quantity && nameMatch.quantity >= 1 && fiGrams > 0) {
-        const totalAvailable = fiGrams * nameMatch.quantity;
-        const remaining = totalAvailable - mealGrams;
-        if (remaining <= 0) {
-          await supabase.from("food_items").delete().eq("id", nameMatch.id);
-        } else {
-          const fullUnits = Math.floor(remaining / fiGrams);
-          const remainder = Math.round((remaining - fullUnits * fiGrams) * 10) / 10;
-          if (remainder > 0) {
-            await supabase.from("food_items").update({ quantity: fullUnits + 1 } as any).eq("id", nameMatch.id);
-          } else if (fullUnits > 0) {
-            await supabase.from("food_items").update({ quantity: fullUnits } as any).eq("id", nameMatch.id);
-          } else {
-            await supabase.from("food_items").delete().eq("id", nameMatch.id);
-          }
-        }
+    if (!nameMatch) return;
+
+    if (mealGrams <= 0) {
+      const currentQty = nameMatch.quantity ?? 1;
+      if (currentQty <= 1) {
+        await supabase.from("food_items").delete().eq("id", nameMatch.id);
       } else {
-        const remaining = Math.max(0, fiGrams - mealGrams);
-        if (remaining <= 0) {
-          await supabase.from("food_items").delete().eq("id", nameMatch.id);
-        } else {
-          await supabase.from("food_items").update({ grams: String(Math.round(remaining * 10) / 10) } as any).eq("id", nameMatch.id);
-        }
+        await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", nameMatch.id);
       }
       qc.invalidateQueries({ queryKey: ["food_items"] });
+      return;
     }
+
+    const perUnit = parseQty(nameMatch.grams);
+    if (nameMatch.quantity && nameMatch.quantity >= 1 && perUnit > 0) {
+      const totalAvailable = getFoodItemTotalGrams(nameMatch);
+      const remaining = totalAvailable - mealGrams;
+      if (remaining <= 0) {
+        await supabase.from("food_items").delete().eq("id", nameMatch.id);
+      } else {
+        const fullUnits = Math.floor(remaining / perUnit);
+        const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
+        if (remainder > 0) {
+          await supabase.from("food_items").update({
+            quantity: Math.max(1, fullUnits + 1),
+            grams: encodeStoredGrams(perUnit, remainder),
+          } as any).eq("id", nameMatch.id);
+        } else if (fullUnits > 0) {
+          await supabase.from("food_items").update({ quantity: fullUnits, grams: formatNumeric(perUnit) } as any).eq("id", nameMatch.id);
+        } else {
+          await supabase.from("food_items").delete().eq("id", nameMatch.id);
+        }
+      }
+    } else {
+      const current = parseQty(nameMatch.grams);
+      const remaining = Math.max(0, current - mealGrams);
+      if (remaining <= 0) {
+        await supabase.from("food_items").delete().eq("id", nameMatch.id);
+      } else {
+        await supabase.from("food_items").update({ grams: formatNumeric(remaining) } as any).eq("id", nameMatch.id);
+      }
+    }
+
+    qc.invalidateQueries({ queryKey: ["food_items"] });
   };
 
   const handleExportMeals = () => {
@@ -986,28 +1028,70 @@ function strictNameMatch(a: string, b: string): boolean {
 
 function parseQty(qty: string | null | undefined): number {
   if (!qty) return 0;
-  const n = parseFloat(qty.replace(",", ".").replace(/[^0-9.]/g, ""));
+  const [base] = qty.split("|");
+  const normalized = base.replace(",", ".");
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const n = parseFloat(match[0]);
   return isNaN(n) ? 0 : n;
 }
 
+function parsePartialQty(qty: string | null | undefined): number {
+  if (!qty || !qty.includes("|")) return 0;
+  const [, partial] = qty.split("|");
+  const normalized = (partial || "").replace(",", ".");
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const n = parseFloat(match[0]);
+  return isNaN(n) ? 0 : n;
+}
+
+function formatNumeric(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  if (Number.isInteger(rounded)) return String(Math.trunc(rounded));
+  return String(rounded).replace(/\.0$/, "");
+}
+
+function encodeStoredGrams(unit: number, partial: number | null): string {
+  const unitPart = formatNumeric(unit);
+  if (!partial || partial <= 0 || partial >= unit) return unitPart;
+  return `${unitPart}|${formatNumeric(partial)}`;
+}
+
+function getFoodItemTotalGrams(fi: FoodItem): number {
+  const unit = parseQty(fi.grams);
+  if (unit <= 0) return 0;
+  if (!fi.quantity || fi.quantity < 1) return unit;
+  const partial = parsePartialQty(fi.grams);
+  if (partial > 0 && partial < unit) {
+    return unit * Math.max(0, fi.quantity - 1) + partial;
+  }
+  return unit * fi.quantity;
+}
+
 function parseIngredientLine(ing: string): {qty: number; count: number; name: string;} {
-  const trimmed = ing.trim();
-  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
+  const trimmed = ing.trim().replace(/\s+/g, " ");
+  const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
+
+  const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
   if (matchFull) {
     return {
       qty: parseFloat(matchFull[1].replace(",", ".")),
-      count: parseFloat(matchFull[3].replace(",", ".")),
-      name: normalizeForMatch(matchFull[4])
+      count: parseFloat(matchFull[2].replace(",", ".")),
+      name: normalizeForMatch(matchFull[3])
     };
   }
-  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(.*)/i);
+
+  const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
   if (matchUnit) {
-    return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[3]) };
+    return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[2]) };
   }
-  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
+
+  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
   if (matchNum) {
     return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]) };
   }
+
   return { qty: 0, count: 0, name: normalizeForMatch(trimmed) };
 }
 
@@ -1019,7 +1103,10 @@ function parseIngredientLine(ing: string): {qty: number; count: number; name: st
  */
 function parseIngredientGroups(raw: string): Array<Array<{qty: number; count: number; name: string}>> {
   if (!raw?.trim()) return [];
-  const groups = raw.split(/,/).map(s => s.trim()).filter(Boolean);
+  const groups = raw
+    .split(/(?:\n|,(?!\d))/)
+    .map(s => s.trim())
+    .filter(Boolean);
   return groups.map(group => {
     const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
     return alts.map(alt => parseIngredientLine(alt));

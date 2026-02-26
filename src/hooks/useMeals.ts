@@ -120,10 +120,13 @@ export function useMeals() {
       const seed = colorSeed ?? mealData.id;
       await supabase.from("meals").update({ color: colorFromName(seed) }).eq("id", mealData.id);
       const maxOrder = possibleMeals.length;
-      const { error } = await (supabase as any)
+      const { data: insertedPm, error } = await (supabase as any)
         .from("possible_meals")
-        .insert({ meal_id: mealData.id, sort_order: maxOrder });
+        .insert({ meal_id: mealData.id, sort_order: maxOrder })
+        .select()
+        .single();
       if (error) throw error;
+      return insertedPm as { id: string };
     },
     onSuccess: invalidateAll,
   });
@@ -208,10 +211,13 @@ export function useMeals() {
       const maxOrder = possibleMeals.length;
       const insertData: any = { meal_id: mealId, sort_order: maxOrder };
       if (expiration_date) insertData.expiration_date = expiration_date;
-      const { error } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from("possible_meals")
-        .insert(insertData);
+        .insert(insertData)
+        .select()
+        .single();
       if (error) throw error;
+      return data as { id: string };
     },
     onSuccess: invalidateAll,
   });
