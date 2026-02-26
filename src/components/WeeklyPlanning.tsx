@@ -79,6 +79,7 @@ export function WeeklyPlanning() {
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
+  const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
@@ -140,7 +141,8 @@ export function WeeklyPlanning() {
       0,
     );
     const breakfast = getBreakfastForDay(day);
-    return mealCals + (breakfast ? parseCalories(breakfast.calories) : 0);
+    const extra = extraCalories[day] || 0;
+    return mealCals + (breakfast ? parseCalories(breakfast.calories) : 0) + extra;
   };
 
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
@@ -448,7 +450,7 @@ export function WeeklyPlanning() {
                 {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3">
               {TIMES.map((time) => {
                 const slotKey = `${day}-${time}`;
                 const slotMeals = getMealsForSlot(day, time);
@@ -498,6 +500,26 @@ export function WeeklyPlanning() {
                   </div>
                 );
               })}
+              {/* Extra column */}
+              <div className="min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1.5 w-14 flex flex-col items-center">
+                <span className="text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="kcal"
+                  key={`extra-${day}`}
+                  defaultValue={extraCalories[day] || ''}
+                  onBlur={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    const updated = { ...extraCalories };
+                    if (val > 0) updated[day] = val;
+                    else delete updated[day];
+                    setPreference.mutate({ key: 'planning_extra_calories', value: updated });
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  className="w-full h-5 mt-1 text-[10px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
+                />
+              </div>
             </div>
           </div>
         );
