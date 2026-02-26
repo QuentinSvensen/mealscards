@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { z } from "zod";
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,6 +32,7 @@ export function ShoppingList() {
   const { getPreference, setPreference } = usePreferences();
 
   const [newGroupName, setNewGroupName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
@@ -62,6 +63,17 @@ export function ShoppingList() {
   // Drag state
   const dragPayload = useRef<DragPayload | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+
+  const normalizeSearch = (text: string) =>
+    text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/, "").trim();
+
+  const matchesSearch = (item: ShoppingItem) => {
+    if (!searchQuery.trim()) return true;
+    const q = normalizeSearch(searchQuery);
+    const inName = normalizeSearch(item.name).includes(q);
+    const inBrand = item.brand ? normalizeSearch(item.brand).includes(q) : false;
+    return inName || inBrand;
+  };
 
   const getLocalName = (item: ShoppingItem) => localNames[item.id] ?? item.name;
   const getLocalBrand = (item: ShoppingItem) => localBrands[item.id] ?? (item.brand || "");
@@ -332,6 +344,15 @@ export function ShoppingList() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-3">
+      <div className="relative">
+        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        <Input
+          placeholder="Rechercher dans les courses…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="h-8 rounded-xl pl-7"
+        />
+      </div>
       {/* Ungrouped items */}
       <div
         draggable
@@ -344,18 +365,18 @@ export function ShoppingList() {
         <button onClick={() => toggleCollapse("__ungrouped")} className="flex items-center gap-2 w-full text-left mb-1.5">
           {collapsedGroups.has("__ungrouped") ? <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
           <h3 className="text-xs font-extrabold text-foreground/60 uppercase tracking-widest">Articles</h3>
-          <span className="text-[10px] font-bold text-foreground bg-foreground/10 rounded-full px-2 py-0.5 shrink-0">{ungroupedItems.length}</span>
+          <span className="text-[10px] font-bold text-foreground bg-foreground/10 rounded-full px-2 py-0.5 shrink-0">{ungroupedItems.filter(matchesSearch).length}</span>
         </button>
         {collapsedGroups.has("__ungrouped")
-          ? ungroupedItems.filter(i => i.checked).map(renderItem)
-          : ungroupedItems.map(renderItem)
+          ? ungroupedItems.filter(matchesSearch).filter(i => i.checked).map(renderItem)
+          : ungroupedItems.filter(matchesSearch).map(renderItem)
         }
         {!collapsedGroups.has("__ungrouped") && renderAddInput(null)}
       </div>
 
       {/* Groups */}
       {groups.map((group) => {
-        const groupItems = getItemsByGroup(group.id);
+        const groupItems = getItemsByGroup(group.id).filter(matchesSearch);
         const isCollapsed = collapsedGroups.has(group.id);
         const isGroupOver = dragOverKey === `group:${group.id}`;
         return (
