@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Clock } from "lucide-react";
+import { Chronometer } from "@/components/Chronometer";
+import { MealPlanGenerator } from "@/components/MealPlanGenerator";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
 
 import { useNavigate, useLocation } from "react-router-dom";
@@ -247,6 +249,8 @@ const Index = () => {
 
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
+  const [chronoOpen, setChronoOpen] = useState(false);
+  const [coursesTab, setCoursesTab] = useState<"liste" | "menu">("liste");
 
   // Session-only collapse state for categories (reset on reconnect)
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({ 'master-plat': true });
@@ -971,16 +975,36 @@ const Index = () => {
             </div>
           </div>
 
+          <button
+            onClick={() => setChronoOpen(true)}
+            className="text-[9px] sm:text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/50 hover:bg-muted rounded-full px-2 py-1"
+          >
+            <Clock className="h-3 w-3" />
+            <span className="hidden sm:inline">{format(new Date(), 'd MMM', { locale: fr })}</span>
+          </button>
           <ThemeToggle />
         </div>
       </header>
+      <Chronometer open={chronoOpen} onOpenChange={setChronoOpen} />
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
         <div className={mainPage === "aliments" ? "" : "hidden"}>
           <FoodItems />
           <FoodItemsSuggestions foodItems={foodItems} existingMealNames={meals.filter(m => m.is_available).map(m => m.name)} />
         </div>
-        {mainPage === "courses" && <ShoppingList />}
+        {mainPage === "courses" && (
+          <div>
+            <div className="flex items-center gap-1 mb-3 bg-muted rounded-full p-0.5 max-w-xs mx-auto">
+              <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                🛒 Liste
+              </button>
+              <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                🎲 Menu
+              </button>
+            </div>
+            {coursesTab === "liste" ? <ShoppingList /> : <MealPlanGenerator />}
+          </div>
+        )}
         {mainPage === "planning" && <WeeklyPlanning />}
         {mainPage === "repas" &&
         <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
@@ -1679,40 +1703,43 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
       return { exp, counter };
     };
     
+    const expSortComparator = (aExp: string | null, bExp: string | null, aCounter: number | null, bCounter: number | null) => {
+      const today = new Date(new Date().toDateString());
+      const aExpired = aExp ? new Date(aExp) < today : false;
+      const bExpired = bExp ? new Date(bExp) < today : false;
+      // Expired with counter first
+      if (aExpired && aCounter !== null && (!bExpired || bCounter === null)) return -1;
+      if (bExpired && bCounter !== null && (!aExpired || aCounter === null)) return 1;
+      if (aExpired && bExpired && aCounter !== null && bCounter !== null) {
+        if (bCounter !== aCounter) return bCounter - aCounter;
+        return (aExp || "").localeCompare(bExp || "");
+      }
+      if (aCounter !== null && bCounter === null) return -1;
+      if (bCounter !== null && aCounter === null) return 1;
+      if (aCounter !== null && bCounter !== null) return bCounter - aCounter;
+      if (!aExp && !bExp) return 0;
+      if (!aExp) return 1;
+      if (!bExp) return -1;
+      return aExp.localeCompare(bExp);
+    };
+
     sortedAvailable.sort((a, b) => {
       const sa = getExpSort(a.meal), sb = getExpSort(b.meal);
-      const today = new Date(new Date().toDateString());
-      const aExpired = sa.exp && new Date(sa.exp) < today;
-      const bExpired = sb.exp && new Date(sb.exp) < today;
-      if (aExpired && sa.counter !== null && (!bExpired || sb.counter === null)) return -1;
-      if (bExpired && sb.counter !== null && (!aExpired || sa.counter === null)) return 1;
-      if (aExpired && bExpired && sa.counter !== null && sb.counter !== null) {
-        if (sb.counter !== sa.counter) return sb.counter - sa.counter;
-        return (sa.exp || "").localeCompare(sb.exp || "");
-      }
-      if (sa.counter !== null && sb.counter === null) return -1;
-      if (sb.counter !== null && sa.counter === null) return 1;
-      if (sa.counter !== null && sb.counter !== null) return sb.counter - sa.counter;
-      if (!sa.exp && !sb.exp) return 0;
-      if (!sa.exp) return 1;
-      if (!sb.exp) return -1;
-      return sa.exp.localeCompare(sb.exp);
+      return expSortComparator(sa.exp, sb.exp, sa.counter, sb.counter);
     });
 
     sortedNameMatches.sort((a, b) => {
       const ae = a.fi.expiration_date;
       const be = b.fi.expiration_date;
-      if (!ae && !be) return 0;
-      if (!ae) return 1;
-      if (!be) return -1;
-      return ae.localeCompare(be);
+      const ac = a.fi.counter_start_date ? Math.floor((Date.now() - new Date(a.fi.counter_start_date).getTime()) / 86400000) : null;
+      const bc = b.fi.counter_start_date ? Math.floor((Date.now() - new Date(b.fi.counter_start_date).getTime()) / 86400000) : null;
+      return expSortComparator(ae, be, ac, bc);
     });
 
     sortedIsMealItems.sort((a, b) => {
-      if (!a.expiration_date && !b.expiration_date) return 0;
-      if (!a.expiration_date) return 1;
-      if (!b.expiration_date) return -1;
-      return a.expiration_date.localeCompare(b.expiration_date);
+      const ac = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
+      const bc = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
+      return expSortComparator(a.expiration_date, b.expiration_date, ac, bc);
     });
   }
 
@@ -1874,18 +1901,35 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
           {/* Unused food items */}
           {unusedFoodItems.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-border/30">
+            <div className="mt-4 rounded-2xl bg-muted/30 border border-border/20 p-3">
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({unusedFoodItems.length})</p>
               <div className="flex flex-wrap gap-1.5">
-                {unusedFoodItems.map(fi => {
+                {[...unusedFoodItems].sort((a, b) => {
+                  const today = new Date(new Date().toDateString());
+                  const aExp = a.expiration_date;
+                  const bExp = b.expiration_date;
+                  const aExpired = aExp ? new Date(aExp) < today : false;
+                  const bExpired = bExp ? new Date(bExp) < today : false;
+                  // Expired first
+                  if (aExpired && !bExpired) return -1;
+                  if (!aExpired && bExpired) return 1;
+                  // Then by date (soonest first)
+                  if (aExp && bExp) return aExp.localeCompare(bExp);
+                  if (aExp && !bExp) return -1;
+                  if (!aExp && bExp) return 1;
+                  return 0;
+                }).map(fi => {
                   const totalG = getFoodItemTotalGrams(fi);
                   const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
                   const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
+                  const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
                   return (
-                    <span key={fi.id} className={`text-[11px] px-2 py-1 rounded-lg font-medium ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/60 text-muted-foreground'}`}>
+                    <span key={fi.id} className={`text-[11px] px-2.5 py-1.5 rounded-full font-medium transition-colors ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/80 text-muted-foreground hover:bg-muted'}`}>
                       {fi.name}
-                      {totalG > 0 && <span className="ml-1 opacity-70">{formatNumeric(totalG)}g</span>}
-                      {qty && <span className="ml-0.5 opacity-70">×{qty}</span>}
+                      {totalG > 0 && <span className="ml-1 opacity-60">{formatNumeric(totalG)}g</span>}
+                      {qty && <span className="ml-0.5 opacity-60">×{qty}</span>}
+                      {fi.is_infinite && <span className="ml-0.5 opacity-60">∞</span>}
+                      {expLabel && <span className={`ml-1 text-[9px] ${isExpired ? 'text-red-300' : 'opacity-50'}`}>📅{expLabel}</span>}
                     </span>
                   );
                 })}
@@ -1907,7 +1951,21 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
   const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
 
   const filteredMeals = searchQuery.trim()
-    ? meals.filter(m => normalizeForMatch(m.name).includes(normalizeForMatch(searchQuery)))
+    ? meals.filter(m => {
+        const q = normalizeForMatch(searchQuery);
+        if (normalizeForMatch(m.name).includes(q)) return true;
+        // Also search in ingredient names
+        if (m.ingredients) {
+          const groups = m.ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
+          for (const group of groups) {
+            const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+            for (const alt of alts) {
+              if (normalizeForMatch(alt).includes(q)) return true;
+            }
+          }
+        }
+        return false;
+      })
     : meals;
 
   return (

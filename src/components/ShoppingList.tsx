@@ -53,6 +53,10 @@ export function ShoppingList() {
       const allIds = ["__ungrouped", ...groups.map(g => g.id)];
       setCollapsedGroups(new Set(allIds));
       collapseSynced.current = true;
+    } else if (!isMobile && groups.length > 0) {
+      // On desktop, expand all groups by default
+      setCollapsedGroups(new Set());
+      collapseSynced.current = true;
     }
   }, [savedCollapsed, isMobile, groups]);
 
