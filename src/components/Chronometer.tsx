@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Pause, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 interface ChronoState {
   running: boolean;
@@ -17,7 +17,7 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
   const qc = useQueryClient();
   const [display, setDisplay] = useState("00:00:00");
 
-  // Poll DB every 3 seconds for cross-device sync
+  // Poll DB every 1 second for cross-device sync
   const { data: storedState = DEFAULT_STATE } = useQuery({
     queryKey: ["chronometer_state"],
     queryFn: async () => {
@@ -29,7 +29,7 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
       if (error) throw error;
       return (data?.value as ChronoState) ?? DEFAULT_STATE;
     },
-    refetchInterval: 3000,
+    refetchInterval: 1000,
     retry: 2,
   });
 
@@ -97,29 +97,25 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xs rounded-3xl" aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle className="text-center">⏱ Chronomètre</DialogTitle>
-        </DialogHeader>
-        <div className="flex flex-col items-center gap-4 py-4">
+      <DialogContent className="max-w-[280px] rounded-[28px] border-0 bg-card/95 backdrop-blur-xl shadow-2xl p-0 overflow-hidden" aria-describedby={undefined}>
+        <div className="flex flex-col items-center gap-5 px-6 py-8">
           <div className="text-5xl font-mono font-black text-foreground tabular-nums tracking-wider">
             {display}
           </div>
           <div className="flex items-center gap-3">
             {storedState.running ? (
-              <Button onClick={handlePause} size="lg" variant="secondary" className="rounded-full h-14 w-14">
+              <Button onClick={handlePause} size="lg" variant="secondary" className="rounded-full h-14 w-14 shadow-lg">
                 <Pause className="h-6 w-6" />
               </Button>
             ) : (
-              <Button onClick={handleStart} size="lg" className="rounded-full h-14 w-14">
+              <Button onClick={handleStart} size="lg" className="rounded-full h-14 w-14 shadow-lg">
                 <Play className="h-6 w-6 ml-0.5" />
               </Button>
             )}
-            <Button onClick={handleReset} size="lg" variant="outline" className="rounded-full h-14 w-14">
+            <Button onClick={handleReset} size="lg" variant="outline" className="rounded-full h-14 w-14 shadow-lg">
               <RotateCcw className="h-5 w-5" />
             </Button>
           </div>
-          <p className="text-[10px] text-muted-foreground text-center">Synchronisé entre tous les appareils</p>
         </div>
       </DialogContent>
     </Dialog>
