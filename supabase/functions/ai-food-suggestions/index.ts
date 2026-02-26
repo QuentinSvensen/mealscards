@@ -11,10 +11,31 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const { foodItems, existingMealNames } = body;
+
+    // Input validation
+    if (!Array.isArray(foodItems)) {
+      return new Response(JSON.stringify({ error: "Invalid input: foodItems must be an array" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (foodItems.length > 200) {
+      return new Response(JSON.stringify({ error: "Too many food items" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (existingMealNames !== undefined && typeof existingMealNames !== "string") {
+      return new Response(JSON.stringify({ error: "Invalid input: existingMealNames must be a string" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    if (!foodItems || foodItems.length === 0) {
+    if (foodItems.length === 0) {
       return new Response(JSON.stringify({ suggestions: [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
