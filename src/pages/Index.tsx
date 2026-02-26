@@ -221,7 +221,8 @@ const Index = () => {
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Available sort modes (session-only, default to manual)
+  // Available sort modes — persist to DB
+  const dbAvailableSortModes = getPreference<Record<string, AvailableSortMode>>('meal_available_sort_modes', {});
   const [availableSortModes, setAvailableSortModes] = useState<Record<string, AvailableSortMode>>({});
 
   // Sync from DB on load (DB takes priority)
@@ -238,6 +239,11 @@ const Index = () => {
       setMasterSortModes(dbMasterSortModes);
     }
   }, [dbMasterSortModes]);
+  useEffect(() => {
+    if (Object.keys(dbAvailableSortModes).length > 0) {
+      setAvailableSortModes(dbAvailableSortModes);
+    }
+  }, [dbAvailableSortModes]);
 
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
@@ -377,7 +383,9 @@ const Index = () => {
     setAvailableSortModes(prev => {
       const current = prev[cat] || "manual";
       const next: AvailableSortMode = current === "manual" ? "calories" : current === "calories" ? "expiration" : "manual";
-      return { ...prev, [cat]: next };
+      const updated = { ...prev, [cat]: next };
+      setPreference.mutate({ key: 'meal_available_sort_modes', value: updated });
+      return updated;
     });
   };
 
@@ -1053,6 +1061,7 @@ const Index = () => {
                   category={cat}
                   meals={getMealsByCategory(cat.value)}
                   foodItems={foodItems}
+                  allMeals={meals}
                   sortMode={availableSortModes[cat.value] || "manual"}
                   onToggleSort={() => toggleAvailableSort(cat.value)}
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
@@ -1527,8 +1536,8 @@ function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Se
 }
 
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, foodItems, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
+function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
 
   const stockMap = buildStockMap(foodItems);
 
@@ -1585,9 +1594,21 @@ function AvailableList({ category, meals, foodItems, sortMode, onToggleSort, col
     const hasRecipeMatch = meals.some(m => strictNameMatch(m.name, fi.name));
     if (hasRecipeMatch) return false; // Recipe takes priority
     return true;
-  });
+   });
 
-
+  // 4. Unused food items: items not used in ANY recipe across ALL categories, excluding "toujours"
+  const unusedFoodItems = (() => {
+    const nonToujoursItems = foodItems.filter(fi => fi.storage_type !== 'toujours' && !fi.is_infinite);
+    return nonToujoursItems.filter(fi => {
+      const fiKey = normalizeForMatch(fi.name);
+      // Check if this item is used as ingredient in any available recipe across ALL categories
+      return !allMeals.some(meal => {
+        if (!meal.ingredients) return false;
+        const groups = parseIngredientGroups(meal.ingredients);
+        return groups.some(group => group.some(alt => strictNameMatch(fiKey, alt.name)));
+      });
+    });
+  })();
 
 
   // Sort available items based on sortMode
@@ -1799,6 +1820,27 @@ function AvailableList({ category, meals, foodItems, sortMode, onToggleSort, col
               Aucun repas réalisable avec les aliments disponibles
             </p>
         }
+
+          {/* Unused food items */}
+          {unusedFoodItems.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-border/30">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({unusedFoodItems.length})</p>
+              <div className="flex flex-wrap gap-1.5">
+                {unusedFoodItems.map(fi => {
+                  const totalG = getFoodItemTotalGrams(fi);
+                  const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
+                  const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
+                  return (
+                    <span key={fi.id} className={`text-[11px] px-2 py-1 rounded-lg font-medium ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/60 text-muted-foreground'}`}>
+                      {fi.name}
+                      {totalG > 0 && <span className="ml-1 opacity-70">{formatNumeric(totalG)}g</span>}
+                      {qty && <span className="ml-0.5 opacity-70">×{qty}</span>}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       }
     </div>);
