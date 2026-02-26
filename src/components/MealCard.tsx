@@ -35,19 +35,25 @@ interface MealCardProps {
 interface IngLine { qty: string; count: string; name: string; isOr: boolean; }
 
 function parseIngredientLine(raw: string): IngLine {
-  const trimmed = raw.trim();
-  const matchFull = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(\d+(?:[.,]\d+)?)\s+(.*)/i);
+  const trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed) return { qty: "", count: "", name: "", isOr: false };
+
+  const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
+  const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
   if (matchFull) {
-    return { qty: matchFull[1], count: matchFull[3], name: matchFull[4].trim(), isOr: false };
+    return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), isOr: false };
   }
-  const matchUnit = trimmed.match(/^(\d+(?:[.,]\d+)?)([a-zA-Zµ°%]+\.?)\s+(.*)/i);
+
+  const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
   if (matchUnit) {
-    return { qty: matchUnit[1], count: "", name: matchUnit[3].trim(), isOr: false };
+    return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), isOr: false };
   }
-  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.*)/);
+
+  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
   if (matchNum) {
     return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false };
   }
+
   return { qty: "", count: "", name: trimmed, isOr: false };
 }
 
@@ -60,7 +66,10 @@ function formatQty(qty: string): string {
 
 function parseIngredientsToLines(raw: string | null): IngLine[] {
   if (!raw) return [{ qty: "", count: "", name: "", isOr: false }];
-  const groups = raw.split(/,/).map(s => s.trim()).filter(Boolean);
+  const groups = raw
+    .split(/(?:\n|,(?!\d))/)
+    .map(s => s.trim())
+    .filter(Boolean);
   const lines: IngLine[] = [];
   for (const group of groups) {
     const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
@@ -264,8 +273,8 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           {/* Title row */}
           <div className="flex items-start gap-1 flex-wrap">
             <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">{meal.name}</span>
-            {/* Options row - wraps below title on narrow screens */}
-            <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+            {/* Options row - wraps below title on narrow screens and stays right-aligned */}
+            <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
               {maxIngredientCounter !== null && maxIngredientCounter !== undefined && maxIngredientCounter > 0 && (
                 <span className="text-xs text-white/80 bg-orange-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold">
                   ⏱ {maxIngredientCounter}j
@@ -371,7 +380,7 @@ function renderIngredientDisplay(
   expiredIngredientNames?: Set<string>,
   missingIngredientNames?: Set<string>,
 ) {
-  const groups = ingredients.split(/,/).map(s => s.trim()).filter(Boolean);
+  const groups = ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const elements: React.ReactNode[] = [];
   
   groups.forEach((group, gi) => {

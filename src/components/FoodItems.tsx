@@ -66,6 +66,30 @@ function getCounterDays(startDate: string | null): number | null {
   return Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000);
 }
 
+function formatNumeric(n: number): string {
+  const rounded = Math.round(n * 10) / 10;
+  if (Number.isInteger(rounded)) return String(Math.trunc(rounded));
+  return String(rounded).replace(/\.0$/, "").replace(".", ",");
+}
+
+function parseStoredGrams(raw: string | null | undefined): { unit: number | null; remainder: number | null } {
+  if (!raw) return { unit: null, remainder: null };
+  const [base, partial] = raw.split("|");
+  const parse = (v?: string) => {
+    if (!v) return null;
+    const normalized = v.replace(",", ".");
+    const m = normalized.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return null;
+    const num = parseFloat(m[0]);
+    return isNaN(num) ? null : num;
+  };
+  const unit = parse(base);
+  const remainder = parse(partial);
+  if (unit === null) return { unit: null, remainder: null };
+  if (remainder === null || remainder <= 0 || remainder >= unit) return { unit, remainder: null };
+  return { unit, remainder };
+}
+
 function isExpiredDate(d: string | null) {
   if (!d) return false;
   return new Date(d) < new Date(new Date().toDateString());
@@ -206,6 +230,9 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
   })() : false;
   const counterDays = getCounterDays(item.counter_start_date);
   const counterUrgent = counterDays !== null && counterDays >= 3;
+  const gramsData = parseStoredGrams(item.grams);
+  const displayDefaultGrams = gramsData.unit !== null ? `${formatNumeric(gramsData.unit)}g` : item.grams;
+  const displayPartialGrams = gramsData.remainder !== null ? `${formatNumeric(gramsData.remainder)}g` : null;
 
   const saveEdit = () => {
     const val = editValue.trim() || null;
@@ -220,7 +247,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     if (field === "quantity") {
       setEditValue(item.quantity ? String(item.quantity) : "");
     } else {
-      setEditValue(field === "name" ? item.name : field === "grams" ? (item.grams ?? "") : (item.calories ?? ""));
+      setEditValue(field === "name" ? item.name : field === "grams" ? (gramsData.unit !== null ? formatNumeric(gramsData.unit) : "") : (item.calories ?? ""));
     }
     setEditing(field);
   };
@@ -343,7 +370,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0"
             title="Cliquer pour rendre infini"
           >
-            <Weight className="h-2.5 w-2.5" />{item.grams}
+            <Weight className="h-2.5 w-2.5" />{displayDefaultGrams}
           </button>
         ) : null}
 
@@ -442,6 +469,13 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           {item.counter_start_date ? 'Stop' : 'Compteur'}
         </button>
       </div>
+
+      {displayPartialGrams && !item.is_infinite && (
+        <div className="mt-1 text-[10px] text-white/90 bg-white/15 rounded-md px-1.5 py-1 inline-flex items-center gap-1 w-fit">
+          <Weight className="h-2.5 w-2.5" />
+          Reste de la dernière quantité : {displayPartialGrams}
+        </div>
+      )}
     </div>
   );
 }
