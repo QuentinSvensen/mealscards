@@ -35,20 +35,48 @@ export interface FoodItem {
 // ─── Colors ─────────────────────────────────────────────────────────────────
 
 const FOOD_COLORS = [
-  "hsl(22, 55%, 48%)", "hsl(155, 35%, 40%)", "hsl(215, 45%, 46%)",
-  "hsl(275, 35%, 48%)", "hsl(40, 50%, 44%)", "hsl(185, 40%, 40%)",
-  "hsl(130, 30%, 40%)", "hsl(240, 35%, 50%)", "hsl(315, 30%, 46%)",
-  "hsl(60, 35%, 40%)", "hsl(30, 65%, 40%)", "hsl(90, 35%, 38%)",
-  "hsl(170, 45%, 35%)", "hsl(200, 50%, 42%)", "hsl(250, 40%, 45%)",
-  "hsl(290, 35%, 42%)", "hsl(330, 45%, 44%)", "hsl(50, 45%, 38%)",
-  "hsl(110, 30%, 36%)", "hsl(145, 40%, 38%)", "hsl(180, 35%, 38%)",
-  "hsl(220, 40%, 40%)", "hsl(260, 30%, 48%)", "hsl(300, 30%, 40%)",
-  "hsl(70, 40%, 36%)", "hsl(120, 35%, 42%)", "hsl(160, 30%, 40%)",
-  "hsl(190, 45%, 36%)", "hsl(230, 35%, 44%)", "hsl(270, 40%, 42%)",
-  "hsl(345, 40%, 45%)", "hsl(28, 50%, 42%)", "hsl(75, 35%, 40%)",
-  "hsl(135, 40%, 36%)", "hsl(195, 45%, 40%)", "hsl(255, 35%, 44%)",
-  "hsl(310, 35%, 42%)", "hsl(45, 55%, 40%)", "hsl(165, 35%, 38%)",
-  "hsl(205, 40%, 44%)", "hsl(285, 35%, 40%)", "hsl(325, 40%, 46%)",
+  "hsl(22, 60%, 45%)",   // burnt orange
+  "hsl(155, 40%, 38%)",  // forest green
+  "hsl(215, 50%, 44%)",  // steel blue
+  "hsl(275, 40%, 46%)",  // amethyst
+  "hsl(40, 55%, 42%)",   // golden brown
+  "hsl(185, 45%, 38%)",  // teal
+  "hsl(130, 35%, 38%)",  // emerald
+  "hsl(240, 40%, 48%)",  // indigo
+  "hsl(315, 35%, 44%)",  // plum
+  "hsl(55, 45%, 38%)",   // olive
+  "hsl(30, 65%, 38%)",   // rust
+  "hsl(90, 40%, 36%)",   // moss
+  "hsl(170, 50%, 33%)",  // dark teal
+  "hsl(200, 55%, 40%)",  // ocean blue
+  "hsl(250, 45%, 43%)",  // deep violet
+  "hsl(290, 40%, 40%)",  // grape
+  "hsl(330, 50%, 42%)",  // raspberry
+  "hsl(48, 50%, 36%)",   // dark gold
+  "hsl(110, 35%, 34%)",  // sage
+  "hsl(145, 45%, 36%)",  // jade
+  "hsl(180, 40%, 36%)",  // dark cyan
+  "hsl(220, 45%, 42%)",  // navy blue
+  "hsl(260, 35%, 46%)",  // lavender purple
+  "hsl(300, 35%, 38%)",  // mauve
+  "hsl(70, 45%, 34%)",   // army green
+  "hsl(120, 40%, 40%)",  // spring green
+  "hsl(160, 35%, 38%)",  // sea green
+  "hsl(190, 50%, 34%)",  // deep teal
+  "hsl(230, 40%, 42%)",  // cobalt
+  "hsl(270, 45%, 40%)",  // purple
+  "hsl(345, 45%, 43%)",  // cranberry
+  "hsl(28, 55%, 40%)",   // copper
+  "hsl(75, 40%, 38%)",   // chartreuse
+  "hsl(135, 45%, 34%)",  // pine
+  "hsl(195, 50%, 38%)",  // cerulean
+  "hsl(255, 40%, 42%)",  // iris
+  "hsl(310, 40%, 40%)",  // orchid
+  "hsl(45, 60%, 38%)",   // amber
+  "hsl(165, 40%, 36%)",  // malachite
+  "hsl(205, 45%, 42%)",  // azure
+  "hsl(285, 40%, 38%)",  // eggplant
+  "hsl(325, 45%, 44%)",  // magenta rose
 ];
 
 /** Deterministic color from any string (id or name) — unique per input */
@@ -239,7 +267,11 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
   const gramsData = parseStoredGrams(item.grams);
   const displayDefaultGrams = gramsData.unit !== null ? `${formatNumeric(gramsData.unit)}g` : item.grams;
   const displayPartialGrams = gramsData.remainder !== null ? `${formatNumeric(gramsData.remainder)}g` : null;
-  const canEditPartial = !item.is_infinite && !!item.quantity && item.quantity > 1 && gramsData.unit !== null;
+  // Show partial edit when: has grams, not infinite, and either qty > 1 OR qty is 1 (treated same as no qty)
+  const effectiveQty = item.quantity === 1 ? null : item.quantity;
+  const canEditPartial = !item.is_infinite && gramsData.unit !== null && (effectiveQty ? effectiveQty > 1 : true);
+  // Don't show "reste" if partial equals the full unit (no consumption happened)
+  const showPartialLabel = gramsData.remainder !== null;
 
   const saveEdit = () => {
     const val = editValue.trim();
@@ -249,11 +281,17 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     if (editing === "quantity") onUpdate({ quantity: val ? parseInt(val) || null : null });
     if (editing === "partial" && gramsData.unit !== null) {
       if (!val) {
+        // Clearing partial = restore to full unit
         onUpdate({ grams: formatNumeric(gramsData.unit) });
       } else {
         const parsed = parseFloat(val.replace(",", "."));
-        if (!isNaN(parsed) && parsed > 0 && parsed < gramsData.unit) {
-          onUpdate({ grams: encodeStoredGrams(gramsData.unit, parsed) });
+        if (!isNaN(parsed) && parsed > 0) {
+          if (parsed >= gramsData.unit) {
+            // Restored to full unit — remove partial marker
+            onUpdate({ grams: formatNumeric(gramsData.unit) });
+          } else {
+            onUpdate({ grams: encodeStoredGrams(gramsData.unit, parsed) });
+          }
         }
       }
     }
@@ -349,7 +387,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             inputMode="numeric"
             className="h-6 w-14 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
           />
-        ) : item.quantity ? (
+        ) : item.quantity && item.quantity > 1 ? (
           <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={handleDecrementQuantity}
@@ -504,14 +542,23 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
               inputMode="decimal"
               className="h-5 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1 ml-auto"
             />
-          ) : (
+          ) : showPartialLabel ? (
             <button
               onClick={() => startEdit("partial")}
               className="ml-auto text-[10px] text-white/90 bg-white/20 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 hover:bg-white/30"
               title="Modifier le reste de la dernière quantité"
             >
               <Weight className="h-2.5 w-2.5" />
-              Reste {displayPartialGrams ?? displayDefaultGrams}
+              Reste {displayPartialGrams}
+            </button>
+          ) : (
+            <button
+              onClick={() => startEdit("partial")}
+              className="ml-auto text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-md flex items-center gap-0.5"
+              title="Indiquer un reste partiel"
+            >
+              <Weight className="h-2.5 w-2.5" />
+              Reste
             </button>
           )
         )}
