@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { z } from "zod";
 import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ export function ShoppingList() {
     addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, deleteItem,
     getItemsByGroup, reorderItems, reorderGroups,
   } = useShoppingList();
+  const isMobile = useIsMobile();
   const { getPreference, setPreference } = usePreferences();
 
   const [newGroupName, setNewGroupName] = useState("");
@@ -37,15 +39,22 @@ export function ShoppingList() {
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
 
-  // Load collapsed state from DB
+  // Load collapsed state from DB; on mobile default all collapsed, on desktop default all expanded
   const savedCollapsed = getPreference<string[]>('shopping_collapsed_groups', []);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const collapseSynced = useRef(false);
   useEffect(() => {
-    if (collapseSynced.current || savedCollapsed.length === 0) return;
-    setCollapsedGroups(new Set(savedCollapsed));
-    collapseSynced.current = true;
-  }, [savedCollapsed]);
+    if (collapseSynced.current) return;
+    if (savedCollapsed.length > 0) {
+      setCollapsedGroups(new Set(savedCollapsed));
+      collapseSynced.current = true;
+    } else if (isMobile && groups.length > 0) {
+      // On mobile, collapse all groups by default
+      const allIds = ["__ungrouped", ...groups.map(g => g.id)];
+      setCollapsedGroups(new Set(allIds));
+      collapseSynced.current = true;
+    }
+  }, [savedCollapsed, isMobile, groups]);
 
   // per-item editing state: "brand" | "qty" | null
   const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | null>>({});

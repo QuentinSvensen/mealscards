@@ -341,7 +341,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500' : ''} ${expIsToday ? 'ring-2 ring-red-500' : ''}`}
+      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''} ${expIsToday ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''}`}
       style={{ backgroundColor: color }}
     >
       {/* Row 1: name + badges + actions */}
@@ -426,13 +426,46 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
           />
         ) : item.grams ? (
-          <button
-            onClick={handleGramsCycle}
-            className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0"
-            title="Cliquer pour rendre infini"
-          >
-            <Weight className="h-2.5 w-2.5" />{displayDefaultGrams}
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={handleGramsCycle}
+              className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30"
+              title="Cliquer pour rendre infini"
+            >
+              <Weight className="h-2.5 w-2.5" />{displayDefaultGrams}
+            </button>
+            {/* Reste — inline next to grams */}
+            {canEditPartial && (
+              editing === "partial" ? (
+                <Input
+                  autoFocus
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onBlur={saveEdit}
+                  onKeyDown={e => e.key === "Enter" && saveEdit()}
+                  placeholder="Reste"
+                  inputMode="decimal"
+                  className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1"
+                />
+              ) : showPartialLabel ? (
+                <button
+                  onClick={() => startEdit("partial")}
+                  className="text-[10px] text-white bg-yellow-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-yellow-500/50 font-semibold"
+                  title="Modifier le reste de la dernière quantité"
+                >
+                  →{displayPartialGrams}
+                </button>
+              ) : (
+                <button
+                  onClick={() => startEdit("partial")}
+                  className="text-[10px] text-white/50 bg-white/10 hover:bg-white/20 px-1 py-0.5 rounded-full"
+                  title="Indiquer un reste partiel"
+                >
+                  ✎
+                </button>
+              )
+            )}
+          </div>
         ) : null}
 
         {/* Calories */}
@@ -492,11 +525,11 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
             <button className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${
-              expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200' : expired ? 'border-white/20 text-red-200' : 'border-white/20'
+              expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200 font-bold' : expired ? 'border-red-500/60 bg-red-500/20 text-red-200 font-bold animate-pulse' : 'border-white/20'
             }`}>
               <Calendar className="h-2.5 w-2.5 shrink-0" />
               {item.expiration_date
-                ? format(parseISO(item.expiration_date), 'd MMM yy', { locale: fr })
+                ? (expired ? '⚠️ ' : '') + format(parseISO(item.expiration_date), 'd MMM yy', { locale: fr })
                 : <span className="text-white/40">Péremption</span>}
             </button>
           </PopoverTrigger>
@@ -530,38 +563,6 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           {item.counter_start_date ? 'Stop' : 'Compteur'}
         </button>
 
-        {canEditPartial && (
-          editing === "partial" ? (
-            <Input
-              autoFocus
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              onBlur={saveEdit}
-              onKeyDown={e => e.key === "Enter" && saveEdit()}
-              placeholder="Reste"
-              inputMode="decimal"
-              className="h-5 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1 ml-auto"
-            />
-          ) : showPartialLabel ? (
-            <button
-              onClick={() => startEdit("partial")}
-              className="ml-auto text-[10px] text-white/90 bg-white/20 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 hover:bg-white/30"
-              title="Modifier le reste de la dernière quantité"
-            >
-              <Weight className="h-2.5 w-2.5" />
-              Reste {displayPartialGrams}
-            </button>
-          ) : (
-            <button
-              onClick={() => startEdit("partial")}
-              className="ml-auto text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-md flex items-center gap-0.5"
-              title="Indiquer un reste partiel"
-            >
-              <Weight className="h-2.5 w-2.5" />
-              Reste
-            </button>
-          )
-        )}
       </div>
     </div>
   );
