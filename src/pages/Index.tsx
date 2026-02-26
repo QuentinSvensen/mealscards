@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Clock } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search } from "lucide-react";
 import { Chronometer } from "@/components/Chronometer";
 import { MealPlanGenerator } from "@/components/MealPlanGenerator";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
@@ -19,7 +19,7 @@ import { PossibleMealCard } from "@/components/PossibleMealCard";
 import { ShoppingList } from "@/components/ShoppingList";
 import { WeeklyPlanning } from "@/components/WeeklyPlanning";
 import { FoodItems, useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
-import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
 import { usePreferences } from "@/hooks/usePreferences";
@@ -977,12 +977,11 @@ const Index = () => {
 
           <button
             onClick={() => setChronoOpen(true)}
-            className="text-[9px] sm:text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/50 hover:bg-muted rounded-full px-2 py-1"
+            className="text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2.5 py-1"
           >
-            <Clock className="h-3 w-3" />
-            <span className="hidden sm:inline">{format(new Date(), 'd MMM', { locale: fr })}</span>
+            <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
+            <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
           </button>
-          <ThemeToggle />
         </div>
       </header>
       <Chronometer open={chronoOpen} onOpenChange={setChronoOpen} />
@@ -1002,7 +1001,8 @@ const Index = () => {
                 🎲 Menu
               </button>
             </div>
-            {coursesTab === "liste" ? <ShoppingList /> : <MealPlanGenerator />}
+            <div className={coursesTab === "liste" ? "" : "hidden"}><ShoppingList /></div>
+            <div className={coursesTab === "menu" ? "" : "hidden"}><MealPlanGenerator /></div>
           </div>
         )}
         {mainPage === "planning" && <WeeklyPlanning />}
@@ -1741,6 +1741,13 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
       const bc = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
       return expSortComparator(a.expiration_date, b.expiration_date, ac, bc);
     });
+
+    // Split is_meal items: those WITHOUT expiration stay prioritized (first), those WITH expiration get interleaved
+    const isMealNoDate = sortedIsMealItems.filter(fi => !fi.expiration_date);
+    const isMealWithDate = sortedIsMealItems.filter(fi => !!fi.expiration_date);
+    sortedIsMealItems = isMealNoDate;
+    // We'll store items-with-date for interleaving in render
+    (sortedIsMealItems as any).__withDate = isMealWithDate;
   }
 
   const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length;
@@ -1774,124 +1781,201 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
       {!collapsed &&
       <div className="flex flex-col gap-2 mt-3">
-          {/* Show is_meal food items FIRST (above recipes) */}
-          {sortedIsMealItems.map((fi) => {
-            const expLabel = formatExpirationLabel(fi.expiration_date);
-            const isExpired = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
-            const expIsToday = isToday(fi.expiration_date);
-            const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
-              ? `${parseQty(fi.grams) * fi.quantity}g`
-              : (fi.is_infinite ? "∞" : fi.grams ?? null);
-            const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
-            const fakeMeal: Meal = {
-              id: `fi-${fi.id}`,
-              name: fi.name,
-              category: "plat",
-              calories: fi.quantity && fi.quantity > 1 && fi.calories
-                ? `${parseFloat(fi.calories.replace(/[^0-9.]/g, '')) * fi.quantity}`
-                : fi.calories,
-              grams: displayGrams,
-              ingredients: null,
-              color: colorFromName(fi.id),
-              sort_order: 0,
-              created_at: fi.created_at,
-              is_available: true,
-              is_favorite: false,
-              oven_temp: null,
-              oven_minutes: null,
+          {/* When in expiration sort, build a merged list for interleaving */}
+          {(() => {
+            const isMealWithDate: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
+            
+            // Helper to render an is_meal food item card
+            const renderIsMealCard = (fi: FoodItem) => {
+              const expLabel = formatExpirationLabel(fi.expiration_date);
+              const isExpiredFi = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
+              const expIsTodayFi = isToday(fi.expiration_date);
+              const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
+                ? `${parseQty(fi.grams) * fi.quantity}g`
+                : (fi.is_infinite ? "∞" : fi.grams ?? null);
+              const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
+              const fakeMeal: Meal = {
+                id: `fi-${fi.id}`,
+                name: fi.name,
+                category: "plat",
+                calories: fi.quantity && fi.quantity > 1 && fi.calories
+                  ? `${parseFloat(fi.calories.replace(/[^0-9.]/g, '')) * fi.quantity}`
+                  : fi.calories,
+                grams: displayGrams,
+                ingredients: null,
+                color: colorFromName(fi.id),
+                sort_order: 0,
+                created_at: fi.created_at,
+                is_available: true,
+                is_favorite: false,
+                oven_temp: null,
+                oven_minutes: null,
+              };
+              return (
+                <div key={fi.id} className="relative">
+                  <MealCard meal={fakeMeal}
+                    onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
+                    onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    expirationLabel={expLabel}
+                    expirationDate={fi.expiration_date}
+                    expirationIsToday={expIsTodayFi}
+                    maxIngredientCounter={counterDays} />
+                  {fi.quantity && fi.quantity > 1 && (
+                    <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                      x{fi.quantity}
+                    </div>
+                  )}
+                </div>);
             };
-            return (
-              <div key={fi.id} className="relative">
-                <MealCard meal={fakeMeal}
-                  onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
-                  onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
-                  onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  expirationLabel={expLabel}
-                  expirationDate={fi.expiration_date}
-                  expirationIsToday={expIsToday}
-                  maxIngredientCounter={counterDays} />
-                {fi.quantity && fi.quantity > 1 && (
-                  <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-                    x{fi.quantity}
-                  </div>
-                )}
-              </div>);
-          })}
 
-          {/* Name-matched stock items */}
-          {sortedNameMatches.map(({ meal, fi, portionsAvailable }, idx) => {
-            const expLabel = formatExpirationLabel(fi.expiration_date);
-            const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
-            const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
-              ? `${parseQty(fi.grams) * fi.quantity}g`
-              : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
-            const expIsToday = isToday(fi.expiration_date);
-            const fakeMeal: Meal = {
-              ...meal,
-              id: `nm-${meal.id}-${fi.id}`,
-              grams: displayGrams,
-              color: meal.color,
+            // Helper to render a name-match card
+            const renderNameMatchCard = (nm: typeof sortedNameMatches[0], idx: number) => {
+              const { meal, fi, portionsAvailable } = nm;
+              const expLabel = formatExpirationLabel(fi.expiration_date);
+              const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
+              const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
+                ? `${parseQty(fi.grams) * fi.quantity}g`
+                : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
+              const expIsTodayNm = isToday(fi.expiration_date);
+              const fakeMeal: Meal = {
+                ...meal,
+                id: `nm-${meal.id}-${fi.id}`,
+                grams: displayGrams,
+                color: meal.color,
+              };
+              return (
+                <div key={`nm-${idx}`} className="relative">
+                  <MealCard meal={fakeMeal}
+                    onMoveToPossible={() => onMoveNameMatchToPossible(meal, fi)}
+                    onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                    onToggleFavorite={() => onToggleFavorite(meal.id)}
+                    onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                    onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    hideDelete
+                    expirationLabel={expLabel}
+                    expirationDate={fi.expiration_date}
+                    expirationIsToday={expIsTodayNm}
+                    maxIngredientCounter={counterDays} />
+                  <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                    {fi.is_infinite
+                      ? <InfinityIcon className="inline h-[15px] w-[15px]" />
+                      : portionsAvailable !== null ? `x${portionsAvailable}` : `x${fi.quantity ?? 1}`}
+                  </div>
+                </div>);
             };
-            return (
-              <div key={`nm-${idx}`} className="relative">
-                <MealCard meal={fakeMeal}
-                  onMoveToPossible={() => onMoveNameMatchToPossible(meal, fi)}
-                  onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-                  onToggleFavorite={() => onToggleFavorite(meal.id)}
-                  onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
-                  onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  hideDelete
-                  expirationLabel={expLabel}
-                  expirationDate={fi.expiration_date}
-                  expirationIsToday={expIsToday}
-                  maxIngredientCounter={counterDays} />
-                <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-                  {fi.is_infinite
-                    ? <InfinityIcon className="inline h-[15px] w-[15px]" />
-                    : portionsAvailable !== null ? `x${portionsAvailable}` : `x${fi.quantity ?? 1}`}
+
+            // Helper to render an available recipe card
+            const renderAvailableCard = (item: typeof sortedAvailable[0]) => {
+              const { meal, multiple } = item;
+              const expDate = getEarliestIngredientExpiration(meal, foodItems);
+              const expLabel = formatExpirationLabel(expDate);
+              const expiringIng = getExpiringIngredientName(meal, foodItems);
+              const expiredIngs = getExpiredIngredientNames(meal, foodItems);
+              const maxCounter = getMaxIngredientCounter(meal, foodItems);
+              const expIsTodayAv = isToday(expDate);
+              return (
+                <div key={meal.id} className="relative">
+                  <MealCard meal={meal}
+                    onMoveToPossible={() => onMoveToPossible(meal.id)}
+                    onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                    onToggleFavorite={() => onToggleFavorite(meal.id)}
+                    onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                    onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    hideDelete
+                    expirationLabel={expLabel}
+                    expirationDate={expDate}
+                    expirationIsToday={expIsTodayAv}
+                    expiringIngredientName={expiringIng}
+                    expiredIngredientNames={expiredIngs}
+                    maxIngredientCounter={maxCounter} />
+                  {multiple !== null &&
+                    <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                      x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
+                    </div>
+                  }
                 </div>
-              </div>);
-          })}
+              );
+            };
 
-          {/* Ingredient-matched recipes */}
-          {sortedAvailable.map(({ meal, multiple }) => {
-            const expDate = getEarliestIngredientExpiration(meal, foodItems);
-            const expLabel = formatExpirationLabel(expDate);
-            const expiringIng = getExpiringIngredientName(meal, foodItems);
-            const expiredIngs = getExpiredIngredientNames(meal, foodItems);
-            const maxCounter = getMaxIngredientCounter(meal, foodItems);
-            const expIsToday = isToday(expDate);
-            return (
-              <div key={meal.id} className="relative">
-                <MealCard meal={meal}
-                  onMoveToPossible={() => onMoveToPossible(meal.id)}
-                  onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-                  onToggleFavorite={() => onToggleFavorite(meal.id)}
-                  onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
-                  onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  hideDelete
-                  expirationLabel={expLabel}
-                  expirationDate={expDate}
-                  expirationIsToday={expIsToday}
-                  expiringIngredientName={expiringIng}
-                  expiredIngredientNames={expiredIngs}
-                  maxIngredientCounter={maxCounter} />
-                {multiple !== null &&
-                  <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-                    x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
-                  </div>
+            if (sortMode === "expiration" && isMealWithDate.length > 0) {
+              // Build unified sorted list with type tags for interleaving
+              type UnifiedItem = 
+                | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null }
+                | { type: 'nameMatch'; nm: typeof sortedNameMatches[0]; idx: number; sortDate: string | null; sortCounter: number | null }
+                | { type: 'available'; item: typeof sortedAvailable[0]; sortDate: string | null; sortCounter: number | null };
+
+              const unified: UnifiedItem[] = [];
+
+              // is_meal WITHOUT date (stay first, already in sortedIsMealItems)
+              // These are rendered before the merged list
+
+              // is_meal WITH date -> merge
+              for (const fi of isMealWithDate) {
+                const counter = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
+                unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter });
+              }
+              for (let i = 0; i < sortedNameMatches.length; i++) {
+                const nm = sortedNameMatches[i];
+                const counter = nm.fi.counter_start_date ? Math.floor((Date.now() - new Date(nm.fi.counter_start_date).getTime()) / 86400000) : null;
+                unified.push({ type: 'nameMatch', nm, idx: i, sortDate: nm.fi.expiration_date, sortCounter: counter });
+              }
+              for (const item of sortedAvailable) {
+                const expDate = getEarliestIngredientExpiration(item.meal, foodItems);
+                const counter = getMaxIngredientCounter(item.meal, foodItems);
+                unified.push({ type: 'available', item, sortDate: expDate, sortCounter: counter });
+              }
+
+              const today = new Date(new Date().toDateString());
+              unified.sort((a, b) => {
+                const aExpired = a.sortDate ? new Date(a.sortDate) < today : false;
+                const bExpired = b.sortDate ? new Date(b.sortDate) < today : false;
+                if (aExpired && a.sortCounter !== null && (!bExpired || b.sortCounter === null)) return -1;
+                if (bExpired && b.sortCounter !== null && (!aExpired || a.sortCounter === null)) return 1;
+                if (aExpired && bExpired && a.sortCounter !== null && b.sortCounter !== null) {
+                  if (b.sortCounter !== a.sortCounter) return b.sortCounter - a.sortCounter;
+                  return (a.sortDate || "").localeCompare(b.sortDate || "");
                 }
-              </div>
+                if (a.sortCounter !== null && b.sortCounter === null) return -1;
+                if (b.sortCounter !== null && a.sortCounter === null) return 1;
+                if (a.sortCounter !== null && b.sortCounter !== null) return b.sortCounter - a.sortCounter;
+                if (!a.sortDate && !b.sortDate) return 0;
+                if (!a.sortDate) return 1;
+                if (!b.sortDate) return -1;
+                return a.sortDate.localeCompare(b.sortDate);
+              });
+
+              return (
+                <>
+                  {/* is_meal items without date first (prioritized) */}
+                  {sortedIsMealItems.map(fi => renderIsMealCard(fi))}
+                  {/* Merged interleaved list */}
+                  {unified.map((u, i) => {
+                    if (u.type === 'isMeal') return renderIsMealCard(u.fi);
+                    if (u.type === 'nameMatch') return renderNameMatchCard(u.nm, u.idx);
+                    return renderAvailableCard(u.item);
+                  })}
+                </>
+              );
+            }
+
+            // Default (non-expiration or no is_meal with dates): render in blocks
+            return (
+              <>
+                {sortedIsMealItems.map(fi => renderIsMealCard(fi))}
+                {sortedNameMatches.map((nm, idx) => renderNameMatchCard(nm, idx))}
+                {sortedAvailable.map(item => renderAvailableCard(item))}
+              </>
             );
-          })}
+          })()}
 
           {totalCount === 0 &&
         <p className="text-muted-foreground text-sm text-center py-4 italic">

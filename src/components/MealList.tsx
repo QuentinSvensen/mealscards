@@ -27,6 +27,8 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
     setDragOver(false);
     const mealId = e.dataTransfer.getData("mealId");
     const source = e.dataTransfer.getData("source");
+    // Don't handle drops from within the same possible list (internal reorder)
+    if (source === "possible") return;
     if (mealId && source !== title && onExternalDrop) {
       onExternalDrop(mealId);
     }
