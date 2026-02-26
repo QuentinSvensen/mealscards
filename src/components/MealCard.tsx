@@ -112,7 +112,7 @@ function serializeIngredients(lines: IngLine[]): string | null {
 }
 
 function normalizeIngName(name: string): string {
-  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/s$/,"").trim();
+  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/,"").trim();
 }
 
 export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames }: MealCardProps) {
