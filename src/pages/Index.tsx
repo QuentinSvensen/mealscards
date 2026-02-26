@@ -606,6 +606,9 @@ const Index = () => {
       if (m.calories) parts.push(`cal=${m.calories}`);
       if (m.grams) parts.push(`grams=${m.grams}`);
       if (m.ingredients) parts.push(`ing=${m.ingredients.replace(/\n/g, ', ')}`);
+      if (m.oven_temp) parts.push(`oven_temp=${m.oven_temp}`);
+      if (m.oven_minutes) parts.push(`oven_minutes=${m.oven_minutes}`);
+      if (m.is_favorite) parts.push(`fav=1`);
       return `${m.name} (${parts.join('; ')})`;
     });
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
@@ -637,7 +640,29 @@ const Index = () => {
         paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
         const result = mealSchema.safeParse({ name });
         if (!result.success) { skipped++; continue; }
-        addMeal.mutate({ name: result.data.name, category: params.cat as MealCategory || 'plat' });
+        // Insert meal with all exported fields
+        const cat = (params.cat as MealCategory) || 'plat';
+        const { data: inserted, error: insertErr } = await supabase
+          .from("meals")
+          .insert({
+            name: result.data.name,
+            category: cat,
+            color: colorFromName(result.data.name),
+            sort_order: count,
+            is_available: true,
+            calories: params.cal || null,
+            grams: params.grams || null,
+            ingredients: params.ing || null,
+            oven_temp: params.oven_temp || null,
+            oven_minutes: params.oven_minutes || null,
+            is_favorite: params.fav === '1',
+          } as any)
+          .select()
+          .single();
+        if (insertErr) { skipped++; continue; }
+        if (inserted) {
+          await supabase.from("meals").update({ color: colorFromName(inserted.id) }).eq("id", inserted.id);
+        }
         count++;
       }
       const msg = skipped > 0 ? `✅ ${count} repas importés (${skipped} ignorés)` : `✅ ${count} repas importés`;
@@ -908,21 +933,31 @@ const Index = () => {
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
                   onMoveToPossible={async (mealId) => {
-                    // Deduct stock when moving to possible
                     const meal = meals.find(m => m.id === mealId);
                     if (meal) {
-                      await deductIngredientsFromStock(meal);
+                      const snapshots = await deductIngredientsFromStock(meal);
+                      // Also snapshot name-match deduction
+                      const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
+                      if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) {
+                        snapshots.push({ ...nameMatch });
+                      }
+                      const expDate = getEarliestIngredientExpiration(meal, foodItems);
+                      const result = await moveToPossible.mutateAsync({ mealId, expiration_date: expDate });
+                      if (result?.id) {
+                        setDeductionSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
+                      }
                     }
-                    const expDate = meal ? getEarliestIngredientExpiration(meal, foodItems) : null;
-                    moveToPossible.mutate({ mealId, expiration_date: expDate });
                   }}
                   onMoveNameMatchToPossible={async (meal, fi) => {
-                    // Deduct name-match stock
+                    const snapshot = [{ ...fi }];
                     await deductNameMatchStock(meal);
-                    moveToPossible.mutate({ mealId: meal.id, expiration_date: fi.expiration_date });
+                    const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date });
+                    if (result?.id) {
+                      setDeductionSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                    }
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
-                    // Deduct 1 from food item quantity
+                    const snapshot = [{ ...fi }];
                     if (!fi.is_infinite) {
                       const currentQty = fi.quantity ?? 1;
                       if (currentQty <= 1) {
@@ -932,9 +967,22 @@ const Index = () => {
                       }
                       qc.invalidateQueries({ queryKey: ["food_items"] });
                     }
-                    await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
+                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
+                    if (pmResult?.id) {
+                      setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                    }
                   }}
-                  onDeleteFoodItem={(id) => { deleteFoodItem(id); }} />
+                  onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
+                  onRename={(id, name) => renameMeal.mutate({ id, name })}
+                  onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                  onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
+                  onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
+                  onToggleFavorite={(id) => {
+                    const meal = meals.find((m) => m.id === id);
+                    if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
+                  }}
+                  onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
+                  onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })} />
 
                   </div>
                   <PossibleList
@@ -948,26 +996,21 @@ const Index = () => {
                   removeFromPossible.mutate(id);
                 }}
                 onReturnWithoutDeduction={async (id) => {
-                  // Restore stock and remove from possible
-                  const allPossible = getPossibleByCategory(cat.value);
-                  const pm = allPossible.find(p => p.id === id);
-                  if (pm?.meals) {
-                    await restoreIngredientsToStock(pm.meals);
-                    // Also restore name-match
-                    const mealGrams = parseQty(pm.meals.grams);
-                    if (mealGrams > 0) {
-                      const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
-                      if (nameMatch) {
-                        const fiGrams = parseQty(nameMatch.grams);
-                        if (nameMatch.quantity && nameMatch.quantity >= 1 && fiGrams > 0) {
-                          const unitsToRestore = Math.ceil(mealGrams / fiGrams);
-                          await supabase.from("food_items").update({ quantity: (nameMatch.quantity) + unitsToRestore } as any).eq("id", nameMatch.id);
-                        } else {
-                          const newTotal = fiGrams + mealGrams;
-                          await supabase.from("food_items").update({ grams: String(Math.round(newTotal * 10) / 10) } as any).eq("id", nameMatch.id);
-                        }
-                        qc.invalidateQueries({ queryKey: ["food_items"] });
-                      }
+                  const snapshots = deductionSnapshots[id];
+                  if (snapshots && snapshots.length > 0) {
+                    // Restore from exact snapshots (re-creates deleted items)
+                    await restoreIngredientsToStock({} as Meal, snapshots);
+                    setDeductionSnapshots(prev => {
+                      const next = { ...prev };
+                      delete next[id];
+                      return next;
+                    });
+                  } else {
+                    // Fallback: try to restore from current stock
+                    const allPossible = getPossibleByCategory(cat.value);
+                    const pm = allPossible.find(p => p.id === id);
+                    if (pm?.meals) {
+                      await restoreIngredientsToStock(pm.meals);
                     }
                   }
                   removeFromPossible.mutate(id);
@@ -1147,9 +1190,8 @@ function buildStockMap(foodItems: FoodItem[]): Map<string, StockInfo> {
     if (fi.is_infinite) {
       map.set(key, { ...prev, infinite: true });
     } else {
-      const itemGrams = parseQty(fi.grams);
+      const totalGrams = getFoodItemTotalGrams(fi);
       const itemQty = fi.quantity ?? 1;
-      const totalGrams = itemGrams * itemQty;
       map.set(key, {
         grams: prev.grams + totalGrams,
         count: prev.count + itemQty,
@@ -1346,8 +1388,8 @@ function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Se
 }
 
 // ─── AvailableList ────────────────────────────────────────────────────────────
-function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];possibleMeals: PossibleMeal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;}) {
+function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];allMeals: Meal[];foodItems: FoodItem[];possibleMeals: PossibleMeal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
 
   const stockMap = buildStockMap(foodItems);
 
@@ -1364,7 +1406,8 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
     .filter(({ multiple }) => multiple !== null && (multiple === Infinity || (multiple as number) > 0));
   const availableMealIds = new Set(available.map(a => a.meal.id));
 
-  // 2. Name-match: stock items that strict-match a "Tous" recipe WITHOUT ingredients
+  // 2. Name-match: stock items that strict-match a "Tous" recipe
+  // PRIORITY: if a recipe from "Tous" matches a food-as-meal name, show the RECIPE card
   type NameMatch = {meal: Meal;fi: FoodItem;portionsAvailable: number | null;};
   const nameMatches: NameMatch[] = [];
   const nameMatchedFiIds = new Set<string>();
@@ -1372,11 +1415,12 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
 
   for (const meal of meals) {
     if (availableMealIds.has(meal.id)) continue;
+    // Skip meals with ingredients (they're handled by ingredient-matching above)
     if (meal.ingredients?.trim()) continue;
     for (const fi of foodItems) {
       if (strictNameMatch(meal.name, fi.name)) {
         const mealGrams = parseQty(meal.grams);
-        const stockGrams = fi.is_infinite ? Infinity : parseQty(fi.grams) * (fi.quantity ?? 1);
+        const stockGrams = fi.is_infinite ? Infinity : getFoodItemTotalGrams(fi);
         if (!fi.is_infinite && stockGrams <= 0) continue;
         const inPossible = possibleMeals.filter(pm => pm.meal_id === meal.id).length;
         let portions: number | null = null;
@@ -1396,24 +1440,83 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
     }
   }
 
-  // 3. is_meal food items — only if NOT already covered by a name-match above
-  const isMealItems = foodItems.filter((fi) => fi.is_meal && !nameMatchedFiIds.has(fi.id));
-
-  // Orphan food items: not is_meal, not name-matched, not "toujours",
-  // not used in any available recipe of THIS category specifically
-  const categoryMeals = allMeals.filter(m => m.is_available && m.category === category.value);
-  const orphanFoodItems = foodItems.filter((fi) => {
-    if (fi.is_meal) return false;
-    if ((fi as any).storage_type === 'toujours') return false;
+  // 3. is_meal food items — only if NOT already covered by a recipe name-match
+  // Recipe priority: if a recipe in "Tous" has the same name (case/plural insensitive), skip food-as-meal
+  const isMealItems = foodItems.filter((fi) => {
+    if (!fi.is_meal) return false;
     if (nameMatchedFiIds.has(fi.id)) return false;
-    // Check if used in ANY recipe of this category
-    if (isFoodUsedInMeals(fi, categoryMeals)) return false;
+    // Check if any recipe in Tous matches this food item name
+    const hasRecipeMatch = meals.some(m => strictNameMatch(m.name, fi.name));
+    if (hasRecipeMatch) return false; // Recipe takes priority
+    return true;
+  });
+
+  // Orphan food items: compute inter-category usage with surplus
+  // An ingredient is "unused" in this category if:
+  // - not is_meal, not "toujours", not name-matched
+  // - its total stock minus what's needed by ALL other categories' "au choix" recipes > 0
+  // The displayed quantity is the surplus after other categories consumed their share
+  const allAvailableMeals = allMeals.filter(m => m.is_available);
+  const otherCategoryMeals = allAvailableMeals.filter(m => m.category !== category.value);
+  const thisCategoryMeals = allAvailableMeals.filter(m => m.category === category.value);
+
+  // Calculate how much of each food item is needed by OTHER categories' realizable recipes
+  const otherCatUsage = new Map<string, { grams: number; count: number }>();
+  for (const meal of otherCategoryMeals) {
+    if (!meal.ingredients?.trim()) continue;
+    const multiple = getMealMultiple(meal, stockMap);
+    if (multiple === null || multiple <= 0) continue; // Not realizable
+    const groups = parseIngredientGroups(meal.ingredients);
+    for (const group of groups) {
+      const alt = pickBestAlternative(group, stockMap);
+      if (!alt) continue;
+      const key = findStockKey(stockMap, alt.name);
+      if (!key) continue;
+      const prev = otherCatUsage.get(key) ?? { grams: 0, count: 0 };
+      if (alt.qty > 0) prev.grams += alt.qty;
+      if (alt.count > 0) prev.count += alt.count;
+      otherCatUsage.set(key, prev);
+    }
+  }
+
+  const orphanFoodItems: { fi: FoodItem; surplusGrams: number; surplusCount: number }[] = [];
+  for (const fi of foodItems) {
+    if (fi.is_meal) continue;
+    if ((fi as any).storage_type === 'toujours') continue;
+    if (nameMatchedFiIds.has(fi.id)) continue;
+    // Check if used in THIS category's recipes
+    if (isFoodUsedInMeals(fi, thisCategoryMeals)) continue;
+
+    const fiKey = normalizeForMatch(fi.name);
+    const stockKey = findStockKey(stockMap, fiKey);
+    const stock = stockKey ? stockMap.get(stockKey) : null;
+    if (!stock || stock.infinite) continue;
+
+    const otherUsage = stockKey ? otherCatUsage.get(stockKey) : null;
+    const usedGrams = otherUsage?.grams ?? 0;
+    const usedCount = otherUsage?.count ?? 0;
+
+    const surplusGrams = stock.grams - usedGrams;
+    const surplusCount = stock.count - usedCount;
+
+    // Only show if there's actual surplus
+    if (surplusGrams <= 0 && surplusCount <= 0) continue;
+
+    orphanFoodItems.push({ fi, surplusGrams, surplusCount });
+  }
+
+  // Deduplicate orphans by name
+  const seenOrphanNames = new Set<string>();
+  const dedupedOrphans = orphanFoodItems.filter(({ fi }) => {
+    const key = normalizeForMatch(fi.name);
+    if (seenOrphanNames.has(key)) return false;
+    seenOrphanNames.add(key);
     return true;
   }).sort((a, b) => {
-    if (!a.expiration_date && !b.expiration_date) return 0;
-    if (!a.expiration_date) return 1;
-    if (!b.expiration_date) return -1;
-    return a.expiration_date.localeCompare(b.expiration_date);
+    if (!a.fi.expiration_date && !b.fi.expiration_date) return 0;
+    if (!a.fi.expiration_date) return 1;
+    if (!b.fi.expiration_date) return -1;
+    return a.fi.expiration_date.localeCompare(b.fi.expiration_date);
   });
 
   // Sort available items based on sortMode
@@ -1565,7 +1668,10 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
               <div key={`nm-${idx}`} className="relative">
                 <MealCard meal={fakeMeal}
                   onMoveToPossible={() => onMoveNameMatchToPossible(meal, fi)}
-                  onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                  onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                  onToggleFavorite={() => onToggleFavorite(meal.id)}
+                  onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                  onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
                   onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1594,7 +1700,10 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
               <div key={meal.id} className="relative">
                 <MealCard meal={meal}
                   onMoveToPossible={() => onMoveToPossible(meal.id)}
-                  onRename={() => {}} onDelete={() => {}} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
+                  onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                  onToggleFavorite={() => onToggleFavorite(meal.id)}
+                  onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                  onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
                   onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                   onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -1614,15 +1723,16 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
             );
           })}
 
-          {orphanFoodItems.length > 0 &&
+          {dedupedOrphans.length > 0 &&
         <div className="mt-1 rounded-xl border border-dashed border-muted-foreground/30 px-3 py-2">
               <p className="text-[10px] text-muted-foreground font-semibold mb-1 uppercase tracking-wide">Aliments inutilisés dans les recettes</p>
               <div className="flex flex-wrap gap-1">
-              {orphanFoodItems.map((fi) => {
+              {dedupedOrphans.map(({ fi, surplusGrams }) => {
                 const isExpired = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
+                const displayGrams = surplusGrams > 0 ? `${formatNumeric(surplusGrams)}g` : null;
                 return (
                   <span key={fi.id} className={`text-[10px] px-2 py-0.5 rounded-full ${isExpired ? 'bg-red-500/20 text-red-600 dark:text-red-400 ring-1 ring-red-500/50 font-semibold' : 'bg-muted text-muted-foreground'}`}>
-                    {fi.name}{fi.grams ? ` ${fi.grams}` : ''}{fi.quantity && fi.quantity > 1 ? ` x${fi.quantity}` : ''}
+                    {fi.name}{displayGrams ? ` ${displayGrams}` : ''}{fi.quantity && fi.quantity > 1 ? ` x${fi.quantity}` : ''}
                   </span>
                 );
               })}
@@ -1630,7 +1740,7 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
             </div>
         }
 
-          {totalCount === 0 && orphanFoodItems.length === 0 &&
+          {totalCount === 0 && dedupedOrphans.length === 0 &&
         <p className="text-muted-foreground text-sm text-center py-4 italic">
               Aucun repas réalisable avec les aliments disponibles
             </p>
@@ -1643,10 +1753,15 @@ function AvailableList({ category, meals, allMeals, foodItems, possibleMeals, so
 function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];sortMode: MasterSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onRename: (id: string, name: string) => void;onDelete: (id: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const stockMap = buildStockMap(foodItems);
 
   const SortIcon = sortMode === "calories" ? Flame : sortMode === "favorites" ? Star : sortMode === "ingredients" ? List : ArrowUpDown;
   const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
+
+  const filteredMeals = searchQuery.trim()
+    ? meals.filter(m => normalizeForMatch(m.name).includes(normalizeForMatch(searchQuery)))
+    : meals;
 
   return (
     <MealList
@@ -1656,16 +1771,29 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
       headerActions={
-      <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
+      <>
+        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
           <SortIcon className={`h-3 w-3 ${sortMode === "favorites" ? "text-yellow-400 fill-yellow-400" : ""}`} />
           <span className="hidden sm:inline">{sortLabel}</span>
         </Button>
+      </>
       }>
 
       {!collapsed &&
       <>
-          {meals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Aucun repas</p>}
-          {meals.map((meal, index) => {
+          {!collapsed && (
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 pl-8 text-xs rounded-xl"
+              />
+            </div>
+          )}
+          {filteredMeals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">{searchQuery ? "Aucun résultat" : "Aucun repas"}</p>}
+          {filteredMeals.map((meal, index) => {
             const missingIngs = getMissingIngredients(meal, stockMap);
             return (
               <MealCard key={meal.id} meal={meal}
