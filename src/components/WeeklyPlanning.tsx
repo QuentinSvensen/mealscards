@@ -335,7 +335,7 @@ export function WeeklyPlanning() {
       >
         <div className="flex items-center gap-1 min-w-0 flex-wrap">
           <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-          <span className="font-semibold text-xs flex-1 break-words min-w-0">{meal.name}</span>
+          <span className="font-semibold text-xs min-w-0 break-words">{meal.name}</span>
           {counterDays !== null && (
             <span
               className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
@@ -347,6 +347,13 @@ export function WeeklyPlanning() {
             >
               <Timer className="h-2.5 w-2.5" />
               {counterDays}j
+            </span>
+          )}
+          <div className="flex-1" />
+          {!compact && meal.calories && (
+            <span className="text-[11px] font-bold text-white/90 bg-black/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+              <Flame className="h-3 w-3" />
+              {meal.calories}
             </span>
           )}
           {!compact && (
@@ -367,12 +374,6 @@ export function WeeklyPlanning() {
               >
                 <Calendar className="h-2 w-2" />
                 {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-              </span>
-            )}
-            {meal.calories && (
-              <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                <Flame className="h-2 w-2" />
-                {meal.calories}
               </span>
             )}
             {meal.grams && (

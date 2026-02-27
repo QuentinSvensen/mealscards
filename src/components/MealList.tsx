@@ -6,7 +6,7 @@ interface MealListProps {
   emoji: string;
   count: number;
   children: React.ReactNode;
-  onExternalDrop?: (mealId: string) => void;
+  onExternalDrop?: (mealId: string, source: string) => void;
   headerActions?: React.ReactNode;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -30,7 +30,7 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
     // Don't handle drops from within the same possible list (internal reorder)
     if (source === "possible") return;
     if (mealId && source !== title && onExternalDrop) {
-      onExternalDrop(mealId);
+      onExternalDrop(mealId, source);
     }
   }, [onExternalDrop, title]);
 

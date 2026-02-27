@@ -17,6 +17,7 @@ interface PossibleMealCardProps {
   pm: PossibleMeal;
   onRemove: () => void;
   onReturnWithoutDeduction?: () => void;
+  onReturnToMaster?: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onUpdateExpiration: (date: string | null) => void;
@@ -99,7 +100,7 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return result.length ? result.join(", ") : null;
 }
 
-export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
+export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
   const [editing, setEditing] = useState<"calories" | "grams" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
@@ -233,6 +234,11 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onDel
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {onReturnToMaster && (
+              <DropdownMenuItem onClick={onReturnToMaster}>
+                <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
+              </DropdownMenuItem>
+            )}
             {onReturnWithoutDeduction && (
               <DropdownMenuItem onClick={onReturnWithoutDeduction}>
                 <Undo2 className="mr-2 h-4 w-4" /> Remettre au choix (sans déduire)
