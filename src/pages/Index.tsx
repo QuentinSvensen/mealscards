@@ -169,6 +169,24 @@ const Index = () => {
     return () => clearInterval(interval);
   }, [unlocked]);
 
+  // Realtime: sync food_items, meals, possible_meals across sessions
+  useEffect(() => {
+    if (!unlocked) return;
+    const channel = supabase
+      .channel('global-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'food_items' }, () => {
+        qc.invalidateQueries({ queryKey: ["food_items"] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, () => {
+        qc.invalidateQueries({ queryKey: ["meals"] });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'possible_meals' }, () => {
+        qc.invalidateQueries({ queryKey: ["possible_meals"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [unlocked, qc]);
+
   const {
     isLoading,
     meals, possibleMeals,
@@ -195,6 +213,42 @@ const Index = () => {
 
   const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
   const { getPreference, setPreference } = usePreferences();
+
+  // Sunday auto-clear: remove all possible meals and planning manual calories every Sunday at 23:59
+  const sundayClearDone = useRef(false);
+  useEffect(() => {
+    if (!unlocked || sundayClearDone.current || possibleMeals.length === 0) return;
+    const lastReset = localStorage.getItem('sunday_reset_timestamp');
+    const now = new Date();
+    // Find last Sunday 23:59
+    const daysSinceSunday = now.getDay(); // 0=Sunday
+    const lastSunday = new Date(now);
+    if (daysSinceSunday === 0 && now.getHours() >= 23 && now.getMinutes() >= 59) {
+      // It's Sunday after 23:59 — reset should happen today
+      lastSunday.setHours(23, 59, 0, 0);
+    } else {
+      // Go back to the previous Sunday
+      lastSunday.setDate(lastSunday.getDate() - (daysSinceSunday === 0 ? 7 : daysSinceSunday));
+      lastSunday.setHours(23, 59, 0, 0);
+    }
+    
+    if (!lastReset || new Date(lastReset) < lastSunday) {
+      sundayClearDone.current = true;
+      // Clear all possible meals
+      const clearAll = async () => {
+        await Promise.all(possibleMeals.map(pm =>
+          (supabase as any).from("possible_meals").delete().eq("id", pm.id)
+        ));
+        // Clear manual calories and extra calories but keep breakfast selections
+        setPreference.mutate({ key: 'planning_manual_calories', value: {} });
+        setPreference.mutate({ key: 'planning_extra_calories', value: {} });
+        qc.invalidateQueries({ queryKey: ["possible_meals"] });
+        localStorage.setItem('sunday_reset_timestamp', now.toISOString());
+        toast({ title: "🔄 Reset hebdomadaire effectué", description: "Les cartes possibles et calories manuelles ont été effacées." });
+      };
+      clearAll();
+    }
+  }, [unlocked, possibleMeals]);
 
   const [activeCategory, setActiveCategory] = useState<MealCategory>(() => {
     if (location.pathname === '/repas') {
@@ -2019,12 +2073,19 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
                   const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
                   return (
-                    <span key={fi.id} className={`text-[11px] px-2.5 py-1.5 rounded-full font-medium transition-colors ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/80 text-muted-foreground hover:bg-muted'}`}>
+                    <span key={fi.id} className={`text-[11px] px-2.5 py-1.5 rounded-full font-medium transition-colors inline-flex items-center gap-1 ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/80 text-muted-foreground hover:bg-muted'}`}>
                       {fi.name}
-                      {totalG > 0 && <span className="ml-1 opacity-60">{formatNumeric(totalG)}g</span>}
-                      {qty && <span className="ml-0.5 opacity-60">×{qty}</span>}
-                      {fi.is_infinite && <span className="ml-0.5 opacity-60">∞</span>}
-                      {expLabel && <span className={`ml-1 text-[9px] ${isExpired ? 'text-red-300' : 'opacity-50'}`}>📅{expLabel}</span>}
+                      {totalG > 0 && <span className="opacity-60">{formatNumeric(totalG)}g</span>}
+                      {qty && <span className="opacity-60">×{qty}</span>}
+                      {fi.is_infinite && <span className="opacity-60">∞</span>}
+                      {expLabel && <span className={`text-[9px] ${isExpired ? 'text-red-300' : 'opacity-50'}`}>📅{expLabel}</span>}
+                      <button
+                        onClick={() => onDeleteFoodItem(fi.id)}
+                        className="ml-0.5 opacity-40 hover:opacity-100 hover:text-destructive transition-opacity"
+                        title="Supprimer cet aliment"
+                      >
+                        ✕
+                      </button>
                     </span>
                   );
                 })}
@@ -2119,7 +2180,7 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
 
 function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly
 }: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;}) {
-  const [dragPmId, setDragPmId] = useState<string | null>(null);
+  const dragPmIdRef = useRef<string | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
 
@@ -2144,19 +2205,20 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
       onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
       onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
-      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragPmId(pm.id); }}
+      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); dragPmIdRef.current = pm.id; }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
         const source = e.dataTransfer.getData("source");
-        if (source !== "possible" || !dragPmId || dragPmId === pm.id) {
-          setDragPmId(null);
+        const droppedPmId = e.dataTransfer.getData("pmId");
+        if (source !== "possible" || !droppedPmId || droppedPmId === pm.id) {
+          dragPmIdRef.current = null;
           return;
         }
-        const fromIndex = items.findIndex((item) => item.id === dragPmId);
+        const fromIndex = items.findIndex((item) => item.id === droppedPmId);
         if (fromIndex !== -1 && fromIndex !== index) onReorder(fromIndex, index);
-        setDragPmId(null);
+        dragPmIdRef.current = null;
       }}
       isHighlighted={highlightedId === pm.id} />
       )}

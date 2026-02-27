@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { z } from "zod";
 import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -344,8 +344,8 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
       className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''} ${expIsToday ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''}`}
       style={{ backgroundColor: color }}
     >
-      {/* Row 1: name + badges + actions */}
-      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+      {/* Row 1: name */}
+      <div className="flex items-center gap-1.5 min-w-0">
         {editing === "name" ? (
           <Input
             autoFocus
@@ -363,7 +363,10 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             {item.name}
           </button>
         )}
+      </div>
 
+      {/* Row 2: badges + actions */}
+      <div className="flex items-center gap-1 mt-1 flex-wrap">
         {/* Counter badge */}
         {counterDays !== null && (
           <button
@@ -815,6 +818,68 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
   const [sectionDragOver, setSectionDragOver] = useState(false);
   const [collapsed, setCollapsed] = useState(storageType === 'toujours');
 
+  // Touch drag & drop for mobile
+  const touchDragRef = useRef<{ itemId: string; itemIdx: number; ghost: HTMLElement; startX: number; startY: number; origTop: number; origLeft: number } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [touchDragActive, setTouchDragActive] = useState(false);
+
+  const handleTouchStart = (e: React.TouchEvent, item: FoodItem, sectionIdx: number) => {
+    const touch = e.touches[0];
+    const el = e.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(40);
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
+      const ghost = el.cloneNode(true) as HTMLElement;
+      ghost.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;z-index:9999;pointer-events:none;opacity:0.85;transform:scale(1.05);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.35);transition:none;`;
+      document.body.appendChild(ghost);
+      touchDragRef.current = { itemId: item.id, itemIdx: sectionIdx, ghost, startX: touch.clientX, startY: touch.clientY, origTop: rect.top, origLeft: rect.left };
+      setTouchDragActive(true);
+    }, 500);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchDragRef.current) {
+      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+      return;
+    }
+    e.preventDefault();
+    const touch = e.touches[0];
+    const s = touchDragRef.current;
+    s.ghost.style.top = `${s.origTop + (touch.clientY - s.startY)}px`;
+    s.ghost.style.left = `${s.origLeft + (touch.clientX - s.startX)}px`;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+    const s = touchDragRef.current;
+    if (!s) return;
+    touchDragRef.current = null;
+    setTouchDragActive(false);
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
+    const touch = e.changedTouches[0];
+    s.ghost.style.visibility = "hidden";
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    s.ghost.remove();
+    // Find target card
+    const cardEl = el?.closest("[data-food-idx]");
+    if (cardEl) {
+      const toIdx = parseInt(cardEl.getAttribute("data-food-idx") || "-1");
+      if (toIdx >= 0 && toIdx !== s.itemIdx) onReorder(s.itemIdx, toIdx);
+    }
+  };
+
+  const handleTouchCancel = () => {
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+    if (touchDragRef.current) { touchDragRef.current.ghost.remove(); touchDragRef.current = null; }
+    setTouchDragActive(false);
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
+  };
+
   return (
     <div
       className={`rounded-3xl bg-card/80 backdrop-blur-sm p-4 transition-all ${sectionDragOver ? "ring-2 ring-primary/40" : ""}`}
@@ -856,34 +921,42 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
             </p>
           ) : (
             items.map((item, sectionIdx) => (
-              <FoodItemCard
+              <div
                 key={item.id}
-                item={item}
-                color={colorMap(item)}
-                onUpdate={(updates) => onUpdate(item.id, updates)}
-                onDelete={() => onDelete(item.id)}
-                onDuplicate={() => onDuplicate(item.id)}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("foodItemIndex", String(sectionIdx));
-                  e.dataTransfer.setData("foodItemId", item.id);
-                  e.dataTransfer.setData("foodItemStorage", item.storage_type);
-                  setDragIndex(sectionIdx);
-                }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const fromId = e.dataTransfer.getData("foodItemId");
-                  const fromStorage = e.dataTransfer.getData("foodItemStorage");
-                  if (fromStorage === storageType && dragIndex !== null && dragIndex !== sectionIdx) {
-                    onReorder(dragIndex, sectionIdx);
-                  }
-                  if (fromId && fromStorage !== storageType) {
-                    onChangeStorage(fromId, storageType);
-                  }
-                  setDragIndex(null);
-                }}
-              />
+                data-food-idx={sectionIdx}
+                onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchCancel}
+              >
+                <FoodItemCard
+                  item={item}
+                  color={colorMap(item)}
+                  onUpdate={(updates) => onUpdate(item.id, updates)}
+                  onDelete={() => onDelete(item.id)}
+                  onDuplicate={() => onDuplicate(item.id)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("foodItemIndex", String(sectionIdx));
+                    e.dataTransfer.setData("foodItemId", item.id);
+                    e.dataTransfer.setData("foodItemStorage", item.storage_type);
+                    setDragIndex(sectionIdx);
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const fromId = e.dataTransfer.getData("foodItemId");
+                    const fromStorage = e.dataTransfer.getData("foodItemStorage");
+                    if (fromStorage === storageType && dragIndex !== null && dragIndex !== sectionIdx) {
+                      onReorder(dragIndex, sectionIdx);
+                    }
+                    if (fromId && fromStorage !== storageType) {
+                      onChangeStorage(fromId, storageType);
+                    }
+                    setDragIndex(null);
+                  }}
+                />
+              </div>
             ))
           )}
         </div>

@@ -47,7 +47,7 @@ serve(async (req) => {
     }).join("\n");
 
     const systemPrompt = `Tu es un assistant culinaire. On te donne une liste d'aliments disponibles et une liste de recettes déjà enregistrées.
-Propose 3 à 5 recettes simples réalisables avec ces ingrédients (on peut utiliser des basiques de placard : sel, poivre, huile, eau).
+Propose 8 à 10 recettes simples réalisables avec ces ingrédients (on peut utiliser des basiques de placard : sel, poivre, huile, eau).
 IMPORTANT: Ne propose PAS de recettes qui existent déjà dans la liste des recettes enregistrées.
 Réponds UNIQUEMENT en JSON valide avec ce format exact :
 {
