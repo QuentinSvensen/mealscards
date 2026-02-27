@@ -215,40 +215,49 @@ const Index = () => {
   const { getPreference, setPreference } = usePreferences();
 
   // Sunday auto-clear: remove all possible meals and planning manual calories every Sunday at 23:59
+  const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
   const sundayClearDone = useRef(false);
   useEffect(() => {
-    if (!unlocked || sundayClearDone.current || possibleMeals.length === 0) return;
-    const lastReset = localStorage.getItem('sunday_reset_timestamp');
+    if (!unlocked || sundayClearDone.current) return;
+
     const now = new Date();
-    // Find last Sunday 23:59
     const daysSinceSunday = now.getDay(); // 0=Sunday
+
+    // Calculate last Sunday 23:59
     const lastSunday = new Date(now);
     if (daysSinceSunday === 0 && now.getHours() >= 23 && now.getMinutes() >= 59) {
-      // It's Sunday after 23:59 — reset should happen today
       lastSunday.setHours(23, 59, 0, 0);
     } else {
-      // Go back to the previous Sunday
       lastSunday.setDate(lastSunday.getDate() - (daysSinceSunday === 0 ? 7 : daysSinceSunday));
       lastSunday.setHours(23, 59, 0, 0);
     }
-    
-    if (!lastReset || new Date(lastReset) < lastSunday) {
+
+    // Already reset for this week — skip
+    if (lastWeeklyReset && new Date(lastWeeklyReset) >= lastSunday) {
       sundayClearDone.current = true;
-      // Clear all possible meals
-      const clearAll = async () => {
-        await Promise.all(possibleMeals.map(pm =>
-          (supabase as any).from("possible_meals").delete().eq("id", pm.id)
-        ));
-        // Clear manual calories and extra calories but keep breakfast selections
-        setPreference.mutate({ key: 'planning_manual_calories', value: {} });
-        setPreference.mutate({ key: 'planning_extra_calories', value: {} });
-        qc.invalidateQueries({ queryKey: ["possible_meals"] });
-        localStorage.setItem('sunday_reset_timestamp', now.toISOString());
-        toast({ title: "🔄 Reset hebdomadaire effectué", description: "Les cartes possibles et calories manuelles ont été effacées." });
-      };
-      clearAll();
+      return;
     }
-  }, [unlocked, possibleMeals]);
+
+    // Nothing to clear — just mark as done
+    if (possibleMeals.length === 0) {
+      sundayClearDone.current = true;
+      setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
+      return;
+    }
+
+    sundayClearDone.current = true;
+    const clearAll = async () => {
+      await Promise.all(possibleMeals.map(pm =>
+        (supabase as any).from("possible_meals").delete().eq("id", pm.id)
+      ));
+      setPreference.mutate({ key: 'planning_manual_calories', value: {} });
+      setPreference.mutate({ key: 'planning_extra_calories', value: {} });
+      setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
+      qc.invalidateQueries({ queryKey: ["possible_meals"] });
+      toast({ title: "🔄 Reset hebdomadaire effectué", description: "Les cartes possibles et calories manuelles ont été effacées." });
+    };
+    clearAll();
+  }, [unlocked, possibleMeals, lastWeeklyReset]);
 
   const [activeCategory, setActiveCategory] = useState<MealCategory>(() => {
     if (location.pathname === '/repas') {
@@ -263,6 +272,7 @@ const Index = () => {
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
+  const [masterSourcePmIds, setMasterSourcePmIds] = useState<Set<string>>(new Set());
 
   // Sort modes: load from DB preferences, fallback to localStorage, then defaults
   const dbSortModes = getPreference<Record<string, SortMode>>('meal_sort_modes', {});
@@ -1119,8 +1129,11 @@ const Index = () => {
                   onToggleSort={() => toggleMasterSort(cat.value)}
                   collapsed={collapsedSections[`master-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`master-${cat.value}`)}
-                  onMoveToPossible={(id) => {
-                    moveToPossible.mutate({ mealId: id });
+                  onMoveToPossible={async (id) => {
+                    const result = await moveToPossible.mutateAsync({ mealId: id });
+                    if (result?.id) {
+                      setMasterSourcePmIds(prev => new Set([...prev, result.id]));
+                    }
                   }}
                   onRename={(id, name) => renameMeal.mutate({ id, name })}
                   onDelete={(id) => deleteMeal.mutate(id)}
@@ -1197,20 +1210,18 @@ const Index = () => {
                   onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })} />
 
                   </div>
-                  <PossibleList
+                <PossibleList
                 category={cat}
                 items={getSortedPossible(cat.value)}
                 sortMode={sortModes[cat.value] || "manual"}
                 onToggleSort={() => toggleSort(cat.value)}
                 onRandomPick={() => handleRandomPick(cat.value)}
                 onRemove={(id) => {
-                  // Arrow (consume): just remove, stock already deducted
                   removeFromPossible.mutate(id);
                 }}
                 onReturnWithoutDeduction={async (id) => {
                   const snapshots = deductionSnapshots[id];
                   if (snapshots && snapshots.length > 0) {
-                    // Restore from exact snapshots (re-creates deleted items)
                     await restoreIngredientsToStock({} as Meal, snapshots);
                     setDeductionSnapshots(prev => {
                       const next = { ...prev };
@@ -1218,7 +1229,6 @@ const Index = () => {
                       return next;
                     });
                   } else {
-                    // Fallback: try to restore from current stock
                     const allPossible = getPossibleByCategory(cat.value);
                     const pm = allPossible.find(p => p.id === id);
                     if (pm?.meals) {
@@ -1227,8 +1237,15 @@ const Index = () => {
                   }
                   removeFromPossible.mutate(id);
                 }}
+                onReturnToMaster={(id) => {
+                  removeFromPossible.mutate(id);
+                  setMasterSourcePmIds(prev => {
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                  });
+                }}
                 onDelete={(id) => {
-                  // Delete: just remove, stock already deducted
                   deletePossibleMeal.mutate(id);
                 }}
                 onDuplicate={(id) => duplicatePossibleMeal.mutate(id)}
@@ -1239,23 +1256,25 @@ const Index = () => {
                 onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                 onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
                 onUpdatePossibleIngredients={async (pmId, newIngredients) => {
-                  // Find the possible meal
                   const pm = possibleMeals.find(p => p.id === pmId);
                   if (!pm) return;
                   const oldIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
-                  
-                  // Calculate difference and adjust stock
                   if (oldIngredients || newIngredients) {
                     await adjustStockForIngredientChange(oldIngredients, newIngredients);
                   }
-                  
                   updatePossibleIngredients.mutate({ id: pmId, ingredients_override: newIngredients });
                 }}
                 onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
-                onExternalDrop={(mealId) => moveToPossible.mutate({ mealId })}
+                onExternalDrop={async (mealId, source) => {
+                  const result = await moveToPossible.mutateAsync({ mealId });
+                  if (result?.id && source === "master") {
+                    setMasterSourcePmIds(prev => new Set([...prev, result.id]));
+                  }
+                }}
                 highlightedId={highlightedId}
                 foodItems={foodItems}
-                onAddDirectly={() => openDialog("possible")} />
+                onAddDirectly={() => openDialog("possible")}
+                masterSourcePmIds={masterSourcePmIds} />
 
                 </div>
               </TabsContent>
@@ -1629,6 +1648,9 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
 
   const stockMap = buildStockMap(foodItems);
+  const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
+  const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
+  const [avDragIndex, setAvDragIndex] = useState<number | null>(null);
 
   // 1. Meals realizable via ingredient matching — subtract those already in possible
   const available: {meal: Meal;multiple: number | null;}[] = meals
@@ -1849,9 +1871,30 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
           {/* When in expiration sort, build a merged list for interleaving */}
           {(() => {
             const isMealWithDate: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
-            
+
+            // Build unified array for DnD reorder in manual mode
+            type UnifiedAvail =
+              | { type: 'isMeal'; fi: FoodItem; key: string }
+              | { type: 'nm'; nm: typeof sortedNameMatches[0]; nmIdx: number; key: string }
+              | { type: 'av'; item: typeof sortedAvailable[0]; key: string };
+            const unifiedItems: UnifiedAvail[] = [
+              ...sortedIsMealItems.map(fi => ({ type: 'isMeal' as const, fi, key: `fi-${fi.id}` })),
+              ...sortedNameMatches.map((nm, idx) => ({ type: 'nm' as const, nm, nmIdx: idx, key: `nm-${nm.meal.id}` })),
+              ...sortedAvailable.map(item => ({ type: 'av' as const, item, key: `av-${item.meal.id}` })),
+            ];
+            if (sortMode === "manual" && storedOrder.length > 0) {
+              const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
+              unifiedItems.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
+            }
+            const handleAvReorder = (fromIdx: number, toIdx: number) => {
+              const reordered = [...unifiedItems];
+              const [moved] = reordered.splice(fromIdx, 1);
+              reordered.splice(toIdx, 0, moved);
+              setAvailPref.mutate({ key: `available_order_${category.value}`, value: reordered.map(u => u.key) });
+            };
+
             // Helper to render an is_meal food item card
-            const renderIsMealCard = (fi: FoodItem) => {
+            const renderIsMealCard = (fi: FoodItem, unifiedIdx?: number) => {
               const expLabel = formatExpirationLabel(fi.expiration_date);
               const isExpiredFi = fi.expiration_date && new Date(fi.expiration_date) < new Date(new Date().toDateString());
               const expIsTodayFi = isToday(fi.expiration_date);
@@ -1881,9 +1924,9 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   <MealCard meal={fakeMeal}
                     onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
                     onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
-                    onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); }}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); if (unifiedIdx !== undefined) setAvDragIndex(unifiedIdx); }}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
                     expirationLabel={expLabel}
                     expirationDate={fi.expiration_date}
                     expirationIsToday={expIsTodayFi}
@@ -1897,7 +1940,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
             };
 
             // Helper to render a name-match card
-            const renderNameMatchCard = (nm: typeof sortedNameMatches[0], idx: number) => {
+            const renderNameMatchCard = (nm: typeof sortedNameMatches[0], idx: number, unifiedIdx?: number) => {
               const { meal, fi, portionsAvailable } = nm;
               const expLabel = formatExpirationLabel(fi.expiration_date);
               const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
@@ -1919,9 +1962,9 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                     onToggleFavorite={() => onToggleFavorite(meal.id)}
                     onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
                     onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); if (unifiedIdx !== undefined) setAvDragIndex(unifiedIdx); }}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
                     hideDelete
                     expirationLabel={expLabel}
                     expirationDate={fi.expiration_date}
@@ -1936,7 +1979,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
             };
 
             // Helper to render an available recipe card
-            const renderAvailableCard = (item: typeof sortedAvailable[0]) => {
+            const renderAvailableCard = (item: typeof sortedAvailable[0], unifiedIdx?: number) => {
               const { meal, multiple } = item;
               const expDate = getEarliestIngredientExpiration(meal, foodItems);
               const expLabel = formatExpirationLabel(expDate);
@@ -1952,9 +1995,9 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                     onToggleFavorite={() => onToggleFavorite(meal.id)}
                     onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
                     onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); }}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); if (unifiedIdx !== undefined) setAvDragIndex(unifiedIdx); }}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
                     hideDelete
                     expirationLabel={expLabel}
                     expirationDate={expDate}
@@ -2032,12 +2075,14 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               );
             }
 
-            // Default (non-expiration or no is_meal with dates): render in blocks
+            // Default: render unified array (supports manual DnD reorder)
             return (
               <>
-                {sortedIsMealItems.map(fi => renderIsMealCard(fi))}
-                {sortedNameMatches.map((nm, idx) => renderNameMatchCard(nm, idx))}
-                {sortedAvailable.map(item => renderAvailableCard(item))}
+                {unifiedItems.map((u, idx) => {
+                  if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
+                  if (u.type === 'nm') return renderNameMatchCard(u.nm, u.nmIdx, idx);
+                  return renderAvailableCard(u.item, idx);
+                })}
               </>
             );
           })()}
@@ -2178,9 +2223,9 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
     </MealList>);
 }
 
-function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly
-}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;}) {
-  const dragPmIdRef = useRef<string | null>(null);
+function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds
+}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onReturnToMaster: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string, source: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;masterSourcePmIds: Set<string>;}) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
 
@@ -2195,7 +2240,8 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       {items.map((pm, index) =>
       <PossibleMealCard key={pm.id} pm={pm}
       onRemove={() => onRemove(pm.id)}
-      onReturnWithoutDeduction={() => onReturnWithoutDeduction(pm.id)}
+      onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
+      onReturnToMaster={masterSourcePmIds.has(pm.id) ? () => onReturnToMaster(pm.id) : undefined}
       onDelete={() => onDelete(pm.id)}
       onDuplicate={() => onDuplicate(pm.id)}
       onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
@@ -2205,20 +2251,15 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
       onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
       onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
-      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); dragPmIdRef.current = pm.id; }}
+      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        const source = e.dataTransfer.getData("source");
-        const droppedPmId = e.dataTransfer.getData("pmId");
-        if (source !== "possible" || !droppedPmId || droppedPmId === pm.id) {
-          dragPmIdRef.current = null;
-          return;
+        if (dragIndex !== null && dragIndex !== index) {
+          onReorder(dragIndex, index);
         }
-        const fromIndex = items.findIndex((item) => item.id === droppedPmId);
-        if (fromIndex !== -1 && fromIndex !== index) onReorder(fromIndex, index);
-        dragPmIdRef.current = null;
+        setDragIndex(null);
       }}
       isHighlighted={highlightedId === pm.id} />
       )}
