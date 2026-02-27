@@ -80,7 +80,7 @@ function PinLock({ onUnlock }: {onUnlock: () => void;}) {
         });
         onUnlock();
       } else if (res.status === 401 && data.error?.toString().includes("Accès refusé")) {
-        showError("Trop de tentatives, réessaie dans 15 min");
+        showError((data.error as string) || "Accès refusé");
       } else {
         showError((data.error as string) || "Code incorrect");
       }
@@ -1498,14 +1498,25 @@ function getMaxIngredientCounter(meal: Meal, foodItems: FoodItem[]): number | nu
 
   for (const group of groups) {
     for (const alt of group) {
+      const ingredientName = normalizeForMatch(alt.name);
+      const ingredientTokens = ingredientName.split(" ").filter((token) => token.length > 2);
+
       for (const fi of foodItems) {
-        if (strictNameMatch(fi.name, alt.name) && fi.counter_start_date) {
+        const fiName = normalizeForMatch(fi.name);
+        const matched =
+          strictNameMatch(fiName, ingredientName) ||
+          ingredientTokens.some(
+            (token) => strictNameMatch(fiName, token) || fiName.includes(token) || token.includes(fiName),
+          );
+
+        if (matched && fi.counter_start_date) {
           const days = Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000);
           if (maxDays === null || days > maxDays) maxDays = days;
         }
       }
     }
   }
+
   return maxDays;
 }
 
@@ -2108,7 +2119,7 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
 
 function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly
 }: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;}) {
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragPmId, setDragPmId] = useState<string | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
 
@@ -2133,9 +2144,20 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
       onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
       onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
-      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
+      onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragPmId(pm.id); }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const source = e.dataTransfer.getData("source");
+        if (source !== "possible" || !dragPmId || dragPmId === pm.id) {
+          setDragPmId(null);
+          return;
+        }
+        const fromIndex = items.findIndex((item) => item.id === dragPmId);
+        if (fromIndex !== -1 && fromIndex !== index) onReorder(fromIndex, index);
+        setDragPmId(null);
+      }}
       isHighlighted={highlightedId === pm.id} />
       )}
     </MealList>);

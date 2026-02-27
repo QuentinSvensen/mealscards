@@ -1,8 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useMeals, type Meal } from "@/hooks/useMeals";
-import { colorFromName } from "@/components/FoodItems";
-import { Dice5, Flame, Weight, Thermometer, List } from "lucide-react";
+import { Dice5, Flame, Weight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { usePreferences } from "@/hooks/usePreferences";
+
+const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 
 function parseIngredientLine(raw: string) {
   const trimmed = raw.trim().replace(/\s+/g, " ");
@@ -31,48 +33,68 @@ function normalizeKey(name: string) {
   return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/, "").trim();
 }
 
+function parseStoredIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
 export function MealPlanGenerator() {
   const { getMealsByCategory } = useMeals();
+  const { getPreference, setPreference } = usePreferences();
+
   const allPlats = getMealsByCategory("plat");
-  const [selectedMeals, setSelectedMeals] = useState<Meal[]>([]);
+  const persistedRaw = getPreference<unknown>(MENU_PREF_KEY, null);
+  const persistedIds = useMemo(() => parseStoredIds(persistedRaw), [JSON.stringify(persistedRaw)]);
+
+  const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (persistedIds.length === 0) return;
+    setSelectedMealIds((prev) => (prev.length === 0 ? persistedIds : prev));
+  }, [persistedIds.join("|")]);
+
+  const selectedMeals = useMemo(() => {
+    if (selectedMealIds.length === 0 || allPlats.length === 0) return [];
+    return selectedMealIds
+      .map((mealId) => allPlats.find((meal) => meal.id === mealId))
+      .filter((meal): meal is Meal => !!meal);
+  }, [selectedMealIds, allPlats]);
 
   const generatePlan = () => {
-    const avantGrimpe = allPlats.find(m => m.name.toLowerCase().includes("avant grimpe"));
-    const otherPlats = allPlats.filter(m => m.id !== avantGrimpe?.id);
+    const avantGrimpe = allPlats.find((m) => m.name.toLowerCase().includes("avant grimpe"));
+    const otherPlats = allPlats.filter((m) => m.id !== avantGrimpe?.id);
 
     if (otherPlats.length === 0) return;
 
     const counts = new Map<string, number>();
-    const selected: Meal[] = [];
+    const selectedIds: string[] = [];
 
-    // Shuffle
     const pool = [...otherPlats].sort(() => Math.random() - 0.5);
     let attempts = 0;
-    while (selected.length < 16 && attempts < 500) {
+    while (selectedIds.length < 16 && attempts < 500) {
       const pick = pool[attempts % pool.length];
       const count = counts.get(pick.id) || 0;
       if (count < 2) {
-        selected.push(pick);
+        selectedIds.push(pick.id);
         counts.set(pick.id, count + 1);
       }
       attempts++;
     }
 
-    // Add 4 "Avant grimpe"
     if (avantGrimpe) {
-      for (let i = 0; i < 4; i++) selected.push(avantGrimpe);
+      for (let i = 0; i < 4; i++) selectedIds.push(avantGrimpe.id);
     }
 
-    setSelectedMeals(selected);
+    setSelectedMealIds(selectedIds);
+    setPreference.mutate({ key: MENU_PREF_KEY, value: selectedIds });
   };
 
-  // Aggregate ingredients
   const shoppingItems = useMemo(() => {
     const map = new Map<string, { grams: number; count: number; displayName: string }>();
 
     for (const meal of selectedMeals) {
       if (!meal.ingredients) continue;
-      const groups = meal.ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
+      const groups = meal.ingredients.split(/(?:\n|,(?!\d))/).map((s) => s.trim()).filter(Boolean);
       for (const group of groups) {
         const alts = group.split(/\|/);
         const first = alts[0]?.trim();
@@ -91,7 +113,7 @@ export function MealPlanGenerator() {
 
     return Array.from(map.entries())
       .map(([, v]) => v)
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr'));
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
   }, [selectedMeals]);
 
   return (
@@ -110,7 +132,6 @@ export function MealPlanGenerator() {
         </p>
       ) : (
         <>
-          {/* Meal cards */}
           <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
               🍽️ Plats sélectionnés ({selectedMeals.length})
@@ -137,7 +158,7 @@ export function MealPlanGenerator() {
                   </div>
                   {meal.ingredients && (
                     <p className="text-[10px] text-white/50 mt-0.5 break-words">
-                      {meal.ingredients.split(/[,\n]+/).filter(Boolean).map(s => s.trim()).join(" • ")}
+                      {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((s) => s.trim()).join(" • ")}
                     </p>
                   )}
                 </div>
@@ -145,7 +166,6 @@ export function MealPlanGenerator() {
             </div>
           </div>
 
-          {/* Shopping list */}
           <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
               🛒 Liste d'ingrédients ({shoppingItems.length})
@@ -172,7 +192,6 @@ export function MealPlanGenerator() {
             </div>
           </div>
 
-          {/* Total calories */}
           {(() => {
             const totalCal = selectedMeals.reduce((sum, m) => {
               const c = parseFloat((m.calories || "0").replace(/[^0-9.]/g, "")) || 0;

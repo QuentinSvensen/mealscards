@@ -97,7 +97,7 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[280px] rounded-[28px] border-0 bg-card/95 backdrop-blur-xl shadow-2xl p-0 overflow-hidden" aria-describedby={undefined}>
+      <DialogContent className="max-w-[300px] rounded-[24px] sm:rounded-[34px] border-0 bg-card/95 backdrop-blur-xl shadow-2xl p-0 overflow-hidden" aria-describedby={undefined}>
         <div className="flex flex-col items-center gap-5 px-6 py-8">
           <div className="text-5xl font-mono font-black text-foreground tabular-nums tracking-wider">
             {display}
