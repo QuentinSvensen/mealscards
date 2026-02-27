@@ -116,14 +116,27 @@ export function MealPlanGenerator() {
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
   }, [selectedMeals]);
 
+  const totalCal = selectedMeals.reduce((sum, m) => {
+    const c = parseFloat((m.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+    return sum + c;
+  }, 0);
+
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-bold text-foreground">🎲 Menu semaine</h2>
-        <Button onClick={generatePlan} className="rounded-full gap-1.5 text-xs">
-          <Dice5 className="h-3.5 w-3.5" />
-          Générer
-        </Button>
+        <div className="flex items-center gap-2">
+          {totalCal > 0 && (
+            <span className="flex items-center gap-1 text-sm font-black text-orange-500">
+              <Flame className="h-4 w-4" />
+              {Math.round(totalCal)} kcal
+            </span>
+          )}
+          <Button onClick={generatePlan} className="rounded-full gap-1.5 text-xs">
+            <Dice5 className="h-3.5 w-3.5" />
+            Générer
+          </Button>
+        </div>
       </div>
 
       {selectedMeals.length === 0 ? (
@@ -191,22 +204,6 @@ export function MealPlanGenerator() {
               )}
             </div>
           </div>
-
-          {(() => {
-            const totalCal = selectedMeals.reduce((sum, m) => {
-              const c = parseFloat((m.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-              return sum + c;
-            }, 0);
-            return totalCal > 0 ? (
-              <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
-                <span className="text-sm font-bold text-foreground">Total calories</span>
-                <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-                  <Flame className="h-4 w-4" />
-                  {Math.round(totalCal)} kcal
-                </span>
-              </div>
-            ) : null;
-          })()}
         </>
       )}
     </div>

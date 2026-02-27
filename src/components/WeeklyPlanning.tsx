@@ -528,10 +528,15 @@ export function WeeklyPlanning() {
       {/* Total calorique de la semaine */}
       <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
         <span className="text-sm font-bold text-foreground">Total semaine</span>
-        <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-          <Flame className="h-4 w-4" />
-          {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground font-medium">
+            Moy. {Math.round(weekTotal / 7)} kcal/j
+          </span>
+          <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
+            <Flame className="h-4 w-4" />
+            {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
+          </span>
+        </div>
       </div>
 
       {/* Hors planning — drop zone to unplan */}
