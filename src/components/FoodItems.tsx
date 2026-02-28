@@ -169,7 +169,7 @@ export function useFoodItems() {
   });
 
   const addItem = useMutation({
-    mutationFn: async ({ name, storage_type, quantity, grams }: { name: string; storage_type: StorageType; quantity?: number | null; grams?: string | null }) => {
+    mutationFn: async ({ name, storage_type, quantity, grams, food_type }: { name: string; storage_type: StorageType; quantity?: number | null; grams?: string | null; food_type?: FoodType }) => {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase
         .from("food_items")
@@ -180,6 +180,7 @@ export function useFoodItems() {
           storage_type,
           ...(quantity ? { quantity } : {}),
           ...(grams ? { grams } : {}),
+          ...(food_type ? { food_type } : {}),
         } as any);
       if (error) throw error;
     },
@@ -618,10 +619,12 @@ export function FoodItems() {
   const [newName, setNewName] = useState("");
   const [newQuantity, setNewQuantity] = useState("");
   const [newGrams, setNewGrams] = useState("");
+  const [newFoodType, setNewFoodType] = useState<FoodType>(null);
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
   const [pendingName, setPendingName] = useState("");
   const [pendingQuantity, setPendingQuantity] = useState("");
   const [pendingGrams, setPendingGrams] = useState("");
+  const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Independent sort per section
@@ -716,14 +719,15 @@ export function FoodItems() {
     setPendingName(result.data.name);
     setPendingQuantity(newQuantity);
     setPendingGrams(newGrams);
+    setPendingFoodType(newFoodType);
     setShowStoragePrompt(true);
   };
 
   const confirmAdd = (storageType: StorageType) => {
     const qty = pendingQuantity ? parseInt(pendingQuantity) || null : null;
     const grams = pendingGrams.trim() || null;
-    addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams }, {
-      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
+    addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams, food_type: pendingFoodType }, {
+      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setNewFoodType(null); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingFoodType(null); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         toast({ title: "Erreur lors de l'ajout", description: msg, variant: "destructive" });
@@ -774,8 +778,8 @@ export function FoodItems() {
         </Button>
       </div>
 
-      {/* Quantity + Grams inputs */}
-      <div className="flex gap-2 mb-4">
+      {/* Quantity + Grams + Food type inputs */}
+      <div className="flex gap-2 mb-4 items-center">
         <Input
           placeholder="Quantité (ex : 3)"
           value={newQuantity}
@@ -789,6 +793,24 @@ export function FoodItems() {
           onChange={e => setNewGrams(e.target.value)}
           className="flex-1 rounded-xl h-8 text-sm"
         />
+        <div className="flex gap-1 shrink-0">
+          <button
+            onClick={() => setNewFoodType(prev => prev === 'feculent' ? null : 'feculent')}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
+              newFoodType === 'feculent' ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
+            }`}
+          >
+            <Wheat className="h-3 w-3" />Féc
+          </button>
+          <button
+            onClick={() => setNewFoodType(prev => prev === 'viande' ? null : 'viande')}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
+              newFoodType === 'viande' ? 'bg-red-500/20 text-red-300 border-red-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
+            }`}
+          >
+            <Drumstick className="h-3 w-3" />Via
+          </button>
+        </div>
       </div>
 
       {/* Storage type prompt */}
@@ -842,9 +864,10 @@ export function FoodItems() {
           />
         ))}
       </div>
-      {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'toujours').map((section) => (
-        <div key={section.type} className="mt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 max-w-none">
+        {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'toujours').map((section) => (
           <FoodSection
+            key={section.type}
             emoji={section.emoji}
             title={section.label}
             storageType={section.type}
@@ -861,8 +884,8 @@ export function FoodItems() {
             allItems={items}
             onChangeStorage={(id, st) => updateItem.mutate({ id, storage_type: st, is_dry: st === 'sec' })}
           />
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -893,11 +916,30 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
   const [sectionDragOver, setSectionDragOver] = useState(false);
   const [collapsed, setCollapsed] = useState(storageType === 'toujours');
 
-  // Touch drag & drop for mobile
+  // Touch drag & drop for mobile — uses native listeners for passive:false
   const touchDragRef = useRef<{ itemId: string; itemIdx: number; ghost: HTMLElement; startX: number; startY: number; origTop: number; origLeft: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
-  const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Attach native touchmove with passive:false to allow preventDefault
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchDragRef.current) {
+        if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+        return;
+      }
+      e.preventDefault();
+      const touch = e.touches[0];
+      const s = touchDragRef.current;
+      s.ghost.style.top = `${s.origTop + (touch.clientY - s.startY)}px`;
+      s.ghost.style.left = `${s.origLeft + (touch.clientX - s.startX)}px`;
+    };
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => container.removeEventListener('touchmove', onTouchMove);
+  }, []);
 
   const handleTouchStart = (e: React.TouchEvent, item: FoodItem, sectionIdx: number) => {
     if (sortMode !== "manual") return;
@@ -917,18 +959,6 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
     }, 500);
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchDragRef.current) {
-      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-      return;
-    }
-    e.preventDefault();
-    const touch = e.touches[0];
-    const s = touchDragRef.current;
-    s.ghost.style.top = `${s.origTop + (touch.clientY - s.startY)}px`;
-    s.ghost.style.left = `${s.origLeft + (touch.clientX - s.startX)}px`;
-  };
-
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
     const s = touchDragRef.current;
@@ -941,7 +971,6 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
     s.ghost.style.visibility = "hidden";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     s.ghost.remove();
-    // Find target card
     const cardEl = el?.closest("[data-food-idx]");
     if (cardEl) {
       const toIdx = parseInt(cardEl.getAttribute("data-food-idx") || "-1");
@@ -959,6 +988,7 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
 
   return (
     <div
+      ref={containerRef}
       className={`rounded-3xl bg-card/80 backdrop-blur-sm p-4 transition-all ${sectionDragOver ? "ring-2 ring-primary/40" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setSectionDragOver(true); }}
       onDragLeave={() => setSectionDragOver(false)}
@@ -1002,7 +1032,6 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
                 key={item.id}
                 data-food-idx={sectionIdx}
                 onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
-                onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
                 onTouchCancel={handleTouchCancel}
               >

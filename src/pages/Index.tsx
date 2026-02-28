@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat } from "lucide-react";
 import { Chronometer } from "@/components/Chronometer";
 import { MealPlanGenerator } from "@/components/MealPlanGenerator";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
@@ -1277,6 +1277,31 @@ const Index = () => {
                 masterSourcePmIds={masterSourcePmIds} />
 
                 </div>
+
+                {/* Un par un section — full width below the grid */}
+                <UnParUnSection
+                  category={cat}
+                  foodItems={foodItems}
+                  allMeals={meals}
+                  collapsed={collapsedSections[`unparun-${cat.value}`] ?? true}
+                  onToggleCollapse={() => toggleSectionCollapse(`unparun-${cat.value}`)}
+                  onMoveToPossible={async (fi) => {
+                    const snapshot = [{ ...fi }];
+                    if (!fi.is_infinite) {
+                      const currentQty = fi.quantity ?? 1;
+                      if (currentQty <= 1) {
+                        await supabase.from("food_items").delete().eq("id", fi.id);
+                      } else {
+                        await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", fi.id);
+                      }
+                      qc.invalidateQueries({ queryKey: ["food_items"] });
+                    }
+                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
+                    if (pmResult?.id) {
+                      setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                    }
+                  }}
+                />
               </TabsContent>
           )}
           </Tabs>
@@ -1643,7 +1668,145 @@ function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Se
   return missing;
 }
 
-// ─── AvailableList ────────────────────────────────────────────────────────────
+// ─── UnParUnSection ──────────────────────────────────────────────────────────
+function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleCollapse, onMoveToPossible }: {
+  category: { value: string; label: string; emoji: string };
+  foodItems: FoodItem[];
+  allMeals: Meal[];
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onMoveToPossible: (fi: FoodItem) => void;
+}) {
+  const stockMap = buildStockMap(foodItems);
+
+  // Get viande and feculent food items (non-toujours)
+  const viandeItems = foodItems.filter(fi => fi.food_type === 'viande' && fi.storage_type !== 'toujours');
+  const feculentItems = foodItems.filter(fi => fi.food_type === 'feculent' && fi.storage_type !== 'toujours');
+
+  // Determine which items are unused (not consumed by any available recipe)
+  const globalAvailableMeals = allMeals.filter(meal => {
+    if (!meal.ingredients?.trim()) return false;
+    const m = getMealMultiple(meal, stockMap);
+    return m !== null && m > 0;
+  });
+
+  const usedIngredientKeys = new Set<string>();
+  for (const meal of globalAvailableMeals) {
+    const groups = parseIngredientGroups(meal.ingredients!);
+    for (const group of groups) {
+      for (const alt of group) {
+        const key = findStockKey(stockMap, alt.name);
+        if (key) usedIngredientKeys.add(key);
+      }
+    }
+  }
+  // Also add name-match meals
+  for (const meal of allMeals) {
+    if (meal.ingredients?.trim()) continue;
+    for (const fi of foodItems) {
+      if (strictNameMatch(meal.name, fi.name)) {
+        usedIngredientKeys.add(normalizeForMatch(fi.name));
+        break;
+      }
+    }
+  }
+
+  const isUnused = (fi: FoodItem) => {
+    const fiKey = normalizeForMatch(fi.name);
+    for (const usedKey of usedIngredientKeys) {
+      if (strictNameMatch(fiKey, usedKey)) return false;
+    }
+    return true;
+  };
+
+  // Sort: unused first, then by expiration
+  const sortItems = (items: FoodItem[]) => {
+    return [...items].sort((a, b) => {
+      const aUnused = isUnused(a) ? 0 : 1;
+      const bUnused = isUnused(b) ? 0 : 1;
+      if (aUnused !== bUnused) return aUnused - bUnused;
+      // Then by expiration
+      if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+      if (a.expiration_date) return -1;
+      if (b.expiration_date) return 1;
+      return 0;
+    });
+  };
+
+  const sortedViande = sortItems(viandeItems);
+  const sortedFeculent = sortItems(feculentItems);
+  const totalCount = sortedViande.length + sortedFeculent.length;
+
+  const renderFoodCard = (fi: FoodItem) => {
+    const unused = isUnused(fi);
+    const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
+    const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
+    const totalG = getFoodItemTotalGrams(fi);
+    const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
+    const color = colorFromName(fi.id);
+
+    return (
+      <div
+        key={fi.id}
+        className={`rounded-2xl px-3 py-2 shadow-md transition-all hover:scale-[1.01] flex items-center justify-between gap-2 ${isExpired ? 'ring-2 ring-red-500 shadow-red-500/30' : ''} ${unused ? 'ring-1 ring-yellow-400/40' : ''}`}
+        style={{ backgroundColor: color }}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-white truncate">{fi.name}</p>
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+            {totalG > 0 && <span className="text-[10px] text-white/70">{formatNumeric(totalG)}g</span>}
+            {qty && <span className="text-[10px] text-white/70">×{qty}</span>}
+            {fi.is_infinite && <span className="text-[10px] text-white/70">∞</span>}
+            {expLabel && <span className={`text-[9px] ${isExpired ? 'text-red-200 font-bold' : 'text-white/50'}`}>📅{expLabel}</span>}
+            {unused && <span className="text-[9px] text-yellow-200 font-bold">⚡inutilisé</span>}
+          </div>
+        </div>
+        <button
+          onClick={() => onMoveToPossible(fi)}
+          className="shrink-0 h-7 w-7 rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center text-white transition-colors"
+          title="Ajouter aux possibles"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
+      <div className="flex items-center gap-2 w-full">
+        <button onClick={onToggleCollapse} className="flex items-center gap-2 flex-1 text-left">
+          {!collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+            🔀 Un par un
+          </h2>
+          <span className="text-sm font-normal text-muted-foreground">{totalCount}</span>
+        </button>
+      </div>
+
+      {!collapsed && (
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="flex flex-col gap-2">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
+              <Drumstick className="h-3 w-3 text-red-400" /> Viande ({sortedViande.length})
+            </p>
+            {sortedViande.length === 0 && <p className="text-muted-foreground text-xs italic text-center py-4">Aucun</p>}
+            {sortedViande.map(fi => renderFoodCard(fi))}
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
+              <Wheat className="h-3 w-3 text-amber-400" /> Féculent ({sortedFeculent.length})
+            </p>
+            {sortedFeculent.length === 0 && <p className="text-muted-foreground text-xs italic text-center py-4">Aucun</p>}
+            {sortedFeculent.map(fi => renderFoodCard(fi))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
   const isPlat = category.value === "plat";
