@@ -1646,6 +1646,7 @@ function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInfo>): Se
 // ─── AvailableList ────────────────────────────────────────────────────────────
 function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
+  const isPlat = category.value === "plat";
 
   const stockMap = buildStockMap(foodItems);
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
@@ -1868,6 +1869,49 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
       {!collapsed &&
       <div className="flex flex-col gap-2 mt-3">
+          {/* Unused food items — ABOVE cards for Plats only */}
+          {isPlat && unusedFoodItems.length > 0 && (
+            <div className="rounded-2xl bg-muted/30 border border-border/20 p-3 mb-2">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({unusedFoodItems.length})</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[...unusedFoodItems].sort((a, b) => {
+                  const today = new Date(new Date().toDateString());
+                  const aExp = a.expiration_date;
+                  const bExp = b.expiration_date;
+                  const aExpired = aExp ? new Date(aExp) < today : false;
+                  const bExpired = bExp ? new Date(bExp) < today : false;
+                  if (aExpired && !bExpired) return -1;
+                  if (!aExpired && bExpired) return 1;
+                  if (aExp && bExp) return aExp.localeCompare(bExp);
+                  if (aExp && !bExp) return -1;
+                  if (!aExp && bExp) return 1;
+                  return 0;
+                }).map(fi => {
+                  const totalG = getFoodItemTotalGrams(fi);
+                  const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
+                  const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
+                  const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
+                  return (
+                    <span key={fi.id} className={`text-[11px] px-2.5 py-1.5 rounded-full font-medium transition-colors inline-flex items-center gap-1 ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/80 text-muted-foreground hover:bg-muted'}`}>
+                      {fi.name}
+                      {totalG > 0 && <span className="opacity-60">{formatNumeric(totalG)}g</span>}
+                      {qty && <span className="opacity-60">×{qty}</span>}
+                      {fi.is_infinite && <span className="opacity-60">∞</span>}
+                      {expLabel && <span className={`text-[9px] ${isExpired ? 'text-red-300' : 'opacity-50'}`}>📅{expLabel}</span>}
+                      <button
+                        onClick={() => onDeleteFoodItem(fi.id)}
+                        className="ml-0.5 opacity-40 hover:opacity-100 hover:text-destructive transition-opacity"
+                        title="Supprimer cet aliment"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* When in expiration sort, build a merged list for interleaving */}
           {(() => {
             const isMealWithDate: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
@@ -2015,7 +2059,6 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
             };
 
             if (sortMode === "expiration" && isMealWithDate.length > 0) {
-              // Build unified sorted list with type tags for interleaving
               type UnifiedItem = 
                 | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null }
                 | { type: 'nameMatch'; nm: typeof sortedNameMatches[0]; idx: number; sortDate: string | null; sortCounter: number | null }
@@ -2023,10 +2066,6 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
               const unified: UnifiedItem[] = [];
 
-              // is_meal WITHOUT date (stay first, already in sortedIsMealItems)
-              // These are rendered before the merged list
-
-              // is_meal WITH date -> merge
               for (const fi of isMealWithDate) {
                 const counter = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
                 unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter });
@@ -2063,9 +2102,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
               return (
                 <>
-                  {/* is_meal items without date first (prioritized) */}
                   {sortedIsMealItems.map(fi => renderIsMealCard(fi))}
-                  {/* Merged interleaved list */}
                   {unified.map((u, i) => {
                     if (u.type === 'isMeal') return renderIsMealCard(u.fi);
                     if (u.type === 'nameMatch') return renderNameMatchCard(u.nm, u.idx);
@@ -2093,8 +2130,8 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
             </p>
         }
 
-          {/* Unused food items */}
-          {unusedFoodItems.length > 0 && (
+          {/* Unused food items — BELOW cards for non-Plat categories */}
+          {!isPlat && unusedFoodItems.length > 0 && (
             <div className="mt-4 rounded-2xl bg-muted/30 border border-border/20 p-3">
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({unusedFoodItems.length})</p>
               <div className="flex flex-wrap gap-1.5">
@@ -2104,10 +2141,8 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   const bExp = b.expiration_date;
                   const aExpired = aExp ? new Date(aExp) < today : false;
                   const bExpired = bExp ? new Date(bExp) < today : false;
-                  // Expired first
                   if (aExpired && !bExpired) return -1;
                   if (!aExpired && bExpired) return 1;
-                  // Then by date (soonest first)
                   if (aExp && bExp) return aExp.localeCompare(bExp);
                   if (aExp && !bExp) return -1;
                   if (!aExp && bExp) return 1;

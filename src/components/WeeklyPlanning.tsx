@@ -31,6 +31,9 @@ const JS_DAY_TO_KEY: Record<number, string> = {
 const DAILY_GOAL = 2750;
 const WEEKLY_GOAL = 19250;
 
+// Calorie override key for planning cards
+function calOverrideKey(pmId: string) { return `planning_cal_override_${pmId}`; }
+
 function getCategoryEmoji(cat?: string) {
   switch (cat) {
     case "entree":
@@ -71,6 +74,125 @@ interface TouchDragState {
   origLeft: number;
 }
 
+// ─── PlanningMiniCard ────────────────────────────────────────────────────────
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; compact: boolean;
+  isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
+  onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
+  onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
+  onRemove: () => void; onCalorieChange: (val: string | null) => void;
+}) {
+  const [editingCal, setEditingCal] = useState(false);
+  const [calValue, setCalValue] = useState("");
+
+  return (
+    <div
+      draggable={!isTouchDevice}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchCancel}
+      className={`rounded-xl text-white select-none
+        ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
+        transition-transform hover:scale-[1.01]
+        ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
+        ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
+        ${compact ? "px-2 py-1" : "px-2 py-1.5"}
+      `}
+      style={{ backgroundColor: meal.color }}
+    >
+      <div className="flex items-center gap-1 min-w-0 flex-wrap">
+        <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
+        <span className="font-semibold text-xs min-w-0 break-words">{meal.name}</span>
+        {counterDays !== null && (
+          <span
+            className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
+            ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
+          >
+            <Timer className="h-2.5 w-2.5" />
+            {counterDays}j
+          </span>
+        )}
+        <div className="flex-1" />
+        {!compact && (
+          editingCal ? (
+            <input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              value={calValue}
+              onChange={(e) => setCalValue(e.target.value)}
+              onBlur={() => {
+                const trimmed = calValue.trim();
+                onCalorieChange(trimmed || null);
+                setEditingCal(false);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
+              placeholder="kcal"
+            />
+          ) : displayCal ? (
+            <button
+              onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
+              className="text-xs font-black text-white bg-black/30 px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 hover:bg-black/40"
+              title="Modifier les calories (temporaire)"
+            >
+              <Flame className="h-3 w-3" />
+              {displayCal}
+            </button>
+          ) : (
+            <button
+              onClick={() => { setCalValue(""); setEditingCal(true); }}
+              className="text-[10px] text-white/40 hover:text-white/60 shrink-0"
+              title="Ajouter des calories"
+            >
+              <Flame className="h-3 w-3" />
+            </button>
+          )
+        )}
+        {!compact && (
+          <button
+            onClick={onRemove}
+            className="text-white/60 hover:text-white text-[10px] shrink-0 ml-0.5 hover:bg-white/20 rounded px-0.5"
+            title="Retirer"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {!compact && (
+        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          {pm.expiration_date && (
+            <span className={`text-[9px] flex items-center gap-0.5 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+              <Calendar className="h-2 w-2" />
+              {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+            </span>
+          )}
+          {meal.grams && (
+            <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+              <Weight className="h-2 w-2" />
+              {meal.grams}
+            </span>
+          )}
+        </div>
+      )}
+      {!compact && meal.ingredients && (
+        <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
+          {meal.ingredients
+            .split(/[,\n]+/)
+            .filter(Boolean)
+            .map((s: string) => s.trim())
+            .join(" • ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WeeklyPlanning() {
   const { possibleMeals, updatePlanning, reorderPossibleMeals, getMealsByCategory } = useMeals();
   const { getPreference, setPreference } = usePreferences();
@@ -80,6 +202,7 @@ export function WeeklyPlanning() {
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
+  const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
@@ -134,7 +257,10 @@ export function WeeklyPlanning() {
       (total, time) => {
         const slotMeals = getMealsForSlot(day, time);
         if (slotMeals.length > 0) {
-          return total + slotMeals.reduce((s, pm) => s + parseCalories(pm.meals?.calories), 0);
+          return total + slotMeals.reduce((s, pm) => {
+            const override = calOverrides[pm.id];
+            return s + (override ? parseCalories(override) : parseCalories(pm.meals?.calories));
+          }, 0);
         }
         return total + (manualCalories[`${day}-${time}`] || 0);
       },
@@ -302,11 +428,22 @@ export function WeeklyPlanning() {
     const expired = isExpiredDate(pm.expiration_date);
     const counterDays = getCounterDays(pm.counter_start_date);
     const counterUrgent = counterDays !== null && counterDays >= 3;
+    const overrideCal = calOverrides[pm.id];
+    const displayCal = overrideCal || meal.calories;
 
     return (
-      <div
+      <PlanningMiniCard
         key={pm.id}
-        draggable={!isTouchDevice}
+        pm={pm}
+        meal={meal}
+        expired={expired}
+        counterDays={counterDays}
+        counterUrgent={counterUrgent}
+        displayCal={displayCal}
+        compact={compact}
+        isTouchDevice={isTouchDevice}
+        touchDragActive={touchDragActive}
+        slotDragOver={slotDragOver}
         onDragStart={(e) => {
           e.dataTransfer.setData("pmId", pm.id);
           e.dataTransfer.setData("mealId", pm.meal_id);
@@ -324,76 +461,14 @@ export function WeeklyPlanning() {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
-        className={`rounded-xl text-white select-none
-          ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
-          transition-transform hover:scale-[1.01]
-          ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
-          ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
-          ${compact ? "px-2 py-1" : "px-2 py-1.5"}
-        `}
-        style={{ backgroundColor: meal.color }}
-      >
-        <div className="flex items-center gap-1 min-w-0 flex-wrap">
-          <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-          <span className="font-semibold text-xs min-w-0 break-words">{meal.name}</span>
-          {counterDays !== null && (
-            <span
-              className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
-              ${
-                counterUrgent
-                  ? "bg-red-600 text-white border-red-300 shadow-md"
-                  : "bg-black/50 text-white border-white/30"
-              }`}
-            >
-              <Timer className="h-2.5 w-2.5" />
-              {counterDays}j
-            </span>
-          )}
-          <div className="flex-1" />
-          {!compact && meal.calories && (
-            <span className="text-[11px] font-bold text-white/90 bg-black/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-              <Flame className="h-3 w-3" />
-              {meal.calories}
-            </span>
-          )}
-          {!compact && (
-            <button
-              onClick={() => handleRemoveFromSlot(pm)}
-              className="text-white/60 hover:text-white text-[10px] shrink-0 ml-0.5 hover:bg-white/20 rounded px-0.5"
-              title="Retirer"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-        {!compact && (
-          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-            {pm.expiration_date && (
-              <span
-                className={`text-[9px] flex items-center gap-0.5 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}
-              >
-                <Calendar className="h-2 w-2" />
-                {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-              </span>
-            )}
-            {meal.grams && (
-              <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                <Weight className="h-2 w-2" />
-                {meal.grams}
-              </span>
-            )}
-          </div>
-        )}
-        {!compact && meal.ingredients && (
-          <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
-            {meal.ingredients
-              .split(/[,\n]+/)
-              .filter(Boolean)
-              .map((s) => s.trim())
-              .join(" • ")}
-          </div>
-        )}
-      </div>
+        onRemove={() => handleRemoveFromSlot(pm)}
+        onCalorieChange={(val) => {
+          const updated = { ...calOverrides };
+          if (val) updated[pm.id] = val;
+          else delete updated[pm.id];
+          setPreference.mutate({ key: 'planning_cal_overrides', value: updated });
+        }}
+      />
     );
   };
 
