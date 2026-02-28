@@ -166,11 +166,18 @@ export function useFoodItems() {
   });
 
   const addItem = useMutation({
-    mutationFn: async ({ name, storage_type }: { name: string; storage_type: StorageType }) => {
+    mutationFn: async ({ name, storage_type, quantity, grams }: { name: string; storage_type: StorageType; quantity?: number | null; grams?: string | null }) => {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase
         .from("food_items")
-        .insert({ name, sort_order: maxOrder + 1, is_dry: storage_type === 'sec', storage_type } as any);
+        .insert({
+          name,
+          sort_order: maxOrder + 1,
+          is_dry: storage_type === 'sec',
+          storage_type,
+          ...(quantity ? { quantity } : {}),
+          ...(grams ? { grams } : {}),
+        } as any);
       if (error) throw error;
     },
     onSuccess: invalidate,
@@ -267,10 +274,8 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
   const gramsData = parseStoredGrams(item.grams);
   const displayDefaultGrams = gramsData.unit !== null ? `${formatNumeric(gramsData.unit)}g` : item.grams;
   const displayPartialGrams = gramsData.remainder !== null ? `${formatNumeric(gramsData.remainder)}g` : null;
-  // Show partial edit when: has grams, not infinite, and either qty > 1 OR qty is 1 (treated same as no qty)
   const effectiveQty = item.quantity === 1 ? null : item.quantity;
   const canEditPartial = !item.is_infinite && gramsData.unit !== null && (effectiveQty ? effectiveQty > 1 : true);
-  // Don't show "reste" if partial equals the full unit (no consumption happened)
   const showPartialLabel = gramsData.remainder !== null;
 
   const saveEdit = () => {
@@ -281,13 +286,11 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     if (editing === "quantity") onUpdate({ quantity: val ? parseInt(val) || null : null });
     if (editing === "partial" && gramsData.unit !== null) {
       if (!val) {
-        // Clearing partial = restore to full unit
         onUpdate({ grams: formatNumeric(gramsData.unit) });
       } else {
         const parsed = parseFloat(val.replace(",", "."));
         if (!isNaN(parsed) && parsed > 0) {
           if (parsed >= gramsData.unit) {
-            // Restored to full unit — remove partial marker
             onUpdate({ grams: formatNumeric(gramsData.unit) });
           } else {
             onUpdate({ grams: encodeStoredGrams(gramsData.unit, parsed) });
@@ -344,157 +347,160 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
       className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''} ${expIsToday ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''}`}
       style={{ backgroundColor: color }}
     >
-      {/* Row 1: name */}
-      <div className="flex items-center gap-1.5 min-w-0">
-        {editing === "name" ? (
-          <Input
-            autoFocus
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={saveEdit}
-            onKeyDown={e => e.key === "Enter" && saveEdit()}
-            className="h-7 flex-1 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-sm min-w-0"
-          />
-        ) : (
-          <button
-            onClick={() => startEdit("name")}
-            className="font-semibold text-white text-sm flex-1 text-left hover:underline decoration-white/40 min-w-0 break-words whitespace-normal"
-          >
-            {item.name}
-          </button>
-        )}
-      </div>
-
-      {/* Row 2: badges + actions */}
-      <div className="flex items-center gap-1 mt-1 flex-wrap">
-        {/* Counter badge */}
-        {counterDays !== null && (
-          <button
-            onClick={() => onUpdate({ counter_start_date: null })}
-            className={`text-[11px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0 transition-all ${counterUrgent ? 'bg-red-600 text-white border-red-300 shadow-md animate-pulse' : 'bg-black/40 text-white border-white/30'}`}
-            title="Cliquer pour arrêter le compteur"
-          >
-            <Timer className="h-2.5 w-2.5" />{counterDays}j
-          </button>
-        )}
-
-        {/* Quantity (item count) with decrement button */}
-        {editing === "quantity" ? (
-          <Input
-            autoFocus
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={saveEdit}
-            onKeyDown={e => e.key === "Enter" && saveEdit()}
-            placeholder="Ex: 3"
-            inputMode="numeric"
-            className="h-6 w-14 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
-          />
-        ) : item.quantity && item.quantity >= 1 ? (
-          <div className="flex items-center gap-0.5 shrink-0">
+      {/* Row 1: name on left, options on right */}
+      <div className="flex items-start gap-1.5 min-w-0">
+        {/* Left: name + text inputs */}
+        <div className="flex-1 min-w-0">
+          {editing === "name" ? (
+            <Input
+              autoFocus
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={e => e.key === "Enter" && saveEdit()}
+              className="h-7 w-full border-white/30 bg-white/20 text-white placeholder:text-white/60 text-sm min-w-0"
+            />
+          ) : (
             <button
-              onClick={handleDecrementQuantity}
-              className="h-5 w-5 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 text-white/80 hover:text-white transition-all"
-              title="Retirer 1"
+              onClick={() => startEdit("name")}
+              className="font-semibold text-white text-sm text-left hover:underline decoration-white/40 min-w-0 break-words whitespace-normal"
             >
-              <Minus className="h-2.5 w-2.5" />
+              {item.name}
             </button>
-            <button
-              onClick={() => startEdit("quantity")}
-              className="text-[10px] text-white/90 bg-white/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/35 font-bold"
-              title="Quantité"
-            >
-              <Hash className="h-2.5 w-2.5" />{item.quantity}
-            </button>
-          </div>
-        ) : null}
+          )}
+        </div>
 
-        {/* Grams / Infinite */}
-        {item.is_infinite ? (
-          <button
-            onClick={handleGramsCycle}
-            className="text-[10px] text-white/90 bg-white/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/40 shrink-0 font-bold"
-            title="Cliquer pour désactiver ∞"
-          >
-            <InfinityIcon className="h-2.5 w-2.5" />∞
-          </button>
-        ) : editing === "grams" ? (
-          <Input
-            autoFocus
-            value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={saveEdit}
-            onKeyDown={e => e.key === "Enter" && saveEdit()}
-            placeholder="Ex: 500"
-            className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
-          />
-        ) : item.grams ? (
-          <div className="flex items-center gap-0.5 shrink-0">
+        {/* Right: all option badges */}
+        <div className="flex items-center gap-1 flex-wrap justify-end shrink-0">
+          {/* Counter badge */}
+          {counterDays !== null && (
+            <button
+              onClick={() => onUpdate({ counter_start_date: null })}
+              className={`text-[11px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0 transition-all ${counterUrgent ? 'bg-red-600 text-white border-red-300 shadow-md animate-pulse' : 'bg-black/40 text-white border-white/30'}`}
+              title="Cliquer pour arrêter le compteur"
+            >
+              <Timer className="h-2.5 w-2.5" />{counterDays}j
+            </button>
+          )}
+
+          {/* Quantity */}
+          {editing === "quantity" ? (
+            <Input
+              autoFocus
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={e => e.key === "Enter" && saveEdit()}
+              placeholder="Ex: 3"
+              inputMode="numeric"
+              className="h-6 w-14 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
+            />
+          ) : item.quantity && item.quantity >= 1 ? (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={handleDecrementQuantity}
+                className="h-5 w-5 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/40 text-white/80 hover:text-white transition-all"
+                title="Retirer 1"
+              >
+                <Minus className="h-2.5 w-2.5" />
+              </button>
+              <button
+                onClick={() => startEdit("quantity")}
+                className="text-[10px] text-white/90 bg-white/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/35 font-bold"
+                title="Quantité"
+              >
+                <Hash className="h-2.5 w-2.5" />{item.quantity}
+              </button>
+            </div>
+          ) : null}
+
+          {/* Grams / Infinite */}
+          {item.is_infinite ? (
             <button
               onClick={handleGramsCycle}
-              className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30"
-              title="Cliquer pour rendre infini"
+              className="text-[10px] text-white/90 bg-white/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/40 shrink-0 font-bold"
+              title="Cliquer pour désactiver ∞"
             >
-              <Weight className="h-2.5 w-2.5" />{displayDefaultGrams}
+              <InfinityIcon className="h-2.5 w-2.5" />∞
             </button>
-            {/* Reste — inline next to grams */}
-            {canEditPartial && (
-              editing === "partial" ? (
-                <Input
-                  autoFocus
-                  value={editValue}
-                  onChange={e => setEditValue(e.target.value)}
-                  onBlur={saveEdit}
-                  onKeyDown={e => e.key === "Enter" && saveEdit()}
-                  placeholder="Reste"
-                  inputMode="decimal"
-                  className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1"
-                />
-              ) : showPartialLabel ? (
-                <button
-                  onClick={() => startEdit("partial")}
-                  className="text-[10px] text-white bg-yellow-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-yellow-500/50 font-semibold"
-                  title="Modifier le reste de la dernière quantité"
-                >
-                  →{displayPartialGrams}
-                </button>
-              ) : (
-                <button
-                  onClick={() => startEdit("partial")}
-                  className="text-[10px] text-white/50 bg-white/10 hover:bg-white/20 px-1 py-0.5 rounded-full"
-                  title="Indiquer un reste partiel"
-                >
-                  ✎
-                </button>
-              )
-            )}
-          </div>
-        ) : null}
+          ) : editing === "grams" ? (
+            <Input
+              autoFocus
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={e => e.key === "Enter" && saveEdit()}
+              placeholder="Ex: 500"
+              className="h-6 w-20 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5"
+            />
+          ) : item.grams ? (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <button
+                onClick={handleGramsCycle}
+                className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30"
+                title="Cliquer pour rendre infini"
+              >
+                <Weight className="h-2.5 w-2.5" />{displayDefaultGrams}
+              </button>
+              {/* Reste — inline next to grams */}
+              {canEditPartial && (
+                editing === "partial" ? (
+                  <Input
+                    autoFocus
+                    value={editValue}
+                    onChange={e => setEditValue(e.target.value)}
+                    onBlur={saveEdit}
+                    onKeyDown={e => e.key === "Enter" && saveEdit()}
+                    placeholder="Reste"
+                    inputMode="decimal"
+                    className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1"
+                  />
+                ) : showPartialLabel ? (
+                  <button
+                    onClick={() => startEdit("partial")}
+                    className="text-[10px] text-white bg-yellow-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-yellow-500/50 font-semibold"
+                    title="Modifier le reste de la dernière quantité"
+                  >
+                    →{displayPartialGrams}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => startEdit("partial")}
+                    className="text-[10px] text-white/50 bg-white/10 hover:bg-white/20 px-1 py-0.5 rounded-full"
+                    title="Indiquer un reste partiel"
+                  >
+                    ✎
+                  </button>
+                )
+              )}
+            </div>
+          ) : null}
 
-        {/* Calories */}
-        {editing === "calories" ? (
-          <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 200 kcal" className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-        ) : item.calories ? (
-          <button onClick={() => startEdit("calories")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
-            <Flame className="h-2.5 w-2.5" />{item.calories}
+          {/* Calories */}
+          {editing === "calories" ? (
+            <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 200 kcal" className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
+          ) : item.calories ? (
+            <button onClick={() => startEdit("calories")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
+              <Flame className="h-2.5 w-2.5" />{item.calories}
+            </button>
+          ) : null}
+
+          {/* is_meal toggle */}
+          <button
+            onClick={() => onUpdate({ is_meal: !item.is_meal })}
+            className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_meal ? 'bg-white/30 text-white border-white/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
+            title={item.is_meal ? "Se mange seul (désactiver)" : "Marquer comme repas à part entière"}
+          >
+            <UtensilsCrossed className="h-2.5 w-2.5" />
           </button>
-        ) : null}
 
-        {/* is_meal toggle */}
-        <button
-          onClick={() => onUpdate({ is_meal: !item.is_meal })}
-          className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_meal ? 'bg-white/30 text-white border-white/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
-          title={item.is_meal ? "Se mange seul (désactiver)" : "Marquer comme repas à part entière"}
-        >
-          <UtensilsCrossed className="h-2.5 w-2.5" />
-        </button>
-
-        <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
-          <Copy className="h-3 w-3" />
-        </Button>
-        <Button size="icon" variant="ghost" onClick={onDelete} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Supprimer">
-          <Trash2 className="h-3 w-3" />
-        </Button>
+          <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
+            <Copy className="h-3 w-3" />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={onDelete} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Supprimer">
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </div>
       </div>
 
       {/* Row 2: quick-add + expiration + counter + reste */}
@@ -590,8 +596,12 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
 export function FoodItems() {
   const { items, isLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
   const [newName, setNewName] = useState("");
+  const [newQuantity, setNewQuantity] = useState("");
+  const [newGrams, setNewGrams] = useState("");
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
   const [pendingName, setPendingName] = useState("");
+  const [pendingQuantity, setPendingQuantity] = useState("");
+  const [pendingGrams, setPendingGrams] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Independent sort per section
@@ -633,7 +643,6 @@ export function FoodItems() {
     let sorted: FoodItem[];
     if (sortModes[storageType] === "expiration") {
       sorted = [...sectionItems].sort((a, b) => {
-        // is_meal items without expiration date go first
         if (a.is_meal && !a.expiration_date && !(b.is_meal && !b.expiration_date)) return -1;
         if (b.is_meal && !b.expiration_date && !(a.is_meal && !a.expiration_date)) return 1;
 
@@ -642,7 +651,6 @@ export function FoodItems() {
         const aCounter = getCounterDays(a.counter_start_date);
         const bCounter = getCounterDays(b.counter_start_date);
 
-        // Group 1: expired WITH counter (highest counter first, then earliest date)
         const aG1 = aExpired && aCounter !== null;
         const bG1 = bExpired && bCounter !== null;
         if (aG1 && !bG1) return -1;
@@ -652,7 +660,6 @@ export function FoodItems() {
           return (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
         }
 
-        // Group 2: not expired WITH counter
         const aG2 = !aExpired && aCounter !== null;
         const bG2 = !bExpired && bCounter !== null;
         if (aG2 && !bG2) return -1;
@@ -661,7 +668,6 @@ export function FoodItems() {
           return (bCounter ?? 0) - (aCounter ?? 0);
         }
 
-        // Group 3: expired WITHOUT counter
         const aG3 = aExpired && aCounter === null;
         const bG3 = bExpired && bCounter === null;
         if (aG3 && !bG3) return -1;
@@ -670,7 +676,6 @@ export function FoodItems() {
           return (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
         }
 
-        // Group 4: not expired, no counter — nearest first
         if (!a.expiration_date && !b.expiration_date) return 0;
         if (!a.expiration_date) return 1;
         if (!b.expiration_date) return -1;
@@ -689,12 +694,16 @@ export function FoodItems() {
       return;
     }
     setPendingName(result.data.name);
+    setPendingQuantity(newQuantity);
+    setPendingGrams(newGrams);
     setShowStoragePrompt(true);
   };
 
   const confirmAdd = (storageType: StorageType) => {
-    addItem.mutate({ name: pendingName, storage_type: storageType }, {
-      onSuccess: () => { setNewName(""); setPendingName(""); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
+    const qty = pendingQuantity ? parseInt(pendingQuantity) || null : null;
+    const grams = pendingGrams.trim() || null;
+    addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams }, {
+      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         toast({ title: "Erreur lors de l'ajout", description: msg, variant: "destructive" });
@@ -722,7 +731,7 @@ export function FoodItems() {
   return (
     <div className="max-w-2xl mx-auto">
       {/* Add form + search */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-2">
         <Input
           placeholder="Nom de l'aliment (ex : Crème fraîche)"
           value={newName}
@@ -745,10 +754,34 @@ export function FoodItems() {
         </Button>
       </div>
 
+      {/* Quantity + Grams inputs */}
+      <div className="flex gap-2 mb-4">
+        <Input
+          placeholder="Quantité (ex : 3)"
+          value={newQuantity}
+          onChange={e => setNewQuantity(e.target.value)}
+          inputMode="numeric"
+          className="flex-1 rounded-xl h-8 text-sm"
+        />
+        <Input
+          placeholder="Grammes (ex : 500)"
+          value={newGrams}
+          onChange={e => setNewGrams(e.target.value)}
+          className="flex-1 rounded-xl h-8 text-sm"
+        />
+      </div>
+
       {/* Storage type prompt */}
       {showStoragePrompt && (
         <div className="mb-4 rounded-2xl bg-card border p-4 shadow-lg">
-          <p className="text-sm font-semibold text-foreground mb-3">Où ranger « {pendingName} » ?</p>
+          <p className="text-sm font-semibold text-foreground mb-1">Où ranger « {pendingName} » ?</p>
+          {(pendingQuantity || pendingGrams) && (
+            <p className="text-xs text-muted-foreground mb-3">
+              {pendingQuantity && `Quantité : ${pendingQuantity}`}
+              {pendingQuantity && pendingGrams && ' • '}
+              {pendingGrams && `Grammes : ${pendingGrams}`}
+            </p>
+          )}
           <div className="flex gap-2">
             <Button onClick={() => confirmAdd('frigo')} variant="outline" className="flex-1 gap-1.5">
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
@@ -766,9 +799,31 @@ export function FoodItems() {
         </div>
       )}
 
-      {/* Sections */}
-      {STORAGE_SECTIONS.map((section, idx) => (
-        <div key={section.type} className={idx > 0 ? "mt-4" : ""}>
+      {/* Sections: Frigo + Sec side by side on desktop, Surgelés below, Toujours below */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {STORAGE_SECTIONS.filter(s => s.type === 'frigo' || s.type === 'sec').map((section) => (
+          <FoodSection
+            key={section.type}
+            emoji={section.emoji}
+            title={section.label}
+            storageType={section.type}
+            items={getSortedItems(section.type)}
+            colorMap={colorMap}
+            onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
+            onDelete={(id) => deleteItem.mutate(id)}
+            onDuplicate={(id) => duplicateItem.mutate(id)}
+            sortMode={sortModes[section.type]}
+            onToggleSort={() => setSortModes(prev => ({ ...prev, [section.type]: prev[section.type] === "manual" ? "expiration" : "manual" }))}
+            onReorder={(from, to) => handleReorder(section.type, from, to)}
+            dragIndex={dragIndex}
+            setDragIndex={setDragIndex}
+            allItems={items}
+            onChangeStorage={(id, st) => updateItem.mutate({ id, storage_type: st, is_dry: st === 'sec' })}
+          />
+        ))}
+      </div>
+      {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'toujours').map((section) => (
+        <div key={section.type} className="mt-4">
           <FoodSection
             emoji={section.emoji}
             title={section.label}
@@ -822,8 +877,10 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
   const touchDragRef = useRef<{ itemId: string; itemIdx: number; ghost: HTMLElement; startX: number; startY: number; origTop: number; origLeft: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
+  const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
   const handleTouchStart = (e: React.TouchEvent, item: FoodItem, sectionIdx: number) => {
+    if (sortMode !== "manual") return;
     const touch = e.touches[0];
     const el = e.currentTarget as HTMLElement;
     const rect = el.getBoundingClientRect();
@@ -914,7 +971,7 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
       </div>
 
       {!collapsed && (
-        <div className="flex flex-col gap-2">
+        <div className={`flex flex-col gap-2 ${touchDragActive ? "touch-none" : ""}`}>
           {items.length === 0 ? (
             <p className="text-muted-foreground text-sm text-center py-6 italic">
               Aucun aliment — glisse une carte depuis une autre section
