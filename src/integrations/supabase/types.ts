@@ -20,6 +20,7 @@ export type Database = {
           counter_start_date: string | null
           created_at: string
           expiration_date: string | null
+          food_type: string | null
           grams: string | null
           id: string
           is_dry: boolean
@@ -36,6 +37,7 @@ export type Database = {
           counter_start_date?: string | null
           created_at?: string
           expiration_date?: string | null
+          food_type?: string | null
           grams?: string | null
           id?: string
           is_dry?: boolean
@@ -52,6 +54,7 @@ export type Database = {
           counter_start_date?: string | null
           created_at?: string
           expiration_date?: string | null
+          food_type?: string | null
           grams?: string | null
           id?: string
           is_dry?: boolean

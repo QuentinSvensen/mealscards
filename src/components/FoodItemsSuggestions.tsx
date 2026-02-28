@@ -25,7 +25,7 @@ interface Props {
 }
 
 export function FoodItemsSuggestions({ foodItems, existingMealNames = [] }: Props) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false); // collapsed by default
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
