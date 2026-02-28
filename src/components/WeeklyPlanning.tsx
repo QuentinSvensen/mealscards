@@ -577,7 +577,7 @@ export function WeeklyPlanning() {
                 );
               })}
               {/* Extra column */}
-              <div className="min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1.5 w-14 flex flex-col items-center">
+              <div className="min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1.5 w-20 flex flex-col items-center">
                 <span className="text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
                 <input
                   type="number"
@@ -593,7 +593,7 @@ export function WeeklyPlanning() {
                     setPreference.mutate({ key: 'planning_extra_calories', value: updated });
                   }}
                   onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                  className="w-full h-5 mt-1 text-[10px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
+                  className="w-full h-5 mt-1 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
                 />
               </div>
             </div>

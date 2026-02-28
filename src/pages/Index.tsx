@@ -2058,7 +2058,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               );
             };
 
-            if (sortMode === "expiration" && isMealWithDate.length > 0) {
+            if (sortMode === "expiration") {
               type UnifiedItem = 
                 | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null }
                 | { type: 'nameMatch'; nm: typeof sortedNameMatches[0]; idx: number; sortDate: string | null; sortCounter: number | null }
@@ -2066,7 +2066,8 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
               const unified: UnifiedItem[] = [];
 
-              for (const fi of isMealWithDate) {
+              // Include ALL is_meal items (both with and without dates)
+              for (const fi of [...sortedIsMealItems, ...isMealWithDate]) {
                 const counter = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
                 unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter });
               }
@@ -2102,7 +2103,6 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
 
               return (
                 <>
-                  {sortedIsMealItems.map(fi => renderIsMealCard(fi))}
                   {unified.map((u, i) => {
                     if (u.type === 'isMeal') return renderIsMealCard(u.fi);
                     if (u.type === 'nameMatch') return renderNameMatchCard(u.nm, u.idx);

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { z } from "zod";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type StorageType = 'frigo' | 'sec' | 'surgele' | 'toujours';
+export type FoodType = 'feculent' | 'viande' | null;
 
 export interface FoodItem {
   id: string;
@@ -30,6 +31,7 @@ export interface FoodItem {
   is_dry: boolean;
   storage_type: StorageType;
   quantity: number | null;
+  food_type: FoodType;
 }
 
 // ─── Colors ─────────────────────────────────────────────────────────────────
@@ -159,6 +161,7 @@ export function useFoodItems() {
         is_dry: d.is_dry ?? false,
         storage_type: d.storage_type ?? (d.is_dry ? 'sec' : 'frigo'),
         quantity: d.quantity ?? null,
+        food_type: d.food_type ?? null,
       })) as FoodItem[];
     },
     retry: 3,
@@ -347,10 +350,10 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
       className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''} ${expIsToday ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''}`}
       style={{ backgroundColor: color }}
     >
-      {/* Row 1: name on left, options on right */}
-      <div className="flex items-start gap-1.5 min-w-0">
+      {/* Row 1: name on left, options wrap to row 2 if needed */}
+      <div className="flex flex-wrap items-start gap-1.5 min-w-0">
         {/* Left: name + text inputs */}
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-shrink-0" style={{ maxWidth: '100%' }}>
           {editing === "name" ? (
             <Input
               autoFocus
@@ -370,8 +373,8 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
           )}
         </div>
 
-        {/* Right: all option badges */}
-        <div className="flex items-center gap-1 flex-wrap justify-end shrink-0">
+        {/* Right: all option badges - wraps to next line if title is too long */}
+        <div className="flex items-center gap-1 flex-wrap justify-end ml-auto shrink-0">
           {/* Counter badge */}
           {counterDays !== null && (
             <button
@@ -492,6 +495,23 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             title={item.is_meal ? "Se mange seul (désactiver)" : "Marquer comme repas à part entière"}
           >
             <UtensilsCrossed className="h-2.5 w-2.5" />
+          </button>
+
+          {/* food_type toggle: cycle null -> feculent -> viande -> null */}
+          <button
+            onClick={() => {
+              const next = item.food_type === null ? 'feculent' : item.food_type === 'feculent' ? 'viande' : null;
+              onUpdate({ food_type: next });
+            }}
+            className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${
+              item.food_type === 'feculent' ? 'bg-amber-400/30 text-amber-200 border-amber-400/50 font-bold'
+              : item.food_type === 'viande' ? 'bg-red-400/30 text-red-200 border-red-400/50 font-bold'
+              : 'bg-white/10 text-white/50 border-white/20'
+            }`}
+            title={item.food_type === 'feculent' ? 'Féculent (cliquer: Viande)' : item.food_type === 'viande' ? 'Viande (cliquer: Aucun)' : 'Aucun type (cliquer: Féculent)'}
+          >
+            {item.food_type === 'viande' ? <Drumstick className="h-2.5 w-2.5" /> : <Wheat className="h-2.5 w-2.5" />}
+            {item.food_type === 'feculent' ? 'Féc' : item.food_type === 'viande' ? 'Via' : ''}
           </button>
 
           <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
@@ -729,7 +749,7 @@ export function FoodItems() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       {/* Add form + search */}
       <div className="flex gap-2 mb-2">
         <Input
@@ -799,8 +819,8 @@ export function FoodItems() {
         </div>
       )}
 
-      {/* Sections: Frigo + Sec side by side on desktop, Surgelés below, Toujours below */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Sections: Frigo + Sec side by side on desktop — FULL WIDTH like meal cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-none">
         {STORAGE_SECTIONS.filter(s => s.type === 'frigo' || s.type === 'sec').map((section) => (
           <FoodSection
             key={section.type}
