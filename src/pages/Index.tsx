@@ -274,6 +274,7 @@ const Index = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
   const [masterSourcePmIds, setMasterSourcePmIds] = useState<Set<string>>(new Set());
+  const [unParUnSourcePmIds, setUnParUnSourcePmIds] = useState<Set<string>>(new Set());
 
   // Sort modes: load from DB preferences, fallback to localStorage, then defaults
   const dbSortModes = getPreference<Record<string, SortMode>>('meal_sort_modes', {});
@@ -586,6 +587,7 @@ const Index = () => {
           is_dry: fi.is_dry,
           storage_type: fi.storage_type,
           quantity: fi.quantity,
+          food_type: fi.food_type,
         })
       ));
       qc.invalidateQueries({ queryKey: ["food_items"] });
@@ -1128,7 +1130,7 @@ const Index = () => {
             {CATEGORIES.map((cat) =>
           <TabsContent key={cat.value} value={cat.value}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                  <div className="flex flex-col gap-3 sm:gap-4">
+                  <div className="flex flex-col gap-3 sm:gap-4 order-1">
                     <MasterList
                   category={cat}
                   meals={getSortedMaster(cat.value)}
@@ -1218,6 +1220,7 @@ const Index = () => {
                   onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })} />
 
                   </div>
+                  <div className="order-3 md:order-2">
                 <PossibleList
                 category={cat}
                 items={getSortedPossible(cat.value)}
@@ -1244,6 +1247,7 @@ const Index = () => {
                     }
                   }
                   removeFromPossible.mutate(id);
+                  setUnParUnSourcePmIds(prev => { const next = new Set(prev); next.delete(id); return next; });
                 }}
                 onReturnToMaster={(id) => {
                   removeFromPossible.mutate(id);
@@ -1282,68 +1286,79 @@ const Index = () => {
                 highlightedId={highlightedId}
                 foodItems={foodItems}
                 onAddDirectly={() => openDialog("possible")}
-                masterSourcePmIds={masterSourcePmIds} />
-
+                masterSourcePmIds={masterSourcePmIds}
+                unParUnSourcePmIds={unParUnSourcePmIds} />
                 </div>
 
-                {/* Un par un section — full width below the grid */}
-                <UnParUnSection
-                  category={cat}
-                  foodItems={foodItems}
-                  allMeals={meals}
-                  collapsed={collapsedSections[`unparun-${cat.value}`] ?? true}
-                  onToggleCollapse={() => toggleSectionCollapse(`unparun-${cat.value}`)}
-                  sortMode={unParUnSortModes[cat.value] || "expiration"}
-                  onToggleSort={() => {
-                    setUnParUnSortModes(prev => {
-                      const current = prev[cat.value] || "expiration";
-                      const next: UnParUnSortMode = current === "manual" ? "expiration" : "manual";
-                      const updated = { ...prev, [cat.value]: next };
-                      setPreference.mutate({ key: 'meal_unparun_sort_modes', value: updated });
-                      return updated;
-                    });
-                  }}
-                  onMoveToPossible={async (fi, consumeQty, consumeGrams) => {
-                    const snapshot = [{ ...fi }];
-                    if (!fi.is_infinite) {
-                      if (consumeGrams && consumeGrams > 0) {
-                        // Deduct specific grams
-                        const perUnit = parseQty(fi.grams);
-                        const totalAvail = getFoodItemTotalGrams(fi);
-                        const remaining = totalAvail - consumeGrams;
-                        if (remaining <= 0) {
-                          await supabase.from("food_items").delete().eq("id", fi.id);
-                        } else if (fi.quantity && fi.quantity >= 1 && perUnit > 0) {
-                          const fullUnits = Math.floor(remaining / perUnit);
-                          const rem = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
-                          if (rem > 0) {
-                            await supabase.from("food_items").update({ quantity: Math.max(1, fullUnits + 1), grams: encodeStoredGrams(perUnit, rem) } as any).eq("id", fi.id);
-                          } else if (fullUnits > 0) {
-                            await supabase.from("food_items").update({ quantity: fullUnits, grams: formatNumeric(perUnit) } as any).eq("id", fi.id);
+                {cat.value === "plat" && (
+                  <div className="order-2 md:order-3 md:col-span-2">
+                    <UnParUnSection
+                      category={cat}
+                      foodItems={foodItems}
+                      allMeals={meals}
+                      collapsed={collapsedSections[`unparun-${cat.value}`] ?? true}
+                      onToggleCollapse={() => toggleSectionCollapse(`unparun-${cat.value}`)}
+                      sortMode={unParUnSortModes[cat.value] || "expiration"}
+                      onToggleSort={() => {
+                        setUnParUnSortModes(prev => {
+                          const current = prev[cat.value] || "expiration";
+                          const next: UnParUnSortMode = current === "manual" ? "expiration" : "manual";
+                          const updated = { ...prev, [cat.value]: next };
+                          setPreference.mutate({ key: 'meal_unparun_sort_modes', value: updated });
+                          return updated;
+                        });
+                      }}
+                      onMoveToPossible={async (fi, consumeQty, consumeGrams) => {
+                        const snapshot = [{ ...fi }];
+                        if (!fi.is_infinite) {
+                          if (consumeGrams && consumeGrams > 0) {
+                            const perUnit = parseQty(fi.grams);
+                            const totalAvail = getFoodItemTotalGrams(fi);
+                            const remaining = totalAvail - consumeGrams;
+                            if (remaining <= 0) {
+                              await supabase.from("food_items").delete().eq("id", fi.id);
+                            } else if (fi.quantity && fi.quantity >= 1 && perUnit > 0) {
+                              const fullUnits = Math.floor(remaining / perUnit);
+                              const rem = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
+                              if (rem > 0) {
+                                await supabase.from("food_items").update({ quantity: Math.max(1, fullUnits + 1), grams: encodeStoredGrams(perUnit, rem) } as any).eq("id", fi.id);
+                              } else if (fullUnits > 0) {
+                                await supabase.from("food_items").update({ quantity: fullUnits, grams: formatNumeric(perUnit) } as any).eq("id", fi.id);
+                              } else {
+                                await supabase.from("food_items").delete().eq("id", fi.id);
+                              }
+                            } else {
+                              await supabase.from("food_items").update({ grams: formatNumeric(remaining) } as any).eq("id", fi.id);
+                            }
                           } else {
-                            await supabase.from("food_items").delete().eq("id", fi.id);
+                            const deductQty = consumeQty ?? 1;
+                            const currentQty = fi.quantity ?? 1;
+                            if (currentQty <= deductQty) {
+                              await supabase.from("food_items").delete().eq("id", fi.id);
+                            } else {
+                              await supabase.from("food_items").update({ quantity: currentQty - deductQty } as any).eq("id", fi.id);
+                            }
                           }
-                        } else {
-                          await supabase.from("food_items").update({ grams: formatNumeric(remaining) } as any).eq("id", fi.id);
+                          qc.invalidateQueries({ queryKey: ["food_items"] });
                         }
-                      } else {
-                        // Deduct specific quantity (default 1)
-                        const deductQty = consumeQty ?? 1;
-                        const currentQty = fi.quantity ?? 1;
-                        if (currentQty <= deductQty) {
-                          await supabase.from("food_items").delete().eq("id", fi.id);
-                        } else {
-                          await supabase.from("food_items").update({ quantity: currentQty - deductQty } as any).eq("id", fi.id);
+                        const pmResult = await addMealToPossibleDirectly.mutateAsync({
+                          name: fi.name,
+                          category: cat.value,
+                          colorSeed: fi.id,
+                          calories: fi.calories,
+                          grams: fi.grams ? String(parseQty(fi.grams)) : null,
+                          expiration_date: fi.expiration_date,
+                        });
+                        if (pmResult?.id) {
+                          setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                          setUnParUnSourcePmIds(prev => new Set([...prev, pmResult.id]));
                         }
-                      }
-                      qc.invalidateQueries({ queryKey: ["food_items"] });
-                    }
-                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
-                    if (pmResult?.id) {
-                      setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
-                    }
-                  }}
-                />
+                      }}
+                    />
+                  </div>
+                )}
+
+                </div>
               </TabsContent>
           )}
           </Tabs>
@@ -1928,18 +1943,18 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
         style={{ backgroundColor: color }}
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white truncate">{fi.name}</p>
-          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          <p className="text-base font-bold text-white truncate">{fi.name}</p>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {counterDays !== null && (
-              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/80 text-white animate-pulse' : 'bg-white/25 text-white'}`}>
-                <Timer className="h-2.5 w-2.5" />{counterDays}j
+              <span className={`text-xs font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/80 text-white animate-pulse' : 'bg-white/25 text-white'}`}>
+                <Timer className="h-3 w-3" />{counterDays}j
               </span>
             )}
-            {totalG > 0 && <span className="text-[10px] text-white/70">{formatNumeric(totalG)}g</span>}
-            {qty && <span className="text-[10px] text-white/70">×{qty}</span>}
-            {fi.is_infinite && <span className="text-[10px] text-white/70">∞</span>}
-            {expLabel && <span className={`text-[9px] ${isExpired ? 'text-red-200 font-bold' : 'text-white/50'}`}>📅{expLabel}</span>}
-            {unused && <span className="text-[9px] text-yellow-200 font-bold">⚡inutilisé</span>}
+            {totalG > 0 && <span className="text-xs text-white/80 font-medium">{formatNumeric(totalG)}g</span>}
+            {qty && <span className="text-xs text-white/80 font-medium">×{qty}</span>}
+            {fi.is_infinite && <span className="text-xs text-white/80">∞</span>}
+            {expLabel && <span className={`text-[10px] font-medium ${isExpired ? 'text-red-200 font-bold' : 'text-white/60'}`}>📅{expLabel}</span>}
+            {unused && <span className="text-[10px] text-yellow-200 font-bold">⚡inutilisé</span>}
           </div>
         </div>
         <button
@@ -1964,7 +1979,7 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
       <div className="flex items-center gap-2 w-full">
-        <button onClick={onToggleCollapse} className="flex items-center gap-2 flex-1 text-left">
+        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleCollapse(); }} className="flex items-center gap-2 flex-1 text-left">
           {!collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
           <h2 className="text-base font-bold text-foreground flex items-center gap-2">
             🔀 Un par un
@@ -2638,8 +2653,8 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
     </MealList>);
 }
 
-function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds
-}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onReturnToMaster: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string, source: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;masterSourcePmIds: Set<string>;}) {
+function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds
+}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onReturnToMaster: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string, source: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;masterSourcePmIds: Set<string>;unParUnSourcePmIds: Set<string>;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
@@ -2656,6 +2671,7 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       <PossibleMealCard key={pm.id} pm={pm}
       onRemove={() => onRemove(pm.id)}
       onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
+      onReturnWithoutDeductionLabel={unParUnSourcePmIds.has(pm.id) ? "Revenir dans Un par un" : undefined}
       onReturnToMaster={masterSourcePmIds.has(pm.id) ? () => onReturnToMaster(pm.id) : undefined}
       onDelete={() => onDelete(pm.id)}
       onDuplicate={() => onDuplicate(pm.id)}
