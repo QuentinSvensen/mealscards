@@ -41,6 +41,7 @@ const mealSchema = z.object({
 type SortMode = "manual" | "expiration" | "planning";
 type MasterSortMode = "manual" | "calories" | "favorites" | "ingredients";
 type AvailableSortMode = "manual" | "calories" | "expiration";
+type UnParUnSortMode = "manual" | "expiration";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
 function PinLock({ onUnlock }: {onUnlock: () => void;}) {
@@ -290,6 +291,8 @@ const Index = () => {
   // Available sort modes — persist to DB
   const dbAvailableSortModes = getPreference<Record<string, AvailableSortMode>>('meal_available_sort_modes', {});
   const [availableSortModes, setAvailableSortModes] = useState<Record<string, AvailableSortMode>>({});
+  const dbUnParUnSortModes = getPreference<Record<string, UnParUnSortMode>>('meal_unparun_sort_modes', {});
+  const [unParUnSortModes, setUnParUnSortModes] = useState<Record<string, UnParUnSortMode>>({});
 
   // Sync from DB on load (DB takes priority)
   const dbSyncedRef = useRef(false);
@@ -310,6 +313,11 @@ const Index = () => {
       setAvailableSortModes(dbAvailableSortModes);
     }
   }, [dbAvailableSortModes]);
+  useEffect(() => {
+    if (Object.keys(dbUnParUnSortModes).length > 0) {
+      setUnParUnSortModes(dbUnParUnSortModes);
+    }
+  }, [dbUnParUnSortModes]);
 
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
