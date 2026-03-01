@@ -110,10 +110,19 @@ export function useMeals() {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category, colorSeed, calories, grams, expiration_date }: { name: string; category: string; colorSeed?: string; calories?: string | null; grams?: string | null; expiration_date?: string | null }) => {
+    mutationFn: async ({ name, category, colorSeed, calories, grams, ingredients, expiration_date, possible_quantity }: { name: string; category: string; colorSeed?: string; calories?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number }) => {
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
-        .insert({ name, category, color: colorFromName(name), sort_order: 0, is_available: false, ...(calories ? { calories } : {}), ...(grams ? { grams } : {}) } as any)
+        .insert({
+          name,
+          category,
+          color: colorFromName(name),
+          sort_order: 0,
+          is_available: false,
+          ...(calories !== undefined ? { calories } : {}),
+          ...(grams !== undefined ? { grams } : {}),
+          ...(ingredients !== undefined ? { ingredients } : {}),
+        } as any)
         .select()
         .single();
       if (mealError) throw mealError;
@@ -121,9 +130,10 @@ export function useMeals() {
       const seed = colorSeed ?? mealData.id;
       await supabase.from("meals").update({ color: colorFromName(seed) }).eq("id", mealData.id);
       const maxOrder = possibleMeals.length;
+      const normalizedQuantity = Math.max(1, Math.round(possible_quantity ?? 1));
       const { data: insertedPm, error } = await (supabase as any)
         .from("possible_meals")
-        .insert({ meal_id: mealData.id, sort_order: maxOrder, ...(expiration_date ? { expiration_date } : {}) })
+        .insert({ meal_id: mealData.id, sort_order: maxOrder, quantity: normalizedQuantity, ...(expiration_date ? { expiration_date } : {}) })
         .select()
         .single();
       if (error) throw error;
@@ -340,10 +350,26 @@ export function useMeals() {
 
   const sortByExpiration = (items: PossibleMeal[]) =>
     [...items].sort((a, b) => {
-      if (!a.expiration_date && !b.expiration_date) return 0;
-      if (!a.expiration_date) return 1;
-      if (!b.expiration_date) return -1;
-      return a.expiration_date.localeCompare(b.expiration_date);
+      const today = new Date(new Date().toDateString());
+      const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
+      const bCounter = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
+
+      if (a.expiration_date && b.expiration_date) {
+        const aExpired = new Date(a.expiration_date) < today;
+        const bExpired = new Date(b.expiration_date) < today;
+        if (aExpired && bExpired && aCounter !== null && bCounter !== null && aCounter !== bCounter) {
+          return bCounter - aCounter;
+        }
+        return a.expiration_date.localeCompare(b.expiration_date);
+      }
+
+      if (a.expiration_date) return -1;
+      if (b.expiration_date) return 1;
+
+      if (aCounter !== null && bCounter !== null) return bCounter - aCounter;
+      if (aCounter !== null) return -1;
+      if (bCounter !== null) return 1;
+      return 0;
     });
 
   const sortByPlanning = (items: PossibleMeal[]) =>

@@ -330,6 +330,7 @@ const Index = () => {
     const defaults: Record<string, boolean> = {};
     for (const cat of CATEGORIES) {
       defaults[`master-${cat.value}`] = true;
+      defaults[`unparun-${cat.value}`] = true;
     }
     return defaults;
   });
@@ -1189,6 +1190,23 @@ const Index = () => {
                       }
                     }
                   }}
+                  onMovePartialToPossible={async (meal, ratio) => {
+                    const partialMeal = buildScaledMealForRatio(meal, ratio);
+                    const snapshots = await deductIngredientsFromStock(partialMeal);
+                    const expDate = getEarliestIngredientExpiration(meal, foodItems);
+                    const result = await addMealToPossibleDirectly.mutateAsync({
+                      name: meal.name,
+                      category: cat.value,
+                      colorSeed: meal.id,
+                      calories: partialMeal.calories,
+                      grams: partialMeal.grams,
+                      ingredients: partialMeal.ingredients,
+                      expiration_date: expDate,
+                    });
+                    if (result?.id) {
+                      setDeductionSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
+                    }
+                  }}
                   onMoveNameMatchToPossible={async (meal, fi) => {
                     const snapshot = [{ ...fi }];
                     await deductNameMatchStock(meal);
@@ -1348,7 +1366,7 @@ const Index = () => {
                           qc.invalidateQueries({ queryKey: ["food_items"] });
                         }
                         const displayGrams = consumeGrams ? String(consumeGrams) : (fi.grams ? String(parseQty(fi.grams)) : null);
-                        const displayQty = consumeQty ? String(consumeQty) : null;
+                        const displayQty = consumeQty ?? 1;
                         const pmResult = await addMealToPossibleDirectly.mutateAsync({
                           name: fi.name,
                           category: cat.value,
@@ -1356,6 +1374,7 @@ const Index = () => {
                           calories: fi.calories,
                           grams: displayGrams,
                           expiration_date: fi.expiration_date,
+                          possible_quantity: displayQty,
                         });
                         if (pmResult?.id) {
                           setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
@@ -1387,20 +1406,44 @@ function normalizeForMatch(text: string): string {
 }
 
 /**
- * Strict name matching: handles singular/plural ('s'), case, diacritics, 
- * and at most 1 extra/missing character.
+ * Strict name matching: handles singular/plural ('s'), case, diacritics,
+ * and a maximum distance of 1 typo.
  */
 function strictNameMatch(a: string, b: string): boolean {
   const na = normalizeForMatch(a).replace(/s$/, "");
   const nb = normalizeForMatch(b).replace(/s$/, "");
+
   if (na === nb) return true;
+  if (!na || !nb) return false;
   if (Math.abs(na.length - nb.length) > 1) return false;
-  let diff = 0;
-  const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
-  let si = 0, li = 0;
-  while (si < shorter.length && li < longer.length) {
-    if (shorter[si] !== longer[li]) { diff++; if (diff > 1) return false; li++; } else { si++; li++; }
+
+  if (na.length === nb.length) {
+    let mismatches = 0;
+    for (let i = 0; i < na.length; i++) {
+      if (na[i] !== nb[i]) {
+        mismatches++;
+        if (mismatches > 1) return false;
+      }
+    }
+    return true;
   }
+
+  const [shorter, longer] = na.length < nb.length ? [na, nb] : [nb, na];
+  let si = 0;
+  let li = 0;
+  let diff = 0;
+
+  while (si < shorter.length && li < longer.length) {
+    if (shorter[si] === longer[li]) {
+      si++;
+      li++;
+      continue;
+    }
+    diff++;
+    if (diff > 1) return false;
+    li++;
+  }
+
   return true;
 }
 
@@ -1489,6 +1532,39 @@ function parseIngredientGroups(raw: string): Array<Array<{qty: number; count: nu
     const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
     return alts.map(alt => parseIngredientLine(alt));
   });
+}
+
+function scaleIngredientString(rawIngredients: string | null, ratio: number): string | null {
+  if (!rawIngredients?.trim()) return null;
+
+  return rawIngredients
+    .split(/(?:\n|,(?!\d))/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(group => {
+      const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+      return alts
+        .map(alt => {
+          const parsed = parseIngredientLine(alt);
+          const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : "";
+          const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : "";
+          return [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.name].filter(Boolean).join(" ");
+        })
+        .join(" | ");
+    })
+    .join(", ");
+}
+
+function buildScaledMealForRatio(meal: Meal, ratio: number): Meal {
+  const mealCal = meal.calories ? parseFloat(meal.calories.replace(/[^0-9.]/g, "")) : 0;
+  const mealGrams = parseQty(meal.grams);
+
+  return {
+    ...meal,
+    calories: meal.calories ? String(Math.round(mealCal * ratio)) : null,
+    grams: meal.grams ? formatNumeric(Math.round(mealGrams * ratio * 10) / 10) : null,
+    ingredients: scaleIngredientString(meal.ingredients, ratio),
+  };
 }
 
 /**
@@ -1631,7 +1707,7 @@ function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockInfo>): n
   if (minRatio >= 1) return null;
   // Only show if at least 50%
   if (minRatio < 0.5) return null;
-  return Math.floor(minRatio * 100) / 100;
+  return minRatio;
 }
 
 /** Find earliest expiration date among food items that match any ingredient of a meal */
@@ -1752,6 +1828,34 @@ function formatExpirationLabel(dateStr: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function compareExpirationWithCounter(
+  aDate: string | null,
+  bDate: string | null,
+  aCounter: number | null,
+  bCounter: number | null
+): number {
+  const today = new Date(new Date().toDateString());
+
+  if (aDate && bDate) {
+    const aExpired = new Date(aDate) < today;
+    const bExpired = new Date(bDate) < today;
+
+    if (aExpired && bExpired && aCounter !== null && bCounter !== null && aCounter !== bCounter) {
+      return bCounter - aCounter;
+    }
+
+    return aDate.localeCompare(bDate);
+  }
+
+  if (aDate) return -1;
+  if (bDate) return 1;
+
+  if (aCounter !== null && bCounter !== null && aCounter !== bCounter) return bCounter - aCounter;
+  if (aCounter !== null) return -1;
+  if (bCounter !== null) return 1;
+  return 0;
 }
 
 /** Check if a food item is used as an ingredient in any recipe of a given set of meals */
@@ -2101,8 +2205,8 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
 }
 
 
-function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
-}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
+function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
+}: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMovePartialToPossible: (meal: Meal, ratio: number) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
   const isPlat = category.value === "plat";
 
   const stockMap = buildStockMap(foodItems);
@@ -2253,49 +2357,24 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
     sortedNameMatches.sort((a, b) => parseCal(a.meal.calories) - parseCal(b.meal.calories));
     sortedIsMealItems.sort((a, b) => parseCal(a.calories) - parseCal(b.calories));
   } else if (sortMode === "expiration") {
-    const getExpSort = (meal: Meal) => {
-      const exp = getEarliestIngredientExpiration(meal, foodItems);
-      const counter = getMaxIngredientCounter(meal, foodItems);
-      return { exp, counter };
-    };
-    
-    const expSortComparator = (aExp: string | null, bExp: string | null, aCounter: number | null, bCounter: number | null) => {
-      const today = new Date(new Date().toDateString());
-      const aExpired = aExp ? new Date(aExp) < today : false;
-      const bExpired = bExp ? new Date(bExp) < today : false;
-      // Expired with counter first
-      if (aExpired && aCounter !== null && (!bExpired || bCounter === null)) return -1;
-      if (bExpired && bCounter !== null && (!aExpired || aCounter === null)) return 1;
-      if (aExpired && bExpired && aCounter !== null && bCounter !== null) {
-        if (bCounter !== aCounter) return bCounter - aCounter;
-        return (aExp || "").localeCompare(bExp || "");
-      }
-      if (aCounter !== null && bCounter === null) return -1;
-      if (bCounter !== null && aCounter === null) return 1;
-      if (aCounter !== null && bCounter !== null) return bCounter - aCounter;
-      if (!aExp && !bExp) return 0;
-      if (!aExp) return 1;
-      if (!bExp) return -1;
-      return aExp.localeCompare(bExp);
-    };
-
     sortedAvailable.sort((a, b) => {
-      const sa = getExpSort(a.meal), sb = getExpSort(b.meal);
-      return expSortComparator(sa.exp, sb.exp, sa.counter, sb.counter);
+      const aExp = getEarliestIngredientExpiration(a.meal, foodItems);
+      const bExp = getEarliestIngredientExpiration(b.meal, foodItems);
+      const aCounter = getMaxIngredientCounter(a.meal, foodItems);
+      const bCounter = getMaxIngredientCounter(b.meal, foodItems);
+      return compareExpirationWithCounter(aExp, bExp, aCounter, bCounter);
     });
 
     sortedNameMatches.sort((a, b) => {
-      const ae = a.fi.expiration_date;
-      const be = b.fi.expiration_date;
       const ac = a.fi.counter_start_date ? Math.floor((Date.now() - new Date(a.fi.counter_start_date).getTime()) / 86400000) : null;
       const bc = b.fi.counter_start_date ? Math.floor((Date.now() - new Date(b.fi.counter_start_date).getTime()) / 86400000) : null;
-      return expSortComparator(ae, be, ac, bc);
+      return compareExpirationWithCounter(a.fi.expiration_date, b.fi.expiration_date, ac, bc);
     });
 
     sortedIsMealItems.sort((a, b) => {
       const ac = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
       const bc = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
-      return expSortComparator(a.expiration_date, b.expiration_date, ac, bc);
+      return compareExpirationWithCounter(a.expiration_date, b.expiration_date, ac, bc);
     });
 
     // Split is_meal items: those WITHOUT expiration stay prioritized (first), those WITH expiration get interleaved
@@ -2535,29 +2614,11 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               const expDate = getEarliestIngredientExpiration(meal, foodItems);
               const expLabel = formatExpirationLabel(expDate);
               const expIsTodayPa = isToday(expDate);
-              // Build a scaled meal for display
-              const scaledCalories = meal.calories ? String(Math.round(parseFloat(meal.calories.replace(/[^0-9.]/g, '')) * ratio)) : null;
-              const scaledGrams = meal.grams ? String(Math.round(parseQty(meal.grams) * ratio)) : null;
-              // Scale ingredients for display
-              const scaledIngredients = meal.ingredients ? meal.ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean).map(group => {
-                const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
-                return alts.map(alt => {
-                  const parsed = parseIngredientLine(alt);
-                  const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : '';
-                  const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : '';
-                  return [scaledQty ? `${scaledQty}g` : '', scaledCount, parsed.name].filter(Boolean).join(' ');
-                }).join(' | ');
-              }).join(', ') : null;
-              const partialMeal: Meal = {
-                ...meal,
-                calories: scaledCalories,
-                grams: scaledGrams,
-                ingredients: scaledIngredients,
-              };
+              const partialMeal = buildScaledMealForRatio(meal, ratio);
               return (
                 <div key={`partial-${meal.id}`} className="relative">
                   <MealCard meal={partialMeal}
-                    onMoveToPossible={() => onMoveToPossible(meal.id)}
+                    onMoveToPossible={() => onMovePartialToPossible(meal, ratio)}
                     onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
                     onToggleFavorite={() => onToggleFavorite(meal.id)}
                     onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
@@ -2606,23 +2667,8 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                 unified.push({ type: 'partial', item, sortDate: expDate, sortCounter: counter });
               }
 
-              const today = new Date(new Date().toDateString());
               unified.sort((a, b) => {
-                const aExpired = a.sortDate ? new Date(a.sortDate) < today : false;
-                const bExpired = b.sortDate ? new Date(b.sortDate) < today : false;
-                if (aExpired && a.sortCounter !== null && (!bExpired || b.sortCounter === null)) return -1;
-                if (bExpired && b.sortCounter !== null && (!aExpired || a.sortCounter === null)) return 1;
-                if (aExpired && bExpired && a.sortCounter !== null && b.sortCounter !== null) {
-                  if (b.sortCounter !== a.sortCounter) return b.sortCounter - a.sortCounter;
-                  return (a.sortDate || "").localeCompare(b.sortDate || "");
-                }
-                if (a.sortCounter !== null && b.sortCounter === null) return -1;
-                if (b.sortCounter !== null && a.sortCounter === null) return 1;
-                if (a.sortCounter !== null && b.sortCounter !== null) return b.sortCounter - a.sortCounter;
-                if (!a.sortDate && !b.sortDate) return 0;
-                if (!a.sortDate) return 1;
-                if (!b.sortDate) return -1;
-                return a.sortDate.localeCompare(b.sortDate);
+                return compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
               });
 
               return (
