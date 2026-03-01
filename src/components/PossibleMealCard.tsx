@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, List, Undo2 } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -213,6 +213,11 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
 
         <div className="flex-1" />
 
+        {pm.quantity > 1 && (
+          <span className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+            <Hash className="h-2.5 w-2.5" />{pm.quantity}
+          </span>
+        )}
         {meal.grams && (
           <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
             <Weight className="h-2.5 w-2.5" />{meal.grams}
