@@ -260,9 +260,10 @@ interface FoodItemCardProps {
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  draggableEnabled?: boolean;
 }
 
-function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop }: FoodItemCardProps) {
+function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
@@ -344,7 +345,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
 
   return (
     <div
-      draggable
+      draggable={draggableEnabled}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -864,27 +865,29 @@ export function FoodItems() {
           />
         ))}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 max-w-none">
-        {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'toujours').map((section) => (
-          <FoodSection
-            key={section.type}
-            emoji={section.emoji}
-            title={section.label}
-            storageType={section.type}
-            items={getSortedItems(section.type)}
-            colorMap={colorMap}
-            onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
-            onDelete={(id) => deleteItem.mutate(id)}
-            onDuplicate={(id) => duplicateItem.mutate(id)}
-            sortMode={sortModes[section.type]}
-            onToggleSort={() => setSortModes(prev => ({ ...prev, [section.type]: prev[section.type] === "manual" ? "expiration" : "manual" }))}
-            onReorder={(from, to) => handleReorder(section.type, from, to)}
-            dragIndex={dragIndex}
-            setDragIndex={setDragIndex}
-            allItems={items}
-            onChangeStorage={(id, st) => updateItem.mutate({ id, storage_type: st, is_dry: st === 'sec' })}
-          />
-        ))}
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-none">
+        <div className="flex flex-col gap-4">
+          {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'toujours').map((section) => (
+            <FoodSection
+              key={section.type}
+              emoji={section.emoji}
+              title={section.label}
+              storageType={section.type}
+              items={getSortedItems(section.type)}
+              colorMap={colorMap}
+              onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
+              onDelete={(id) => deleteItem.mutate(id)}
+              onDuplicate={(id) => duplicateItem.mutate(id)}
+              sortMode={sortModes[section.type]}
+              onToggleSort={() => setSortModes(prev => ({ ...prev, [section.type]: prev[section.type] === "manual" ? "expiration" : "manual" }))}
+              onReorder={(from, to) => handleReorder(section.type, from, to)}
+              dragIndex={dragIndex}
+              setDragIndex={setDragIndex}
+              allItems={items}
+              onChangeStorage={(id, st) => updateItem.mutate({ id, storage_type: st, is_dry: st === 'sec' })}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -915,20 +918,40 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
   const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
   const [collapsed, setCollapsed] = useState(storageType === 'toujours');
+  const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
-  // Touch drag & drop for mobile — uses native listeners for passive:false
+  // Touch drag & drop for mobile
   const touchDragRef = useRef<{ itemId: string; itemIdx: number; ghost: HTMLElement; startX: number; startY: number; origTop: number; origLeft: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Attach native touchmove with passive:false to allow preventDefault
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const finishTouchDrag = (touch: Touch) => {
+      const s = touchDragRef.current;
+      if (!s) return;
+
+      touchDragRef.current = null;
+      setTouchDragActive(false);
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+
+      s.ghost.style.visibility = "hidden";
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      s.ghost.remove();
+
+      const cardEl = el?.closest("[data-food-idx]");
+      if (cardEl) {
+        const toIdx = parseInt(cardEl.getAttribute("data-food-idx") || "-1");
+        if (toIdx >= 0 && toIdx !== s.itemIdx) onReorder(s.itemIdx, toIdx);
+      }
+    };
+
     const onTouchMove = (e: TouchEvent) => {
       if (!touchDragRef.current) {
-        if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
         return;
       }
       e.preventDefault();
@@ -937,59 +960,74 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
       s.ghost.style.top = `${s.origTop + (touch.clientY - s.startY)}px`;
       s.ghost.style.left = `${s.origLeft + (touch.clientX - s.startX)}px`;
     };
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-    return () => container.removeEventListener('touchmove', onTouchMove);
-  }, []);
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      if (!touchDragRef.current) return;
+      const touch = e.changedTouches[0];
+      if (touch) finishTouchDrag(touch);
+    };
+
+    const onTouchCancel = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+      if (touchDragRef.current) {
+        touchDragRef.current.ghost.remove();
+        touchDragRef.current = null;
+      }
+      setTouchDragActive(false);
+      document.body.style.overflow = "";
+      document.body.style.touchAction = "";
+    };
+
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd, { passive: false });
+    window.addEventListener("touchcancel", onTouchCancel);
+
+    return () => {
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchCancel);
+    };
+  }, [onReorder]);
 
   const handleTouchStart = (e: React.TouchEvent, item: FoodItem, sectionIdx: number) => {
     if (sortMode !== "manual") return;
     const touch = e.touches[0];
     const el = e.currentTarget as HTMLElement;
     const rect = el.getBoundingClientRect();
+
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
     longPressTimerRef.current = setTimeout(() => {
       if (navigator.vibrate) navigator.vibrate(40);
       document.body.style.overflow = "hidden";
       document.body.style.touchAction = "none";
+
       const ghost = el.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;z-index:9999;pointer-events:none;opacity:0.85;transform:scale(1.05);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.35);transition:none;`;
       document.body.appendChild(ghost);
-      touchDragRef.current = { itemId: item.id, itemIdx: sectionIdx, ghost, startX: touch.clientX, startY: touch.clientY, origTop: rect.top, origLeft: rect.left };
+
+      touchDragRef.current = {
+        itemId: item.id,
+        itemIdx: sectionIdx,
+        ghost,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        origTop: rect.top,
+        origLeft: rect.left,
+      };
       setTouchDragActive(true);
     }, 500);
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-    const s = touchDragRef.current;
-    if (!s) return;
-    touchDragRef.current = null;
-    setTouchDragActive(false);
-    document.body.style.overflow = "";
-    document.body.style.touchAction = "";
-    const touch = e.changedTouches[0];
-    s.ghost.style.visibility = "hidden";
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    s.ghost.remove();
-    const cardEl = el?.closest("[data-food-idx]");
-    if (cardEl) {
-      const toIdx = parseInt(cardEl.getAttribute("data-food-idx") || "-1");
-      if (toIdx >= 0 && toIdx !== s.itemIdx) onReorder(s.itemIdx, toIdx);
-    }
-  };
-
-  const handleTouchCancel = () => {
-    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-    if (touchDragRef.current) { touchDragRef.current.ghost.remove(); touchDragRef.current = null; }
-    setTouchDragActive(false);
-    document.body.style.overflow = "";
-    document.body.style.touchAction = "";
-  };
-
   return (
     <div
-      ref={containerRef}
-      className={`rounded-3xl bg-card/80 backdrop-blur-sm p-4 transition-all ${sectionDragOver ? "ring-2 ring-primary/40" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setSectionDragOver(true); }}
       onDragLeave={() => setSectionDragOver(false)}
       onDrop={(e) => {
@@ -1032,8 +1070,6 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
                 key={item.id}
                 data-food-idx={sectionIdx}
                 onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchCancel}
               >
                 <FoodItemCard
                   item={item}
@@ -1041,6 +1077,7 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
                   onUpdate={(updates) => onUpdate(item.id, updates)}
                   onDelete={() => onDelete(item.id)}
                   onDuplicate={() => onDuplicate(item.id)}
+                  draggableEnabled={!isTouchDevice}
                   onDragStart={(e) => {
                     e.dataTransfer.setData("foodItemIndex", String(sectionIdx));
                     e.dataTransfer.setData("foodItemId", item.id);
