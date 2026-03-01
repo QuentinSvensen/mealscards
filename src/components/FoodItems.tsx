@@ -865,8 +865,8 @@ export function FoodItems() {
           />
         ))}
       </div>
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-none">
-        <div className="flex flex-col gap-4">
+      <div className="mt-4 flex justify-center">
+        <div className="flex flex-col gap-4 w-full max-w-3xl">
           {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'toujours').map((section) => (
             <FoodSection
               key={section.type}
@@ -1028,6 +1028,7 @@ function FoodSection({ emoji, title, storageType, items, colorMap, onUpdate, onD
 
   return (
     <div
+      className="rounded-3xl bg-card/80 backdrop-blur-sm p-4"
       onDragOver={(e) => { e.preventDefault(); setSectionDragOver(true); }}
       onDragLeave={() => setSectionDragOver(false)}
       onDrop={(e) => {
