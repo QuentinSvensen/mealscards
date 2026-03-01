@@ -326,7 +326,13 @@ const Index = () => {
   const [coursesTab, setCoursesTab] = useState<"liste" | "menu">("liste");
 
   // Session-only collapse state for categories (reset on reconnect)
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({ 'master-plat': true });
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    const defaults: Record<string, boolean> = {};
+    for (const cat of CATEGORIES) {
+      defaults[`master-${cat.value}`] = true;
+    }
+    return defaults;
+  });
   const toggleSectionCollapse = (key: string) => {
     setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -1341,12 +1347,14 @@ const Index = () => {
                           }
                           qc.invalidateQueries({ queryKey: ["food_items"] });
                         }
+                        const displayGrams = consumeGrams ? String(consumeGrams) : (fi.grams ? String(parseQty(fi.grams)) : null);
+                        const displayQty = consumeQty ? String(consumeQty) : null;
                         const pmResult = await addMealToPossibleDirectly.mutateAsync({
                           name: fi.name,
                           category: cat.value,
                           colorSeed: fi.id,
                           calories: fi.calories,
-                          grams: fi.grams ? String(parseQty(fi.grams)) : null,
+                          grams: displayGrams,
                           expiration_date: fi.expiration_date,
                         });
                         if (pmResult?.id) {
@@ -1548,7 +1556,6 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number |
   let multiple = Infinity;
 
   for (const group of groups) {
-    // For each group, find the best alternative and compute how many times it can provide
     let bestGroupMultiple = 0;
     let anyMatch = false;
 
@@ -1569,7 +1576,6 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number |
           anyMatch = true;
         }
       } else {
-        // Name-only match (no qty/grams required)
         altMultiple = Infinity;
         anyMatch = true;
       }
@@ -1580,6 +1586,52 @@ function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number |
     multiple = Math.min(multiple, bestGroupMultiple);
   }
   return multiple === Infinity ? Infinity : multiple;
+}
+
+/**
+ * Get fractional meal ratio: what % of the recipe can be made (0.0 - 1.0).
+ * Returns the proportion limited by the most constrained ingredient.
+ * Only returns values >= 0.5. Returns null if < 0.5 or no ingredients.
+ */
+function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockInfo>): number | null {
+  if (!meal.ingredients?.trim()) return null;
+  const groups = parseIngredientGroups(meal.ingredients);
+  if (groups.length === 0) return null;
+  let minRatio = Infinity;
+
+  for (const group of groups) {
+    let bestGroupRatio = 0;
+    let anyMatch = false;
+
+    for (const alt of group) {
+      const key = findStockKey(stockMap, alt.name);
+      if (key === null) continue;
+      const stock = stockMap.get(key)!;
+      if (stock.infinite) { bestGroupRatio = Infinity; anyMatch = true; break; }
+      let altRatio = 0;
+      if (alt.count > 0) {
+        altRatio = stock.count / alt.count;
+        if (altRatio > 0) anyMatch = true;
+      } else if (alt.qty > 0) {
+        altRatio = stock.grams / alt.qty;
+        if (altRatio > 0) anyMatch = true;
+      } else {
+        altRatio = Infinity;
+        anyMatch = true;
+      }
+      bestGroupRatio = Math.max(bestGroupRatio, altRatio);
+    }
+
+    if (!anyMatch) return null;
+    minRatio = Math.min(minRatio, bestGroupRatio);
+  }
+
+  if (minRatio === Infinity) return null;
+  // Already fully available — handled by getMealMultiple
+  if (minRatio >= 1) return null;
+  // Only show if at least 50%
+  if (minRatio < 0.5) return null;
+  return Math.floor(minRatio * 100) / 100;
 }
 
 /** Find earliest expiration date among food items that match any ingredient of a meal */
@@ -1943,17 +1995,21 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
         style={{ backgroundColor: color }}
       >
         <div className="min-w-0 flex-1">
-          <p className="text-base font-bold text-white truncate">{fi.name}</p>
+          <p className="text-sm font-semibold text-white truncate">{fi.name}</p>
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {counterDays !== null && (
               <span className={`text-xs font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/80 text-white animate-pulse' : 'bg-white/25 text-white'}`}>
                 <Timer className="h-3 w-3" />{counterDays}j
               </span>
             )}
-            {totalG > 0 && <span className="text-xs text-white/80 font-medium">{formatNumeric(totalG)}g</span>}
-            {qty && <span className="text-xs text-white/80 font-medium">×{qty}</span>}
-            {fi.is_infinite && <span className="text-xs text-white/80">∞</span>}
-            {expLabel && <span className={`text-[10px] font-medium ${isExpired ? 'text-red-200 font-bold' : 'text-white/60'}`}>📅{expLabel}</span>}
+            {totalG > 0 && <span className="text-xs text-white/80 font-bold">{formatNumeric(totalG)}g</span>}
+            {qty && <span className="text-xs text-white/80 font-bold">×{qty}</span>}
+            {fi.is_infinite && <span className="text-xs text-white/80 font-bold">∞</span>}
+            {expLabel && (
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${isExpired ? 'bg-red-500/60 text-white' : 'bg-white/20 text-white/90'}`}>
+                📅{expLabel}
+              </span>
+            )}
             {unused && <span className="text-[10px] text-yellow-200 font-bold">⚡inutilisé</span>}
           </div>
         </div>
@@ -1979,14 +2035,20 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
       <div className="flex items-center gap-2 w-full">
-        <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleCollapse(); }} className="flex items-center gap-2 flex-1 text-left">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onToggleCollapse}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleCollapse(); } }}
+          className="flex items-center gap-2 flex-1 cursor-pointer select-none"
+        >
           {!collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
           <h2 className="text-base font-bold text-foreground flex items-center gap-2">
             🔀 Un par un
           </h2>
           <span className="text-sm font-normal text-muted-foreground">{totalCount}</span>
-        </button>
-        <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5">
+        </div>
+        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onToggleSort(); }} className="text-[10px] gap-0.5 h-6 px-1.5">
           <SortIcon className="h-3 w-3" />
           <span className="hidden sm:inline">{sortLabel}</span>
         </Button>
@@ -2059,6 +2121,17 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
     .filter(({ multiple }) => multiple !== null && (multiple === Infinity || (multiple as number) > 0));
   const availableMealIds = new Set(available.map(a => a.meal.id));
 
+  // 1b. Partial recipes (50-100%): meals that can be made at reduced proportion
+  const partialAvailable: {meal: Meal; ratio: number;}[] = meals
+    .filter(meal => meal.ingredients?.trim() && !availableMealIds.has(meal.id))
+    .map(meal => {
+      const ratio = getMealFractionalRatio(meal, stockMap);
+      if (ratio === null) return null;
+      return { meal, ratio };
+    })
+    .filter(Boolean) as {meal: Meal; ratio: number;}[];
+  const partialMealIds = new Set(partialAvailable.map(p => p.meal.id));
+
   // 2. Name-match: stock items that strict-match a "Tous" recipe
   // PRIORITY: if a recipe from "Tous" matches a food-as-meal name, show the RECIPE card
   type NameMatch = {meal: Meal;fi: FoodItem;portionsAvailable: number | null;};
@@ -2067,7 +2140,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
   const nameMatchedMealIds = new Set<string>();
 
   for (const meal of meals) {
-    if (availableMealIds.has(meal.id)) continue;
+    if (availableMealIds.has(meal.id) || partialMealIds.has(meal.id)) continue;
     // Skip meals with ingredients (they're handled by ingredient-matching above)
     if (meal.ingredients?.trim()) continue;
     for (const fi of foodItems) {
@@ -2233,7 +2306,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
     (sortedIsMealItems as any).__withDate = isMealWithDate;
   }
 
-  const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length;
+  const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length + partialAvailable.length;
 
   const SortIcon = sortMode === "calories" ? Flame : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
   const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "expiration" ? "Péremption" : "Manuel";
@@ -2315,11 +2388,13 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
             type UnifiedAvail =
               | { type: 'isMeal'; fi: FoodItem; key: string }
               | { type: 'nm'; nm: typeof sortedNameMatches[0]; nmIdx: number; key: string }
-              | { type: 'av'; item: typeof sortedAvailable[0]; key: string };
+              | { type: 'av'; item: typeof sortedAvailable[0]; key: string }
+              | { type: 'partial'; item: typeof partialAvailable[0]; key: string };
             const unifiedItems: UnifiedAvail[] = [
               ...sortedIsMealItems.map(fi => ({ type: 'isMeal' as const, fi, key: `fi-${fi.id}` })),
               ...sortedNameMatches.map((nm, idx) => ({ type: 'nm' as const, nm, nmIdx: idx, key: `nm-${nm.meal.id}` })),
               ...sortedAvailable.map(item => ({ type: 'av' as const, item, key: `av-${item.meal.id}` })),
+              ...partialAvailable.map(item => ({ type: 'partial' as const, item, key: `pa-${item.meal.id}` })),
             ];
             if (sortMode === "manual" && storedOrder.length > 0) {
               const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
@@ -2453,11 +2528,60 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               );
             };
 
+            // Helper to render a partial recipe card (50-100%)
+            const renderPartialCard = (item: typeof partialAvailable[0], unifiedIdx?: number) => {
+              const { meal, ratio } = item;
+              const pct = Math.round(ratio * 100);
+              const expDate = getEarliestIngredientExpiration(meal, foodItems);
+              const expLabel = formatExpirationLabel(expDate);
+              const expIsTodayPa = isToday(expDate);
+              // Build a scaled meal for display
+              const scaledCalories = meal.calories ? String(Math.round(parseFloat(meal.calories.replace(/[^0-9.]/g, '')) * ratio)) : null;
+              const scaledGrams = meal.grams ? String(Math.round(parseQty(meal.grams) * ratio)) : null;
+              // Scale ingredients for display
+              const scaledIngredients = meal.ingredients ? meal.ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean).map(group => {
+                const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+                return alts.map(alt => {
+                  const parsed = parseIngredientLine(alt);
+                  const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : '';
+                  const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : '';
+                  return [scaledQty ? `${scaledQty}g` : '', scaledCount, parsed.name].filter(Boolean).join(' ');
+                }).join(' | ');
+              }).join(', ') : null;
+              const partialMeal: Meal = {
+                ...meal,
+                calories: scaledCalories,
+                grams: scaledGrams,
+                ingredients: scaledIngredients,
+              };
+              return (
+                <div key={`partial-${meal.id}`} className="relative">
+                  <MealCard meal={partialMeal}
+                    onMoveToPossible={() => onMoveToPossible(meal.id)}
+                    onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                    onToggleFavorite={() => onToggleFavorite(meal.id)}
+                    onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                    onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+                    onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "available"); if (unifiedIdx !== undefined) setAvDragIndex(unifiedIdx); }}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
+                    hideDelete
+                    expirationLabel={expLabel}
+                    expirationDate={expDate}
+                    expirationIsToday={expIsTodayPa} />
+                  <div className="absolute top-2 right-8 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+                    {pct}%
+                  </div>
+                </div>
+              );
+            };
+
             if (sortMode === "expiration") {
               type UnifiedItem = 
                 | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null }
                 | { type: 'nameMatch'; nm: typeof sortedNameMatches[0]; idx: number; sortDate: string | null; sortCounter: number | null }
-                | { type: 'available'; item: typeof sortedAvailable[0]; sortDate: string | null; sortCounter: number | null };
+                | { type: 'available'; item: typeof sortedAvailable[0]; sortDate: string | null; sortCounter: number | null }
+                | { type: 'partial'; item: typeof partialAvailable[0]; sortDate: string | null; sortCounter: number | null };
 
               const unified: UnifiedItem[] = [];
 
@@ -2475,6 +2599,11 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                 const expDate = getEarliestIngredientExpiration(item.meal, foodItems);
                 const counter = getMaxIngredientCounter(item.meal, foodItems);
                 unified.push({ type: 'available', item, sortDate: expDate, sortCounter: counter });
+              }
+              for (const item of partialAvailable) {
+                const expDate = getEarliestIngredientExpiration(item.meal, foodItems);
+                const counter = getMaxIngredientCounter(item.meal, foodItems);
+                unified.push({ type: 'partial', item, sortDate: expDate, sortCounter: counter });
               }
 
               const today = new Date(new Date().toDateString());
@@ -2501,6 +2630,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   {unified.map((u, i) => {
                     if (u.type === 'isMeal') return renderIsMealCard(u.fi);
                     if (u.type === 'nameMatch') return renderNameMatchCard(u.nm, u.idx);
+                    if (u.type === 'partial') return renderPartialCard(u.item);
                     return renderAvailableCard(u.item);
                   })}
                 </>
@@ -2513,6 +2643,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                 {unifiedItems.map((u, idx) => {
                   if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
                   if (u.type === 'nm') return renderNameMatchCard(u.nm, u.nmIdx, idx);
+                  if (u.type === 'partial') return renderPartialCard(u.item, idx);
                   return renderAvailableCard(u.item, idx);
                 })}
               </>
