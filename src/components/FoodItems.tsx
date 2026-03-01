@@ -349,7 +349,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing ${expired ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''} ${expIsToday ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''}`}
+      className={`flex flex-col rounded-2xl px-3 py-2.5 shadow-md transition-all hover:scale-[1.01] hover:shadow-lg select-none cursor-grab active:cursor-grabbing overflow-hidden ${expired ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''} ${expIsToday ? 'ring-2 ring-red-500 shadow-red-500/30 shadow-lg' : ''}`}
       style={{ backgroundColor: color }}
     >
       {/* Row 1: name on left, options wrap to row 2 if needed */}
