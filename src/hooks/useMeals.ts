@@ -110,10 +110,10 @@ export function useMeals() {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category, colorSeed }: { name: string; category: string; colorSeed?: string }) => {
+    mutationFn: async ({ name, category, colorSeed, calories, grams, expiration_date }: { name: string; category: string; colorSeed?: string; calories?: string | null; grams?: string | null; expiration_date?: string | null }) => {
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
-        .insert({ name, category, color: colorFromName(name), sort_order: 0, is_available: false } as any)
+        .insert({ name, category, color: colorFromName(name), sort_order: 0, is_available: false, ...(calories ? { calories } : {}), ...(grams ? { grams } : {}) } as any)
         .select()
         .single();
       if (mealError) throw mealError;
@@ -123,7 +123,7 @@ export function useMeals() {
       const maxOrder = possibleMeals.length;
       const { data: insertedPm, error } = await (supabase as any)
         .from("possible_meals")
-        .insert({ meal_id: mealData.id, sort_order: maxOrder })
+        .insert({ meal_id: mealData.id, sort_order: maxOrder, ...(expiration_date ? { expiration_date } : {}) })
         .select()
         .single();
       if (error) throw error;
