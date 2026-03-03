@@ -26,6 +26,7 @@ interface PossibleMealCardProps {
   onUpdateCounter: (date: string | null) => void;
   onUpdateCalories: (cal: string | null) => void;
   onUpdateGrams: (g: string | null) => void;
+  onUpdateQuantity?: (qty: number) => void;
   onUpdateIngredients: (ing: string | null) => void;
   onUpdatePossibleIngredients?: (newIngredients: string | null) => void;
   onDragStart: (e: React.DragEvent) => void;
@@ -101,8 +102,8 @@ function serializeIngredients(lines: IngLine[]): string | null {
   return result.length ? result.join(", ") : null;
 }
 
-export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
-  const [editing, setEditing] = useState<"calories" | "grams" | null>(null);
+export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
+  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -129,6 +130,10 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
     const val = editValue.trim() || null;
     if (editing === "calories") onUpdateCalories(val);
     if (editing === "grams") onUpdateGrams(val);
+    if (editing === "quantity" && onUpdateQuantity) {
+      const qty = parseInt(editValue.trim());
+      if (!isNaN(qty) && qty >= 1) onUpdateQuantity(qty);
+    }
     setEditing(null);
   };
 
@@ -213,10 +218,13 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
 
         <div className="flex-1" />
 
-        {pm.quantity > 1 && (
-          <span className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+        {(pm.quantity > 1 || onUpdateQuantity) && (
+          <button
+            onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
+            className={`text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-white/30 cursor-pointer' : ''}`}
+          >
             <Hash className="h-2.5 w-2.5" />{pm.quantity}
-          </span>
+          </button>
         )}
         {meal.grams && (
           <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">

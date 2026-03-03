@@ -353,22 +353,28 @@ export function useMeals() {
       const today = new Date(new Date().toDateString());
       const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
       const bCounter = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
+      const aHasDate = !!a.expiration_date;
+      const bHasDate = !!b.expiration_date;
+      const aHasCounter = aCounter !== null;
+      const bHasCounter = bCounter !== null;
 
-      if (a.expiration_date && b.expiration_date) {
-        const aExpired = new Date(a.expiration_date) < today;
-        const bExpired = new Date(b.expiration_date) < today;
-        if (aExpired && bExpired && aCounter !== null && bCounter !== null && aCounter !== bCounter) {
-          return bCounter - aCounter;
+      // Groups: 0=counter only, 1=has date (with or without counter), 2=nothing
+      const aGroup = aHasCounter && !aHasDate ? 0 : aHasDate ? 1 : 2;
+      const bGroup = bHasCounter && !bHasDate ? 0 : bHasDate ? 1 : 2;
+
+      if (aGroup !== bGroup) return aGroup - bGroup;
+
+      if (aGroup === 0) return bCounter! - aCounter!;
+
+      if (aGroup === 1) {
+        const aExpired = new Date(a.expiration_date!) < today;
+        const bExpired = new Date(b.expiration_date!) < today;
+        if (aExpired && bExpired && aHasCounter && bHasCounter && aCounter !== bCounter) {
+          return bCounter! - aCounter!;
         }
-        return a.expiration_date.localeCompare(b.expiration_date);
+        return a.expiration_date!.localeCompare(b.expiration_date!);
       }
 
-      if (a.expiration_date) return -1;
-      if (b.expiration_date) return 1;
-
-      if (aCounter !== null && bCounter !== null) return bCounter - aCounter;
-      if (aCounter !== null) return -1;
-      if (bCounter !== null) return 1;
       return 0;
     });
 
@@ -395,7 +401,7 @@ export function useMeals() {
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
-    deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients,
+    deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients, updatePossibleQuantity,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible,
   };
 }

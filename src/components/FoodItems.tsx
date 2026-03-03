@@ -169,7 +169,7 @@ export function useFoodItems() {
   });
 
   const addItem = useMutation({
-    mutationFn: async ({ name, storage_type, quantity, grams, food_type }: { name: string; storage_type: StorageType; quantity?: number | null; grams?: string | null; food_type?: FoodType }) => {
+    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date }: { name: string; storage_type: StorageType; quantity?: number | null; grams?: string | null; food_type?: FoodType; expiration_date?: string | null }) => {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase
         .from("food_items")
@@ -181,6 +181,7 @@ export function useFoodItems() {
           ...(quantity ? { quantity } : {}),
           ...(grams ? { grams } : {}),
           ...(food_type ? { food_type } : {}),
+          ...(expiration_date ? { expiration_date } : {}),
         } as any);
       if (error) throw error;
     },
@@ -376,7 +377,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
         </div>
 
         {/* Right: all option badges - wraps to next line if title is too long */}
-        <div className="flex items-center gap-1 flex-wrap justify-end ml-auto shrink-0">
+        <div className="flex items-center gap-1 flex-wrap justify-end ml-auto min-w-0">
           {/* Counter badge */}
           {counterDays !== null && (
             <button
@@ -621,11 +622,14 @@ export function FoodItems() {
   const [newQuantity, setNewQuantity] = useState("");
   const [newGrams, setNewGrams] = useState("");
   const [newFoodType, setNewFoodType] = useState<FoodType>(null);
+  const [newExpiration, setNewExpiration] = useState<Date | undefined>(undefined);
+  const [expCalOpen, setExpCalOpen] = useState(false);
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
   const [pendingName, setPendingName] = useState("");
   const [pendingQuantity, setPendingQuantity] = useState("");
   const [pendingGrams, setPendingGrams] = useState("");
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
+  const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Independent sort per section
@@ -721,14 +725,15 @@ export function FoodItems() {
     setPendingQuantity(newQuantity);
     setPendingGrams(newGrams);
     setPendingFoodType(newFoodType);
+    setPendingExpiration(newExpiration ? format(newExpiration, 'yyyy-MM-dd') : null);
     setShowStoragePrompt(true);
   };
 
   const confirmAdd = (storageType: StorageType) => {
     const qty = pendingQuantity ? parseInt(pendingQuantity) || null : null;
     const grams = pendingGrams.trim() || null;
-    addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams, food_type: pendingFoodType }, {
-      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setNewFoodType(null); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingFoodType(null); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
+    addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams, food_type: pendingFoodType, expiration_date: pendingExpiration }, {
+      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setNewFoodType(null); setNewExpiration(undefined); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingFoodType(null); setPendingExpiration(null); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         toast({ title: "Erreur lors de l'ajout", description: msg, variant: "destructive" });
@@ -779,21 +784,47 @@ export function FoodItems() {
         </Button>
       </div>
 
-      {/* Quantity + Grams + Food type inputs */}
-      <div className="flex gap-2 mb-4 items-center">
+      {/* Quantity + Grams + Expiration + Food type inputs */}
+      <div className="flex gap-2 mb-4 items-center flex-wrap">
         <Input
           placeholder="Quantité (ex : 3)"
           value={newQuantity}
           onChange={e => setNewQuantity(e.target.value)}
           inputMode="numeric"
-          className="flex-1 rounded-xl h-8 text-sm"
+          className="flex-1 rounded-xl h-8 text-sm min-w-[100px]"
         />
         <Input
           placeholder="Grammes (ex : 500)"
           value={newGrams}
           onChange={e => setNewGrams(e.target.value)}
-          className="flex-1 rounded-xl h-8 text-sm"
+          className="flex-1 rounded-xl h-8 text-sm min-w-[100px]"
         />
+        <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>
+          <PopoverTrigger asChild>
+            <button className={`h-8 min-w-[120px] border rounded-xl text-sm px-2 flex items-center gap-1 transition-colors ${
+              newExpiration ? 'bg-muted text-foreground border-border font-medium' : 'bg-muted/50 text-muted-foreground border-border'
+            }`}>
+              <Calendar className="h-3.5 w-3.5 shrink-0" />
+              {newExpiration ? format(newExpiration, 'd MMM yy', { locale: fr }) : 'Péremption'}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <CalendarPicker
+              mode="single"
+              selected={newExpiration}
+              onSelect={(date) => { setNewExpiration(date || undefined); setExpCalOpen(false); }}
+              initialFocus
+              className="p-3 pointer-events-auto"
+            />
+            {newExpiration && (
+              <div className="p-2 border-t">
+                <button onClick={() => { setNewExpiration(undefined); setExpCalOpen(false); }} className="text-xs text-muted-foreground hover:text-destructive w-full text-center">
+                  Effacer la date
+                </button>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
         <div className="flex gap-1 shrink-0">
           <button
             onClick={() => setNewFoodType(prev => prev === 'feculent' ? null : 'feculent')}
