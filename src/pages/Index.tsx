@@ -196,7 +196,7 @@ const Index = () => {
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
-    deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients,
+    deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients, updatePossibleQuantity,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
   } = useMeals();
 
@@ -222,14 +222,21 @@ const Index = () => {
     if (!unlocked || sundayClearDone.current) return;
 
     const now = new Date();
-    const daysSinceSunday = now.getDay(); // 0=Sunday
+    const day = now.getDay(); // 0=Sunday
 
     // Calculate last Sunday 23:59
     const lastSunday = new Date(now);
-    if (daysSinceSunday === 0 && now.getHours() >= 23 && now.getMinutes() >= 59) {
-      lastSunday.setHours(23, 59, 0, 0);
+    if (day === 0) {
+      // It's Sunday — check if we're past 23:59
+      if (now.getHours() >= 23 && now.getMinutes() >= 59) {
+        lastSunday.setHours(23, 59, 0, 0);
+      } else {
+        // Before 23:59 on Sunday — last reset target is previous Sunday
+        lastSunday.setDate(lastSunday.getDate() - 7);
+        lastSunday.setHours(23, 59, 0, 0);
+      }
     } else {
-      lastSunday.setDate(lastSunday.getDate() - (daysSinceSunday === 0 ? 7 : daysSinceSunday));
+      lastSunday.setDate(lastSunday.getDate() - day);
       lastSunday.setHours(23, 59, 0, 0);
     }
 
@@ -1300,6 +1307,7 @@ const Index = () => {
                   }
                   updatePossibleIngredients.mutate({ id: pmId, ingredients_override: newIngredients });
                 }}
+                onUpdateQuantity={(id, qty) => updatePossibleQuantity.mutate({ id, quantity: qty })}
                 onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
                 onExternalDrop={async (mealId, source) => {
                   const result = await moveToPossible.mutateAsync({ mealId });
@@ -1563,8 +1571,33 @@ function buildScaledMealForRatio(meal: Meal, ratio: number): Meal {
     ...meal,
     calories: meal.calories ? String(Math.round(mealCal * ratio)) : null,
     grams: meal.grams ? formatNumeric(Math.round(mealGrams * ratio * 10) / 10) : null,
-    ingredients: scaleIngredientString(meal.ingredients, ratio),
+    ingredients: scaleIngredientStringExact(meal.ingredients, ratio),
   };
+}
+
+/**
+ * Scale ingredients using the exact ratio, but cap each ingredient at what's actually available in stock.
+ * This ensures we never display more than what the user has.
+ */
+function scaleIngredientStringExact(rawIngredients: string | null, ratio: number): string | null {
+  if (!rawIngredients?.trim()) return null;
+
+  return rawIngredients
+    .split(/(?:\n|,(?!\d))/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(group => {
+      const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+      return alts
+        .map(alt => {
+          const parsed = parseIngredientLine(alt);
+          const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : "";
+          const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : "";
+          return [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.name].filter(Boolean).join(" ");
+        })
+        .join(" | ");
+    })
+    .join(", ");
 }
 
 /**
@@ -1707,6 +1740,7 @@ function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockInfo>): n
   if (minRatio >= 1) return null;
   // Only show if at least 50%
   if (minRatio < 0.5) return null;
+  // Return exact ratio (no rounding) to maximize ingredient consumption
   return minRatio;
 }
 
@@ -1838,23 +1872,30 @@ function compareExpirationWithCounter(
 ): number {
   const today = new Date(new Date().toDateString());
 
-  if (aDate && bDate) {
-    const aExpired = new Date(aDate) < today;
-    const bExpired = new Date(bDate) < today;
+  // Groups: 0=counter only (no date), 1=has date, 2=nothing
+  const aHasCounter = aCounter !== null;
+  const bHasCounter = bCounter !== null;
+  const aHasDate = !!aDate;
+  const bHasDate = !!bDate;
+  const aGroup = aHasCounter && !aHasDate ? 0 : aHasDate ? 1 : 2;
+  const bGroup = bHasCounter && !bHasDate ? 0 : bHasDate ? 1 : 2;
 
-    if (aExpired && bExpired && aCounter !== null && bCounter !== null && aCounter !== bCounter) {
-      return bCounter - aCounter;
+  if (aGroup !== bGroup) return aGroup - bGroup;
+
+  // Both counter-only: higher counter first
+  if (aGroup === 0) return bCounter! - aCounter!;
+
+  // Both have dates
+  if (aGroup === 1) {
+    const aExpired = new Date(aDate!) < today;
+    const bExpired = new Date(bDate!) < today;
+    // Both expired: higher counter wins
+    if (aExpired && bExpired && aHasCounter && bHasCounter && aCounter !== bCounter) {
+      return bCounter! - aCounter!;
     }
-
-    return aDate.localeCompare(bDate);
+    return aDate!.localeCompare(bDate!);
   }
 
-  if (aDate) return -1;
-  if (bDate) return 1;
-
-  if (aCounter !== null && bCounter !== null && aCounter !== bCounter) return bCounter - aCounter;
-  if (aCounter !== null) return -1;
-  if (bCounter !== null) return 1;
   return 0;
 }
 
@@ -1916,8 +1957,8 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
   const [consumeQty, setConsumeQty] = useState("");
   const [consumeGrams, setConsumeGrams] = useState("");
 
-  const viandeItems = foodItems.filter(fi => fi.food_type === 'viande' && fi.storage_type !== 'toujours');
-  const feculentItems = foodItems.filter(fi => fi.food_type === 'feculent' && fi.storage_type !== 'toujours');
+  const viandeItems = foodItems.filter(fi => fi.food_type === 'viande');
+  const feculentItems = foodItems.filter(fi => fi.food_type === 'feculent');
 
   const globalAvailableMeals = allMeals.filter(meal => {
     if (!meal.ingredients?.trim()) return false;
@@ -2614,6 +2655,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               const expDate = getEarliestIngredientExpiration(meal, foodItems);
               const expLabel = formatExpirationLabel(expDate);
               const expIsTodayPa = isToday(expDate);
+              const maxCounter = getMaxIngredientCounter(meal, foodItems);
               const partialMeal = buildScaledMealForRatio(meal, ratio);
               return (
                 <div key={`partial-${meal.id}`} className="relative">
@@ -2629,7 +2671,8 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                     hideDelete
                     expirationLabel={expLabel}
                     expirationDate={expDate}
-                    expirationIsToday={expIsTodayPa} />
+                    expirationIsToday={expIsTodayPa}
+                    maxIngredientCounter={maxCounter} />
                   <div className="absolute top-2 right-8 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                     {pct}%
                   </div>
@@ -2830,8 +2873,8 @@ function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collap
     </MealList>);
 }
 
-function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds
-}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onReturnToMaster: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string, source: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;masterSourcePmIds: Set<string>;unParUnSourcePmIds: Set<string>;}) {
+function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onUpdateQuantity, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds
+}: {category: {value: string;label: string;emoji: string;};items: PossibleMeal[];sortMode: SortMode;onToggleSort: () => void;onRandomPick: () => void;onRemove: (id: string) => void;onReturnWithoutDeduction: (id: string) => void;onReturnToMaster: (id: string) => void;onDelete: (id: string) => void;onDuplicate: (id: string) => void;onUpdateExpiration: (id: string, d: string | null) => void;onUpdatePlanning: (id: string, day: string | null, time: string | null) => void;onUpdateCounter: (id: string, d: string | null) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;onUpdateQuantity: (id: string, qty: number) => void;onReorder: (fromIndex: number, toIndex: number) => void;onExternalDrop: (mealId: string, source: string) => void;highlightedId: string | null;foodItems: FoodItem[];onAddDirectly: () => void;masterSourcePmIds: Set<string>;unParUnSourcePmIds: Set<string>;}) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
@@ -2859,6 +2902,7 @@ function PossibleList({ category, items, sortMode, onToggleSort, onRandomPick, o
       onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
       onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
       onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
+      onUpdateQuantity={(qty) => onUpdateQuantity(pm.id, qty)}
       onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onDrop={(e) => {
