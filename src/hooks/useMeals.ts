@@ -341,6 +341,17 @@ export function useMeals() {
     onSuccess: invalidateAll,
   });
 
+  const updatePossibleQuantity = useMutation({
+    mutationFn: async ({ id, quantity }: { id: string; quantity: number }) => {
+      const { error } = await (supabase as any)
+        .from("possible_meals")
+        .update({ quantity: Math.max(1, Math.round(quantity)) })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+  });
+
 
   const getMealsByCategory = (cat: string) =>
     meals.filter((m) => m.category === cat && m.is_available).sort((a, b) => a.sort_order - b.sort_order);
