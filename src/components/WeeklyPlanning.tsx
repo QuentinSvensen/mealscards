@@ -590,6 +590,17 @@ export function WeeklyPlanning() {
                             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                             className="w-16 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40"
                           />
+                          <Checkbox
+                            checked={!!keepOnReset[`manual-${day}-${time}`]}
+                            onCheckedChange={(checked) => {
+                              const updated = { ...keepOnReset };
+                              if (checked) updated[`manual-${day}-${time}`] = true;
+                              else delete updated[`manual-${day}-${time}`];
+                              setPreference.mutate({ key: 'planning_keep_on_reset', value: updated });
+                            }}
+                            className="h-3 w-3 shrink-0"
+                            title="Conserver lors du reset"
+                          />
                         </div>
                       ) : (
                         slotMeals.map((pm) => renderMiniCard(pm, false))
@@ -601,22 +612,35 @@ export function WeeklyPlanning() {
               {/* Extra column */}
               <div className="min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1.5 w-20 flex flex-col items-center">
                 <span className="text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="kcal"
-                  key={`extra-${day}`}
-                  defaultValue={extraCalories[day] || ''}
-                  onBlur={(e) => {
-                    const val = parseInt(e.target.value) || 0;
-                    const updated = { ...extraCalories };
-                    if (val > 0) updated[day] = val;
-                    else delete updated[day];
-                    setPreference.mutate({ key: 'planning_extra_calories', value: updated });
-                  }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                  className="w-full h-5 mt-1 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
-                />
+                <div className="flex items-center gap-0.5 mt-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="kcal"
+                    key={`extra-${day}`}
+                    defaultValue={extraCalories[day] || ''}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      const updated = { ...extraCalories };
+                      if (val > 0) updated[day] = val;
+                      else delete updated[day];
+                      setPreference.mutate({ key: 'planning_extra_calories', value: updated });
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
+                  />
+                  <Checkbox
+                    checked={!!keepOnReset[`extra-${day}`]}
+                    onCheckedChange={(checked) => {
+                      const updated = { ...keepOnReset };
+                      if (checked) updated[`extra-${day}`] = true;
+                      else delete updated[`extra-${day}`];
+                      setPreference.mutate({ key: 'planning_keep_on_reset', value: updated });
+                    }}
+                    className="h-3 w-3 shrink-0"
+                    title="Conserver lors du reset"
+                  />
+                </div>
               </div>
             </div>
           </div>
