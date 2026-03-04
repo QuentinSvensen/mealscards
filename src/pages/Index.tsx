@@ -1326,7 +1326,58 @@ const Index = () => {
                 onUpdatePlanning={(id, day, time) => updatePlanning.mutate({ id, day_of_week: day, meal_time: time })}
                 onUpdateCounter={(id, d) => updateCounter.mutate({ id, counter_start_date: d })}
                 onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
-                onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
+                onUpdateGrams={async (id, g) => {
+                  // If from un-par-un, also adjust food_items stock
+                  if (unParUnSourcePmIds.has(id)) {
+                    const pm = possibleMeals.find(p => p.id === id);
+                    if (pm?.meals) {
+                      const oldGrams = parseQty(pm.meals.grams);
+                      const newGrams = parseQty(g);
+                      const delta = oldGrams - newGrams; // positive = returning stock
+                      if (delta !== 0) {
+                        const matchingFi = foodItems.find(fi => strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
+                        if (matchingFi) {
+                          const perUnit = parseQty(matchingFi.grams);
+                          if (delta > 0) {
+                            // Add back to stock
+                            if (matchingFi.quantity && matchingFi.quantity >= 1 && perUnit > 0) {
+                              const currentTotal = getFoodItemTotalGrams(matchingFi);
+                              const newTotal = currentTotal + delta;
+                              const fullUnits = Math.floor(newTotal / perUnit);
+                              const rem = Math.round((newTotal - fullUnits * perUnit) * 10) / 10;
+                              await supabase.from("food_items").update({
+                                quantity: rem > 0 ? fullUnits + 1 : fullUnits,
+                                grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+                              } as any).eq("id", matchingFi.id);
+                            } else {
+                              const current = parseQty(matchingFi.grams);
+                              await supabase.from("food_items").update({ grams: formatNumeric(current + delta) } as any).eq("id", matchingFi.id);
+                            }
+                          } else {
+                            // Deduct more from stock
+                            const toDeduct = -delta;
+                            const totalAvail = getFoodItemTotalGrams(matchingFi);
+                            const remaining = totalAvail - toDeduct;
+                            if (remaining <= 0) {
+                              await supabase.from("food_items").delete().eq("id", matchingFi.id);
+                            } else if (matchingFi.quantity && matchingFi.quantity >= 1 && perUnit > 0) {
+                              const fullUnits = Math.floor(remaining / perUnit);
+                              const rem = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
+                              await supabase.from("food_items").update({
+                                quantity: rem > 0 ? Math.max(1, fullUnits + 1) : fullUnits,
+                                grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+                              } as any).eq("id", matchingFi.id);
+                            } else {
+                              await supabase.from("food_items").update({ grams: formatNumeric(remaining) } as any).eq("id", matchingFi.id);
+                            }
+                          }
+                          qc.invalidateQueries({ queryKey: ["food_items"] });
+                        }
+                      }
+                    }
+                  }
+                  updateGrams.mutate({ id, grams: g });
+                }}
                 onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
                 onUpdatePossibleIngredients={async (pmId, newIngredients) => {
                   const pm = possibleMeals.find(p => p.id === pmId);
@@ -1337,7 +1388,39 @@ const Index = () => {
                   }
                   updatePossibleIngredients.mutate({ id: pmId, ingredients_override: newIngredients });
                 }}
-                onUpdateQuantity={(id, qty) => updatePossibleQuantity.mutate({ id, quantity: qty })}
+                onUpdateQuantity={async (id, qty) => {
+                  // If from un-par-un, also adjust food_items stock
+                  if (unParUnSourcePmIds.has(id)) {
+                    const pm = possibleMeals.find(p => p.id === id);
+                    if (pm?.meals) {
+                      const oldQty = pm.quantity;
+                      const delta = oldQty - qty; // positive = returning stock
+                      if (delta !== 0) {
+                        const matchingFi = foodItems.find(fi => strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
+                        if (matchingFi) {
+                          if (delta > 0) {
+                            // Add back to stock
+                            await supabase.from("food_items").update({ quantity: (matchingFi.quantity ?? 0) + delta } as any).eq("id", matchingFi.id);
+                          } else {
+                            // Deduct more from stock
+                            const toDeduct = -delta;
+                            const currentQty = matchingFi.quantity ?? 1;
+                            if (currentQty <= toDeduct) {
+                              await supabase.from("food_items").delete().eq("id", matchingFi.id);
+                            } else {
+                              await supabase.from("food_items").update({ quantity: currentQty - toDeduct } as any).eq("id", matchingFi.id);
+                            }
+                          }
+                          qc.invalidateQueries({ queryKey: ["food_items"] });
+                        } else if (delta < 0) {
+                          // Food item was fully consumed, can't deduct more — just warn
+                          toast({ title: "⚠️ Stock insuffisant", description: `Plus de "${pm.meals.name}" en stock.` });
+                        }
+                      }
+                    }
+                  }
+                  updatePossibleQuantity.mutate({ id, quantity: qty });
+                }}
                 onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
                 onExternalDrop={async (mealId, source) => {
                   const result = await moveToPossible.mutateAsync({ mealId });
