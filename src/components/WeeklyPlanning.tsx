@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
 import { usePreferences } from "@/hooks/usePreferences";
-import { Timer, Flame, Weight, Calendar } from "lucide-react";
+import { Timer, Flame, Weight, Calendar, Lock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const DAY_LABELS: Record<string, string> = {
   lundi: "Lundi",
@@ -203,6 +204,7 @@ export function WeeklyPlanning() {
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
+  const keepOnReset = getPreference<Record<string, boolean>>('planning_keep_on_reset', {});
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
