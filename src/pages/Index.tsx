@@ -255,11 +255,41 @@ const Index = () => {
 
     sundayClearDone.current = true;
     const clearAll = async () => {
+      // Get keepOnReset preferences
+      const keepPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_keep_on_reset').maybeSingle();
+      const keepOnReset: Record<string, boolean> = (keepPrefResult.data?.value as Record<string, boolean>) ?? {};
+
       await Promise.all(possibleMeals.map(pm =>
         (supabase as any).from("possible_meals").delete().eq("id", pm.id)
       ));
-      setPreference.mutate({ key: 'planning_manual_calories', value: {} });
-      setPreference.mutate({ key: 'planning_extra_calories', value: {} });
+
+      // Filter manual calories: keep entries marked with keepOnReset
+      const manualPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_manual_calories').maybeSingle();
+      const currentManual: Record<string, number> = (manualPrefResult.data?.value as Record<string, number>) ?? {};
+      const keptManual: Record<string, number> = {};
+      for (const [key, val] of Object.entries(currentManual)) {
+        if (keepOnReset[`manual-${key}`]) keptManual[key] = val;
+      }
+      setPreference.mutate({ key: 'planning_manual_calories', value: keptManual });
+
+      // Filter extra calories: keep entries marked with keepOnReset
+      const extraPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_extra_calories').maybeSingle();
+      const currentExtra: Record<string, number> = (extraPrefResult.data?.value as Record<string, number>) ?? {};
+      const keptExtra: Record<string, number> = {};
+      for (const [key, val] of Object.entries(currentExtra)) {
+        if (keepOnReset[`extra-${key}`]) keptExtra[key] = val;
+      }
+      setPreference.mutate({ key: 'planning_extra_calories', value: keptExtra });
+
+      // Filter breakfast selections: keep entries marked with keepOnReset
+      const breakfastPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_breakfast').maybeSingle();
+      const currentBreakfast: Record<string, string> = (breakfastPrefResult.data?.value as Record<string, string>) ?? {};
+      const keptBreakfast: Record<string, string> = {};
+      for (const [key, val] of Object.entries(currentBreakfast)) {
+        if (keepOnReset[`breakfast-${key}`]) keptBreakfast[key] = val;
+      }
+      setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
+
       setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
       qc.invalidateQueries({ queryKey: ["possible_meals"] });
       toast({ title: "🔄 Reset hebdomadaire effectué", description: "Les cartes possibles et calories manuelles ont été effacées." });
@@ -1872,27 +1902,30 @@ function compareExpirationWithCounter(
 ): number {
   const today = new Date(new Date().toDateString());
 
-  // Groups: 0=counter only (no date), 1=has date, 2=nothing
+  // Priority: all cards WITH counter come first, then cards WITHOUT counter
   const aHasCounter = aCounter !== null;
   const bHasCounter = bCounter !== null;
   const aHasDate = !!aDate;
   const bHasDate = !!bDate;
-  const aGroup = aHasCounter && !aHasDate ? 0 : aHasDate ? 1 : 2;
-  const bGroup = bHasCounter && !bHasDate ? 0 : bHasDate ? 1 : 2;
+
+  // Group: 0=has counter (regardless of date), 1=has date only (no counter), 2=nothing
+  const aGroup = aHasCounter ? 0 : aHasDate ? 1 : 2;
+  const bGroup = bHasCounter ? 0 : bHasDate ? 1 : 2;
 
   if (aGroup !== bGroup) return aGroup - bGroup;
 
-  // Both counter-only: higher counter first
-  if (aGroup === 0) return bCounter! - aCounter!;
+  // Both have counter: higher counter first, then by date
+  if (aGroup === 0) {
+    if (aCounter !== bCounter) return bCounter! - aCounter!;
+    // Same counter days: sort by date if both have dates
+    if (aHasDate && bHasDate) return aDate!.localeCompare(bDate!);
+    if (aHasDate) return -1;
+    if (bHasDate) return 1;
+    return 0;
+  }
 
-  // Both have dates
+  // Both have dates (no counter)
   if (aGroup === 1) {
-    const aExpired = new Date(aDate!) < today;
-    const bExpired = new Date(bDate!) < today;
-    // Both expired: higher counter wins
-    if (aExpired && bExpired && aHasCounter && bHasCounter && aCounter !== bCounter) {
-      return bCounter! - aCounter!;
-    }
     return aDate!.localeCompare(bDate!);
   }
 
@@ -2140,7 +2173,7 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
         style={{ backgroundColor: color }}
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white truncate">{fi.name}</p>
+          <p className="text-sm font-semibold text-white break-words whitespace-normal">{fi.name}</p>
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {counterDays !== null && (
               <span className={`text-xs font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/80 text-white animate-pulse' : 'bg-white/25 text-white'}`}>
@@ -2466,6 +2499,12 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   const today = new Date(new Date().toDateString());
                   const aExp = a.expiration_date;
                   const bExp = b.expiration_date;
+                  const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
+                  const bCounter = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
+                  // Counter items first
+                  if (aCounter !== null && bCounter === null) return -1;
+                  if (aCounter === null && bCounter !== null) return 1;
+                  if (aCounter !== null && bCounter !== null && aCounter !== bCounter) return bCounter - aCounter;
                   const aExpired = aExp ? new Date(aExp) < today : false;
                   const bExpired = bExp ? new Date(bExp) < today : false;
                   if (aExpired && !bExpired) return -1;
@@ -2479,9 +2518,16 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
                   const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
                   const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
+                  const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
+                  const counterUrgent = counterDays !== null && counterDays >= 3;
                   return (
                     <span key={fi.id} className={`text-[11px] px-2.5 py-1.5 rounded-full font-medium transition-colors inline-flex items-center gap-1 ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/80 text-muted-foreground hover:bg-muted'}`}>
                       {fi.name}
+                      {counterDays !== null && (
+                        <span className={`text-[9px] font-black px-1 py-0 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/60 text-white' : 'opacity-70'}`}>
+                          ⏱{counterDays}j
+                        </span>
+                      )}
                       {totalG > 0 && <span className="opacity-60">{formatNumeric(totalG)}g</span>}
                       {qty && <span className="opacity-60">×{qty}</span>}
                       {fi.is_infinite && <span className="opacity-60">∞</span>}
@@ -2754,6 +2800,11 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   const today = new Date(new Date().toDateString());
                   const aExp = a.expiration_date;
                   const bExp = b.expiration_date;
+                  const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
+                  const bCounter = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
+                  if (aCounter !== null && bCounter === null) return -1;
+                  if (aCounter === null && bCounter !== null) return 1;
+                  if (aCounter !== null && bCounter !== null && aCounter !== bCounter) return bCounter - aCounter;
                   const aExpired = aExp ? new Date(aExp) < today : false;
                   const bExpired = bExp ? new Date(bExp) < today : false;
                   if (aExpired && !bExpired) return -1;
@@ -2767,9 +2818,16 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                   const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
                   const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
                   const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
+                  const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
+                  const counterUrgent = counterDays !== null && counterDays >= 3;
                   return (
                     <span key={fi.id} className={`text-[11px] px-2.5 py-1.5 rounded-full font-medium transition-colors inline-flex items-center gap-1 ${isExpired ? 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40' : 'bg-muted/80 text-muted-foreground hover:bg-muted'}`}>
                       {fi.name}
+                      {counterDays !== null && (
+                        <span className={`text-[9px] font-black px-1 py-0 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/60 text-white' : 'opacity-70'}`}>
+                          ⏱{counterDays}j
+                        </span>
+                      )}
                       {totalG > 0 && <span className="opacity-60">{formatNumeric(totalG)}g</span>}
                       {qty && <span className="opacity-60">×{qty}</span>}
                       {fi.is_infinite && <span className="opacity-60">∞</span>}

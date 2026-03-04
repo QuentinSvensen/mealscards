@@ -369,20 +369,24 @@ export function useMeals() {
       const aHasCounter = aCounter !== null;
       const bHasCounter = bCounter !== null;
 
-      // Groups: 0=counter only, 1=has date (with or without counter), 2=nothing
-      const aGroup = aHasCounter && !aHasDate ? 0 : aHasDate ? 1 : 2;
-      const bGroup = bHasCounter && !bHasDate ? 0 : bHasDate ? 1 : 2;
+      // Priority: all cards WITH counter come first, then cards WITHOUT counter
+      // Group: 0=has counter (regardless of date), 1=has date only (no counter), 2=nothing
+      const aGroup = aHasCounter ? 0 : aHasDate ? 1 : 2;
+      const bGroup = bHasCounter ? 0 : bHasDate ? 1 : 2;
 
       if (aGroup !== bGroup) return aGroup - bGroup;
 
-      if (aGroup === 0) return bCounter! - aCounter!;
+      // Both have counter: higher counter first, then by date
+      if (aGroup === 0) {
+        if (aCounter !== bCounter) return bCounter! - aCounter!;
+        if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
+        if (aHasDate) return -1;
+        if (bHasDate) return 1;
+        return 0;
+      }
 
+      // Both have dates (no counter)
       if (aGroup === 1) {
-        const aExpired = new Date(a.expiration_date!) < today;
-        const bExpired = new Date(b.expiration_date!) < today;
-        if (aExpired && bExpired && aHasCounter && bHasCounter && aCounter !== bCounter) {
-          return bCounter! - aCounter!;
-        }
         return a.expiration_date!.localeCompare(b.expiration_date!);
       }
 

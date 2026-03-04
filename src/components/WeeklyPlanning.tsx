@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
 import { usePreferences } from "@/hooks/usePreferences";
-import { Timer, Flame, Weight, Calendar } from "lucide-react";
+import { Timer, Flame, Weight, Calendar, Lock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const DAY_LABELS: Record<string, string> = {
   lundi: "Lundi",
@@ -203,6 +204,7 @@ export function WeeklyPlanning() {
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
+  const keepOnReset = getPreference<Record<string, boolean>>('planning_keep_on_reset', {});
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
@@ -497,34 +499,54 @@ export function WeeklyPlanning() {
                 )}
               </h3>
               {/* Petit déj selector */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]">
-                    {getBreakfastForDay(day)?.name || '🥐 Petit déj'}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-52 p-2" align="start">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petit déjeuner</p>
-                  <div className="space-y-0.5 max-h-48 overflow-y-auto">
-                    <button onClick={() => setBreakfastForDay(day, null)} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">
-                      — Aucun
+              <div className="flex items-center gap-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]">
+                      {getBreakfastForDay(day)?.name || '🥐 Petit déj'}
                     </button>
-                    {petitDejMeals.map(m => (
-                      <button key={m.id} onClick={() => setBreakfastForDay(day, m.id)} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${breakfastSelections[day] === m.id ? 'bg-primary/10 font-bold' : ''}`}>
-                        {m.name} {m.calories ? `(${m.calories})` : ''}
+                  </PopoverTrigger>
+                  <PopoverContent className="w-52 p-2" align="start">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petit déjeuner</p>
+                    <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                      <button onClick={() => setBreakfastForDay(day, null)} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">
+                        — Aucun
                       </button>
-                    ))}
-                    {petitDejMeals.length === 0 && (
-                      <p className="text-[10px] text-muted-foreground italic px-2 py-1">Aucun petit déj dans "Tous"</p>
-                    )}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                      {petitDejMeals.map(m => (
+                        <button key={m.id} onClick={() => setBreakfastForDay(day, m.id)} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${breakfastSelections[day] === m.id ? 'bg-primary/10 font-bold' : ''}`}>
+                          {m.name} {m.calories ? `(${m.calories})` : ''}
+                        </button>
+                      ))}
+                      {petitDejMeals.length === 0 && (
+                        <p className="text-[10px] text-muted-foreground italic px-2 py-1">Aucun petit déj dans "Tous"</p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <Checkbox
+                  checked={!!keepOnReset[`breakfast-${day}`]}
+                  onCheckedChange={(checked) => {
+                    const updated = { ...keepOnReset };
+                    if (checked) updated[`breakfast-${day}`] = true;
+                    else delete updated[`breakfast-${day}`];
+                    setPreference.mutate({ key: 'planning_keep_on_reset', value: updated });
+                  }}
+                  className="h-3 w-3 shrink-0"
+                  title="Conserver lors du reset"
+                />
+              </div>
               <div className="flex-1" />
-              <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 shrink-0">
-                <Flame className="h-2.5 w-2.5 text-orange-500" />
-                {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
+                  <Flame className="h-2.5 w-2.5 text-orange-500" />
+                  {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
+                </span>
+                {dayCalories > 0 && (
+                  <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_GOAL - dayCalories > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
+                    {DAILY_GOAL - dayCalories > 0 ? `reste ${Math.round(DAILY_GOAL - dayCalories)}` : `+${Math.round(dayCalories - DAILY_GOAL)}`}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3">
               {TIMES.map((time) => {
@@ -568,6 +590,17 @@ export function WeeklyPlanning() {
                             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                             className="w-16 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40"
                           />
+                          <Checkbox
+                            checked={!!keepOnReset[`manual-${day}-${time}`]}
+                            onCheckedChange={(checked) => {
+                              const updated = { ...keepOnReset };
+                              if (checked) updated[`manual-${day}-${time}`] = true;
+                              else delete updated[`manual-${day}-${time}`];
+                              setPreference.mutate({ key: 'planning_keep_on_reset', value: updated });
+                            }}
+                            className="h-3 w-3 shrink-0"
+                            title="Conserver lors du reset"
+                          />
                         </div>
                       ) : (
                         slotMeals.map((pm) => renderMiniCard(pm, false))
@@ -579,22 +612,35 @@ export function WeeklyPlanning() {
               {/* Extra column */}
               <div className="min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1.5 w-20 flex flex-col items-center">
                 <span className="text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="kcal"
-                  key={`extra-${day}`}
-                  defaultValue={extraCalories[day] || ''}
-                  onBlur={(e) => {
-                    const val = parseInt(e.target.value) || 0;
-                    const updated = { ...extraCalories };
-                    if (val > 0) updated[day] = val;
-                    else delete updated[day];
-                    setPreference.mutate({ key: 'planning_extra_calories', value: updated });
-                  }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                  className="w-full h-5 mt-1 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
-                />
+                <div className="flex items-center gap-0.5 mt-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="kcal"
+                    key={`extra-${day}`}
+                    defaultValue={extraCalories[day] || ''}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      const updated = { ...extraCalories };
+                      if (val > 0) updated[day] = val;
+                      else delete updated[day];
+                      setPreference.mutate({ key: 'planning_extra_calories', value: updated });
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
+                  />
+                  <Checkbox
+                    checked={!!keepOnReset[`extra-${day}`]}
+                    onCheckedChange={(checked) => {
+                      const updated = { ...keepOnReset };
+                      if (checked) updated[`extra-${day}`] = true;
+                      else delete updated[`extra-${day}`];
+                      setPreference.mutate({ key: 'planning_keep_on_reset', value: updated });
+                    }}
+                    className="h-3 w-3 shrink-0"
+                    title="Conserver lors du reset"
+                  />
+                </div>
               </div>
             </div>
           </div>
