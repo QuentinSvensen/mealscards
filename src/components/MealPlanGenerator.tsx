@@ -62,7 +62,9 @@ export function MealPlanGenerator() {
 
   const generatePlan = () => {
     const avantGrimpe = allPlats.find((m) => m.name.toLowerCase().includes("avant grimpe"));
-    const otherPlats = allPlats.filter((m) => m.id !== avantGrimpe?.id);
+    const painFuet = allPlats.find((m) => m.name.toLowerCase().replace(/\s+/g, ' ').includes("pain + fuet") || m.name.toLowerCase().replace(/\s+/g, ' ').includes("pain+fuet"));
+    const excludeIds = new Set([avantGrimpe?.id, painFuet?.id].filter(Boolean) as string[]);
+    const otherPlats = allPlats.filter((m) => !excludeIds.has(m.id));
 
     if (otherPlats.length === 0) return;
 

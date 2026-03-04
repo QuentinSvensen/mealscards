@@ -1872,27 +1872,30 @@ function compareExpirationWithCounter(
 ): number {
   const today = new Date(new Date().toDateString());
 
-  // Groups: 0=counter only (no date), 1=has date, 2=nothing
+  // Priority: all cards WITH counter come first, then cards WITHOUT counter
   const aHasCounter = aCounter !== null;
   const bHasCounter = bCounter !== null;
   const aHasDate = !!aDate;
   const bHasDate = !!bDate;
-  const aGroup = aHasCounter && !aHasDate ? 0 : aHasDate ? 1 : 2;
-  const bGroup = bHasCounter && !bHasDate ? 0 : bHasDate ? 1 : 2;
+
+  // Group: 0=has counter (regardless of date), 1=has date only (no counter), 2=nothing
+  const aGroup = aHasCounter ? 0 : aHasDate ? 1 : 2;
+  const bGroup = bHasCounter ? 0 : bHasDate ? 1 : 2;
 
   if (aGroup !== bGroup) return aGroup - bGroup;
 
-  // Both counter-only: higher counter first
-  if (aGroup === 0) return bCounter! - aCounter!;
+  // Both have counter: higher counter first, then by date
+  if (aGroup === 0) {
+    if (aCounter !== bCounter) return bCounter! - aCounter!;
+    // Same counter days: sort by date if both have dates
+    if (aHasDate && bHasDate) return aDate!.localeCompare(bDate!);
+    if (aHasDate) return -1;
+    if (bHasDate) return 1;
+    return 0;
+  }
 
-  // Both have dates
+  // Both have dates (no counter)
   if (aGroup === 1) {
-    const aExpired = new Date(aDate!) < today;
-    const bExpired = new Date(bDate!) < today;
-    // Both expired: higher counter wins
-    if (aExpired && bExpired && aHasCounter && bHasCounter && aCounter !== bCounter) {
-      return bCounter! - aCounter!;
-    }
     return aDate!.localeCompare(bDate!);
   }
 
@@ -2140,7 +2143,7 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
         style={{ backgroundColor: color }}
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white truncate">{fi.name}</p>
+          <p className="text-sm font-semibold text-white break-words whitespace-normal">{fi.name}</p>
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {counterDays !== null && (
               <span className={`text-xs font-black px-2 py-0.5 rounded-full flex items-center gap-0.5 ${counterUrgent ? 'bg-red-500/80 text-white animate-pulse' : 'bg-white/25 text-white'}`}>

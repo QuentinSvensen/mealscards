@@ -43,22 +43,33 @@ export function ShoppingList() {
   const savedCollapsed = getPreference<string[]>('shopping_collapsed_groups', []);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const collapseSynced = useRef(false);
+  const sessionDefaultApplied = useRef(false);
   useEffect(() => {
     if (collapseSynced.current) return;
     if (savedCollapsed.length > 0) {
       setCollapsedGroups(new Set(savedCollapsed));
       collapseSynced.current = true;
-    } else if (isMobile && groups.length > 0) {
-      // On mobile, collapse all groups by default
-      const allIds = ["__ungrouped", ...groups.map(g => g.id)];
-      setCollapsedGroups(new Set(allIds));
-      collapseSynced.current = true;
-    } else if (!isMobile && groups.length > 0) {
-      // On desktop, expand all groups by default
-      setCollapsedGroups(new Set());
-      collapseSynced.current = true;
     }
-  }, [savedCollapsed, isMobile, groups]);
+  }, [savedCollapsed]);
+  // Apply session defaults: mobile=collapsed, desktop=expanded — once per session
+  useEffect(() => {
+    if (sessionDefaultApplied.current || groups.length === 0) return;
+    if (collapseSynced.current) {
+      sessionDefaultApplied.current = true;
+      return;
+    }
+    sessionDefaultApplied.current = true;
+    if (isMobile) {
+      const allIds = ["__ungrouped", ...groups.map(g => g.id)];
+      const newSet = new Set(allIds);
+      setCollapsedGroups(newSet);
+      setPreference.mutate({ key: 'shopping_collapsed_groups', value: Array.from(newSet) });
+    } else {
+      setCollapsedGroups(new Set());
+      setPreference.mutate({ key: 'shopping_collapsed_groups', value: [] });
+    }
+    collapseSynced.current = true;
+  }, [isMobile, groups]);
 
   // per-item editing state: "brand" | "qty" | null
   const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | null>>({});

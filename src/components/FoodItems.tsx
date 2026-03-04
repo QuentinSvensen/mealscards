@@ -733,7 +733,7 @@ export function FoodItems() {
     const qty = pendingQuantity ? parseInt(pendingQuantity) || null : null;
     const grams = pendingGrams.trim() || null;
     addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams, food_type: pendingFoodType, expiration_date: pendingExpiration }, {
-      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setNewFoodType(null); setNewExpiration(undefined); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingFoodType(null); setPendingExpiration(null); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕" }); },
+      onSuccess: () => { setNewName(""); setNewQuantity(""); setNewGrams(""); setNewFoodType(null); setNewExpiration(undefined); setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingFoodType(null); setPendingExpiration(null); setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 }); },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         toast({ title: "Erreur lors de l'ajout", description: msg, variant: "destructive" });
