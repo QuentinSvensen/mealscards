@@ -255,11 +255,41 @@ const Index = () => {
 
     sundayClearDone.current = true;
     const clearAll = async () => {
+      // Get keepOnReset preferences
+      const keepPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_keep_on_reset').maybeSingle();
+      const keepOnReset: Record<string, boolean> = (keepPrefResult.data?.value as Record<string, boolean>) ?? {};
+
       await Promise.all(possibleMeals.map(pm =>
         (supabase as any).from("possible_meals").delete().eq("id", pm.id)
       ));
-      setPreference.mutate({ key: 'planning_manual_calories', value: {} });
-      setPreference.mutate({ key: 'planning_extra_calories', value: {} });
+
+      // Filter manual calories: keep entries marked with keepOnReset
+      const manualPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_manual_calories').maybeSingle();
+      const currentManual: Record<string, number> = (manualPrefResult.data?.value as Record<string, number>) ?? {};
+      const keptManual: Record<string, number> = {};
+      for (const [key, val] of Object.entries(currentManual)) {
+        if (keepOnReset[`manual-${key}`]) keptManual[key] = val;
+      }
+      setPreference.mutate({ key: 'planning_manual_calories', value: keptManual });
+
+      // Filter extra calories: keep entries marked with keepOnReset
+      const extraPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_extra_calories').maybeSingle();
+      const currentExtra: Record<string, number> = (extraPrefResult.data?.value as Record<string, number>) ?? {};
+      const keptExtra: Record<string, number> = {};
+      for (const [key, val] of Object.entries(currentExtra)) {
+        if (keepOnReset[`extra-${key}`]) keptExtra[key] = val;
+      }
+      setPreference.mutate({ key: 'planning_extra_calories', value: keptExtra });
+
+      // Filter breakfast selections: keep entries marked with keepOnReset
+      const breakfastPrefResult = await supabase.from('user_preferences').select('value').eq('key', 'planning_breakfast').maybeSingle();
+      const currentBreakfast: Record<string, string> = (breakfastPrefResult.data?.value as Record<string, string>) ?? {};
+      const keptBreakfast: Record<string, string> = {};
+      for (const [key, val] of Object.entries(currentBreakfast)) {
+        if (keepOnReset[`breakfast-${key}`]) keptBreakfast[key] = val;
+      }
+      setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
+
       setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
       qc.invalidateQueries({ queryKey: ["possible_meals"] });
       toast({ title: "🔄 Reset hebdomadaire effectué", description: "Les cartes possibles et calories manuelles ont été effacées." });
