@@ -131,6 +131,8 @@ export function useShoppingList() {
       const { error } = await (supabase as any).from("shopping_items").update({ secondary_checked }).eq("id", id);
       if (error) throw error;
     },
+    onSuccess: invalidate,
+  });
 
   const renameItem = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
