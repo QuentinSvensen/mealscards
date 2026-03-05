@@ -92,8 +92,22 @@ export function ShoppingList() {
   const getLocalName = (item: ShoppingItem) => localNames[item.id] ?? item.name;
   const getLocalBrand = (item: ShoppingItem) => localBrands[item.id] ?? (item.brand || "");
   const getLocalQuantity = (item: ShoppingItem) => localQuantities[item.id] ?? (item.quantity || "");
+  const getLocalNb = (item: ShoppingItem) => localNbs[item.id] ?? (item.content_quantity || "");
 
-  const handleNameChange = (item: ShoppingItem, value: string) => {
+  const handleNbChange = (item: ShoppingItem, value: string) => {
+    setLocalNbs(prev => ({ ...prev, [item.id]: value }));
+    clearTimeout(nbTimers.current[item.id]);
+    nbTimers.current[item.id] = setTimeout(() => {
+      updateItemContentQuantity.mutate({ id: item.id, content_quantity: value || null });
+    }, 600);
+  };
+
+  const commitNb = (item: ShoppingItem) => {
+    const val = getLocalNb(item);
+    updateItemContentQuantity.mutate({ id: item.id, content_quantity: val || null });
+    setEditingField(prev => ({ ...prev, [item.id]: null }));
+  };
+
     setLocalNames(prev => ({ ...prev, [item.id]: value }));
     clearTimeout(nameTimers.current[item.id]);
     nameTimers.current[item.id] = setTimeout(() => {
