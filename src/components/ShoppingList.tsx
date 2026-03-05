@@ -39,36 +39,24 @@ export function ShoppingList() {
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
 
-  // Load collapsed state from DB; on mobile default all collapsed, on desktop default all expanded
-  const savedCollapsed = getPreference<string[]>('shopping_collapsed_groups', []);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const collapseSynced = useRef(false);
+  // Session defaults: mobile=collapsed, desktop=expanded — always applied fresh each session
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    if (isMobile) {
+      return new Set(["__ungrouped"]);
+    }
+    return new Set();
+  });
+  // Apply after groups load
   const sessionDefaultApplied = useRef(false);
   useEffect(() => {
-    if (collapseSynced.current) return;
-    if (savedCollapsed.length > 0) {
-      setCollapsedGroups(new Set(savedCollapsed));
-      collapseSynced.current = true;
-    }
-  }, [savedCollapsed]);
-  // Apply session defaults: mobile=collapsed, desktop=expanded — once per session
-  useEffect(() => {
     if (sessionDefaultApplied.current || groups.length === 0) return;
-    if (collapseSynced.current) {
-      sessionDefaultApplied.current = true;
-      return;
-    }
     sessionDefaultApplied.current = true;
     if (isMobile) {
       const allIds = ["__ungrouped", ...groups.map(g => g.id)];
-      const newSet = new Set(allIds);
-      setCollapsedGroups(newSet);
-      setPreference.mutate({ key: 'shopping_collapsed_groups', value: Array.from(newSet) });
+      setCollapsedGroups(new Set(allIds));
     } else {
       setCollapsedGroups(new Set());
-      setPreference.mutate({ key: 'shopping_collapsed_groups', value: [] });
     }
-    collapseSynced.current = true;
   }, [isMobile, groups]);
 
   // per-item editing state: "brand" | "qty" | null
