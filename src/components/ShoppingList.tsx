@@ -59,18 +59,20 @@ export function ShoppingList() {
     }
   }, [isMobile, groups]);
 
-  // per-item editing state: "brand" | "qty" | null
-  const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | null>>({});
+  // per-item editing state: "brand" | "qty" | "nb" | null
+  const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | "nb" | null>>({});
 
   // Debounce timers
   const nameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const brandTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const quantityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const nbTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Local state for controlled inputs
   const [localNames, setLocalNames] = useState<Record<string, string>>({});
   const [localBrands, setLocalBrands] = useState<Record<string, string>>({});
   const [localQuantities, setLocalQuantities] = useState<Record<string, string>>({});
+  const [localNbs, setLocalNbs] = useState<Record<string, string>>({});
 
   // Drag state
   const dragPayload = useRef<DragPayload | null>(null);
