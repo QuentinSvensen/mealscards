@@ -27,7 +27,7 @@ export function ShoppingList() {
   const {
     groups, ungroupedItems,
     addGroup, renameGroup, deleteGroup,
-    addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, deleteItem,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, renameItem, deleteItem,
     getItemsByGroup, reorderItems, reorderGroups,
   } = useShoppingList();
   const isMobile = useIsMobile();
@@ -39,50 +39,40 @@ export function ShoppingList() {
   const [editingGroup, setEditingGroup] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
 
-  // Load collapsed state from DB; on mobile default all collapsed, on desktop default all expanded
-  const savedCollapsed = getPreference<string[]>('shopping_collapsed_groups', []);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const collapseSynced = useRef(false);
+  // Session defaults: mobile=collapsed, desktop=expanded — always applied fresh each session
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    if (isMobile) {
+      return new Set(["__ungrouped"]);
+    }
+    return new Set();
+  });
+  // Apply after groups load
   const sessionDefaultApplied = useRef(false);
   useEffect(() => {
-    if (collapseSynced.current) return;
-    if (savedCollapsed.length > 0) {
-      setCollapsedGroups(new Set(savedCollapsed));
-      collapseSynced.current = true;
-    }
-  }, [savedCollapsed]);
-  // Apply session defaults: mobile=collapsed, desktop=expanded — once per session
-  useEffect(() => {
     if (sessionDefaultApplied.current || groups.length === 0) return;
-    if (collapseSynced.current) {
-      sessionDefaultApplied.current = true;
-      return;
-    }
     sessionDefaultApplied.current = true;
     if (isMobile) {
       const allIds = ["__ungrouped", ...groups.map(g => g.id)];
-      const newSet = new Set(allIds);
-      setCollapsedGroups(newSet);
-      setPreference.mutate({ key: 'shopping_collapsed_groups', value: Array.from(newSet) });
+      setCollapsedGroups(new Set(allIds));
     } else {
       setCollapsedGroups(new Set());
-      setPreference.mutate({ key: 'shopping_collapsed_groups', value: [] });
     }
-    collapseSynced.current = true;
   }, [isMobile, groups]);
 
-  // per-item editing state: "brand" | "qty" | null
-  const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | null>>({});
+  // per-item editing state: "brand" | "qty" | "nb" | null
+  const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | "nb" | null>>({});
 
   // Debounce timers
   const nameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const brandTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const quantityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const nbTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Local state for controlled inputs
   const [localNames, setLocalNames] = useState<Record<string, string>>({});
   const [localBrands, setLocalBrands] = useState<Record<string, string>>({});
   const [localQuantities, setLocalQuantities] = useState<Record<string, string>>({});
+  const [localNbs, setLocalNbs] = useState<Record<string, string>>({});
 
   // Drag state
   const dragPayload = useRef<DragPayload | null>(null);
@@ -102,8 +92,22 @@ export function ShoppingList() {
   const getLocalName = (item: ShoppingItem) => localNames[item.id] ?? item.name;
   const getLocalBrand = (item: ShoppingItem) => localBrands[item.id] ?? (item.brand || "");
   const getLocalQuantity = (item: ShoppingItem) => localQuantities[item.id] ?? (item.quantity || "");
+  const getLocalNb = (item: ShoppingItem) => localNbs[item.id] ?? (item.content_quantity || "");
 
-  const handleNameChange = (item: ShoppingItem, value: string) => {
+  const handleNbChange = (item: ShoppingItem, value: string) => {
+    setLocalNbs(prev => ({ ...prev, [item.id]: value }));
+    clearTimeout(nbTimers.current[item.id]);
+    nbTimers.current[item.id] = setTimeout(() => {
+      updateItemContentQuantity.mutate({ id: item.id, content_quantity: value || null });
+    }, 600);
+  };
+
+  const commitNb = (item: ShoppingItem) => {
+    const val = getLocalNb(item);
+    updateItemContentQuantity.mutate({ id: item.id, content_quantity: val || null });
+    setEditingField(prev => ({ ...prev, [item.id]: null }));
+  };
+
     setLocalNames(prev => ({ ...prev, [item.id]: value }));
     clearTimeout(nameTimers.current[item.id]);
     nameTimers.current[item.id] = setTimeout(() => {
@@ -243,11 +247,11 @@ export function ShoppingList() {
     const fieldEditing = editingField[item.id] ?? null;
     const brand = getLocalBrand(item);
     const qty = getLocalQuantity(item);
+    const nb = getLocalNb(item);
     const isBrandEditing = fieldEditing === "brand";
     const isQtyEditing = fieldEditing === "qty";
+    const isNbEditing = fieldEditing === "nb";
     const isOver = dragOverKey === `item:${item.id}`;
-    // Show quantity input if editing OR if quantity is empty (always allow input when no value)
-    const showQtyInput = isQtyEditing || (!qty && fieldEditing === null && false); // controlled by click
 
     return (
       <div key={item.id}
@@ -258,6 +262,14 @@ export function ShoppingList() {
         onDrop={(e) => handleDropOnItem(e, item)}
         className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
+        {/* Secondary checkbox */}
+        <Checkbox
+          checked={item.secondary_checked}
+          onCheckedChange={(checked) => toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked })}
+          className="shrink-0"
+        />
+
+        {/* Primary checkbox */}
         <Checkbox
           checked={item.checked}
           onCheckedChange={(checked) => {
@@ -269,6 +281,35 @@ export function ShoppingList() {
           }}
           className={`shrink-0 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
+
+        {/* Nb (content quantity) — small cell before name */}
+        {isNbEditing ? (
+          <Input
+            autoFocus
+            placeholder="Nb"
+            value={nb}
+            onChange={(e) => handleNbChange(item, e.target.value)}
+            onBlur={() => commitNb(item)}
+            onKeyDown={(e) => { if (e.key === "Enter") commitNb(item); }}
+            className="h-6 w-12 text-[10px] border-border bg-background px-1 shrink-0"
+          />
+        ) : (
+          nb ? (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
+              className="text-[10px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground font-medium"
+            >
+              {nb}
+            </button>
+          ) : (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
+              className="text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
+            >
+              Nb
+            </button>
+          )
+        )}
 
         {/* Name — auto-width */}
         <input

@@ -233,33 +233,39 @@ export type Database = {
         Row: {
           brand: string | null
           checked: boolean
+          content_quantity: string | null
           created_at: string
           group_id: string | null
           id: string
           name: string
           quantity: string | null
+          secondary_checked: boolean
           sort_order: number
           user_id: string | null
         }
         Insert: {
           brand?: string | null
           checked?: boolean
+          content_quantity?: string | null
           created_at?: string
           group_id?: string | null
           id?: string
           name: string
           quantity?: string | null
+          secondary_checked?: boolean
           sort_order?: number
           user_id?: string | null
         }
         Update: {
           brand?: string | null
           checked?: boolean
+          content_quantity?: string | null
           created_at?: string
           group_id?: string | null
           id?: string
           name?: string
           quantity?: string | null
+          secondary_checked?: boolean
           sort_order?: number
           user_id?: string | null
         }

@@ -215,7 +215,7 @@ const Index = () => {
   const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
   const { getPreference, setPreference } = usePreferences();
 
-  // Sunday auto-clear: remove all possible meals and planning manual calories every Sunday at 23:59
+  // Sunday auto-clear: remove all possible meals and planning manual calories ONLY on Sunday at 23:59+
   const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
   const sundayClearDone = useRef(false);
   useEffect(() => {
@@ -224,24 +224,17 @@ const Index = () => {
     const now = new Date();
     const day = now.getDay(); // 0=Sunday
 
-    // Calculate last Sunday 23:59
-    const lastSunday = new Date(now);
-    if (day === 0) {
-      // It's Sunday — check if we're past 23:59
-      if (now.getHours() >= 23 && now.getMinutes() >= 59) {
-        lastSunday.setHours(23, 59, 0, 0);
-      } else {
-        // Before 23:59 on Sunday — last reset target is previous Sunday
-        lastSunday.setDate(lastSunday.getDate() - 7);
-        lastSunday.setHours(23, 59, 0, 0);
-      }
-    } else {
-      lastSunday.setDate(lastSunday.getDate() - day);
-      lastSunday.setHours(23, 59, 0, 0);
+    // Only trigger on Sunday after 23:59
+    if (day !== 0 || now.getHours() < 23 || (now.getHours() === 23 && now.getMinutes() < 59)) {
+      sundayClearDone.current = true;
+      return;
     }
 
-    // Already reset for this week — skip
-    if (lastWeeklyReset && new Date(lastWeeklyReset) >= lastSunday) {
+    // It's Sunday >= 23:59 — check if already reset today
+    const todaySunday = new Date(now);
+    todaySunday.setHours(23, 59, 0, 0);
+
+    if (lastWeeklyReset && new Date(lastWeeklyReset) >= todaySunday) {
       sundayClearDone.current = true;
       return;
     }
@@ -1327,10 +1320,11 @@ const Index = () => {
                 onUpdateCounter={(id, d) => updateCounter.mutate({ id, counter_start_date: d })}
                 onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
                 onUpdateGrams={async (id, g) => {
-                  // If from un-par-un, also adjust food_items stock
-                  if (unParUnSourcePmIds.has(id)) {
-                    const pm = possibleMeals.find(p => p.id === id);
-                    if (pm?.meals) {
+                  // id here is meal_id (from PossibleList wiring)
+                  // Find the PM by meal_id to check if it's from un-par-un
+                  const pm = possibleMeals.find(p => p.meal_id === id);
+                  if (pm && unParUnSourcePmIds.has(pm.id)) {
+                    if (pm.meals) {
                       const oldGrams = parseQty(pm.meals.grams);
                       const newGrams = parseQty(g);
                       const delta = oldGrams - newGrams; // positive = returning stock
@@ -1349,6 +1343,10 @@ const Index = () => {
                                 quantity: rem > 0 ? fullUnits + 1 : fullUnits,
                                 grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
                               } as any).eq("id", matchingFi.id);
+                              // If we now have full sealed units (no partial), remove counter
+                              if (rem <= 0 && matchingFi.counter_start_date) {
+                                await supabase.from("food_items").update({ counter_start_date: null } as any).eq("id", matchingFi.id);
+                              }
                             } else {
                               const current = parseQty(matchingFi.grams);
                               await supabase.from("food_items").update({ grams: formatNumeric(current + delta) } as any).eq("id", matchingFi.id);
@@ -1400,7 +1398,16 @@ const Index = () => {
                         if (matchingFi) {
                           if (delta > 0) {
                             // Add back to stock
-                            await supabase.from("food_items").update({ quantity: (matchingFi.quantity ?? 0) + delta } as any).eq("id", matchingFi.id);
+                            const newStockQty = (matchingFi.quantity ?? 0) + delta;
+                            const perUnit = parseQty(matchingFi.grams);
+                            const partial = parsePartialQty(matchingFi.grams);
+                            // If returning stock makes all units full (no partial), remove counter
+                            const hasPartial = partial > 0 && partial < perUnit;
+                            const updateData: any = { quantity: newStockQty };
+                            if (!hasPartial && matchingFi.counter_start_date) {
+                              updateData.counter_start_date = null;
+                            }
+                            await supabase.from("food_items").update(updateData).eq("id", matchingFi.id);
                           } else {
                             // Deduct more from stock
                             const toDeduct = -delta;
@@ -1413,7 +1420,6 @@ const Index = () => {
                           }
                           qc.invalidateQueries({ queryKey: ["food_items"] });
                         } else if (delta < 0) {
-                          // Food item was fully consumed, can't deduct more — just warn
                           toast({ title: "⚠️ Stock insuffisant", description: `Plus de "${pm.meals.name}" en stock.` });
                         }
                       }
@@ -1468,7 +1474,8 @@ const Index = () => {
                               if (rem > 0) {
                                 await supabase.from("food_items").update({ quantity: Math.max(1, fullUnits + 1), grams: encodeStoredGrams(perUnit, rem) } as any).eq("id", fi.id);
                               } else if (fullUnits > 0) {
-                                await supabase.from("food_items").update({ quantity: fullUnits, grams: formatNumeric(perUnit) } as any).eq("id", fi.id);
+                                // All remaining units are full/sealed — remove counter
+                                await supabase.from("food_items").update({ quantity: fullUnits, grams: formatNumeric(perUnit), counter_start_date: null } as any).eq("id", fi.id);
                               } else {
                                 await supabase.from("food_items").delete().eq("id", fi.id);
                               }
@@ -2094,6 +2101,7 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
   }
   for (const meal of allMeals) {
     if (meal.ingredients?.trim()) continue;
+    if (!meal.is_available) continue; // Skip hidden meals (created from un-par-un transfers)
     for (const fi of foodItems) {
       if (strictNameMatch(meal.name, fi.name)) {
         usedIngredientKeys.add(normalizeForMatch(fi.name));
