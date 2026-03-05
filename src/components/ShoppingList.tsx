@@ -27,7 +27,7 @@ export function ShoppingList() {
   const {
     groups, ungroupedItems,
     addGroup, renameGroup, deleteGroup,
-    addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, deleteItem,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, renameItem, deleteItem,
     getItemsByGroup, reorderItems, reorderGroups,
   } = useShoppingList();
   const isMobile = useIsMobile();
