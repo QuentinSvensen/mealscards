@@ -17,6 +17,8 @@ export interface ShoppingItem {
   checked: boolean;
   sort_order: number;
   created_at: string;
+  content_quantity: string | null;
+  secondary_checked: boolean;
 }
 
 export function useShoppingList() {
@@ -116,6 +118,20 @@ export function useShoppingList() {
     onSuccess: invalidate,
   });
 
+  const updateItemContentQuantity = useMutation({
+    mutationFn: async ({ id, content_quantity }: { id: string; content_quantity: string | null }) => {
+      const { error } = await (supabase as any).from("shopping_items").update({ content_quantity }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+  });
+
+  const toggleSecondaryCheck = useMutation({
+    mutationFn: async ({ id, secondary_checked }: { id: string; secondary_checked: boolean }) => {
+      const { error } = await (supabase as any).from("shopping_items").update({ secondary_checked }).eq("id", id);
+      if (error) throw error;
+    },
+
   const renameItem = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
       const { error } = await (supabase as any).from("shopping_items").update({ name }).eq("id", id);
@@ -157,7 +173,7 @@ export function useShoppingList() {
   return {
     groups, items, ungroupedItems,
     addGroup, renameGroup, deleteGroup, reorderGroups,
-    addItem, toggleItem, updateItemQuantity, updateItemBrand, renameItem, moveItem, deleteItem,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, renameItem, moveItem, deleteItem,
     reorderItems,
     getItemsByGroup,
   };
