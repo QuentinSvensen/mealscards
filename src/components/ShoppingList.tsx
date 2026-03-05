@@ -247,11 +247,11 @@ export function ShoppingList() {
     const fieldEditing = editingField[item.id] ?? null;
     const brand = getLocalBrand(item);
     const qty = getLocalQuantity(item);
+    const nb = getLocalNb(item);
     const isBrandEditing = fieldEditing === "brand";
     const isQtyEditing = fieldEditing === "qty";
+    const isNbEditing = fieldEditing === "nb";
     const isOver = dragOverKey === `item:${item.id}`;
-    // Show quantity input if editing OR if quantity is empty (always allow input when no value)
-    const showQtyInput = isQtyEditing || (!qty && fieldEditing === null && false); // controlled by click
 
     return (
       <div key={item.id}
@@ -262,6 +262,14 @@ export function ShoppingList() {
         onDrop={(e) => handleDropOnItem(e, item)}
         className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
+        {/* Secondary checkbox */}
+        <Checkbox
+          checked={item.secondary_checked}
+          onCheckedChange={(checked) => toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked })}
+          className="shrink-0"
+        />
+
+        {/* Primary checkbox */}
         <Checkbox
           checked={item.checked}
           onCheckedChange={(checked) => {
@@ -273,6 +281,35 @@ export function ShoppingList() {
           }}
           className={`shrink-0 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
+
+        {/* Nb (content quantity) — small cell before name */}
+        {isNbEditing ? (
+          <Input
+            autoFocus
+            placeholder="Nb"
+            value={nb}
+            onChange={(e) => handleNbChange(item, e.target.value)}
+            onBlur={() => commitNb(item)}
+            onKeyDown={(e) => { if (e.key === "Enter") commitNb(item); }}
+            className="h-6 w-12 text-[10px] border-border bg-background px-1 shrink-0"
+          />
+        ) : (
+          nb ? (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
+              className="text-[10px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground font-medium"
+            >
+              {nb}
+            </button>
+          ) : (
+            <button
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
+              className="text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
+            >
+              Nb
+            </button>
+          )
+        )}
 
         {/* Name — auto-width */}
         <input
