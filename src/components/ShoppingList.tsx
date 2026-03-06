@@ -27,7 +27,7 @@ export function ShoppingList() {
   const {
     groups, ungroupedItems,
     addGroup, renameGroup, deleteGroup,
-    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, renameItem, deleteItem,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, updateItemContentQuantityType, renameItem, deleteItem,
     getItemsByGroup, reorderItems, reorderGroups,
   } = useShoppingList();
   const isMobile = useIsMobile();
@@ -267,7 +267,7 @@ export function ShoppingList() {
         <Checkbox
           checked={item.secondary_checked}
           onCheckedChange={(checked) => toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked })}
-          className="shrink-0"
+          className="shrink-0 opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
         />
 
         {/* Primary checkbox */}
@@ -280,28 +280,56 @@ export function ShoppingList() {
               setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
             }
           }}
-          className={`shrink-0 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
+          className={`shrink-0 opacity-100 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
 
         {/* Nb (content quantity) — small cell before name */}
         {isNbEditing ? (
-          <Input
-            autoFocus
-            placeholder="Nb"
-            value={nb}
-            onChange={(e) => handleNbChange(item, e.target.value)}
-            onBlur={() => commitNb(item)}
-            onKeyDown={(e) => { if (e.key === "Enter") commitNb(item); }}
-            className="h-6 w-12 text-[10px] border-border bg-background px-1 shrink-0"
-          />
+          <div className="flex items-center gap-0 shrink-0">
+            <Input
+              autoFocus
+              placeholder="Nb"
+              value={nb}
+              onChange={(e) => handleNbChange(item, e.target.value)}
+              onBlur={() => commitNb(item)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitNb(item); }}
+              className="h-6 w-12 text-[10px] border-border bg-background px-1"
+            />
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const cur = (item as any).content_quantity_type;
+                const next = cur === 'g' ? 'qty' : 'g';
+                updateItemContentQuantityType.mutate({ id: item.id, content_quantity_type: next });
+              }}
+              className="text-[8px] font-bold text-muted-foreground/60 hover:text-muted-foreground px-0.5 h-6 flex items-center"
+              title="Basculer grammes/quantité"
+            >
+              {(item as any).content_quantity_type === 'g' ? 'g' : '#'}
+            </button>
+          </div>
         ) : (
           nb ? (
-            <button
-              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
-              className="text-[10px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground font-medium"
-            >
-              {nb}
-            </button>
+            <div className="flex items-center gap-0 shrink-0">
+              <button
+                onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
+                className="text-[10px] px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground font-medium"
+              >
+                {nb}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const cur = (item as any).content_quantity_type;
+                  const next = cur === 'g' ? 'qty' : 'g';
+                  updateItemContentQuantityType.mutate({ id: item.id, content_quantity_type: next });
+                }}
+                className="text-[8px] font-bold text-muted-foreground/40 hover:text-muted-foreground px-0.5"
+                title="Basculer grammes/quantité"
+              >
+                {(item as any).content_quantity_type === 'g' ? 'g' : '#'}
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}

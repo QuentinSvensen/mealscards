@@ -528,7 +528,14 @@ const Index = () => {
       const stockInfo = stockMap.get(key);
       if (!stockInfo || stockInfo.infinite) continue;
 
-      const matchingItems = foodItems.filter((fi) => strictNameMatch(fi.name, key) && !fi.is_infinite);
+      const matchingItems = foodItems
+        .filter((fi) => strictNameMatch(fi.name, key) && !fi.is_infinite)
+        .sort((a, b) => {
+          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+          if (a.expiration_date) return -1;
+          if (b.expiration_date) return 1;
+          return 0;
+        });
 
       if (neededCount > 0) {
         let toDeduct = neededCount;
@@ -640,7 +647,14 @@ const Index = () => {
       if (!alt) continue;
 
       const { qty: neededGrams, count: neededCount, name } = alt;
-      const matchingItems = foodItems.filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite);
+      const matchingItems = foodItems
+        .filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite)
+        .sort((a, b) => {
+          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+          if (a.expiration_date) return -1;
+          if (b.expiration_date) return 1;
+          return 0;
+        });
       if (matchingItems.length === 0) continue;
       const fi = matchingItems[0];
 
@@ -725,7 +739,14 @@ const Index = () => {
 
       if (deltaGrams === 0 && deltaCount === 0) continue;
 
-      const matchingItems = foodItems.filter(fi => strictNameMatch(fi.name, ingName) && !fi.is_infinite);
+      const matchingItems = foodItems
+        .filter(fi => strictNameMatch(fi.name, ingName) && !fi.is_infinite)
+        .sort((a, b) => {
+          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+          if (a.expiration_date) return -1;
+          if (b.expiration_date) return 1;
+          return 0;
+        });
       if (matchingItems.length === 0) continue;
 
       if (deltaGrams > 0) {
@@ -2757,6 +2778,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               const expiringIng = getExpiringIngredientName(meal, foodItems);
               const expiredIngs = getExpiredIngredientNames(meal, foodItems);
               const maxCounter = getMaxIngredientCounter(meal, foodItems);
+              const counterIngs = getCounterIngredientNames(meal, foodItems);
               const expIsTodayAv = isToday(expDate);
               return (
                 <div key={meal.id} className="relative">
@@ -2775,6 +2797,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                     expirationIsToday={expIsTodayAv}
                     expiringIngredientName={expiringIng}
                     expiredIngredientNames={expiredIngs}
+                    counterIngredientNames={counterIngs}
                     maxIngredientCounter={maxCounter} />
                   {multiple !== null &&
                     <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
@@ -2793,6 +2816,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
               const expLabel = formatExpirationLabel(expDate);
               const expIsTodayPa = isToday(expDate);
               const maxCounter = getMaxIngredientCounter(meal, foodItems);
+              const counterIngs = getCounterIngredientNames(meal, foodItems);
               const partialMeal = buildScaledMealForRatio(meal, ratio);
               return (
                 <div key={`partial-${meal.id}`} className="relative">
@@ -2809,6 +2833,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                     expirationLabel={expLabel}
                     expirationDate={expDate}
                     expirationIsToday={expIsTodayPa}
+                    counterIngredientNames={counterIngs}
                     maxIngredientCounter={maxCounter} />
                   <div className="absolute top-2 right-8 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
                     {pct}%

@@ -30,6 +30,7 @@ interface MealCardProps {
   expiredIngredientNames?: Set<string>;
   maxIngredientCounter?: number | null;
   missingIngredientNames?: Set<string>;
+  counterIngredientNames?: Set<string>;
 }
 
 interface IngLine { qty: string; count: string; name: string; isOr: boolean; }
@@ -115,7 +116,7 @@ function normalizeIngName(name: string): string {
   return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/,"").trim();
 }
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames, counterIngredientNames }: MealCardProps) {
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -363,7 +364,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
               )}
               {meal.ingredients && (
                 <p className="text-[11px] text-white/65 leading-tight flex-1 flex flex-wrap gap-x-1">
-                  {renderIngredientDisplay(meal.ingredients, expiredIngredientNames, missingIngredientNames)}
+                  {renderIngredientDisplay(meal.ingredients, expiredIngredientNames, missingIngredientNames, counterIngredientNames)}
                 </p>
               )}
             </div>
@@ -379,6 +380,7 @@ function renderIngredientDisplay(
   ingredients: string,
   expiredIngredientNames?: Set<string>,
   missingIngredientNames?: Set<string>,
+  counterIngredientNames?: Set<string>,
 ) {
   const groups = ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const elements: React.ReactNode[] = [];
@@ -390,7 +392,9 @@ function renderIngredientDisplay(
       const normalizedName = normalizeIngName(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);
       const isMissing = missingIngredientNames?.has(normalizedName);
+      const hasCounter = counterIngredientNames?.has(normalizedName);
       const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
+        : hasCounter ? 'bg-orange-500/40 text-orange-100 px-0.5 rounded font-semibold'
         : isMissing ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
         : '';
       

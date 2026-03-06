@@ -234,6 +234,7 @@ export type Database = {
           brand: string | null
           checked: boolean
           content_quantity: string | null
+          content_quantity_type: string | null
           created_at: string
           group_id: string | null
           id: string
@@ -247,6 +248,7 @@ export type Database = {
           brand?: string | null
           checked?: boolean
           content_quantity?: string | null
+          content_quantity_type?: string | null
           created_at?: string
           group_id?: string | null
           id?: string
@@ -260,6 +262,7 @@ export type Database = {
           brand?: string | null
           checked?: boolean
           content_quantity?: string | null
+          content_quantity_type?: string | null
           created_at?: string
           group_id?: string | null
           id?: string

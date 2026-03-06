@@ -19,6 +19,7 @@ export interface ShoppingItem {
   created_at: string;
   content_quantity: string | null;
   secondary_checked: boolean;
+  content_quantity_type: string | null;
 }
 
 export function useShoppingList() {
@@ -134,6 +135,14 @@ export function useShoppingList() {
     onSuccess: invalidate,
   });
 
+  const updateItemContentQuantityType = useMutation({
+    mutationFn: async ({ id, content_quantity_type }: { id: string; content_quantity_type: string | null }) => {
+      const { error } = await (supabase as any).from("shopping_items").update({ content_quantity_type }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+  });
+
   const renameItem = useMutation({
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
       const { error } = await (supabase as any).from("shopping_items").update({ name }).eq("id", id);
@@ -175,7 +184,7 @@ export function useShoppingList() {
   return {
     groups, items, ungroupedItems,
     addGroup, renameGroup, deleteGroup, reorderGroups,
-    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, renameItem, moveItem, deleteItem,
+    addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, updateItemContentQuantityType, renameItem, moveItem, deleteItem,
     reorderItems,
     getItemsByGroup,
   };
