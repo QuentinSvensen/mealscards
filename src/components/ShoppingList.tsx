@@ -108,6 +108,7 @@ export function ShoppingList() {
     setEditingField(prev => ({ ...prev, [item.id]: null }));
   };
 
+  const handleNameChange = (item: ShoppingItem, value: string) => {
     setLocalNames(prev => ({ ...prev, [item.id]: value }));
     clearTimeout(nameTimers.current[item.id]);
     nameTimers.current[item.id] = setTimeout(() => {
