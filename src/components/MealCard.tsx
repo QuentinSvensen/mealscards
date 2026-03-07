@@ -276,8 +276,12 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
             <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">{meal.name}</span>
             {/* Options row - wraps below title on narrow screens and stays right-aligned */}
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
-              {maxIngredientCounter !== null && maxIngredientCounter !== undefined && maxIngredientCounter > 0 && (
-                <span className="text-xs text-white/80 bg-orange-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold">
+              {maxIngredientCounter !== null && maxIngredientCounter !== undefined && (
+                <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold ${
+                  maxIngredientCounter >= 3 ? 'bg-red-500/50 text-red-100' :
+                  maxIngredientCounter >= 1 ? 'bg-amber-400/30 text-amber-100' :
+                  'bg-white/25 text-white/80'
+                }`}>
                   ⏱ {maxIngredientCounter}j
                 </span>
               )}
@@ -394,7 +398,7 @@ function renderIngredientDisplay(
       const isMissing = missingIngredientNames?.has(normalizedName);
       const hasCounter = counterIngredientNames?.has(normalizedName);
       const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
-        : hasCounter ? 'bg-orange-500/40 text-orange-100 px-0.5 rounded font-semibold'
+        : hasCounter ? 'underline decoration-2 underline-offset-2 decoration-white/60 font-semibold'
         : isMissing ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
         : '';
       

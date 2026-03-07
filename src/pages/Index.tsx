@@ -1770,7 +1770,7 @@ interface StockInfo {
 function buildStockMap(foodItems: FoodItem[]): Map<string, StockInfo> {
   const map = new Map<string, StockInfo>();
   for (const fi of foodItems) {
-    const key = normalizeForMatch(fi.name);
+    const key = normalizeForMatch(fi.name).replace(/s$/, "");
     const prev = map.get(key) ?? { grams: 0, count: 0, infinite: false };
     if (fi.is_infinite) {
       map.set(key, { ...prev, infinite: true });
@@ -2694,6 +2694,16 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
             if (sortMode === "manual" && storedOrder.length > 0) {
               const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
               unifiedItems.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
+            }
+            if (sortMode === "calories") {
+              const getCal = (u: typeof unifiedItems[0]): number => {
+                if (u.type === 'isMeal') return parseFloat((u.fi.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+                if (u.type === 'nm') return parseFloat((u.nm.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+                if (u.type === 'av') return parseFloat((u.item.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+                if (u.type === 'partial') return parseFloat((u.item.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+                return 0;
+              };
+              unifiedItems.sort((a, b) => getCal(a) - getCal(b));
             }
             const handleAvReorder = (fromIdx: number, toIdx: number) => {
               const reordered = [...unifiedItems];
