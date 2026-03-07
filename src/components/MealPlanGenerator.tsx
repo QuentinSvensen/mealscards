@@ -35,9 +35,7 @@ function normalizeKey(name: string) {
 }
 
 function keyMatch(a: string, b: string): boolean {
-  const na = normalizeKey(a);
-  const nb = normalizeKey(b);
-  return na === nb;
+  return normalizeKey(a) === normalizeKey(b);
 }
 
 function parseStoredIds(value: unknown): string[] {
@@ -45,7 +43,6 @@ function parseStoredIds(value: unknown): string[] {
   return value.filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
-/** Parse Nb value from shopping item */
 function parseNbValue(nb: string | null, type: string | null): { grams: number; count: number } | null {
   if (!nb) return null;
   const val = parseFloat(nb.replace(/[^0-9.,]/g, '').replace(',', '.'));
@@ -54,10 +51,15 @@ function parseNbValue(nb: string | null, type: string | null): { grams: number; 
   return { grams: 0, count: val };
 }
 
-/** Get recipe ingredient usage as a map: normalizedName → {grams, count} */
+/** Get recipe ingredient usage. No-ingredient meals → name is the ingredient */
 function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: number }> {
   const usage = new Map<string, { grams: number; count: number }>();
-  if (!recipe.ingredients) return usage;
+  if (!recipe.ingredients) {
+    // No ingredients = the meal itself is bought whole (e.g. "hachis parmentier")
+    const key = normalizeKey(recipe.name);
+    usage.set(key, { grams: 0, count: 1 });
+    return usage;
+  }
   const groups = recipe.ingredients.split(/(?:\n|,(?!\d))/).map((s) => s.trim()).filter(Boolean);
   for (const group of groups) {
     const alts = group.split(/\|/);
@@ -74,7 +76,7 @@ function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: numbe
 
 export function MealPlanGenerator() {
   const { getMealsByCategory } = useMeals();
-  const { items: shoppingItems } = useShoppingList();
+  const { items: shoppingItems, groups: shoppingGroups, toggleSecondaryCheck, updateItemQuantity } = useShoppingList();
   const { getPreference, setPreference } = usePreferences();
 
   const allPlats = getMealsByCategory("plat");
@@ -95,26 +97,84 @@ export function MealPlanGenerator() {
       .filter((meal): meal is Meal => !!meal);
   }, [selectedMealIds, allPlats]);
 
-  // Build shopping inventory from items with Nb (content_quantity)
+  // Identify frozen group IDs (surgelés/congelés)
+  const frozenGroupIds = useMemo(() => {
+    return new Set(
+      shoppingGroups
+        .filter(g => {
+          const n = normalizeKey(g.name);
+          return n.includes('surgele') || n.includes('congele');
+        })
+        .map(g => g.id)
+    );
+  }, [shoppingGroups]);
+
+  // Build shopping inventory from items with Nb, excluding frozen
   const shoppingInventory = useMemo(() => {
-    const inv = new Map<string, { grams: number; count: number }>();
+    const inv = new Map<string, { grams: number; count: number; pkgGrams: number; pkgCount: number }>();
     for (const item of shoppingItems) {
-      const nb = parseNbValue(item.content_quantity, (item as any).content_quantity_type);
-      if (!nb) continue; // no Nb = infinite, don't constrain
+      if (item.group_id && frozenGroupIds.has(item.group_id)) continue;
+      const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
+      if (!nb) continue;
       const key = normalizeKey(item.name);
       const qty = parseInt(item.quantity || '1') || 1;
-      const prev = inv.get(key) || { grams: 0, count: 0 };
+      const prev = inv.get(key) || { grams: 0, count: 0, pkgGrams: 0, pkgCount: 0 };
       inv.set(key, {
         grams: prev.grams + nb.grams * qty,
         count: prev.count + nb.count * qty,
+        pkgGrams: nb.grams || prev.pkgGrams,
+        pkgCount: nb.count || prev.pkgCount,
       });
     }
     return inv;
-  }, [shoppingItems]);
+  }, [shoppingItems, frozenGroupIds]);
+
+  const updateShoppingChecks = (selIds: string[]) => {
+    // Build total ingredient needs from selected recipes
+    const needs = new Map<string, { grams: number; count: number }>();
+    for (const id of selIds) {
+      const recipe = allPlats.find(r => r.id === id);
+      if (!recipe) continue;
+      const usage = getRecipeUsage(recipe);
+      for (const [key, used] of usage) {
+        const prev = needs.get(key) || { grams: 0, count: 0 };
+        needs.set(key, { grams: prev.grams + used.grams, count: prev.count + used.count });
+      }
+    }
+
+    // Match to shopping items and update
+    for (const item of shoppingItems) {
+      const itemKey = normalizeKey(item.name);
+      let matched = false;
+
+      for (const [needKey, need] of needs) {
+        if (itemKey === needKey || keyMatch(itemKey, needKey)) {
+          matched = true;
+          const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
+          let qtyNeeded = 1;
+          if (nb && nb.grams > 0 && need.grams > 0) {
+            qtyNeeded = Math.ceil(need.grams / nb.grams);
+          } else if (nb && nb.count > 0 && need.count > 0) {
+            qtyNeeded = Math.ceil(need.count / nb.count);
+          } else if (need.count > 0) {
+            qtyNeeded = Math.ceil(need.count);
+          }
+          toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
+          updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
+          break;
+        }
+      }
+
+      // Don't uncheck items not matched — user may have manually checked them
+    }
+  };
 
   const generatePlan = () => {
     const avantGrimpe = allPlats.find((m) => m.name.toLowerCase().includes("avant grimpe"));
-    const painFuet = allPlats.find((m) => m.name.toLowerCase().replace(/\s+/g, ' ').includes("pain + fuet") || m.name.toLowerCase().replace(/\s+/g, ' ').includes("pain+fuet"));
+    const painFuet = allPlats.find((m) => {
+      const n = m.name.toLowerCase().replace(/\s+/g, ' ');
+      return n.includes("pain + fuet") || n.includes("pain+fuet");
+    });
     const excludeIds = new Set([avantGrimpe?.id, painFuet?.id].filter(Boolean) as string[]);
     const candidatePlats = allPlats.filter((m) => !excludeIds.has(m.id));
 
@@ -123,68 +183,79 @@ export function MealPlanGenerator() {
     // Build remaining inventory (mutable copy)
     const remaining = new Map<string, { grams: number; count: number }>();
     for (const [k, v] of shoppingInventory) {
-      remaining.set(k, { ...v });
+      remaining.set(k, { grams: v.grams, count: v.count });
     }
     const hasInventory = remaining.size > 0;
 
     const selectedIds: string[] = [];
     const counts = new Map<string, number>();
 
-    // Greedy selection: 16 recipes
+    // Greedy selection with diversity: 16 recipes
     for (let i = 0; i < 16; i++) {
-      let bestScore = -1;
-      let bestId = '';
+      const scored: { id: string; score: number }[] = [];
 
-      if (hasInventory) {
-        for (const recipe of candidatePlats) {
-          if ((counts.get(recipe.id) || 0) >= 2) continue;
+      for (const recipe of candidatePlats) {
+        if ((counts.get(recipe.id) || 0) >= 2) continue;
+        let score = 0;
+
+        if (hasInventory) {
           const usage = getRecipeUsage(recipe);
-          let score = 0;
           let usesConstrainedItem = false;
 
           for (const [ingKey, used] of usage) {
-            // Find matching inventory key
             let matchKey: string | null = null;
             for (const rk of remaining.keys()) {
               if (rk === ingKey || keyMatch(rk, ingKey)) { matchKey = rk; break; }
             }
             if (!matchKey) continue;
             const avail = remaining.get(matchKey)!;
+            if (avail.grams <= 0 && avail.count <= 0) continue;
             usesConstrainedItem = true;
 
             if (used.grams > 0 && avail.grams > 0) {
-              const pct = Math.min(1, used.grams / avail.grams);
-              score += pct;
-              // Bonus for exactly finishing the package
-              if (Math.abs(avail.grams - used.grams) < 1) score += 2;
+              const pkgGrams = shoppingInventory.get(matchKey)?.pkgGrams || 0;
+              const afterUse = avail.grams - used.grams;
+
+              if (afterUse < 0) {
+                score -= 1; // not enough
+              } else if (Math.abs(afterUse) < 1) {
+                score += 5; // exactly finishes
+              } else if (pkgGrams > 0 && afterUse % pkgGrams < 1) {
+                score += 3; // remaining is a perfect package multiple
+              } else {
+                score += Math.min(1, used.grams / avail.grams);
+              }
             }
             if (used.count > 0 && avail.count > 0) {
-              const pct = Math.min(1, used.count / avail.count);
-              score += pct;
-              if (Math.abs(avail.count - used.count) < 0.5) score += 2;
+              if (avail.count < used.count) {
+                score -= 1;
+              } else if (Math.abs(avail.count - used.count) < 0.5) {
+                score += 5;
+              } else {
+                score += Math.min(1, used.count / avail.count);
+              }
             }
           }
-
           if (usesConstrainedItem) score += 0.5;
-          if (score > bestScore) {
-            bestScore = score;
-            bestId = recipe.id;
-          }
         }
+
+        // Random factor for diversity (each generation is different)
+        score += Math.random() * 2.5;
+        scored.push({ id: recipe.id, score });
       }
 
-      if (bestScore <= 0 || !bestId) {
-        // Random pick from remaining pool
-        const pool = candidatePlats.filter(r => (counts.get(r.id) || 0) < 2);
-        if (pool.length === 0) break;
-        bestId = pool[Math.floor(Math.random() * pool.length)].id;
-      }
+      if (scored.length === 0) break;
 
-      selectedIds.push(bestId);
-      counts.set(bestId, (counts.get(bestId) || 0) + 1);
+      // Pick from top 4 candidates for diversity
+      scored.sort((a, b) => b.score - a.score);
+      const topN = scored.slice(0, Math.min(4, scored.length));
+      const pick = topN[Math.floor(Math.random() * topN.length)];
+
+      selectedIds.push(pick.id);
+      counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
 
       // Deduct from remaining inventory
-      const recipe = candidatePlats.find(r => r.id === bestId);
+      const recipe = candidatePlats.find(r => r.id === pick.id);
       if (recipe && hasInventory) {
         const usage = getRecipeUsage(recipe);
         for (const [ingKey, used] of usage) {
@@ -203,31 +274,29 @@ export function MealPlanGenerator() {
     }
 
     if (avantGrimpe) {
-      for (let i = 0; i < 4; i++) selectedIds.push(avantGrimpe.id);
+      for (let j = 0; j < 4; j++) selectedIds.push(avantGrimpe.id);
     }
 
     setSelectedMealIds(selectedIds);
     setPreference.mutate({ key: MENU_PREF_KEY, value: selectedIds });
+
+    // Update shopping list checkboxes & quantities
+    updateShoppingChecks(selectedIds);
   };
 
   const shoppingItems2 = useMemo(() => {
     const map = new Map<string, { grams: number; count: number; displayName: string }>();
 
     for (const meal of selectedMeals) {
-      if (!meal.ingredients) continue;
-      const groups = meal.ingredients.split(/(?:\n|,(?!\d))/).map((s) => s.trim()).filter(Boolean);
-      for (const group of groups) {
-        const alts = group.split(/\|/);
-        const first = alts[0]?.trim();
-        if (!first) continue;
-        const parsed = parseIngredientLine(first);
-        if (!parsed.name) continue;
-        const key = normalizeKey(parsed.name);
-        const existing = map.get(key) || { grams: 0, count: 0, displayName: parsed.name };
+      const usage = getRecipeUsage(meal);
+      for (const [key, used] of usage) {
+        const existing = map.get(key) || { grams: 0, count: 0, displayName: used.grams > 0 || used.count > 0 ? key : meal.name };
+        // Use meal name for display if no-ingredient meal
+        const displayName = !meal.ingredients ? meal.name : existing.displayName;
         map.set(key, {
-          grams: existing.grams + parsed.qty,
-          count: existing.count + parsed.count,
-          displayName: existing.displayName,
+          grams: existing.grams + used.grams,
+          count: existing.count + used.count,
+          displayName,
         });
       }
     }

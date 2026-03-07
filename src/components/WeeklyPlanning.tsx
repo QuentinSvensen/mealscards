@@ -245,7 +245,11 @@ export function WeeklyPlanning() {
     }
   }, []);
 
-  const planningMeals = possibleMeals.filter((pm) => pm.meals?.category !== "petit_dejeuner");
+  const planningMeals = possibleMeals.filter((pm) => {
+    if (pm.meals?.category === "plat") return true;
+    // Non-plat categories: only show if they have a planning date assigned
+    return !!pm.day_of_week && !!pm.meal_time;
+  });
 
   const getMealsForSlot = (day: string, time: string): PossibleMeal[] =>
     planningMeals

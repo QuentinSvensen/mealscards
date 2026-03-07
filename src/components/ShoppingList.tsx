@@ -266,7 +266,13 @@ export function ShoppingList() {
         {/* Secondary checkbox */}
         <Checkbox
           checked={item.secondary_checked}
-          onCheckedChange={(checked) => toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked })}
+          onCheckedChange={(checked) => {
+            toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked });
+            if (!checked) {
+              updateItemQuantity.mutate({ id: item.id, quantity: null });
+              setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+            }
+          }}
           className="shrink-0 opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
         />
 
@@ -398,7 +404,7 @@ export function ShoppingList() {
               onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
               className="shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors"
             >
-              <span className="text-sm font-bold text-foreground">×{qty}</span>
+              <span className={`text-sm font-bold ${item.secondary_checked ? 'text-green-500' : 'text-foreground'}`}>×{qty}</span>
             </button>
           ) : (
             <button
