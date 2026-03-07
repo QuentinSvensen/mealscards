@@ -2390,6 +2390,23 @@ function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleColl
   );
 }
 
+/** Get set of ingredient names that have an active counter */
+function getCounterIngredientNames(meal: Meal, foodItems: FoodItem[]): Set<string> {
+  const result = new Set<string>();
+  if (!meal.ingredients?.trim()) return result;
+  const groups = parseIngredientGroups(meal.ingredients);
+  for (const group of groups) {
+    for (const alt of group) {
+      for (const fi of foodItems) {
+        if (strictNameMatch(fi.name, alt.name) && fi.counter_start_date) {
+          result.add(alt.name);
+        }
+      }
+    }
+  }
+  return result;
+}
+
 
 function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes
 }: {category: {value: string;label: string;emoji: string;};meals: Meal[];foodItems: FoodItem[];allMeals: Meal[];sortMode: AvailableSortMode;onToggleSort: () => void;collapsed: boolean;onToggleCollapse: () => void;onMoveToPossible: (id: string) => void;onMovePartialToPossible: (meal: Meal, ratio: number) => void;onMoveFoodItemToPossible: (fi: FoodItem) => void;onDeleteFoodItem: (id: string) => void;onMoveNameMatchToPossible: (meal: Meal, fi: FoodItem) => void;onRename: (id: string, name: string) => void;onUpdateCalories: (id: string, cal: string | null) => void;onUpdateGrams: (id: string, g: string | null) => void;onUpdateIngredients: (id: string, ing: string | null) => void;onToggleFavorite: (id: string) => void;onUpdateOvenTemp: (id: string, t: string | null) => void;onUpdateOvenMinutes: (id: string, m: string | null) => void;}) {
