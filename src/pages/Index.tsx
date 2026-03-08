@@ -1056,7 +1056,8 @@ const Index = () => {
                       const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
                       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
                       const expDate = getEarliestIngredientExpiration(meal, foodItems);
-                      const result = await moveToPossible.mutateAsync({ mealId, expiration_date: expDate });
+                      const counterDate = getEarliestIngredientCounterDate(meal, foodItems);
+                      const result = await moveToPossible.mutateAsync({ mealId, expiration_date: expDate, counter_start_date: counterDate });
                       if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
                     }
                   }}
@@ -1064,9 +1065,10 @@ const Index = () => {
                     const partialMeal = buildScaledMealForRatio(meal, ratio);
                     const snapshots = await deductIngredientsFromStock(partialMeal);
                     const expDate = getEarliestIngredientExpiration(meal, foodItems);
+                    const counterDate = getEarliestIngredientCounterDate(meal, foodItems);
                     const result = await addMealToPossibleDirectly.mutateAsync({
                       name: meal.name, category: cat.value, colorSeed: meal.id,
-                      calories: partialMeal.calories, grams: partialMeal.grams, ingredients: partialMeal.ingredients, expiration_date: expDate,
+                      calories: partialMeal.calories, grams: partialMeal.grams, ingredients: partialMeal.ingredients, expiration_date: expDate, counter_start_date: counterDate,
                     });
                     if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
                   }}
