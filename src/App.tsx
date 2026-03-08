@@ -14,6 +14,18 @@ const queryClient = new QueryClient({
     queries: {
       gcTime: 1000 * 60 * 60 * 24, // 24h — keep cache for offline
       staleTime: 1000 * 30, // 30s — refetch in background when stale
+      retry: (failureCount, error) => {
+        // Don't retry on auth errors (expired session)
+        if (error && typeof error === 'object' && 'code' in error) {
+          const code = (error as { code?: string }).code;
+          if (code === 'PGRST301' || code === '401' || code === 'refresh_token_not_found') return false;
+        }
+        if (error && typeof error === 'object' && 'message' in error) {
+          const msg = (error as { message?: string }).message || '';
+          if (msg.includes('JWT') || msg.includes('token') || msg.includes('401')) return false;
+        }
+        return failureCount < 2;
+      },
     },
   },
 });
