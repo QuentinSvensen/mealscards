@@ -152,95 +152,92 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       `}
       style={{ backgroundColor: meal.color }}
     >
-      <div className="flex flex-col">
-        {/* Top: title row with badges */}
-        <div className="flex items-start gap-1 min-w-0">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1 min-w-0">
-              <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-              <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
-            </div>
+      {/* Single flex row: left (name + date/ingredients) | right (badges) */}
+      <div className="flex items-start gap-1 min-w-0">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
+            <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
           </div>
-          {!compact && (
-            <div className="flex flex-col items-center shrink-0">
-              {editingCal ? (
-                <input
-                  autoFocus
-                  type="text"
-                  inputMode="numeric"
-                  value={calValue}
-                  onChange={(e) => setCalValue(e.target.value)}
-                  onBlur={() => {
-                    const trimmed = calValue.trim();
-                    onCalorieChange(trimmed || null);
-                    setEditingCal(false);
-                  }}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-                  placeholder="kcal"
-                />
-              ) : displayCal ? (
-                <button
-                  onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                  className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
-                    isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
-                  }`}
-                  title="Modifier les calories (temporaire)"
-                >
-                  <Flame className="h-3 w-3" />
-                  {displayCal}
-                </button>
-              ) : (
-                <button
-                  onClick={() => { setCalValue(""); setEditingCal(true); }}
-                  className="text-[10px] text-white/40 hover:text-white/60"
-                  title="Ajouter des calories"
-                >
-                  <Flame className="h-3 w-3" />
-                </button>
+          {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
+            <div className="pt-0.5">
+              {meal.grams && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                    <Weight className="h-2 w-2" />
+                    {meal.grams}
+                  </span>
+                </div>
               )}
-              {meal.protein && (
-                <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
-                  🍗 {meal.protein}
-                </span>
-              )}
-              {counterDays !== null && (
-                <span
-                  className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
-                  ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-                >
-                  <Timer className="h-2.5 w-2.5" />
-                  {counterDays}j
-                </span>
+              {(meal.ingredients || pm.expiration_date) && (
+                <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
+                  {pm.expiration_date && (
+                    <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                      <Calendar className="h-2 w-2 inline" />
+                      {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                    </span>
+                  )}
+                  {meal.ingredients && meal.ingredients
+                    .split(/[,\n]+/)
+                    .filter(Boolean)
+                    .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
+                    .join(" • ")}
+                </div>
               )}
             </div>
           )}
         </div>
-        {/* Bottom: date + ingredients pushed to card bottom */}
-        {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
-          <div className="pt-0.5">
-            {meal.grams && (
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                  <Weight className="h-2 w-2" />
-                  {meal.grams}
-                </span>
-              </div>
+        {!compact && (
+          <div className="flex flex-col items-center shrink-0">
+            {editingCal ? (
+              <input
+                autoFocus
+                type="text"
+                inputMode="numeric"
+                value={calValue}
+                onChange={(e) => setCalValue(e.target.value)}
+                onBlur={() => {
+                  const trimmed = calValue.trim();
+                  onCalorieChange(trimmed || null);
+                  setEditingCal(false);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
+                placeholder="kcal"
+              />
+            ) : displayCal ? (
+              <button
+                onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
+                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
+                  isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
+                }`}
+                title="Modifier les calories (temporaire)"
+              >
+                <Flame className="h-3 w-3" />
+                {displayCal}
+              </button>
+            ) : (
+              <button
+                onClick={() => { setCalValue(""); setEditingCal(true); }}
+                className="text-[10px] text-white/40 hover:text-white/60"
+                title="Ajouter des calories"
+              >
+                <Flame className="h-3 w-3" />
+              </button>
             )}
-            {(meal.ingredients || pm.expiration_date) && (
-              <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
-                {pm.expiration_date && (
-                  <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
-                    <Calendar className="h-2 w-2 inline" />
-                    {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-                  </span>
-                )}
-                {meal.ingredients && meal.ingredients
-                  .split(/[,\n]+/)
-                  .filter(Boolean)
-                  .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
-                  .join(" • ")}
-              </div>
+            {meal.protein && (
+              <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
+                🍗 {meal.protein}
+              </span>
+            )}
+            {counterDays !== null && (
+              <span
+                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
+                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
+              >
+                <Timer className="h-2.5 w-2.5" />
+                {counterDays}j
+              </span>
             )}
           </div>
         )}
