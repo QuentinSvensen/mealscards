@@ -214,15 +214,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             )}
           </div>
         )}
-        {!compact && (
-          <button
-            onClick={onRemove}
-            className="text-white/60 hover:text-white text-[10px] shrink-0 hover:bg-white/20 rounded px-0.5"
-            title="Retirer"
-          >
-            ✕
-          </button>
-        )}
       </div>
       {/* Date + ingredients: full width below the title row */}
       {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
