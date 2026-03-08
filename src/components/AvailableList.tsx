@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName, type FoodItem } from "@/components/FoodItems";
