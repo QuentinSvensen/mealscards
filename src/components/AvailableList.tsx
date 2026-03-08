@@ -50,6 +50,38 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
   const [avDragIndex, setAvDragIndex] = useState<number | null>(null);
+  const [customRatios, setCustomRatios] = useState<Record<string, number>>({});
+  const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
+  const [ratioInput, setRatioInput] = useState("");
+
+  const parseRatioInput = (input: string, maxRatio: number): number | null => {
+    const trimmed = input.trim().toLowerCase();
+    if (trimmed.startsWith("x")) {
+      const mult = parseFloat(trimmed.slice(1));
+      if (isNaN(mult) || mult < 0.5) return null;
+      return Math.min(mult, maxRatio);
+    }
+    const pct = parseFloat(trimmed.replace("%", ""));
+    if (isNaN(pct) || pct < 50) return null;
+    return Math.min(pct / 100, maxRatio);
+  };
+
+  const formatRatioBadge = (ratio: number): string => {
+    if (ratio >= 1 && Number.isInteger(ratio)) return `x${ratio}`;
+    return `${Math.round(ratio * 100)}%`;
+  };
+
+  const commitRatio = (mealId: string, maxRatio: number) => {
+    const parsed = parseRatioInput(ratioInput, maxRatio);
+    if (parsed !== null && parsed >= 0.5) {
+      if (parsed === 1) {
+        setCustomRatios(prev => { const next = { ...prev }; delete next[mealId]; return next; });
+      } else {
+        setCustomRatios(prev => ({ ...prev, [mealId]: parsed }));
+      }
+    }
+    setEditingRatioId(null);
+  };
 
   // 1. Meals realizable via ingredient matching
   const available: { meal: Meal; multiple: number | null }[] = meals
