@@ -384,9 +384,12 @@ export function ShoppingList() {
           return (
             <button
               onClick={() => {
-                const newChecked = !item.secondary_checked;
-                if (newChecked) {
-                  // Check this item
+                const now = Date.now();
+                const lastUncheck = needKey ? (lastAmbiguousUncheck.current[needKey] || 0) : 0;
+                const isQuickReclick = now - lastUncheck < 800;
+
+                if (!item.secondary_checked && !isQuickReclick) {
+                  // Check this item (confirm choice)
                   toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
                   const qty = computeSuggestedQty();
                   updateItemQuantity.mutate({ id: item.id, quantity: String(qty) });
@@ -405,9 +408,13 @@ export function ShoppingList() {
                     }
                   }
                 } else {
+                  // Uncheck (either from green ✓ or quick re-click on ❓)
                   toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+                  if (needKey) {
+                    lastAmbiguousUncheck.current[needKey] = now;
+                  }
                 }
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
