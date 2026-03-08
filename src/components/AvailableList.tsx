@@ -160,11 +160,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   let sortedNameMatches = [...nameMatches];
   let sortedIsMealItems = [...isMealItems];
 
-  if (sortMode === "calories") {
-    const parseCal = (cal: string | null) => parseFloat((cal || "0").replace(/[^0-9.]/g, "")) || 0;
-    sortedAvailable.sort((a, b) => parseCal(a.meal.calories) - parseCal(b.meal.calories));
-    sortedNameMatches.sort((a, b) => parseCal(a.meal.calories) - parseCal(b.meal.calories));
-    sortedIsMealItems.sort((a, b) => parseCal(a.calories) - parseCal(b.calories));
+  if (sortMode === "calories" || sortMode === "protein") {
+    const field = sortMode === "calories" ? "calories" : "protein";
+    const parseVal = (val: string | null) => parseFloat((val || "0").replace(/[^0-9.]/g, "")) || 0;
+    const dir = sortAsc ? 1 : -1;
+    sortedAvailable.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
+    sortedNameMatches.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
+    sortedIsMealItems.sort((a, b) => dir * (parseVal((a as any)[field]) - parseVal((b as any)[field])));
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
       const aExp = getEarliestIngredientExpiration(a.meal, foodItems);
@@ -190,8 +192,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   }
 
   const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length + partialAvailable.length;
-  const SortIcon = sortMode === "calories" ? Flame : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
-  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "expiration" ? "Péremption" : "Manuel";
+  const isNumericSort = sortMode === "calories" || sortMode === "protein";
+  const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
+  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : sortMode === "expiration" ? "Péremption" : "Manuel";
 
   const isToday = (dateStr: string | null) => {
     if (!dateStr) return false;
