@@ -245,61 +245,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           </div>
         )}
       </div>
-        {!compact && (
-          <div className="flex flex-col items-center shrink-0">
-            {editingCal ? (
-              <input
-                autoFocus
-                type="text"
-                inputMode="numeric"
-                value={calValue}
-                onChange={(e) => setCalValue(e.target.value)}
-                onBlur={() => {
-                  const trimmed = calValue.trim();
-                  onCalorieChange(trimmed || null);
-                  setEditingCal(false);
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-                placeholder="kcal"
-              />
-            ) : displayCal ? (
-              <button
-                onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
-                  isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
-                }`}
-                title="Modifier les calories (temporaire)"
-              >
-                <Flame className="h-3 w-3" />
-                {displayCal}
-              </button>
-            ) : (
-              <button
-                onClick={() => { setCalValue(""); setEditingCal(true); }}
-                className="text-[10px] text-white/40 hover:text-white/60"
-                title="Ajouter des calories"
-              >
-                <Flame className="h-3 w-3" />
-              </button>
-            )}
-            {meal.protein && (
-              <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
-                🍗 {meal.protein}
-              </span>
-            )}
-            {counterDays !== null && (
-              <span
-                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
-                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-              >
-                <Timer className="h-2.5 w-2.5" />
-                {counterDays}j
-              </span>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
