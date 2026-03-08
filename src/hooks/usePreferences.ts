@@ -49,7 +49,7 @@ export function usePreferences(options?: { enabled?: boolean }) {
       } else {
         const { error } = await supabase
           .from("user_preferences")
-          .insert({ key, value } as any);
+          .upsert({ key, value } as any, { onConflict: 'user_id,key' });
         if (error) throw error;
       }
     },
