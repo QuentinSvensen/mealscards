@@ -300,6 +300,7 @@ export function ShoppingList() {
     const isQtyEditing = fieldEditing === "qty";
     const isNbEditing = fieldEditing === "nb";
     const isOver = dragOverKey === `item:${item.id}`;
+    const isAmbiguous = ambiguousItemIds.has(item.id);
 
     return (
       <div key={item.id}
