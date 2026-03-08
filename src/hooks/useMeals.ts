@@ -429,9 +429,11 @@ export function useMeals(options?: { enabled?: boolean }) {
 
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
-        // Same counter days → sort by calories ascending
-        const aCal = computeIngredientCalories(a.meals?.ingredients) ?? (a.meals?.calories ? parseFloat(a.meals.calories) : null);
-        const bCal = computeIngredientCalories(b.meals?.ingredients) ?? (b.meals?.calories ? parseFloat(b.meals.calories) : null);
+        // Same counter days → sort by calories ascending (prefer ingredient-computed over manual)
+        const aIngredients = a.ingredients_override ?? a.meals?.ingredients;
+        const bIngredients = b.ingredients_override ?? b.meals?.ingredients;
+        const aCal = computeIngredientCalories(aIngredients) ?? (a.meals?.calories ? parseFloat(a.meals.calories) : null);
+        const bCal = computeIngredientCalories(bIngredients) ?? (b.meals?.calories ? parseFloat(b.meals.calories) : null);
         // Both have calories → sort ascending
         if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
         // One has calories, the other doesn't → the one with calories first
