@@ -148,7 +148,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
         transition-transform hover:scale-[1.01]
         ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
         ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
-        ${compact ? "px-2 py-1" : "px-2 py-1.5"}
+        ${compact ? "px-2 py-1" : "px-2 py-1 md:py-1.5"}
       `}
       style={{ backgroundColor: meal.color }}
     >
@@ -226,7 +226,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       </div>
       {/* Date + ingredients: full width below the title row */}
       {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
-        <div className="mt-0.5">
+        <div className="md:mt-0.5">
           {/* Desktop: date + grams on their own line */}
           {(pm.expiration_date || meal.grams) && (
             <div className="hidden md:flex items-center gap-1 flex-wrap">
@@ -255,7 +255,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           )}
           {/* Ingredients line — on mobile, prepend the expiration date */}
           {(meal.ingredients || (pm.expiration_date && typeof window !== 'undefined')) && (
-            <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
+            <div className="md:mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
               {pm.expiration_date && (
                 <span className={`md:hidden inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
                   <Calendar className="h-2 w-2 inline" />
