@@ -347,38 +347,36 @@ export function MealPlanGenerator() {
     }
 
     // Check which ingredients match shopping list items or "Toujours présent" food items
-    // Priority: 1) exact key match, 2) "contains" match (e.g. "viande hachee" in "viande hachee 5%"), 3) no match → ❓
+    // Priority: 1) exact key match, 2) partial smart match, 3) no match → ❓
+    const toujoursKeys = [...toujoursFoodKeys];
     for (const [key, item] of map) {
       // If ingredient matches a "Toujours présent" food item, mark as matched
-      if (toujoursFoodKeys.has(key)) {
+      if (toujoursFoodKeys.has(key) || toujoursKeys.some((tjKey) => smartFoodContains(item.displayName, tjKey))) {
         item.matched = true;
         continue;
       }
 
-      const ingNorm = normalizeForMatch(item.displayName);
-
-      // 1) Exact key match
-      let exactFound = false;
-      for (const si of shoppingItems) {
-        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
+      const exactMatches = shoppingItems.filter((si) => {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) return false;
         const siKey = normalizeKey(si.name);
-        if (siKey === key || keyMatch(siKey, key)) {
-          item.matched = true;
-          exactFound = true;
-          break;
-        }
-      }
-      if (exactFound) continue;
+        if (toujoursFoodKeys.has(siKey) || toujoursKeys.some((tjKey) => smartFoodContains(si.name, tjKey))) return false;
+        return siKey === key || keyMatch(siKey, key);
+      });
 
-      // 2) Contains match: shopping item name contains the ingredient name or vice-versa
-      // Uses fuzzyContains to handle "hache" vs "hachee" type differences
-      for (const si of shoppingItems) {
-        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
-        const siNorm = normalizeForMatch(si.name);
-        if (smartFoodContains(si.name, ingNorm)) {
-          item.matched = true;
-          break;
-        }
+      if (exactMatches.length > 0) {
+        item.matched = true;
+        continue;
+      }
+
+      const partialMatches = shoppingItems.filter((si) => {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) return false;
+        const siKey = normalizeKey(si.name);
+        if (toujoursFoodKeys.has(siKey) || toujoursKeys.some((tjKey) => smartFoodContains(si.name, tjKey))) return false;
+        return smartFoodContains(si.name, item.displayName);
+      });
+
+      if (partialMatches.length > 0) {
+        item.matched = true;
       }
     }
 
