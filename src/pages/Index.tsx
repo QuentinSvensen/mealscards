@@ -131,6 +131,8 @@ const Index = () => {
       setTimeout(preload, 200);
     }
   }, [unlocked]);
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => subscription.unsubscribe();
