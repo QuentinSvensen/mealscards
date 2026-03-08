@@ -160,7 +160,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
+      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
       {/* Row 1: name + counter inline + actions */}
@@ -191,7 +191,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
         {(pm.quantity > 1 || onUpdateQuantity) && (
           <button
             onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
-            className={`absolute -top-1.5 -right-1.5 z-10 text-[10px] text-white/90 bg-white/30 backdrop-blur-sm px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-md border border-white/20 ${onUpdateQuantity ? 'hover:bg-white/40 cursor-pointer' : ''}`}
+            className={`text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-white/30 cursor-pointer' : ''}`}
           >
             <Hash className="h-2.5 w-2.5" />{pm.quantity}
           </button>
