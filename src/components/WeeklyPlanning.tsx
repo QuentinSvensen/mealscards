@@ -103,6 +103,14 @@ function parseCalories(cal: string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
+function parseProtein(prot: string | null | undefined): number {
+  if (!prot) return 0;
+  const n = parseFloat(prot.replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? 0 : n;
+}
+
+const DAILY_PROTEIN_GOAL = 110;
+
 interface TouchDragState {
   pmId: string;
   ghost: HTMLElement;
@@ -315,6 +323,16 @@ export function WeeklyPlanning() {
     const extra = extraCalories[day] || 0;
     const breakfastCal = breakfast ? parseCalories(breakfast.calories) : (breakfastManualCalories[day] || 0);
     return mealCals + breakfastCal + extra;
+  };
+
+  const getDayProtein = (day: string): number => {
+    const mealProt = TIMES.reduce((total, time) => {
+      const slotMeals = getMealsForSlot(day, time);
+      return total + slotMeals.reduce((s, pm) => s + parseProtein(pm.meals?.protein), 0);
+    }, 0);
+    const breakfast = getBreakfastForDay(day);
+    const breakfastProt = breakfast ? parseProtein(breakfast.protein) : 0;
+    return mealProt + breakfastProt;
   };
 
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
@@ -599,7 +617,7 @@ export function WeeklyPlanning() {
                 />
               </div>
               <div className="flex-1" />
-              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
                 <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
                   <Flame className="h-2.5 w-2.5 text-orange-500" />
                   {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
@@ -607,6 +625,11 @@ export function WeeklyPlanning() {
                 {dayCalories > 0 && (
                   <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_GOAL - dayCalories > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                     {DAILY_GOAL - dayCalories > 0 ? `reste ${Math.round(DAILY_GOAL - dayCalories)}` : `+${Math.round(dayCalories - DAILY_GOAL)}`}
+                  </span>
+                )}
+                {getDayProtein(day) > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
+                    P {Math.round(getDayProtein(day))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL}</span>
                   </span>
                 )}
               </div>
@@ -711,9 +734,9 @@ export function WeeklyPlanning() {
       })}
 
       {/* Total calorique de la semaine */}
-      <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
+      <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-2">
         <span className="text-sm font-bold text-foreground">Total semaine</span>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-muted-foreground font-medium">
             Moy. {Math.round(weekTotal / 7)} kcal/j
           </span>
@@ -721,6 +744,14 @@ export function WeeklyPlanning() {
             <Flame className="h-4 w-4" />
             {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
           </span>
+          {(() => {
+            const weekProtein = DAYS.reduce((sum, day) => sum + getDayProtein(day), 0);
+            return weekProtein > 0 ? (
+              <span className="flex items-center gap-1 text-xs font-bold text-blue-400">
+                P Moy. {Math.round(weekProtein / 7)}g/j
+              </span>
+            ) : null;
+          })()}
         </div>
       </div>
 
