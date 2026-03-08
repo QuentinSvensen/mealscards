@@ -1000,7 +1000,9 @@ const Index = () => {
                   foodItems={foodItems}
                   allMeals={meals}
                   sortMode={availableSortModes[cat.value] || "manual"}
+                  sortAsc={sortDirections[`available-${cat.value}`] !== false}
                   onToggleSort={() => toggleAvailableSort(cat.value)}
+                  onToggleSortDirection={() => toggleSortDirection(`available-${cat.value}`)}
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
                   onMoveToPossible={async (mealId) => {
