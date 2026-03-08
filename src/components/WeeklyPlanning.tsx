@@ -563,7 +563,7 @@ export function WeeklyPlanning() {
           <div
             key={day}
             ref={isToday_ ? todayRef : undefined}
-            className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
+            className={`rounded-2xl p-2 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
           >
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               <h3
