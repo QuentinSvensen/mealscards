@@ -441,8 +441,8 @@ const Index = () => {
     const asc = sortDirections[`master-${cat}`] !== false; // default asc
     if (mode === "calories") {
       return [...items].sort((a, b) => {
-        const ca = parseFloat((a.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        const cb = parseFloat((b.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+        const ca = getDisplayedMealCalories(a);
+        const cb = getDisplayedMealCalories(b);
         return asc ? ca - cb : cb - ca;
       });
     }
