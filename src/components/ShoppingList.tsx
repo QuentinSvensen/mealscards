@@ -311,9 +311,26 @@ export function ShoppingList() {
         onDrop={(e) => handleDropOnItem(e, item)}
         className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
-        {/* Secondary checkbox OR ambiguous indicator */}
+        {/* Secondary checkbox OR ambiguous indicator (clickable) */}
         {isAmbiguous ? (
-          <span className="text-amber-500 text-sm shrink-0 w-4 h-4 flex items-center justify-center" title="Plusieurs articles correspondent à un ingrédient du menu">❓</span>
+          <button
+            onClick={() => {
+              const newChecked = !item.secondary_checked;
+              toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
+              if (!newChecked) {
+                updateItemQuantity.mutate({ id: item.id, quantity: null });
+                setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+              }
+            }}
+            className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] transition-colors ${
+              item.secondary_checked 
+                ? 'bg-amber-500 border-amber-500 text-white' 
+                : 'border-amber-500/50 text-amber-500 hover:bg-amber-500/10'
+            }`}
+            title="Plusieurs articles correspondent à un ingrédient du menu"
+          >
+            ?
+          </button>
         ) : (
           <Checkbox
             checked={item.secondary_checked}
