@@ -319,12 +319,13 @@ const Index = () => {
       toast({ title: "Données invalides", description: validationError, variant: "destructive" });
       return;
     }
+    const trimmedName = newName.trim();
     if (addTarget === "possible") {
-      addMealToPossibleDirectly.mutate({ name: result.data.name, category: newCategory }, {
+      addMealToPossibleDirectly.mutate({ name: trimmedName, category: newCategory }, {
         onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" }); }
       });
     } else {
-      addMeal.mutate({ name: result.data.name, category: newCategory }, {
+      addMeal.mutate({ name: trimmedName, category: newCategory }, {
         onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté 🎉" }); }
       });
     }
