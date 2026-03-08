@@ -363,6 +363,11 @@ export function ShoppingList() {
           className={`shrink-0 opacity-100 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
 
+        {/* Ambiguous match indicator */}
+        {isAmbiguous && (
+          <span className="text-amber-500 text-xs shrink-0" title="Plusieurs articles correspondent à un ingrédient du menu">❓</span>
+        )}
+
         {/* Nb (content quantity) — small cell before name */}
         {isNbEditing ? (
           <div className="flex items-center gap-0 shrink-0">
