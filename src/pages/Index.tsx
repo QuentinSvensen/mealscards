@@ -302,7 +302,25 @@ const Index = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addTarget, setAddTarget] = useState<"all" | "possible">("all");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  // Persist deduction snapshots in user_preferences for exact rollback across sessions
+  const SNAPSHOT_PREF_KEY = 'deduction_snapshots_v1';
+  const persistedSnapshots = getPreference<Record<string, FoodItem[]>>(SNAPSHOT_PREF_KEY, {});
   const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
+  const snapshotsSynced = useRef(false);
+  useEffect(() => {
+    if (snapshotsSynced.current) return;
+    if (persistedSnapshots && Object.keys(persistedSnapshots).length > 0) {
+      setDeductionSnapshots(persistedSnapshots);
+      snapshotsSynced.current = true;
+    }
+  }, [JSON.stringify(persistedSnapshots)]);
+  const updateSnapshots = (updater: (prev: Record<string, FoodItem[]>) => Record<string, FoodItem[]>) => {
+    setDeductionSnapshots(prev => {
+      const next = updater(prev);
+      setPreference.mutate({ key: SNAPSHOT_PREF_KEY, value: next });
+      return next;
+    });
+  };
   const [masterSourcePmIds, setMasterSourcePmIds] = useState<Set<string>>(new Set());
   const [unParUnSourcePmIds, setUnParUnSourcePmIds] = useState<Set<string>>(new Set());
 
@@ -1237,8 +1255,8 @@ const Index = () => {
                       const expDate = getEarliestIngredientExpiration(meal, foodItems);
                       const result = await moveToPossible.mutateAsync({ mealId, expiration_date: expDate });
                       if (result?.id) {
-                        setDeductionSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
-                      }
+                      updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
+                    }
                     }
                   }}
                   onMovePartialToPossible={async (meal, ratio) => {
@@ -1255,7 +1273,7 @@ const Index = () => {
                       expiration_date: expDate,
                     });
                     if (result?.id) {
-                      setDeductionSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
+                      updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
                     }
                   }}
                   onMoveNameMatchToPossible={async (meal, fi) => {
@@ -1263,7 +1281,7 @@ const Index = () => {
                     await deductNameMatchStock(meal);
                     const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date });
                     if (result?.id) {
-                      setDeductionSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                      updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
                     }
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
@@ -1279,7 +1297,7 @@ const Index = () => {
                     }
                     const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
                     if (pmResult?.id) {
-                      setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                      updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
                     }
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
@@ -1309,7 +1327,7 @@ const Index = () => {
                   const snapshots = deductionSnapshots[id];
                   if (snapshots && snapshots.length > 0) {
                     await restoreIngredientsToStock({} as Meal, snapshots);
-                    setDeductionSnapshots(prev => {
+                    updateSnapshots(prev => {
                       const next = { ...prev };
                       delete next[id];
                       return next;
@@ -2011,31 +2029,35 @@ function compareExpirationWithCounter(
   aCounter: number | null,
   bCounter: number | null
 ): number {
-  const today = new Date(new Date().toDateString());
-
-  // Priority: all cards WITH counter come first, then cards WITHOUT counter
   const aHasCounter = aCounter !== null;
   const bHasCounter = bCounter !== null;
   const aHasDate = !!aDate;
   const bHasDate = !!bDate;
 
-  // Group: 0=has counter (regardless of date), 1=has date only (no counter), 2=nothing
-  const aGroup = aHasCounter ? 0 : aHasDate ? 1 : 2;
-  const bGroup = bHasCounter ? 0 : bHasDate ? 1 : 2;
+  // 0j counters: treat them by expiration date, not as priority counter items
+  const aEffectiveCounter = aHasCounter && aCounter! > 0;
+  const bEffectiveCounter = bHasCounter && bCounter! > 0;
+
+  // Group: 0=has counter >0j, 1=has date (or counter=0j with date), 2=counter=0j without date, 3=nothing
+  const aGroup = aEffectiveCounter ? 0 
+    : (aHasDate ? 1 
+      : (aHasCounter && aCounter === 0 ? 2 : (aHasDate ? 1 : 3)));
+  const bGroup = bEffectiveCounter ? 0 
+    : (bHasDate ? 1 
+      : (bHasCounter && bCounter === 0 ? 2 : (bHasDate ? 1 : 3)));
 
   if (aGroup !== bGroup) return aGroup - bGroup;
 
-  // Both have counter: higher counter first, then by date
+  // Both have effective counter (>0j): higher counter first, then by date
   if (aGroup === 0) {
     if (aCounter !== bCounter) return bCounter! - aCounter!;
-    // Same counter days: sort by date if both have dates
     if (aHasDate && bHasDate) return aDate!.localeCompare(bDate!);
     if (aHasDate) return -1;
     if (bHasDate) return 1;
     return 0;
   }
 
-  // Both have dates (no counter)
+  // Both have dates (including 0j counter items sorted by their date)
   if (aGroup === 1) {
     return aDate!.localeCompare(bDate!);
   }
