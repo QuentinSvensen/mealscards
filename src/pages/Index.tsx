@@ -820,7 +820,10 @@ const Index = () => {
         const parts: string[] = [];
         if (item.quantity) parts.push(`qte=${item.quantity}`);
         if (item.brand) parts.push(`marque=${item.brand}`);
+        if (item.content_quantity) parts.push(`cqte=${item.content_quantity}`);
+        if (item.content_quantity_type) parts.push(`ctype=${item.content_quantity_type}`);
         if (item.checked) parts.push(`coche=1`);
+        if (item.secondary_checked) parts.push(`coche2=1`);
         lines.push(parts.length > 0 ? `${item.name} (${parts.join('; ')})` : item.name);
       }
     }
@@ -831,7 +834,10 @@ const Index = () => {
         const parts: string[] = [];
         if (item.quantity) parts.push(`qte=${item.quantity}`);
         if (item.brand) parts.push(`marque=${item.brand}`);
+        if (item.content_quantity) parts.push(`cqte=${item.content_quantity}`);
+        if (item.content_quantity_type) parts.push(`ctype=${item.content_quantity_type}`);
         if (item.checked) parts.push(`coche=1`);
+        if (item.secondary_checked) parts.push(`coche2=1`);
         lines.push(parts.length > 0 ? `${item.name} (${parts.join('; ')})` : item.name);
       }
     }
@@ -878,7 +884,9 @@ const Index = () => {
           const params: Record<string, string> = {};
           paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
           await (sb as any).from('shopping_items').insert({
-            name: rawName, group_id: currentGroupId, quantity: params.qte || null, brand: params.marque || null, checked: params.coche === '1', sort_order: itemOrder++
+            name: rawName, group_id: currentGroupId, quantity: params.qte || null, brand: params.marque || null,
+            content_quantity: params.cqte || null, content_quantity_type: params.ctype || null,
+            checked: params.coche === '1', secondary_checked: params.coche2 === '1', sort_order: itemOrder++
           });
           count++;
         }
