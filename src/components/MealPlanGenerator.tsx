@@ -11,6 +11,7 @@ import { normalizeKey, parseIngredientLineRaw, smartFoodContains } from "@/lib/i
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
 const MENU_SORT_KEY = "menu_generator_sort_v1";
+const MENU_GRIMPE_COUNT_KEY = "menu_generator_grimpe_count_v1";
 
 type MenuSortMode = "manual" | "calories" | "alphabetical";
 
