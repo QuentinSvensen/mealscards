@@ -5,39 +5,13 @@ import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "luc
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Separator } from "@/components/ui/separator";
+import { normalizeKey, parseIngredientLine } from "@/lib/ingredientUtils";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
 const MENU_SORT_KEY = "menu_generator_sort_v1";
 
 type MenuSortMode = "manual" | "calories" | "alphabetical";
-
-function parseIngredientLine(raw: string) {
-  const trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: 0, count: 0, name: "", display: "" };
-
-  const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
-  const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) {
-    return { qty: parseFloat(matchFull[1].replace(",", ".")), count: parseFloat(matchFull[2].replace(",", ".")), name: matchFull[3].trim(), display: trimmed };
-  }
-
-  const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) {
-    return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: matchUnit[2].trim(), display: trimmed };
-  }
-
-  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) {
-    return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: matchNum[2].trim(), display: trimmed };
-  }
-
-  return { qty: 0, count: 0, name: trimmed, display: trimmed };
-}
-
-function normalizeKey(name: string) {
-  return name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/, "").trim();
-}
 
 function keyMatch(a: string, b: string): boolean {
   return normalizeKey(a) === normalizeKey(b);
