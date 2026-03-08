@@ -224,12 +224,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   let sortedIsMealItems = [...isMealItems];
 
   if (sortMode === "calories" || sortMode === "protein") {
-    const field = sortMode === "calories" ? "calories" : "protein";
-    const parseVal = (val: string | null) => parseFloat((val || "0").replace(/[^0-9.]/g, "")) || 0;
     const dir = sortAsc ? 1 : -1;
-    sortedAvailable.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
-    sortedNameMatches.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
-    sortedIsMealItems.sort((a, b) => dir * (parseVal((a as any)[field]) - parseVal((b as any)[field])));
+
+    if (sortMode === "calories") {
+      sortedAvailable.sort((a, b) => dir * ((getDisplayedCalories(a.meal) ?? 0) - (getDisplayedCalories(b.meal) ?? 0)));
+      sortedNameMatches.sort((a, b) => dir * ((getDisplayedCalories(a.meal) ?? 0) - (getDisplayedCalories(b.meal) ?? 0)));
+      sortedIsMealItems.sort((a, b) => dir * (parseMacroValue(a.calories) - parseMacroValue(b.calories)));
+    } else {
+      sortedAvailable.sort((a, b) => dir * (parseMacroValue(a.meal.protein) - parseMacroValue(b.meal.protein)));
+      sortedNameMatches.sort((a, b) => dir * (parseMacroValue(a.meal.protein) - parseMacroValue(b.meal.protein)));
+      sortedIsMealItems.sort((a, b) => dir * (parseMacroValue(a.protein) - parseMacroValue(b.protein)));
+    }
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
       const aExp = getEarliestIngredientExpiration(a.meal, foodItems);
