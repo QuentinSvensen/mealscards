@@ -562,6 +562,9 @@ export function MealPlanGenerator() {
                   {!item.matched && (
                     <span className="text-amber-500 text-xs" title="Pas trouvé dans Courses-Liste">❓</span>
                   )}
+                  {item.matched && item.ambiguous && (
+                    <span className="text-blue-500 text-xs" title="Plusieurs articles correspondent, choix à faire dans Courses-Liste">❓</span>
+                  )}
                   {item.grams > 0 && (
                     <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
                       {Math.round(item.grams)}g
