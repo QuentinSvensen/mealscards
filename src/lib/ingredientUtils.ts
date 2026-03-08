@@ -100,6 +100,23 @@ export function parseIngredientLine(ing: string): ParsedIngredient {
   return { qty: 0, count: 0, name: normalizeForMatch(trimmed) };
 }
 
+/** Same as parseIngredientLine but preserves original name casing in rawName */
+export function parseIngredientLineRaw(ing: string): ParsedIngredientRaw {
+  const trimmed = ing.trim().replace(/\s+/g, " ");
+  const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
+
+  const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
+  if (matchFull) return { qty: parseFloat(matchFull[1].replace(",", ".")), count: parseFloat(matchFull[2].replace(",", ".")), name: normalizeForMatch(matchFull[3]), rawName: matchFull[3].trim() };
+
+  const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
+  if (matchUnit) return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[2]), rawName: matchUnit[2].trim() };
+
+  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+  if (matchNum) return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]), rawName: matchNum[2].trim() };
+
+  return { qty: 0, count: 0, name: normalizeForMatch(trimmed), rawName: trimmed };
+}
+
 /**
  * Parse ingredient string into OR groups.
  * "100g poulet | 80g dinde, 50g salade" → [[{poulet}, {dinde}], [{salade}]]
