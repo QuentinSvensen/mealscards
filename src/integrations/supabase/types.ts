@@ -24,9 +24,11 @@ export type Database = {
           grams: string | null
           id: string
           is_dry: boolean
+          is_indivisible: boolean
           is_infinite: boolean
           is_meal: boolean
           name: string
+          protein: string | null
           quantity: number | null
           sort_order: number
           storage_type: string
@@ -41,9 +43,11 @@ export type Database = {
           grams?: string | null
           id?: string
           is_dry?: boolean
+          is_indivisible?: boolean
           is_infinite?: boolean
           is_meal?: boolean
           name: string
+          protein?: string | null
           quantity?: number | null
           sort_order?: number
           storage_type?: string
@@ -58,9 +62,11 @@ export type Database = {
           grams?: string | null
           id?: string
           is_dry?: boolean
+          is_indivisible?: boolean
           is_infinite?: boolean
           is_meal?: boolean
           name?: string
+          protein?: string | null
           quantity?: number | null
           sort_order?: number
           storage_type?: string
@@ -82,6 +88,7 @@ export type Database = {
           name: string
           oven_minutes: string | null
           oven_temp: string | null
+          protein: string | null
           sort_order: number
           user_id: string | null
         }
@@ -98,6 +105,7 @@ export type Database = {
           name: string
           oven_minutes?: string | null
           oven_temp?: string | null
+          protein?: string | null
           sort_order?: number
           user_id?: string | null
         }
@@ -114,6 +122,7 @@ export type Database = {
           name?: string
           oven_minutes?: string | null
           oven_temp?: string | null
+          protein?: string | null
           sort_order?: number
           user_id?: string | null
         }
