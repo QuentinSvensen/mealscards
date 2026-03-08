@@ -26,7 +26,7 @@ type DragPayload =
 
 export function ShoppingList() {
   const {
-    groups, ungroupedItems,
+    groups, ungroupedItems, items,
     addGroup, renameGroup, deleteGroup,
     addItem, toggleItem, updateItemQuantity, updateItemBrand, updateItemContentQuantity, toggleSecondaryCheck, updateItemContentQuantityType, renameItem, deleteItem,
     getItemsByGroup, reorderItems, reorderGroups,
@@ -34,6 +34,52 @@ export function ShoppingList() {
   const isMobile = useIsMobile();
   const { getPreference, setPreference } = usePreferences();
 
+  // Compute which items have ambiguous partial matches with menu ingredients
+  const ambiguousItemIds = useMemo(() => {
+    const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+    const ingredientKeys = Object.keys(needsRaw);
+    if (ingredientKeys.length === 0) return new Set<string>();
+
+    const ambiguous = new Set<string>();
+
+    // Helper for fuzzy contains with trailing 'e' tolerance
+    const fuzzyContains = (a: string, b: string): boolean => {
+      if (a.includes(b) || b.includes(a)) return true;
+      const stripE = (s: string) => s.replace(/e+$/, '');
+      const wordsA = a.split(/\s+/).map(stripE).join(' ');
+      const wordsB = b.split(/\s+/).map(stripE).join(' ');
+      return wordsA.includes(wordsB) || wordsB.includes(wordsA);
+    };
+
+    // For each ingredient, find all matching shopping items
+    for (const ingKey of ingredientKeys) {
+      const ingNorm = normalizeForMatch(ingKey);
+      const matchingItems: string[] = [];
+      let hasExactMatch = false;
+
+      for (const si of items) {
+        const siNorm = normalizeForMatch(si.name);
+        // Exact match (normalized keys equal)
+        const siKey = siNorm.replace(/s$/, '');
+        const ingKeyNorm = ingNorm.replace(/s$/, '');
+        if (siKey === ingKeyNorm) {
+          hasExactMatch = true;
+          // Don't mark as ambiguous if exact match
+        } else if (fuzzyContains(siNorm, ingNorm)) {
+          matchingItems.push(si.id);
+        }
+      }
+
+      // If no exact match and multiple partial matches, mark all as ambiguous
+      if (!hasExactMatch && matchingItems.length > 1) {
+        matchingItems.forEach(id => ambiguous.add(id));
+      }
+      // If no exact match and only one partial match, that's fine (not ambiguous)
+      // If there's partial match but also exact match exists, only exact is used
+    }
+
+    return ambiguous;
+  }, [items, getPreference]);
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
