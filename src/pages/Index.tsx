@@ -920,9 +920,11 @@ const Index = () => {
         </div>
         {mainPage === "courses" && (
           <div>
-            <div className="flex items-center gap-1 mb-3 bg-muted rounded-full p-0.5 max-w-xs mx-auto">
-              <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🛒 Liste</button>
-              <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
+            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm pb-2 pt-1">
+              <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 max-w-xs mx-auto">
+                <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🛒 Liste</button>
+                <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
+              </div>
             </div>
             <div className={coursesTab === "liste" ? "" : "hidden"}><ShoppingList /></div>
             <div className={coursesTab === "menu" ? "" : "hidden"}><MealPlanGenerator /></div>
