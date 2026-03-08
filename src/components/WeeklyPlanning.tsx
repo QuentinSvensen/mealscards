@@ -664,7 +664,7 @@ export function WeeklyPlanning() {
                     }}
                     onDragLeave={() => setDragOverSlot(null)}
                     onDrop={(e) => handleDrop(e, day, time)}
-                    className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+                    className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1.5 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
                   >
                     <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                       {TIME_LABELS[time]}
