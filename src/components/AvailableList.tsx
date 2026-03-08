@@ -634,14 +634,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
                 const baseCmp = compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
                 if (baseCmp !== 0) return baseCmp;
 
-                // Same non-zero counter + same date => calories ascending
-                const sameCounter = a.sortCounter !== null && b.sortCounter !== null && a.sortCounter === b.sortCounter;
-                const sameDate = (a.sortDate ?? null) === (b.sortDate ?? null);
-                if (sameCounter && a.sortCounter !== 0 && sameDate) {
-                  if (a.sortCalories !== null && b.sortCalories !== null && a.sortCalories !== b.sortCalories) return a.sortCalories - b.sortCalories;
-                  if (a.sortCalories !== null && b.sortCalories === null) return -1;
-                  if (a.sortCalories === null && b.sortCalories !== null) return 1;
-                }
+                // Same group + same date => calories ascending as tiebreaker
+                if (a.sortCalories !== null && b.sortCalories !== null && a.sortCalories !== b.sortCalories) return a.sortCalories - b.sortCalories;
+                if (a.sortCalories !== null && b.sortCalories === null) return -1;
+                if (a.sortCalories === null && b.sortCalories !== null) return 1;
 
                 return getUnifiedItemName(a).localeCompare(getUnifiedItemName(b));
               });

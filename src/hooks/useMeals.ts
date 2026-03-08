@@ -471,7 +471,15 @@ export function useMeals(options?: { enabled?: boolean }) {
       }
 
       if (aGroup === 1) {
-        return a.expiration_date!.localeCompare(b.expiration_date!);
+        const dateCmp = a.expiration_date!.localeCompare(b.expiration_date!);
+        if (dateCmp !== 0) return dateCmp;
+        // Same date without counter: sort by calories ascending
+        const aCal = extractSortableCalories(a);
+        const bCal = extractSortableCalories(b);
+        if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
+        if (aCal !== null && bCal === null) return -1;
+        if (aCal === null && bCal !== null) return 1;
+        return (a.meals?.name ?? '').localeCompare(b.meals?.name ?? '');
       }
 
       return 0;
