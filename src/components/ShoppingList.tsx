@@ -37,16 +37,6 @@ export function ShoppingList() {
 
   const { items: foodItems } = useFoodItems();
 
-  // Default color for non-paired ambiguous items (white)
-  const defaultAmbiguousColor = {
-    bg: 'bg-background',
-    border: 'border-border',
-    borderLight: 'border-border',
-    text: 'text-foreground',
-    hover: 'hover:bg-muted/50',
-    checkedText: 'text-foreground',
-  };
-
   // Color palette for paired ambiguous groups
   const ambiguousColors = [
     { bg: 'bg-blue-500', border: 'border-blue-500', borderLight: 'border-blue-500/50', text: 'text-blue-500', hover: 'hover:bg-blue-500/10', checkedText: 'text-white' },
