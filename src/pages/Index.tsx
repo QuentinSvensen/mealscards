@@ -2,10 +2,6 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { Chronometer } from "@/components/Chronometer";
-import { MasterList } from "@/components/MasterList";
-import { PossibleList } from "@/components/PossibleList";
-import { AvailableList } from "@/components/AvailableList";
-import { UnParUnSection } from "@/components/UnParUnSection";
 import { PinLock } from "@/components/PinLock";
 
 import { useNavigate, useLocation } from "react-router-dom";
@@ -15,9 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { MealList } from "@/components/MealList";
-import { MealCard } from "@/components/MealCard";
-import { PossibleMealCard } from "@/components/PossibleMealCard";
 import { useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
 
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
@@ -47,6 +40,11 @@ const LazyMealPlanGenerator = lazy(() => import("@/components/MealPlanGenerator"
 const LazyFoodItems = lazy(() => import("@/components/FoodItems").then((m) => ({ default: m.FoodItems })));
 const LazyFoodItemsSuggestions = lazy(() => import("@/components/FoodItemsSuggestions").then((m) => ({ default: m.FoodItemsSuggestions })));
 const LazyWeeklyPlanning = lazy(() => import("@/components/WeeklyPlanning").then((m) => ({ default: m.WeeklyPlanning })));
+
+const LazyMasterList = lazy(() => import("@/components/MasterList").then((m) => ({ default: m.MasterList })));
+const LazyPossibleList = lazy(() => import("@/components/PossibleList").then((m) => ({ default: m.PossibleList })));
+const LazyAvailableList = lazy(() => import("@/components/AvailableList").then((m) => ({ default: m.AvailableList })));
+const LazyUnParUnSection = lazy(() => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection })));
 
 const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
@@ -971,7 +969,7 @@ const Index = () => {
           <TabsContent key={cat.value} value={cat.value}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div className="flex flex-col gap-3 sm:gap-4 order-1">
-                    <MasterList
+                    <LazyMasterList
                   category={cat}
                   meals={getSortedMaster(cat.value)}
                   foodItems={foodItems}
@@ -999,7 +997,7 @@ const Index = () => {
                   onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
                   onReorder={(from, to) => handleReorderMeals(cat.value, from, to)} />
 
-                    <AvailableList
+                    <LazyAvailableList
                   category={cat}
                   meals={getMealsByCategory(cat.value)}
                   foodItems={foodItems}
@@ -1062,7 +1060,7 @@ const Index = () => {
 
                   </div>
                   <div className="order-3 md:order-2">
-                <PossibleList
+                <LazyPossibleList
                 category={cat}
                 items={getSortedPossible(cat.value)}
                 sortMode={sortModes[cat.value] || "manual"}
@@ -1187,7 +1185,7 @@ const Index = () => {
 
                 {cat.value === "plat" && (
                   <div className="order-2 md:order-3 md:col-span-2">
-                    <UnParUnSection
+                    <LazyUnParUnSection
                       category={cat}
                       foodItems={foodItems}
                       allMeals={meals}
