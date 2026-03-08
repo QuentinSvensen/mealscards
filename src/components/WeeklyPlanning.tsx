@@ -362,6 +362,8 @@ export function WeeklyPlanning() {
   const DAILY_PROTEIN_GOAL_PREF = getPreference<number>('planning_protein_goal', DAILY_PROTEIN_GOAL);
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState("");
+  const [editingProteinGoal, setEditingProteinGoal] = useState(false);
+  const [proteinGoalInput, setProteinGoalInput] = useState("");
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
@@ -772,9 +774,31 @@ export function WeeklyPlanning() {
                   </span>
                 )}
                 {getDayProtein(day) > 0 && (
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
+                  <button
+                    onClick={() => { setEditingProteinGoal(true); setProteinGoalInput(String(DAILY_PROTEIN_GOAL_PREF)); }}
+                    className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap hover:bg-blue-500/20 transition-colors cursor-pointer"
+                    title="Cliquer pour modifier l'objectif protéines"
+                  >
                     🍗 {Math.round(getDayProtein(day))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL_PREF}</span>
-                  </span>
+                  </button>
+                )}
+                {editingProteinGoal && (
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      type="number"
+                      value={proteinGoalInput}
+                      onChange={(e) => setProteinGoalInput(e.target.value)}
+                      onBlur={() => {
+                        const val = parseInt(proteinGoalInput);
+                        if (val && val > 0) setPreference.mutate({ key: 'planning_protein_goal', value: val });
+                        setEditingProteinGoal(false);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingProteinGoal(false); }}
+                      className="w-16 h-5 text-[10px] bg-muted border border-border rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <span className="text-[9px] text-muted-foreground">🍗/j</span>
+                  </div>
                 )}
               </div>
             </div>
