@@ -429,6 +429,10 @@ export function useMeals(options?: { enabled?: boolean }) {
 
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
+        // Same counter days → sort by calories ascending
+        const aCal = computeIngredientCalories(a.meals?.ingredients) ?? (a.meals?.calories ? Number(a.meals.calories) : Infinity);
+        const bCal = computeIngredientCalories(b.meals?.ingredients) ?? (b.meals?.calories ? Number(b.meals.calories) : Infinity);
+        if (aCal !== bCal) return aCal - bCal;
         if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
         if (aHasDate) return -1;
         if (bHasDate) return 1;
