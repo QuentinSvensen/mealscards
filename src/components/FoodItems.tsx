@@ -600,8 +600,12 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             <Flame className="h-2.5 w-2.5" />+ calories
           </button>
         )}
+        {!item.protein && editing !== "protein" && (
+          <button onClick={() => startEdit("protein")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+            P + protéines
+          </button>
+        )}
 
-        {/* Expiration date picker */}
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
             <button className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${
