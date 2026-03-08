@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { colorFromName } from "@/lib/foodColors";
+import { computeIngredientCalories } from "@/lib/ingredientUtils";
 import { toast } from "@/hooks/use-toast";
 
 export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
