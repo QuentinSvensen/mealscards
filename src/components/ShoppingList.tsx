@@ -374,7 +374,7 @@ export function ShoppingList() {
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
                 item.secondary_checked 
-                  ? `${color.bg} ${color.border} text-white` 
+                  ? `${color.bg} ${color.border} ${color.checkedText}` 
                   : `${color.borderLight} ${color.text} ${color.hover}`
               }`}
               title="Plusieurs articles correspondent à un ingrédient du menu"
