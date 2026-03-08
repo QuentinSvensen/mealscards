@@ -69,7 +69,12 @@ export function MealPlanGenerator() {
   const persistedNeeds = getPreference<Record<string, { grams: number; count: number }>>(MENU_NEEDS_KEY, {});
 
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
+  const persistedGrimpeCount = getPreference<number>(MENU_GRIMPE_COUNT_KEY, 4);
+  const [grimpeCount, setGrimpeCount] = useState<number>(4);
 
+  useEffect(() => {
+    if (typeof persistedGrimpeCount === 'number') setGrimpeCount(persistedGrimpeCount);
+  }, [persistedGrimpeCount]);
   useEffect(() => {
     if (persistedIds.length === 0) return;
     setSelectedMealIds((prev) => (prev.length === 0 ? persistedIds : prev));
