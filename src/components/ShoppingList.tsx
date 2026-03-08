@@ -113,6 +113,9 @@ export function ShoppingList() {
     return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
   }, [items, getPreference, isToujoursPresent]);
 
+  // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
+  const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
+
   // An item shows the colored ❓ if it's in an ambiguous group AND either:
   // - no item in the group is confirmed yet, OR
   // - this item IS the confirmed one (shows as green ✓ but still handled by ambiguous logic)
@@ -127,8 +130,6 @@ export function ShoppingList() {
     }
     return visibleSet;
   }, [ambiguousItemData, confirmedAmbiguous, dismissedAmbiguous]);
-  // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
-  const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
