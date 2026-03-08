@@ -18,15 +18,7 @@ function keyMatch(a: string, b: string): boolean {
   return normalizeKey(a) === normalizeKey(b);
 }
 
-/** Fuzzy contains check: a contains b or b contains a, with tolerance for trailing 'e' differences */
-function fuzzyContains(a: string, b: string): boolean {
-  if (a.includes(b) || b.includes(a)) return true;
-  // Handle "hache" vs "hachee" - strip trailing 'e' for comparison
-  const stripE = (s: string) => s.replace(/e+$/, '');
-  const wordsA = a.split(/\s+/).map(stripE).join(' ');
-  const wordsB = b.split(/\s+/).map(stripE).join(' ');
-  return wordsA.includes(wordsB) || wordsB.includes(wordsA);
-}
+/** @deprecated Use smartFoodContains from ingredientUtils instead */
 
 function parseStoredIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
