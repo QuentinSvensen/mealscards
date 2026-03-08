@@ -258,6 +258,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                   <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
                     <Flame className="mr-2 h-4 w-4" /> Calories
                   </DropdownMenuItem>
+                  {onUpdateProtein && (
+                    <DropdownMenuItem onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}>
+                      <Weight className="mr-2 h-4 w-4" /> Protéines
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
                     <Weight className="mr-2 h-4 w-4" /> Grammes
                   </DropdownMenuItem>
