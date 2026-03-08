@@ -276,11 +276,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                     .split(/[,\n]+/)
                     .filter(Boolean)
                     .map((s: string) => s.trim())
-                    .map((s: string) => {
-                      const qtyMatch = s.match(/\{(\d+(?:[.,]\d+)?)\}\s*/);
-                      const name = s.replace(/\{\d+(?:[.,]\d+)?\}\s*/g, "").trim();
-                      return qtyMatch ? `${qtyMatch[1]}g ${name}` : name;
-                    })
+                    .map((s: string) => s.replace(/\{\d+(?:[.,]\d+)?\}\s*/g, "").trim())
                     .map((item, i, arr) => (
                       <span key={i} className="whitespace-nowrap">
                         {item}{i < arr.length - 1 ? " •" : ""}
