@@ -591,11 +591,20 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
 
             // manual or calories: use unified items
             const unifiedItems = buildUnifiedItems();
+            const firstIsMealIdx2 = unifiedItems.findIndex(u => u.type === 'isMeal');
             return unifiedItems.map((u, idx) => {
-              if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
-              if (u.type === 'nm') return renderNameMatchCard(u.nm, u.nmIdx, idx);
-              if (u.type === 'partial') return renderPartialCard(u.item, idx);
-              return renderAvailableCard(u.item, idx);
+              const sep = (idx === firstIsMealIdx2 && firstIsMealIdx2 > 0) ? (
+                <div key={`sep-ismeal-m`} className="flex items-center gap-2 my-2">
+                  <Separator className="flex-1" />
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>
+                  <Separator className="flex-1" />
+                </div>
+              ) : null;
+              const card = u.type === 'isMeal' ? renderIsMealCard(u.fi, idx)
+                : u.type === 'nm' ? renderNameMatchCard(u.nm, u.nmIdx, idx)
+                : u.type === 'partial' ? renderPartialCard(u.item, idx)
+                : renderAvailableCard(u.item, idx);
+              return sep ? <>{sep}{card}</> : card;
             });
           })()}
 
