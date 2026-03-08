@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
 import { usePreferences } from "@/hooks/usePreferences";
 import { toast } from "@/hooks/use-toast";
-import { normalizeForMatch } from "@/lib/ingredientUtils";
+import { normalizeForMatch, normalizeKey, smartFoodContains } from "@/lib/ingredientUtils";
+import { useFoodItems } from "@/components/FoodItems";
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
 const shoppingItemSchema = z.object({
@@ -34,7 +35,12 @@ export function ShoppingList() {
   const isMobile = useIsMobile();
   const { getPreference, setPreference } = usePreferences();
 
-  // Color palette for ambiguous groups
+  const { items: foodItems } = useFoodItems();
+
+  // Default color for non-paired ambiguous items (light green)
+  const defaultAmbiguousColor = { bg: 'bg-green-300', border: 'border-green-300', borderLight: 'border-green-300/50', text: 'text-green-400', hover: 'hover:bg-green-300/10' };
+
+  // Color palette for paired ambiguous groups
   const ambiguousColors = [
     { bg: 'bg-blue-500', border: 'border-blue-500', borderLight: 'border-blue-500/50', text: 'text-blue-500', hover: 'hover:bg-blue-500/10' },
     { bg: 'bg-purple-500', border: 'border-purple-500', borderLight: 'border-purple-500/50', text: 'text-purple-500', hover: 'hover:bg-purple-500/10' },
@@ -46,7 +52,31 @@ export function ShoppingList() {
     { bg: 'bg-sky-500', border: 'border-sky-500', borderLight: 'border-sky-500/50', text: 'text-sky-500', hover: 'hover:bg-sky-500/10' },
   ];
 
+  // Build set of "Toujours présent" food item keys
+  const toujoursFoodKeys = useMemo(() => {
+    return new Set(
+      foodItems.filter(fi => fi.storage_type === 'toujours').map(fi => normalizeKey(fi.name))
+    );
+  }, [foodItems]);
+
+  // Check if a shopping item matches a "Toujours présent" food item (smart matching)
+  const isToujoursPresent = useMemo(() => {
+    const result = new Set<string>();
+    if (toujoursFoodKeys.size === 0) return result;
+    for (const si of items) {
+      const siKey = normalizeKey(si.name);
+      for (const tjKey of toujoursFoodKeys) {
+        if (siKey === tjKey || smartFoodContains(si.name, tjKey)) {
+          result.add(si.id);
+          break;
+        }
+      }
+    }
+    return result;
+  }, [items, toujoursFoodKeys]);
+
   // Compute which items have ambiguous partial matches with menu ingredients + their color group
+  // ambiguousItemData: Map<itemId, colorIndex | -1 for default green>
   const ambiguousItemData = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
@@ -55,43 +85,39 @@ export function ShoppingList() {
     const itemToGroup = new Map<string, number>();
     let colorIndex = 0;
 
-    // Helper for fuzzy contains with trailing 'e' tolerance
-    const fuzzyContains = (a: string, b: string): boolean => {
-      if (a.includes(b) || b.includes(a)) return true;
-      const stripE = (s: string) => s.replace(/e+$/, '');
-      const wordsA = a.split(/\s+/).map(stripE).join(' ');
-      const wordsB = b.split(/\s+/).map(stripE).join(' ');
-      return wordsA.includes(wordsB) || wordsB.includes(wordsA);
-    };
-
     // For each ingredient, find all matching shopping items
     for (const ingKey of ingredientKeys) {
-      const ingNorm = normalizeForMatch(ingKey);
       const matchingItems: string[] = [];
       let hasExactMatch = false;
 
       for (const si of items) {
-        const siNorm = normalizeForMatch(si.name);
-        // Exact match (normalized keys equal)
-        const siKey = siNorm.replace(/s$/, '');
-        const ingKeyNorm = ingNorm.replace(/s$/, '');
+        // Skip "Toujours présent" items
+        if (isToujoursPresent.has(si.id)) continue;
+        const siKey = normalizeKey(si.name);
+        const ingKeyNorm = normalizeKey(ingKey);
         if (siKey === ingKeyNorm) {
           hasExactMatch = true;
-        } else if (fuzzyContains(siNorm, ingNorm)) {
+        } else if (smartFoodContains(si.name, ingKey)) {
           matchingItems.push(si.id);
         }
       }
 
-      // If no exact match and multiple partial matches, assign same color to all
-      if (!hasExactMatch && matchingItems.length > 1) {
-        const groupColor = colorIndex % ambiguousColors.length;
-        matchingItems.forEach(id => itemToGroup.set(id, groupColor));
-        colorIndex++;
+      // If no exact match and has partial matches → ambiguous
+      if (!hasExactMatch && matchingItems.length > 0) {
+        if (matchingItems.length > 1) {
+          // Multiple matches → same color for the group
+          const groupColor = colorIndex % ambiguousColors.length;
+          matchingItems.forEach(id => itemToGroup.set(id, groupColor));
+          colorIndex++;
+        } else {
+          // Single match but no exact → default green (-1)
+          matchingItems.forEach(id => itemToGroup.set(id, -1));
+        }
       }
     }
 
     return itemToGroup;
-  }, [items, getPreference]);
+  }, [items, getPreference, isToujoursPresent]);
 
   const ambiguousItemIds = useMemo(() => new Set(ambiguousItemData.keys()), [ambiguousItemData]);
   const [newGroupName, setNewGroupName] = useState("");
@@ -218,7 +244,7 @@ export function ShoppingList() {
   const handleAddGroup = () => {
     const result = shoppingGroupSchema.safeParse({ name: newGroupName });
     if (!result.success) {
-      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+      toast({ title: "Données invalides", description: result.error.issues[0].message, variant: "destructive" });
       return;
     }
     addGroup.mutate(result.data.name);
@@ -327,8 +353,8 @@ export function ShoppingList() {
       >
         {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
         {isAmbiguous ? (() => {
-          const colorIdx = ambiguousItemData.get(item.id) ?? 0;
-          const color = ambiguousColors[colorIdx];
+          const colorIdx = ambiguousItemData.get(item.id) ?? -1;
+          const color = colorIdx === -1 ? defaultAmbiguousColor : ambiguousColors[colorIdx];
           return (
             <button
               onClick={() => {

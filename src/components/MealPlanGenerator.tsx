@@ -6,7 +6,7 @@ import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "luc
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Separator } from "@/components/ui/separator";
-import { normalizeKey, normalizeForMatch, parseIngredientLine } from "@/lib/ingredientUtils";
+import { normalizeKey, normalizeForMatch, parseIngredientLine, smartFoodContains } from "@/lib/ingredientUtils";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
@@ -18,15 +18,7 @@ function keyMatch(a: string, b: string): boolean {
   return normalizeKey(a) === normalizeKey(b);
 }
 
-/** Fuzzy contains check: a contains b or b contains a, with tolerance for trailing 'e' differences */
-function fuzzyContains(a: string, b: string): boolean {
-  if (a.includes(b) || b.includes(a)) return true;
-  // Handle "hache" vs "hachee" - strip trailing 'e' for comparison
-  const stripE = (s: string) => s.replace(/e+$/, '');
-  const wordsA = a.split(/\s+/).map(stripE).join(' ');
-  const wordsB = b.split(/\s+/).map(stripE).join(' ');
-  return wordsA.includes(wordsB) || wordsB.includes(wordsA);
-}
+
 
 function parseStoredIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -146,12 +138,13 @@ export function MealPlanGenerator() {
       if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) continue;
 
       const itemKey = normalizeKey(item.name);
-      const itemNorm = normalizeForMatch(item.name);
 
       for (const [needKey, need] of needsMap) {
-        // Exact key match OR fuzzy contains match (e.g. "viande hache 5" contains "viande hachee")
-        const needNorm = normalizeForMatch(needKey);
-        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || fuzzyContains(itemNorm, needNorm);
+        // Exact key match OR smart contains match (e.g. "viande hache 5" matches "viande hachee")
+        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || smartFoodContains(item.name, needKey);
+        if (!isMatch) continue;
+        // Skip items matching "Toujours présent" food items
+        if (toujoursFoodKeys.has(itemKey) || [...toujoursFoodKeys].some(tjk => smartFoodContains(item.name, tjk))) continue;
         if (!isMatch) continue;
 
         const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
@@ -353,7 +346,7 @@ export function MealPlanGenerator() {
       for (const si of shoppingItems) {
         if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
         const siNorm = normalizeForMatch(si.name);
-        if (fuzzyContains(siNorm, ingNorm)) {
+        if (smartFoodContains(si.name, ingNorm)) {
           item.matched = true;
           break;
         }
