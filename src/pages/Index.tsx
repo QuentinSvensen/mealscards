@@ -36,16 +36,26 @@ import {
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
 } from "@/lib/stockUtils";
 
-const LazyShoppingList = lazy(() => import("@/components/ShoppingList").then((m) => ({ default: m.ShoppingList })));
-const LazyMealPlanGenerator = lazy(() => import("@/components/MealPlanGenerator").then((m) => ({ default: m.MealPlanGenerator })));
-const LazyFoodItems = lazy(() => import("@/components/FoodItems").then((m) => ({ default: m.FoodItems })));
-const LazyFoodItemsSuggestions = lazy(() => import("@/components/FoodItemsSuggestions").then((m) => ({ default: m.FoodItemsSuggestions })));
-const LazyWeeklyPlanning = lazy(() => import("@/components/WeeklyPlanning").then((m) => ({ default: m.WeeklyPlanning })));
+// Lazy component factories (for preloading)
+const importShoppingList = () => import("@/components/ShoppingList").then((m) => ({ default: m.ShoppingList }));
+const importMealPlanGenerator = () => import("@/components/MealPlanGenerator").then((m) => ({ default: m.MealPlanGenerator }));
+const importFoodItems = () => import("@/components/FoodItems").then((m) => ({ default: m.FoodItems }));
+const importFoodItemsSuggestions = () => import("@/components/FoodItemsSuggestions").then((m) => ({ default: m.FoodItemsSuggestions }));
+const importWeeklyPlanning = () => import("@/components/WeeklyPlanning").then((m) => ({ default: m.WeeklyPlanning }));
+const importMasterList = () => import("@/components/MasterList").then((m) => ({ default: m.MasterList }));
+const importPossibleList = () => import("@/components/PossibleList").then((m) => ({ default: m.PossibleList }));
+const importAvailableList = () => import("@/components/AvailableList").then((m) => ({ default: m.AvailableList }));
+const importUnParUnSection = () => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection }));
 
-const LazyMasterList = lazy(() => import("@/components/MasterList").then((m) => ({ default: m.MasterList })));
-const LazyPossibleList = lazy(() => import("@/components/PossibleList").then((m) => ({ default: m.PossibleList })));
-const LazyAvailableList = lazy(() => import("@/components/AvailableList").then((m) => ({ default: m.AvailableList })));
-const LazyUnParUnSection = lazy(() => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection })));
+const LazyShoppingList = lazy(importShoppingList);
+const LazyMealPlanGenerator = lazy(importMealPlanGenerator);
+const LazyFoodItems = lazy(importFoodItems);
+const LazyFoodItemsSuggestions = lazy(importFoodItemsSuggestions);
+const LazyWeeklyPlanning = lazy(importWeeklyPlanning);
+const LazyMasterList = lazy(importMasterList);
+const LazyPossibleList = lazy(importPossibleList);
+const LazyAvailableList = lazy(importAvailableList);
+const LazyUnParUnSection = lazy(importUnParUnSection);
 
 const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
@@ -93,13 +103,34 @@ const Index = () => {
   const setMainPage = (page: MainPage) => navigate(PAGE_TO_ROUTE[page]);
 
   const unlocked = !!session;
-  const pageNeedsMealsData = unlocked && mainPage !== "courses";
-  const pageNeedsIndexFoodData = unlocked && mainPage !== "courses";
-  const pageNeedsIndexShoppingData = unlocked && mainPage !== "courses";
-  const pageNeedsIndexPreferences = unlocked && mainPage !== "courses";
 
-  const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems({ enabled: pageNeedsIndexFoodData });
+  // All hooks always enabled once unlocked — data is cached by react-query
+  const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems({ enabled: unlocked });
   const deleteFoodItem = (id: string) => deleteFoodItemMutation.mutate(id);
+
+  // Preload ALL lazy chunks + prefetch ALL query data once unlocked (idle callback)
+  const preloadDone = useRef(false);
+  useEffect(() => {
+    if (!unlocked || preloadDone.current) return;
+    preloadDone.current = true;
+    const preload = () => {
+      // Preload JS chunks in parallel
+      importShoppingList();
+      importMealPlanGenerator();
+      importFoodItems();
+      importFoodItemsSuggestions();
+      importWeeklyPlanning();
+      importMasterList();
+      importPossibleList();
+      importAvailableList();
+      importUnParUnSection();
+    };
+    if ('requestIdleCallback' in window) {
+      (window as any).requestIdleCallback(preload);
+    } else {
+      setTimeout(preload, 200);
+    }
+  }, [unlocked]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
@@ -150,7 +181,7 @@ const Index = () => {
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients, updatePossibleQuantity,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
-  } = useMeals({ enabled: pageNeedsMealsData });
+  } = useMeals({ enabled: unlocked });
 
   // One-time color refresh
   const colorRefreshDone = useRef(false);
@@ -164,8 +195,8 @@ const Index = () => {
     )).then(() => qc.invalidateQueries({ queryKey: ["meals"] }));
   }, [unlocked, meals]);
 
-  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList({ enabled: pageNeedsIndexShoppingData });
-  const { getPreference, setPreference } = usePreferences({ enabled: pageNeedsIndexPreferences });
+  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList({ enabled: unlocked });
+  const { getPreference, setPreference } = usePreferences({ enabled: unlocked });
 
   // Sunday auto-clear
   const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
