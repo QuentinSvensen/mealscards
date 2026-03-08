@@ -227,7 +227,15 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
         <>
           {/* Title row */}
           <div className="flex items-start gap-1 flex-wrap">
-            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">{meal.name}</span>
+            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">
+              {meal.name}
+              {(() => {
+                const ingCal = computeIngredientCalories(meal.ingredients);
+                return ingCal !== null ? (
+                  <span className="ml-1.5 text-[10px] font-normal text-white/60 bg-white/15 px-1 py-0.5 rounded-full">🔥{ingCal}</span>
+                ) : null;
+              })()}
+            </span>
             {/* Options row - wraps below title on narrow screens and stays right-aligned */}
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
               {maxIngredientCounter !== null && maxIngredientCounter !== undefined && (
