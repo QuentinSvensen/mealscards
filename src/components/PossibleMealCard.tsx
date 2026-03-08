@@ -214,7 +214,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
         )}
         {meal.protein && (
           <span className="text-[10px] text-white/70 bg-blue-500/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold">
-            P {meal.protein}
+            🍗 {meal.protein}
           </span>
         )}
 

@@ -524,7 +524,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 25" inputMode="numeric" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
           ) : item.protein ? (
             <button onClick={() => startEdit("protein")} className="text-[10px] text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-blue-500/40 shrink-0 font-semibold">
-              P {item.protein}
+              🍗 {item.protein}
             </button>
           ) : null}
 
