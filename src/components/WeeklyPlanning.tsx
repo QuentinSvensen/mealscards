@@ -29,6 +29,23 @@ const JS_DAY_TO_KEY: Record<number, string> = {
   0: "dimanche",
 };
 
+const DAY_KEY_TO_INDEX: Record<string, number> = {
+  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
+};
+
+/** Get the date for a given day key in the current week (Mon-Sun) */
+function getDateForDayKey(dayKey: string): Date {
+  const today = new Date();
+  const todayDow = today.getDay(); // 0=Sun
+  const todayIdx = todayDow === 0 ? 6 : todayDow - 1; // 0=Mon
+  const targetIdx = DAY_KEY_TO_INDEX[dayKey] ?? 0;
+  const diff = targetIdx - todayIdx;
+  const d = new Date(today);
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 const DAILY_GOAL = 2750;
 const WEEKLY_GOAL = 19250;
 
