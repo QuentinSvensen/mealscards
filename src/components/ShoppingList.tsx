@@ -82,8 +82,8 @@ export function ShoppingList() {
     return result;
   }, [items, toujoursFoodKeys]);
 
-  // Compute which items have ambiguous partial matches with menu ingredients + their color group
-  // ambiguousItemData: Map<itemId, { colorIndex: number (-1=white), needKey: string }>
+  // Compute which items have ambiguous partial matches with menu ingredients (ONLY multi-match)
+  // ambiguousItemData: Map<itemId, { colorIndex: number, needKey: string }>
   const ambiguousItemData = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
@@ -92,13 +92,11 @@ export function ShoppingList() {
     const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
     let colorIndex = 0;
 
-    // For each ingredient, find all matching shopping items
     for (const ingKey of ingredientKeys) {
       const matchingItems: string[] = [];
       let hasExactMatch = false;
 
       for (const si of items) {
-        // Skip "Toujours présent" items
         if (isToujoursPresent.has(si.id)) continue;
         const siKey = normalizeKey(si.name);
         const ingKeyNorm = normalizeKey(ingKey);
@@ -109,18 +107,13 @@ export function ShoppingList() {
         }
       }
 
-      // If no exact match and has partial matches → ambiguous
-      if (!hasExactMatch && matchingItems.length > 0) {
-        if (matchingItems.length > 1) {
-          // Multiple matches → same color for the group
-          const groupColor = colorIndex % ambiguousColors.length;
-          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
-          colorIndex++;
-        } else {
-          // Single match but no exact → default white (-1)
-          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: -1, needKey: ingKey }));
-        }
+      // Only multi-match without exact match → colored ❓
+      if (!hasExactMatch && matchingItems.length > 1) {
+        const groupColor = colorIndex % ambiguousColors.length;
+        matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
+        colorIndex++;
       }
+      // Single partial match → no ❓, will be handled as green check by updateShoppingChecks
     }
 
     return itemToGroup;
