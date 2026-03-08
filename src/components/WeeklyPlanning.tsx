@@ -152,13 +152,40 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       `}
       style={{ backgroundColor: meal.color }}
     >
-      {/* Title row: name | calories + protein + counter */}
+      {/* Single row: left (name + date/ingredients) | right (badges) */}
       <div className="flex items-start gap-1 min-w-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 min-w-0">
             <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
             <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
           </div>
+          {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
+            <div className="mt-0.5">
+              {meal.grams && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                    <Weight className="h-2 w-2" />
+                    {meal.grams}
+                  </span>
+                </div>
+              )}
+              {(meal.ingredients || pm.expiration_date) && (
+                <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
+                  {pm.expiration_date && (
+                    <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                      <Calendar className="h-2 w-2 inline" />
+                      {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                    </span>
+                  )}
+                  {meal.ingredients && meal.ingredients
+                    .split(/[,\n]+/)
+                    .filter(Boolean)
+                    .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
+                    .join(" • ")}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {!compact && (
           <div className="flex flex-col items-center shrink-0">
@@ -215,36 +242,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           </div>
         )}
       </div>
-      {/* Date + ingredients: full width below the title row */}
-      {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
-        <div className="mt-0.5 md:mt-0.5">
-          {/* Grams on its own line if present */}
-          {meal.grams && (
-            <div className="flex items-center gap-1">
-              <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                <Weight className="h-2 w-2" />
-                {meal.grams}
-              </span>
-            </div>
-          )}
-          {/* Ingredients line with date prepended inline */}
-          {(meal.ingredients || pm.expiration_date) && (
-            <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
-              {pm.expiration_date && (
-                <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
-                  <Calendar className="h-2 w-2 inline" />
-                  {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-                </span>
-              )}
-              {meal.ingredients && meal.ingredients
-                .split(/[,\n]+/)
-                .filter(Boolean)
-                .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
-                .join(" • ")}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
