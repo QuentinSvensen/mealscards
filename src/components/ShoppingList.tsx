@@ -83,13 +83,13 @@ export function ShoppingList() {
   }, [items, toujoursFoodKeys]);
 
   // Compute which items have ambiguous partial matches with menu ingredients + their color group
-  // ambiguousItemData: Map<itemId, colorIndex | -1 for default green>
+  // ambiguousItemData: Map<itemId, { colorIndex: number (-1=white), needKey: string }>
   const ambiguousItemData = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
-    if (ingredientKeys.length === 0) return new Map<string, number>();
+    if (ingredientKeys.length === 0) return new Map<string, { colorIndex: number; needKey: string }>();
 
-    const itemToGroup = new Map<string, number>();
+    const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
     let colorIndex = 0;
 
     // For each ingredient, find all matching shopping items
@@ -114,11 +114,11 @@ export function ShoppingList() {
         if (matchingItems.length > 1) {
           // Multiple matches → same color for the group
           const groupColor = colorIndex % ambiguousColors.length;
-          matchingItems.forEach(id => itemToGroup.set(id, groupColor));
+          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
           colorIndex++;
         } else {
-          // Single match but no exact → default green (-1)
-          matchingItems.forEach(id => itemToGroup.set(id, -1));
+          // Single match but no exact → default white (-1)
+          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: -1, needKey: ingKey }));
         }
       }
     }
@@ -360,14 +360,35 @@ export function ShoppingList() {
       >
         {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
         {isAmbiguous ? (() => {
-          const colorIdx = ambiguousItemData.get(item.id) ?? -1;
+          const ambData = ambiguousItemData.get(item.id);
+          const colorIdx = ambData?.colorIndex ?? -1;
           const color = colorIdx === -1 ? defaultAmbiguousColor : ambiguousColors[colorIdx];
+          const needKey = ambData?.needKey;
+
+          // Compute suggested quantity from menu needs
+          const computeSuggestedQty = () => {
+            if (!needKey) return 1;
+            const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+            const need = needsRaw[needKey];
+            if (!need) return 1;
+            const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
+            const nbType = (item as any).content_quantity_type;
+            if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) return Math.ceil(need.grams / nb);
+            if (nb > 0 && need.count > 0) return Math.ceil(need.count / nb);
+            if (need.count > 0) return Math.ceil(need.count);
+            return 1;
+          };
+
           return (
             <button
               onClick={() => {
                 const newChecked = !item.secondary_checked;
                 toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
-                if (!newChecked) {
+                if (newChecked) {
+                  const qty = computeSuggestedQty();
+                  updateItemQuantity.mutate({ id: item.id, quantity: String(qty) });
+                  setLocalQuantities(prev => ({ ...prev, [item.id]: String(qty) }));
+                } else {
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                 }
