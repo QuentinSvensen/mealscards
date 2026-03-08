@@ -915,10 +915,12 @@ const Index = () => {
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
         <Suspense fallback={<div className="flex justify-center py-8 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}>
-          <div className={mainPage === "aliments" ? "" : "hidden"}>
-            <LazyFoodItems />
-            <LazyFoodItemsSuggestions foodItems={foodItems} existingMealNames={meals.filter(m => m.is_available).map(m => m.name)} />
-          </div>
+          {mainPage === "aliments" && (
+            <div>
+              <LazyFoodItems />
+              <LazyFoodItemsSuggestions foodItems={foodItems} existingMealNames={meals.filter(m => m.is_available).map(m => m.name)} />
+            </div>
+          )}
           {mainPage === "courses" && (
             <div>
               <div className="sticky top-[44px] sm:top-[52px] z-10 bg-background/95 backdrop-blur-sm pb-2 pt-1">
