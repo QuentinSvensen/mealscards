@@ -6,7 +6,7 @@ import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "luc
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Separator } from "@/components/ui/separator";
-import { normalizeKey, normalizeForMatch, parseIngredientLine, smartFoodContains } from "@/lib/ingredientUtils";
+import { normalizeKey, parseIngredientLine, smartFoodContains } from "@/lib/ingredientUtils";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
