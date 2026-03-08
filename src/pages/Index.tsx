@@ -387,10 +387,6 @@ const Index = () => {
     });
   };
 
-  // Sort direction state (asc/desc for numeric sorts)
-  const dbSortDirections = getPreference<Record<string, boolean>>('meal_sort_directions', {});
-  const [sortDirections, setSortDirections] = useState<Record<string, boolean>>({});
-  useEffect(() => { if (Object.keys(dbSortDirections).length > 0) setSortDirections(dbSortDirections); }, [dbSortDirections]);
 
   const toggleSortDirection = (key: string) => {
     setSortDirections(prev => {
