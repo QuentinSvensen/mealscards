@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Lock, Loader2 } from "lucide-react";
 
-export function PinLock({ onUnlock }: { onUnlock: () => void }) {
+export const PinLock = forwardRef<HTMLDivElement, { onUnlock: () => void }>(function PinLock({ onUnlock }, _ref) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [errorMsg, setErrorMsg] = useState("Code incorrect");
@@ -75,4 +75,4 @@ export function PinLock({ onUnlock }: { onUnlock: () => void }) {
       </div>
     </div>
   );
-}
+});
