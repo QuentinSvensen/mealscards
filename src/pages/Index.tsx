@@ -314,9 +314,9 @@ const Index = () => {
   };
 
   const handleAdd = () => {
-    const result = mealSchema.safeParse({ name: newName });
-    if (!result.success) {
-      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+    const validationError = validateMealName(newName);
+    if (validationError) {
+      toast({ title: "Données invalides", description: validationError, variant: "destructive" });
       return;
     }
     if (addTarget === "possible") {
@@ -718,11 +718,11 @@ const Index = () => {
         const paramsStr = match ? match[2] : '';
         const params: Record<string, string> = {};
         paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
-        const result = mealSchema.safeParse({ name });
-        if (!result.success) { skipped++; continue; }
+        const validationErr = validateMealName(name);
+        if (validationErr) { skipped++; continue; }
         const cat = (params.cat as MealCategory) || 'plat';
         const { data: inserted, error: insertErr } = await supabase.from("meals").insert({
-          name: result.data.name, category: cat, color: colorFromName(result.data.name), sort_order: count, is_available: true,
+          name: name.trim(), category: cat, color: colorFromName(name.trim()), sort_order: count, is_available: true,
           calories: params.cal || null, grams: params.grams || null, ingredients: params.ing || null,
           oven_temp: params.oven_temp || null, oven_minutes: params.oven_minutes || null, is_favorite: params.fav === '1',
         } as any).select().single();
