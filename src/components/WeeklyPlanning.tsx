@@ -555,7 +555,7 @@ export function WeeklyPlanning() {
   const weekTotal = DAYS.reduce((sum, day) => sum + getDayCalories(day), 0);
 
   return (
-    <div className={`max-w-4xl mx-auto space-y-3 ${touchDragActive ? "touch-none" : ""}`}>
+    <div className={`max-w-4xl mx-auto space-y-3 overflow-x-hidden ${touchDragActive ? "touch-none" : ""}`}>
       {DAYS.map((day) => {
         const isToday_ = day === todayKey;
         const dayCalories = getDayCalories(day);
@@ -563,7 +563,7 @@ export function WeeklyPlanning() {
           <div
             key={day}
             ref={isToday_ ? todayRef : undefined}
-            className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
+            className={`rounded-2xl p-3 sm:p-4 transition-all overflow-hidden ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
           >
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               <h3
@@ -650,7 +650,7 @@ export function WeeklyPlanning() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3">
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3 min-w-0">
               {TIMES.map((time) => {
                 const slotKey = `${day}-${time}`;
                 const slotMeals = getMealsForSlot(day, time);
@@ -667,7 +667,7 @@ export function WeeklyPlanning() {
                     }}
                     onDragLeave={() => setDragOverSlot(null)}
                     onDrop={(e) => handleDrop(e, day, time)}
-                    className={`min-h-[52px] rounded-xl border border-dashed p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+                    className={`min-h-[52px] min-w-0 rounded-xl border border-dashed p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
                   >
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                       {TIME_LABELS[time]}
