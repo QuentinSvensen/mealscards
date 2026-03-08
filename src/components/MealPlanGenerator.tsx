@@ -271,14 +271,14 @@ export function MealPlanGenerator() {
         return false;
       };
 
-      const scoreRecipe = (recipe: typeof shuffled[0], isDuplicate: boolean) => {
+      const scoreRecipe = (recipe: typeof shuffled[0]) => {
         let score = 0;
-        let usesConstrainedItem = false;
-        let touchesOpen = false;
-        let closesOpen = false;
 
         if (hasInventory) {
           const usage = getRecipeUsage(recipe);
+          let usesConstrainedItem = false;
+          let touchesOpen = false;
+
           for (const [ingKey, used] of usage) {
             const matchKey = findInvKey(ingKey);
             if (!matchKey) continue;
@@ -293,64 +293,38 @@ export function MealPlanGenerator() {
             if (used.grams > 0 && inv.pkgGrams > 0) {
               const newCumGrams = prevUsage.grams + used.grams;
               if (newCumGrams > inv.grams * 1.05) {
-                score -= 6;
-              } else {
-                const ms = multipleScore(newCumGrams, inv.pkgGrams);
-                score += isLateRound ? ms * 2.5 : ms;
-
-                if (isOpenKey) {
-                  const newDeficit = Math.max(0, inv.grams - Math.min(newCumGrams, inv.grams));
-                  // Bonus pour réduire le déficit, encore plus pour fermer complètement
-                  score += 10;
-                  if (newDeficit <= 1) {
-                    closesOpen = true;
-                    score += 28;
-                  }
-                }
-              }
-            }
-
-            if (used.count > 0 && inv.pkgCount > 0) {
-              const newCumCount = prevUsage.count + used.count;
-              if (newCumCount > inv.count * 1.05) {
-                score -= 4;
-              } else {
-                const remainder = newCumCount % inv.pkgCount;
-                const dist = Math.min(remainder, inv.pkgCount - remainder);
-                score += dist < 0.1 ? 8 : -dist * 2;
+                score -= 3;
+              } else if (isOpenKey) {
+                // Light bonus for closing an open ingredient
+                const newDeficit = Math.max(0, inv.grams - Math.min(newCumGrams, inv.grams));
+                score += newDeficit <= 1 ? 4 : 2;
               }
             }
           }
 
           if (usesConstrainedItem) score += 1;
-          // Pénaliser seulement les recettes qui ne touchent PAS l'ingrédient ouvert
-          if (openGramKeys.size > 0 && !touchesOpen) {
-            score -= isLateRound ? 14 : 8;
-          }
+          // Mild preference for recipes touching open ingredients
+          if (openGramKeys.size > 0 && touchesOpen) score += 2;
         }
 
-        // Forte pénalité doublon, SAUF si c'est la seule façon de fermer
-        if (isDuplicate) {
-          score -= closesOpen ? 5 : 30;
-        }
-
-        score += Math.random() * (isLateRound ? 1 : 2.5);
+        // Large random factor for maximum variety
+        score += Math.random() * 8;
         return score;
       };
 
-      // Pool: UNIQUEMENT des recettes uniques d'abord
+      // Pool: UNIQUEMENT des recettes uniques
       const uniquePool: { id: string; score: number }[] = [];
       for (const r of shuffled.filter(r => !counts.has(r.id))) {
-        uniquePool.push({ id: r.id, score: scoreRecipe(r, false) });
+        uniquePool.push({ id: r.id, score: scoreRecipe(r) });
       }
 
-      // Strict mode: no duplicates in the 16 main meals
       if (uniquePool.length > 0) {
         uniquePool.sort((a, b) => b.score - a.score);
-        const topN = uniquePool.slice(0, Math.min(isLateRound ? 2 : 4, uniquePool.length));
+        // Pick from top 6 for more diversity
+        const topN = uniquePool.slice(0, Math.min(6, uniquePool.length));
         const pick = topN[Math.floor(Math.random() * topN.length)];
         selectedIds.push(pick.id);
-        counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
+        counts.set(pick.id, 1);
       } else {
         break;
       }
