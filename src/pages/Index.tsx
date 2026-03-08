@@ -548,12 +548,7 @@ const Index = () => {
 
       const matchingItems = foodItems
         .filter((fi) => strictNameMatch(fi.name, key) && !fi.is_infinite)
-        .sort((a, b) => {
-          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
-          if (a.expiration_date) return -1;
-          if (b.expiration_date) return 1;
-          return 0;
-        });
+        .sort(sortStockDeductionPriority);
 
       if (neededCount > 0) {
         let toDeduct = neededCount;
@@ -679,12 +674,7 @@ const Index = () => {
       const { qty: neededGrams, count: neededCount, name } = alt;
       const matchingItems = foodItems
         .filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite)
-        .sort((a, b) => {
-          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
-          if (a.expiration_date) return -1;
-          if (b.expiration_date) return 1;
-          return 0;
-        });
+        .sort(sortStockDeductionPriority);
       if (matchingItems.length === 0) continue;
       const fi = matchingItems[0];
 
@@ -771,12 +761,7 @@ const Index = () => {
 
       const matchingItems = foodItems
         .filter(fi => strictNameMatch(fi.name, ingName) && !fi.is_infinite)
-        .sort((a, b) => {
-          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
-          if (a.expiration_date) return -1;
-          if (b.expiration_date) return 1;
-          return 0;
-        });
+        .sort(sortStockDeductionPriority);
       if (matchingItems.length === 0) continue;
 
       if (deltaGrams > 0) {
