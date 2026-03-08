@@ -160,9 +160,19 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
+      className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
+      {/* Multiplier badge - absolute top-right corner */}
+      {(pm.quantity > 1 || onUpdateQuantity) && (
+        <button
+          onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
+          className={`absolute -top-1.5 -right-1.5 z-10 text-[10px] text-white bg-black/40 backdrop-blur-sm px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold shadow-lg border border-white/20 ${onUpdateQuantity ? 'hover:bg-black/60 cursor-pointer' : ''}`}
+        >
+          <Hash className="h-2.5 w-2.5" />×{pm.quantity}
+        </button>
+      )}
+
       {/* Row 1: name + counter inline + actions */}
       <div className="flex items-center gap-1.5">
         <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
@@ -188,14 +198,6 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
 
         <div className="flex-1" />
 
-        {(pm.quantity > 1 || onUpdateQuantity) && (
-          <button
-            onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
-            className={`text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-white/30 cursor-pointer' : ''}`}
-          >
-            <Hash className="h-2.5 w-2.5" />{pm.quantity}
-          </button>
-        )}
         {meal.grams && (
           <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
             <Weight className="h-2.5 w-2.5" />{meal.grams}
