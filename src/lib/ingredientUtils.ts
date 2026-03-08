@@ -136,23 +136,32 @@ export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
 
 export interface IngLine { qty: string; count: string; name: string; cal: string; isOr: boolean; isOptional: boolean; }
 
+/** Extract {cal} suffix from a raw ingredient token */
+function extractCal(raw: string): { text: string; cal: string } {
+  const m = raw.match(/\{(\d+(?:[.,]\d+)?)\}\s*$/);
+  if (m) return { text: raw.slice(0, m.index!).trim(), cal: m[1].replace(",", ".") };
+  return { text: raw, cal: "" };
+}
+
 export function parseIngredientLineDisplay(raw: string): IngLine {
   let trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", isOr: false, isOptional: false };
+  if (!trimmed) return { qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false };
   const isOptional = trimmed.startsWith("?");
   if (isOptional) trimmed = trimmed.slice(1).trim();
+  const { text: withoutCal, cal } = extractCal(trimmed);
+  trimmed = withoutCal;
   const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), isOr: false, isOptional };
+  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, isOr: false, isOptional };
 
   const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), isOr: false, isOptional };
+  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, isOr: false, isOptional };
 
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false, isOptional };
+  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, isOr: false, isOptional };
 
-  return { qty: "", count: "", name: trimmed, isOr: false, isOptional };
+  return { qty: "", count: "", name: trimmed, cal, isOr: false, isOptional };
 }
 
 export function formatQtyDisplay(qty: string): string {
@@ -163,7 +172,7 @@ export function formatQtyDisplay(qty: string): string {
 }
 
 export function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", isOr: false, isOptional: false }];
+  if (!raw) return [{ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false }];
   const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const lines: IngLine[] = [];
   for (const group of groups) {
@@ -174,7 +183,7 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
       lines.push(parsed);
     });
   }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
   return lines;
 }
 
@@ -187,10 +196,41 @@ export function serializeIngredients(lines: IngLine[]): string | null {
     const countStr = l.count.trim();
     const nameStr = l.name.trim();
     if (!qtyStr && !countStr && !nameStr) continue;
-    const token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
+    let token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
+    if (l.cal.trim()) token += `{${l.cal.trim()}}`;
     const finalToken = l.isOptional ? `?${token}` : token;
     if (l.isOr) { currentGroup.push(finalToken); } else { flushGroup(); currentGroup.push(finalToken); }
   }
   flushGroup();
   return result.length ? result.join(", ") : null;
+}
+
+/**
+ * Compute total calories from ingredient string.
+ * For each ingredient with {cal}: if qty (grams) present → cal * qty / 100. If count present → cal * count.
+ * Returns null if no ingredient has cal data.
+ */
+export function computeIngredientCalories(ingredientStr: string | null): number | null {
+  if (!ingredientStr?.trim()) return null;
+  const lines = parseIngredientsToLines(ingredientStr);
+  let total = 0;
+  let hasCal = false;
+  for (const line of lines) {
+    const calVal = parseFloat(line.cal.replace(",", "."));
+    if (!calVal || isNaN(calVal)) continue;
+    hasCal = true;
+    const qty = parseFloat(line.qty.replace(",", "."));
+    const count = parseFloat(line.count.replace(",", "."));
+    if (qty > 0) {
+      // cal is per 100g, qty is grams
+      total += calVal * qty / 100;
+    } else if (count > 0) {
+      // cal is per 1 unit
+      total += calVal * count;
+    } else {
+      // Just the cal value itself (1 unit assumed)
+      total += calVal;
+    }
+  }
+  return hasCal ? Math.round(total) : null;
 }

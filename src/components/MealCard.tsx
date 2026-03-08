@@ -9,6 +9,7 @@ import type { Meal } from "@/hooks/useMeals";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, normalizeKey,
+  computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 
 interface MealCardProps {
@@ -73,12 +74,12 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
     setEditingIngredients(false);
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal", value: string) => {
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
+        next.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -142,15 +143,16 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           }}
           className="flex flex-col gap-1"
         >
-          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1 mb-0.5">
             <span className="text-[9px] text-white/50 text-center">Ou</span>
             <span className="text-[9px] text-white/50 text-center">?</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
+            <span className="text-[9px] text-white/50 text-center">Cal</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1">
+            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1">
               <button
                 type="button"
                 onClick={() => toggleOr(idx)}
@@ -208,6 +210,14 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                 onChange={e => updateLine(idx, "name", e.target.value)}
                 onKeyDown={e => handleIngKeyDown(idx, "name", e)}
                 className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
+              />
+              <Input
+                placeholder="cal"
+                inputMode="decimal"
+                value={line.cal}
+                onChange={e => updateLine(idx, "cal", e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
               />
             </div>
           ))}
