@@ -521,6 +521,26 @@ const Index = () => {
     });
   };
 
+  /** Sort food items for stock deduction: counter items first, then remainders, then shortest expiration */
+  const sortStockDeductionPriority = (a: FoodItem, b: FoodItem): number => {
+    // 1. Items with counter first (active partial consumption)
+    const aHasCounter = !!a.counter_start_date;
+    const bHasCounter = !!b.counter_start_date;
+    if (aHasCounter && !bHasCounter) return -1;
+    if (!aHasCounter && bHasCounter) return 1;
+    // 2. Among counter items, higher counter days first
+    if (aHasCounter && bHasCounter) {
+      const aDays = Math.floor((Date.now() - new Date(a.counter_start_date!).getTime()) / 86400000);
+      const bDays = Math.floor((Date.now() - new Date(b.counter_start_date!).getTime()) / 86400000);
+      if (aDays !== bDays) return bDays - aDays;
+    }
+    // 3. Shortest expiration date first
+    if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+    if (a.expiration_date) return -1;
+    if (b.expiration_date) return 1;
+    return 0;
+  };
+
   /** Deduct ingredients from stock and return pre-deduction snapshots for exact rollback */
   const deductIngredientsFromStock = async (meal: Meal): Promise<FoodItem[]> => {
     if (!meal.ingredients?.trim()) return [];
