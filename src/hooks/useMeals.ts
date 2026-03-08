@@ -172,6 +172,15 @@ export function useMeals() {
     onError: onMutationError,
   });
 
+  const updateProtein = useMutation({
+    mutationFn: async ({ id, protein }: { id: string; protein: string | null }) => {
+      const { error } = await supabase.from("meals").update({ protein } as any).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
+    onError: onMutationError,
+  });
+
   const updateIngredients = useMutation({
     mutationFn: async ({ id, ingredients }: { id: string; ingredients: string | null }) => {
       const { error } = await supabase.from("meals").update({ ingredients }).eq("id", id);
@@ -436,7 +445,7 @@ export function useMeals() {
 
   return {
     meals, possibleMeals, isLoading,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients,
+    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateIngredients,
     updateOvenTemp, updateOvenMinutes,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
