@@ -1073,7 +1073,7 @@ const Index = () => {
                   onMoveNameMatchToPossible={async (meal, fi) => {
                     const snapshot = [{ ...fi }];
                     await deductNameMatchStock(meal);
-                    const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date });
+                    const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date, counter_start_date: fi.counter_start_date });
                     if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
@@ -1084,7 +1084,7 @@ const Index = () => {
                       else { await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", fi.id); }
                       qc.invalidateQueries({ queryKey: ["food_items"] });
                     }
-                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
+                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id, calories: fi.calories, grams: fi.grams, expiration_date: fi.expiration_date, counter_start_date: fi.counter_start_date });
                     if (pmResult?.id) updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
