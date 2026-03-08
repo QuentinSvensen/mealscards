@@ -752,7 +752,7 @@ export function WeeklyPlanning() {
       {/* Total calorique de la semaine */}
       <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
         <span className="text-sm font-bold text-foreground">Total semaine</span>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap ml-auto">
           <span className="text-xs text-muted-foreground font-medium">
             Moy. {Math.round(weekTotal / 7)} kcal/j
           </span>
