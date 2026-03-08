@@ -449,6 +449,7 @@ export function MealPlanGenerator() {
             if (selectedIds.includes(cand.id)) continue;
             const testIds = [...selectedIds];
             testIds[idx] = cand.id;
+            const newMis = getMisaligned(testIds);
             if (!newMis.some(m => m.key === mis.key) && newMis.length <= misaligned.length) {
               selectedIds[idx] = cand.id;
               swapped = true;
