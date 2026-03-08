@@ -271,6 +271,28 @@ export function ShoppingList() {
             if (!checked) {
               updateItemQuantity.mutate({ id: item.id, quantity: null });
               setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+            } else {
+              // Re-checking green: restore the needed quantity from persisted menu needs
+              const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+              const normalizeKey = (name: string) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/, "").trim();
+              const itemKey = normalizeKey(item.name);
+              for (const [needKey, need] of Object.entries(needsRaw)) {
+                if (itemKey === needKey || normalizeKey(needKey) === itemKey) {
+                  const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
+                  const nbType = (item as any).content_quantity_type;
+                  let qtyNeeded = 1;
+                  if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) {
+                    qtyNeeded = Math.ceil(need.grams / nb);
+                  } else if (nb > 0 && need.count > 0) {
+                    qtyNeeded = Math.ceil(need.count / nb);
+                  } else if (need.count > 0) {
+                    qtyNeeded = Math.ceil(need.count);
+                  }
+                  updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
+                  setLocalQuantities(prev => ({ ...prev, [item.id]: String(qtyNeeded) }));
+                  break;
+                }
+              }
             }
           }}
           className="shrink-0 opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
@@ -282,6 +304,10 @@ export function ShoppingList() {
           onCheckedChange={(checked) => {
             toggleItem.mutate({ id: item.id, checked: !!checked });
             if (!checked) {
+              // Unchecking yellow also unchecks green
+              if (item.secondary_checked) {
+                toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
+              }
               updateItemQuantity.mutate({ id: item.id, quantity: null });
               setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
             }
