@@ -529,7 +529,7 @@ const Index = () => {
     const stockMap = buildStockMap(foodItems);
 
     const snapshotsById = new Map<string, FoodItem>();
-    const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean }>();
+    const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean; counter_start_date?: string | null }>();
 
     const rememberSnapshot = (fi: FoodItem) => {
       if (!snapshotsById.has(fi.id)) snapshotsById.set(fi.id, { ...fi });
@@ -597,22 +597,33 @@ const Index = () => {
             const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
 
             if (remainder > 0) {
+              // Auto-start counter when creating a partial remainder
+              const shouldStartCounter = !fi.counter_start_date;
               updatesById.set(fi.id, {
                 id: fi.id,
                 quantity: Math.max(1, fullUnits + 1),
                 grams: encodeStoredGrams(perUnit, remainder),
+                ...(shouldStartCounter ? { counter_start_date: new Date().toISOString() } : {}),
               });
             } else if (fullUnits > 0) {
+              // Full units remaining, no partial — clear counter if was set
               updatesById.set(fi.id, {
                 id: fi.id,
                 quantity: fullUnits,
                 grams: formatNumeric(perUnit),
+                ...(fi.counter_start_date ? { counter_start_date: null } : {}),
               });
             } else {
               updatesById.set(fi.id, { id: fi.id, delete: true });
             }
           } else {
-            updatesById.set(fi.id, { id: fi.id, grams: formatNumeric(remaining) });
+            // Non-quantity item: partial grams remaining — auto-start counter
+            const shouldStartCounter = !fi.counter_start_date;
+            updatesById.set(fi.id, {
+              id: fi.id,
+              grams: formatNumeric(remaining),
+              ...(shouldStartCounter ? { counter_start_date: new Date().toISOString() } : {}),
+            });
           }
         }
       }
@@ -624,6 +635,7 @@ const Index = () => {
         : supabase.from("food_items").update({
             ...(u.grams !== undefined ? { grams: u.grams } : {}),
             ...(u.quantity !== undefined ? { quantity: u.quantity } : {}),
+            ...(u.counter_start_date !== undefined ? { counter_start_date: u.counter_start_date } : {}),
           } as any).eq("id", u.id)
     ));
 
