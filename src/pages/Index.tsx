@@ -61,8 +61,8 @@ function validateMealName(name: string): string | null {
 }
 
 type SortMode = "manual" | "expiration" | "planning";
-type MasterSortMode = "manual" | "calories" | "favorites" | "ingredients";
-type AvailableSortMode = "manual" | "calories" | "expiration";
+type MasterSortMode = "manual" | "calories" | "protein" | "favorites" | "ingredients";
+type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 type UnParUnSortMode = "manual" | "expiration";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
@@ -374,10 +374,23 @@ const Index = () => {
   const toggleMasterSort = (cat: string) => {
     setMasterSortModes((prev) => {
       const current = prev[cat] || "manual";
-      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "favorites" : current === "favorites" ? "ingredients" : "manual";
+      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "protein" : current === "protein" ? "favorites" : current === "favorites" ? "ingredients" : "manual";
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_master_sort_modes', JSON.stringify(updated));
       setPreference.mutate({ key: 'meal_master_sort_modes', value: updated });
+      return updated;
+    });
+  };
+
+  // Sort direction state (asc/desc for numeric sorts)
+  const dbSortDirections = getPreference<Record<string, boolean>>('meal_sort_directions', {});
+  const [sortDirections, setSortDirections] = useState<Record<string, boolean>>({});
+  useEffect(() => { if (Object.keys(dbSortDirections).length > 0) setSortDirections(dbSortDirections); }, [dbSortDirections]);
+
+  const toggleSortDirection = (key: string) => {
+    setSortDirections(prev => {
+      const updated = { ...prev, [key]: !prev[key] };
+      setPreference.mutate({ key: 'meal_sort_directions', value: updated });
       return updated;
     });
   };
