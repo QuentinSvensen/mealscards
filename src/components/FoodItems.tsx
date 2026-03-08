@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { z } from "zod";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -518,6 +518,26 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
               <Flame className="h-2.5 w-2.5" />{item.calories}
             </button>
           ) : null}
+
+          {/* Protein */}
+          {editing === "protein" ? (
+            <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 25" inputMode="numeric" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
+          ) : item.protein ? (
+            <button onClick={() => startEdit("protein")} className="text-[10px] text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-blue-500/40 shrink-0 font-semibold">
+              P {item.protein}
+            </button>
+          ) : null}
+
+          {/* Indivisible toggle */}
+          {item.grams && !item.is_infinite && (
+            <button
+              onClick={() => onUpdate({ is_indivisible: !item.is_indivisible })}
+              className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_indivisible ? 'bg-orange-400/30 text-orange-200 border-orange-400/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
+              title={item.is_indivisible ? "Indivisible (cliquer pour désactiver)" : "Marquer comme indivisible (grammage entier obligatoire)"}
+            >
+              <Lock className="h-2.5 w-2.5" />{item.is_indivisible ? 'Indiv.' : ''}
+            </button>
+          )}
 
           {/* is_meal toggle */}
           <button
