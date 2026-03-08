@@ -17,17 +17,16 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
   const qc = useQueryClient();
   const [display, setDisplay] = useState("00:00:00");
 
-  // Only poll DB when dialog is open and running (cross-device sync)
   const { data: storedState = DEFAULT_STATE } = useQuery({
     queryKey: ["chronometer_state"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("user_preferences")
         .select("value")
         .eq("key", "chronometer_state")
         .maybeSingle();
       if (error) throw error;
-      return (data?.value as ChronoState) ?? DEFAULT_STATE;
+      return (data?.value as unknown as ChronoState) ?? DEFAULT_STATE;
     },
     refetchInterval: open ? 1000 : false,
     enabled: open,
@@ -36,20 +35,20 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
 
   const saveMutation = useMutation({
     mutationFn: async (state: ChronoState) => {
-      const { data: existing } = await (supabase as any)
+      const { data: existing } = await supabase
         .from("user_preferences")
         .select("id")
         .eq("key", "chronometer_state")
         .maybeSingle();
       if (existing) {
-        await (supabase as any)
+        await supabase
           .from("user_preferences")
-          .update({ value: state, updated_at: new Date().toISOString() })
+          .update({ value: state as any, updated_at: new Date().toISOString() })
           .eq("id", existing.id);
       } else {
-        await (supabase as any)
+        await supabase
           .from("user_preferences")
-          .insert({ key: "chronometer_state", value: state });
+          .insert({ key: "chronometer_state", value: state as any });
       }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["chronometer_state"] }),

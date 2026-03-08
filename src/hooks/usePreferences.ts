@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 export function usePreferences() {
   const qc = useQueryClient();
@@ -18,7 +19,7 @@ export function usePreferences() {
   const { data: preferences = [] } = useQuery({
     queryKey: ["user_preferences"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("user_preferences")
         .select("*");
       if (error) throw error;
@@ -37,19 +38,22 @@ export function usePreferences() {
     mutationFn: async ({ key, value }: { key: string; value: any }) => {
       const existing = preferences.find(p => p.key === key);
       if (existing) {
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from("user_preferences")
-          .update({ value, updated_at: new Date().toISOString() })
+          .update({ value, updated_at: new Date().toISOString() } as any)
           .eq("id", existing.id);
         if (error) throw error;
       } else {
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from("user_preferences")
-          .insert({ key, value });
+          .insert({ key, value } as any);
         if (error) throw error;
       }
     },
     onSuccess: invalidate,
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
   });
 
   return { preferences, getPreference, setPreference };
