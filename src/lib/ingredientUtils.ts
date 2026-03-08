@@ -82,6 +82,7 @@ export function getFoodItemTotalGrams(fi: FoodItem): number {
 // ─── Ingredient Parsing (Numeric — for computation) ─────────────────────────
 
 export interface ParsedIngredient { qty: number; count: number; name: string; }
+export interface ParsedIngredientRaw { qty: number; count: number; name: string; rawName: string; }
 
 export function parseIngredientLine(ing: string): ParsedIngredient {
   const trimmed = ing.trim().replace(/\s+/g, " ");
