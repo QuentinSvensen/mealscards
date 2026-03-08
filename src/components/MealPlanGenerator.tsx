@@ -271,10 +271,11 @@ export function MealPlanGenerator() {
         return false;
       };
 
-      const scoreRecipe = (recipe: typeof shuffled[0]) => {
+      const scoreRecipe = (recipe: typeof shuffled[0], isDuplicate: boolean) => {
         let score = 0;
         let usesConstrainedItem = false;
         let touchesOpen = false;
+        let closesOpen = false;
 
         if (hasInventory) {
           const usage = getRecipeUsage(recipe);
@@ -297,15 +298,14 @@ export function MealPlanGenerator() {
                 const ms = multipleScore(newCumGrams, inv.pkgGrams);
                 score += isLateRound ? ms * 2.5 : ms;
 
-                // Bonus très fort quand on rapproche un ingrédient entamé de 100%
                 if (isOpenKey) {
-                  const prevDeficit = Math.max(0, inv.grams - prevUsage.grams);
                   const newDeficit = Math.max(0, inv.grams - Math.min(newCumGrams, inv.grams));
-                  if (newDeficit < prevDeficit) score += 10;
-                  if (newDeficit <= 1) score += 28;
-                } else if (openGramKeys.size > 0 && prevUsage.grams === 0 && newCumGrams < inv.grams - 1) {
-                  // Évite d'entamer un nouvel ingrédient tant qu'un autre est ouvert
-                  score -= 8;
+                  // Bonus pour réduire le déficit, encore plus pour fermer complètement
+                  score += 10;
+                  if (newDeficit <= 1) {
+                    closesOpen = true;
+                    score += 28;
+                  }
                 }
               }
             }
@@ -323,9 +323,15 @@ export function MealPlanGenerator() {
           }
 
           if (usesConstrainedItem) score += 1;
+          // Pénaliser seulement les recettes qui ne touchent PAS l'ingrédient ouvert
           if (openGramKeys.size > 0 && !touchesOpen) {
             score -= isLateRound ? 14 : 8;
           }
+        }
+
+        // Forte pénalité doublon, SAUF si c'est la seule façon de fermer
+        if (isDuplicate) {
+          score -= closesOpen ? 5 : 30;
         }
 
         score += Math.random() * (isLateRound ? 1 : 2.5);
