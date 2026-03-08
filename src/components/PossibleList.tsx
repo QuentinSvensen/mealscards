@@ -80,14 +80,15 @@ export function PossibleList({ category, items, sortMode, onToggleSort, onRandom
       return (a.meals?.name ?? "").localeCompare(b.meals?.name ?? "");
     });
   }, [items, sortMode]);
-    <MealList title={`${category.label} possibles`} emoji={category.emoji} count={items.length} onExternalDrop={onExternalDrop}
+  return (
+    <MealList title={`${category.label} possibles`} emoji={category.emoji} count={displayItems.length} onExternalDrop={onExternalDrop}
       headerActions={<>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
         <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5"><SortIcon className="h-3 w-3" /><span className="hidden sm:inline">{sortLabel}</span></Button>
         <Button size="sm" variant="ghost" onClick={onRandomPick} className="h-6 w-6 p-0"><Dice5 className="h-3.5 w-3.5" /></Button>
       </>}>
-      {items.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Glisse des repas ici →</p>}
-      {items.map((pm, index) =>
+      {displayItems.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Glisse des repas ici →</p>}
+      {displayItems.map((pm, index) =>
         <PossibleMealCard key={pm.id} pm={pm}
           onRemove={() => onRemove(pm.id)}
           onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
