@@ -37,19 +37,26 @@ export function ShoppingList() {
 
   const { items: foodItems } = useFoodItems();
 
-  // Default color for non-paired ambiguous items (light green)
-  const defaultAmbiguousColor = { bg: 'bg-green-300', border: 'border-green-300', borderLight: 'border-green-300/50', text: 'text-green-400', hover: 'hover:bg-green-300/10' };
+  // Default color for non-paired ambiguous items (white)
+  const defaultAmbiguousColor = {
+    bg: 'bg-background',
+    border: 'border-border',
+    borderLight: 'border-border',
+    text: 'text-foreground',
+    hover: 'hover:bg-muted/50',
+    checkedText: 'text-foreground',
+  };
 
   // Color palette for paired ambiguous groups
   const ambiguousColors = [
-    { bg: 'bg-blue-500', border: 'border-blue-500', borderLight: 'border-blue-500/50', text: 'text-blue-500', hover: 'hover:bg-blue-500/10' },
-    { bg: 'bg-purple-500', border: 'border-purple-500', borderLight: 'border-purple-500/50', text: 'text-purple-500', hover: 'hover:bg-purple-500/10' },
-    { bg: 'bg-pink-500', border: 'border-pink-500', borderLight: 'border-pink-500/50', text: 'text-pink-500', hover: 'hover:bg-pink-500/10' },
-    { bg: 'bg-cyan-500', border: 'border-cyan-500', borderLight: 'border-cyan-500/50', text: 'text-cyan-500', hover: 'hover:bg-cyan-500/10' },
-    { bg: 'bg-teal-500', border: 'border-teal-500', borderLight: 'border-teal-500/50', text: 'text-teal-500', hover: 'hover:bg-teal-500/10' },
-    { bg: 'bg-indigo-500', border: 'border-indigo-500', borderLight: 'border-indigo-500/50', text: 'text-indigo-500', hover: 'hover:bg-indigo-500/10' },
-    { bg: 'bg-rose-500', border: 'border-rose-500', borderLight: 'border-rose-500/50', text: 'text-rose-500', hover: 'hover:bg-rose-500/10' },
-    { bg: 'bg-sky-500', border: 'border-sky-500', borderLight: 'border-sky-500/50', text: 'text-sky-500', hover: 'hover:bg-sky-500/10' },
+    { bg: 'bg-blue-500', border: 'border-blue-500', borderLight: 'border-blue-500/50', text: 'text-blue-500', hover: 'hover:bg-blue-500/10', checkedText: 'text-white' },
+    { bg: 'bg-purple-500', border: 'border-purple-500', borderLight: 'border-purple-500/50', text: 'text-purple-500', hover: 'hover:bg-purple-500/10', checkedText: 'text-white' },
+    { bg: 'bg-pink-500', border: 'border-pink-500', borderLight: 'border-pink-500/50', text: 'text-pink-500', hover: 'hover:bg-pink-500/10', checkedText: 'text-white' },
+    { bg: 'bg-cyan-500', border: 'border-cyan-500', borderLight: 'border-cyan-500/50', text: 'text-cyan-500', hover: 'hover:bg-cyan-500/10', checkedText: 'text-white' },
+    { bg: 'bg-teal-500', border: 'border-teal-500', borderLight: 'border-teal-500/50', text: 'text-teal-500', hover: 'hover:bg-teal-500/10', checkedText: 'text-white' },
+    { bg: 'bg-indigo-500', border: 'border-indigo-500', borderLight: 'border-indigo-500/50', text: 'text-indigo-500', hover: 'hover:bg-indigo-500/10', checkedText: 'text-white' },
+    { bg: 'bg-rose-500', border: 'border-rose-500', borderLight: 'border-rose-500/50', text: 'text-rose-500', hover: 'hover:bg-rose-500/10', checkedText: 'text-white' },
+    { bg: 'bg-sky-500', border: 'border-sky-500', borderLight: 'border-sky-500/50', text: 'text-sky-500', hover: 'hover:bg-sky-500/10', checkedText: 'text-white' },
   ];
 
   // Build set of "Toujours présent" food item keys
@@ -367,7 +374,7 @@ export function ShoppingList() {
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
                 item.secondary_checked 
-                  ? `${color.bg} ${color.border} text-white` 
+                  ? `${color.bg} ${color.border} ${color.checkedText}` 
                   : `${color.borderLight} ${color.text} ${color.hover}`
               }`}
               title="Plusieurs articles correspondent à un ingrédient du menu"

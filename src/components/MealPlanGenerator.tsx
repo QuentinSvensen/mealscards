@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useMeals, type Meal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
 import { useFoodItems } from "@/components/FoodItems";
@@ -6,7 +6,7 @@ import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "luc
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Separator } from "@/components/ui/separator";
-import { normalizeKey, normalizeForMatch, parseIngredientLine, smartFoodContains } from "@/lib/ingredientUtils";
+import { normalizeKey, parseIngredientLine, smartFoodContains } from "@/lib/ingredientUtils";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
@@ -131,37 +131,78 @@ export function MealPlanGenerator() {
     return inv;
   }, [shoppingItems, frozenGroupIds]);
 
-  const updateShoppingChecks = (selIds: string[], needsMap: Map<string, { grams: number; count: number }>) => {
-    // Match to shopping items and update
-    for (const item of shoppingItems) {
-      // Skip items in "Toujours présents" group
-      if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) continue;
+  const updateShoppingChecks = (needsMap: Map<string, { grams: number; count: number }>) => {
+    const toujoursKeys = [...toujoursFoodKeys];
+    const matchedItemIds = new Set<string>();
+    const desiredQuantities = new Map<string, number>();
 
-      const itemKey = normalizeKey(item.name);
+    const isToujoursItem = (item: { name: string; group_id: string | null }, itemKey: string) => {
+      if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) return true;
+      if (toujoursFoodKeys.has(itemKey)) return true;
+      return toujoursKeys.some((tjKey) => smartFoodContains(item.name, tjKey));
+    };
 
-      for (const [needKey, need] of needsMap) {
-        // Exact key match OR smart contains match (e.g. "viande hache 5" matches "viande hachee")
-        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || smartFoodContains(item.name, needKey);
-        if (!isMatch) continue;
-        // Skip items matching "Toujours présent" food items
-        if (toujoursFoodKeys.has(itemKey) || [...toujoursFoodKeys].some(tjk => smartFoodContains(item.name, tjk))) continue;
-        if (!isMatch) continue;
+    const computeQtyNeeded = (item: { content_quantity: string | null; content_quantity_type: string | null }, need: { grams: number; count: number }) => {
+      const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
+      if (nb && nb.grams > 0 && need.grams > 0) return Math.ceil(need.grams / nb.grams);
+      if (nb && nb.count > 0 && need.count > 0) return Math.ceil(need.count / nb.count);
+      if (need.count > 0) return Math.ceil(need.count);
+      return 1;
+    };
 
-        const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
-        let qtyNeeded = 1;
-        if (nb && nb.grams > 0 && need.grams > 0) {
-          qtyNeeded = Math.ceil(need.grams / nb.grams);
-        } else if (nb && nb.count > 0 && need.count > 0) {
-          qtyNeeded = Math.ceil(need.count / nb.count);
-        } else if (need.count > 0) {
-          qtyNeeded = Math.ceil(need.count);
+    for (const [needKey, need] of needsMap) {
+      const exactMatches: typeof shoppingItems = [];
+      const partialMatches: typeof shoppingItems = [];
+
+      for (const item of shoppingItems) {
+        const itemKey = normalizeKey(item.name);
+        if (isToujoursItem(item, itemKey)) continue;
+
+        if (itemKey === needKey || keyMatch(itemKey, needKey)) {
+          exactMatches.push(item);
+        } else if (smartFoodContains(item.name, needKey)) {
+          partialMatches.push(item);
         }
-        toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
-        updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
-        break;
+      }
+
+      const targetMatches = exactMatches.length > 0 ? exactMatches : partialMatches;
+      for (const item of targetMatches) {
+        matchedItemIds.add(item.id);
+        const qtyNeeded = computeQtyNeeded(item, need);
+        const prevQty = desiredQuantities.get(item.id) || 0;
+        desiredQuantities.set(item.id, Math.max(prevQty, qtyNeeded));
+      }
+    }
+
+    for (const item of shoppingItems) {
+      const shouldCheck = matchedItemIds.has(item.id);
+      const desiredQty = shouldCheck ? String(desiredQuantities.get(item.id) || 1) : null;
+
+      if (item.secondary_checked !== shouldCheck) {
+        toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: shouldCheck });
+      }
+
+      if (shouldCheck) {
+        if ((item.quantity || null) !== desiredQty) {
+          updateItemQuantity.mutate({ id: item.id, quantity: desiredQty });
+        }
+      } else if (item.secondary_checked && item.quantity !== null) {
+        updateItemQuantity.mutate({ id: item.id, quantity: null });
       }
     }
   };
+
+  const initialMenuSyncDone = useRef(false);
+  useEffect(() => {
+    if (initialMenuSyncDone.current) return;
+    if (shoppingItems.length === 0) return;
+
+    const entries = Object.entries(persistedNeeds);
+    if (entries.length > 0) {
+      updateShoppingChecks(new Map(entries));
+    }
+    initialMenuSyncDone.current = true;
+  }, [shoppingItems.length, persistedNeeds]);
 
   const generatePlan = () => {
     const avantGrimpe = allPlats.find((m) => m.name.toLowerCase().includes("avant grimpe"));
@@ -297,7 +338,7 @@ export function MealPlanGenerator() {
     setPreference.mutate({ key: MENU_NEEDS_KEY, value: needsObj });
 
     // Update shopping list checkboxes & quantities
-    updateShoppingChecks(selectedIds, needsMap);
+    updateShoppingChecks(needsMap);
   };
 
   const shoppingItems2 = useMemo(() => {
@@ -318,38 +359,36 @@ export function MealPlanGenerator() {
     }
 
     // Check which ingredients match shopping list items or "Toujours présent" food items
-    // Priority: 1) exact key match, 2) "contains" match (e.g. "viande hachee" in "viande hachee 5%"), 3) no match → ❓
+    // Priority: 1) exact key match, 2) partial smart match, 3) no match → ❓
+    const toujoursKeys = [...toujoursFoodKeys];
     for (const [key, item] of map) {
       // If ingredient matches a "Toujours présent" food item, mark as matched
-      if (toujoursFoodKeys.has(key)) {
+      if (toujoursFoodKeys.has(key) || toujoursKeys.some((tjKey) => smartFoodContains(item.displayName, tjKey))) {
         item.matched = true;
         continue;
       }
 
-      const ingNorm = normalizeForMatch(item.displayName);
-
-      // 1) Exact key match
-      let exactFound = false;
-      for (const si of shoppingItems) {
-        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
+      const exactMatches = shoppingItems.filter((si) => {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) return false;
         const siKey = normalizeKey(si.name);
-        if (siKey === key || keyMatch(siKey, key)) {
-          item.matched = true;
-          exactFound = true;
-          break;
-        }
-      }
-      if (exactFound) continue;
+        if (toujoursFoodKeys.has(siKey) || toujoursKeys.some((tjKey) => smartFoodContains(si.name, tjKey))) return false;
+        return siKey === key || keyMatch(siKey, key);
+      });
 
-      // 2) Contains match: shopping item name contains the ingredient name or vice-versa
-      // Uses fuzzyContains to handle "hache" vs "hachee" type differences
-      for (const si of shoppingItems) {
-        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
-        const siNorm = normalizeForMatch(si.name);
-        if (smartFoodContains(si.name, ingNorm)) {
-          item.matched = true;
-          break;
-        }
+      if (exactMatches.length > 0) {
+        item.matched = true;
+        continue;
+      }
+
+      const partialMatches = shoppingItems.filter((si) => {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) return false;
+        const siKey = normalizeKey(si.name);
+        if (toujoursFoodKeys.has(siKey) || toujoursKeys.some((tjKey) => smartFoodContains(si.name, tjKey))) return false;
+        return smartFoodContains(si.name, item.displayName);
+      });
+
+      if (partialMatches.length > 0) {
+        item.matched = true;
       }
     }
 
