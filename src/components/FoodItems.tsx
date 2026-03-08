@@ -81,6 +81,27 @@ const FOOD_COLORS = [
   "hsl(205, 45%, 42%)",  // azure
   "hsl(285, 40%, 38%)",  // eggplant
   "hsl(325, 45%, 44%)",  // magenta rose
+  // Additional colors for more diversity
+  "hsl(10, 55%, 42%)",   // brick red
+  "hsl(35, 50%, 35%)",   // chocolate
+  "hsl(60, 40%, 32%)",   // dark olive
+  "hsl(100, 38%, 32%)",  // hunter green
+  "hsl(140, 42%, 30%)",  // deep forest
+  "hsl(175, 48%, 30%)",  // dark turquoise
+  "hsl(210, 52%, 38%)",  // denim blue
+  "hsl(245, 38%, 45%)",  // royal blue
+  "hsl(280, 42%, 35%)",  // dark purple
+  "hsl(320, 42%, 38%)",  // dark rose
+  "hsl(350, 50%, 40%)",  // carmine
+  "hsl(15, 52%, 38%)",   // sienna
+  "hsl(85, 35%, 30%)",   // olive drab
+  "hsl(115, 32%, 36%)",  // fern
+  "hsl(150, 38%, 32%)",  // dark jade
+  "hsl(225, 48%, 36%)",  // sapphire
+  "hsl(265, 42%, 38%)",  // twilight
+  "hsl(295, 38%, 42%)",  // violet
+  "hsl(335, 48%, 36%)",  // wine
+  "hsl(5, 48%, 36%)",    // dark coral
 ];
 
 /** Deterministic color from any string (id or name) — unique per input, FNV-1a for better distribution */

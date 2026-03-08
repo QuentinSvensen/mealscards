@@ -11,6 +11,7 @@ export interface Meal {
   name: string;
   category: string;
   calories: string | null;
+  protein: string | null;
   grams: string | null;
   ingredients: string | null;
   color: string;
