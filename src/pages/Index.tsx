@@ -64,6 +64,17 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "dessert", label: "Desserts", emoji: "🍰" },
 { value: "bonus", label: "Bonus", emoji: "⭐" }];
 
+/** Get displayed calories for a meal: ingredient-computed (orange) takes priority over raw */
+function getDisplayedMealCalories(meal: Meal): number {
+  const ingCal = computeIngredientCalories(meal.ingredients);
+  if (ingCal !== null && Number.isFinite(ingCal)) return ingCal;
+  if (!meal.calories) return 0;
+  const match = meal.calories.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const parsed = Number.parseFloat(match[0]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function validateMealName(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed.length === 0) return "Le nom est requis";
