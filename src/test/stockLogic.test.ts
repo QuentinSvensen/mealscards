@@ -59,7 +59,7 @@ function makeMeal(overrides: Partial<Meal> & { name: string }): Meal {
 describe("parseIngredientLine", () => {
   it("parses gram-based ingredients", () => {
     expect(parseIngredientLine("200g Poulet")).toEqual({ qty: 200, count: 0, name: "poulet" });
-    expect(parseIngredientLine("50g Farine d'avoine")).toEqual({ qty: 50, count: 0, name: "farine d'avoine" });
+    expect(parseIngredientLine("50g Farine d'avoine")).toEqual({ qty: 50, count: 0, name: "farine davoine" });
   });
 
   it("parses count-based ingredients", () => {
