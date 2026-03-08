@@ -530,6 +530,7 @@ const Index = () => {
       await Promise.all(snapshots.map((fi) =>
         (supabase as any).from("food_items").upsert({
           id: fi.id, name: fi.name, grams: fi.grams, calories: fi.calories,
+          protein: fi.protein, is_indivisible: fi.is_indivisible,
           expiration_date: fi.expiration_date, counter_start_date: fi.counter_start_date,
           sort_order: fi.sort_order, created_at: fi.created_at, is_meal: fi.is_meal,
           is_infinite: fi.is_infinite, is_dry: fi.is_dry, storage_type: fi.storage_type,

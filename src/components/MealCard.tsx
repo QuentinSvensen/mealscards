@@ -78,7 +78,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", isOr: false });
+        next.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -328,8 +328,10 @@ function renderIngredientDisplay(
   
   groups.forEach((group, gi) => {
     const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
+    const groupIsOptional = alts[0]?.startsWith("?");
     alts.forEach((alt, ai) => {
-      const parsed = parseIngredientLineDisplay(alt);
+      const cleanAlt = alt.startsWith("?") ? alt.slice(1).trim() : alt;
+      const parsed = parseIngredientLineDisplay(cleanAlt);
       const normalizedName = normalizeKey(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);
       const isMissing = missingIngredientNames?.has(normalizedName);
@@ -337,6 +339,7 @@ function renderIngredientDisplay(
       const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
         : hasCounter ? 'underline decoration-2 underline-offset-2 decoration-white/60 font-semibold'
         : isMissing ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
+        : groupIsOptional ? 'italic text-white/40'
         : '';
       
       const key = `${gi}-${ai}`;
@@ -347,7 +350,7 @@ function renderIngredientDisplay(
       }
       elements.push(
         <span key={key} className={cls}>
-          {alt.trim()}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
+          {groupIsOptional && ai === 0 ? '?' : ''}{cleanAlt}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
         </span>
       );
     });

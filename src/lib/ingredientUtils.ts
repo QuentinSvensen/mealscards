@@ -81,45 +81,50 @@ export function getFoodItemTotalGrams(fi: FoodItem): number {
 
 // ─── Ingredient Parsing (Numeric — for computation) ─────────────────────────
 
-export interface ParsedIngredient { qty: number; count: number; name: string; }
-export interface ParsedIngredientRaw { qty: number; count: number; name: string; rawName: string; }
+export interface ParsedIngredient { qty: number; count: number; name: string; optional: boolean; }
+export interface ParsedIngredientRaw { qty: number; count: number; name: string; rawName: string; optional: boolean; }
 
 export function parseIngredientLine(ing: string): ParsedIngredient {
-  const trimmed = ing.trim().replace(/\s+/g, " ");
+  let trimmed = ing.trim().replace(/\s+/g, " ");
+  const optional = trimmed.startsWith("?");
+  if (optional) trimmed = trimmed.slice(1).trim();
   const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: parseFloat(matchFull[1].replace(",", ".")), count: parseFloat(matchFull[2].replace(",", ".")), name: normalizeForMatch(matchFull[3]) };
+  if (matchFull) return { qty: parseFloat(matchFull[1].replace(",", ".")), count: parseFloat(matchFull[2].replace(",", ".")), name: normalizeForMatch(matchFull[3]), optional };
 
   const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[2]) };
+  if (matchUnit) return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[2]), optional };
 
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]) };
+  if (matchNum) return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]), optional };
 
-  return { qty: 0, count: 0, name: normalizeForMatch(trimmed) };
+  return { qty: 0, count: 0, name: normalizeForMatch(trimmed), optional };
 }
 
 /** Same as parseIngredientLine but preserves original name casing in rawName */
 export function parseIngredientLineRaw(ing: string): ParsedIngredientRaw {
-  const trimmed = ing.trim().replace(/\s+/g, " ");
+  let trimmed = ing.trim().replace(/\s+/g, " ");
+  const optional = trimmed.startsWith("?");
+  if (optional) trimmed = trimmed.slice(1).trim();
   const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: parseFloat(matchFull[1].replace(",", ".")), count: parseFloat(matchFull[2].replace(",", ".")), name: normalizeForMatch(matchFull[3]), rawName: matchFull[3].trim() };
+  if (matchFull) return { qty: parseFloat(matchFull[1].replace(",", ".")), count: parseFloat(matchFull[2].replace(",", ".")), name: normalizeForMatch(matchFull[3]), rawName: matchFull[3].trim(), optional };
 
   const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[2]), rawName: matchUnit[2].trim() };
+  if (matchUnit) return { qty: parseFloat(matchUnit[1].replace(",", ".")), count: 0, name: normalizeForMatch(matchUnit[2]), rawName: matchUnit[2].trim(), optional };
 
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]), rawName: matchNum[2].trim() };
+  if (matchNum) return { qty: 0, count: parseFloat(matchNum[1].replace(",", ".")), name: normalizeForMatch(matchNum[2]), rawName: matchNum[2].trim(), optional };
 
-  return { qty: 0, count: 0, name: normalizeForMatch(trimmed), rawName: trimmed };
+  return { qty: 0, count: 0, name: normalizeForMatch(trimmed), rawName: trimmed, optional };
 }
 
 /**
  * Parse ingredient string into OR groups.
  * "100g poulet | 80g dinde, 50g salade" → [[{poulet}, {dinde}], [{salade}]]
+ * Optional ingredients are prefixed with "?" e.g. "?50g parmesan"
  */
 export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
   if (!raw?.trim()) return [];
@@ -129,23 +134,25 @@ export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
 
 // ─── Ingredient Editing (String-based — for UI) ─────────────────────────────
 
-export interface IngLine { qty: string; count: string; name: string; isOr: boolean; }
+export interface IngLine { qty: string; count: string; name: string; isOr: boolean; isOptional: boolean; }
 
 export function parseIngredientLineDisplay(raw: string): IngLine {
-  const trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", isOr: false };
+  let trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed) return { qty: "", count: "", name: "", isOr: false, isOptional: false };
+  const isOptional = trimmed.startsWith("?");
+  if (isOptional) trimmed = trimmed.slice(1).trim();
   const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), isOr: false };
+  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), isOr: false, isOptional };
 
   const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), isOr: false };
+  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), isOr: false, isOptional };
 
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false };
+  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false, isOptional };
 
-  return { qty: "", count: "", name: trimmed, isOr: false };
+  return { qty: "", count: "", name: trimmed, isOr: false, isOptional };
 }
 
 export function formatQtyDisplay(qty: string): string {
@@ -156,7 +163,7 @@ export function formatQtyDisplay(qty: string): string {
 }
 
 export function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", isOr: false }];
+  if (!raw) return [{ qty: "", count: "", name: "", isOr: false, isOptional: false }];
   const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const lines: IngLine[] = [];
   for (const group of groups) {
@@ -167,7 +174,7 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
       lines.push(parsed);
     });
   }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", isOr: false });
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
   return lines;
 }
 
@@ -181,7 +188,8 @@ export function serializeIngredients(lines: IngLine[]): string | null {
     const nameStr = l.name.trim();
     if (!qtyStr && !countStr && !nameStr) continue;
     const token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
-    if (l.isOr) { currentGroup.push(token); } else { flushGroup(); currentGroup.push(token); }
+    const finalToken = l.isOptional ? `?${token}` : token;
+    if (l.isOr) { currentGroup.push(finalToken); } else { flushGroup(); currentGroup.push(finalToken); }
   }
   flushGroup();
   return result.length ? result.join(", ") : null;

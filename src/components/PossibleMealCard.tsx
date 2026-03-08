@@ -109,7 +109,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", isOr: false });
+        next.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -370,9 +370,15 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       {/* Row 3: ingredients (click to edit) */}
       {!editing && !editingIngredients && displayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
-          {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => (
-            <span key={i}>{ing.trim()}{i < arr.length - 1 ? ' •' : ''}</span>
-          ))}
+          {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => {
+            const isOpt = ing.trim().startsWith("?");
+            const display = isOpt ? ing.trim().slice(1).trim() : ing.trim();
+            return (
+              <span key={i} className={isOpt ? 'italic text-white/40' : ''}>
+                {isOpt ? '?' : ''}{display}{i < arr.length - 1 ? ' •' : ''}
+              </span>
+            );
+          })}
         </button>
       )}
     </div>
