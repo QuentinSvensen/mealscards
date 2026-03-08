@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { colorFromName } from "@/components/FoodItems";
+import { toast } from "@/hooks/use-toast";
 
 export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
 
@@ -41,6 +42,10 @@ export const TIMES = ['midi', 'soir'] as const;
 const DAY_INDEX: Record<string, number> = {};
 DAYS.forEach((d, i) => { DAY_INDEX[d] = i; });
 
+const onMutationError = (error: Error) => {
+  toast({ title: "Erreur", description: error.message, variant: "destructive" });
+};
+
 export function useMeals() {
   const qc = useQueryClient();
   const invalidateAll = () => {
@@ -48,11 +53,9 @@ export function useMeals() {
     qc.invalidateQueries({ queryKey: ["possible_meals"] });
   };
 
-  // Re-fetch queries when auth session becomes available
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
-        // Invalidate all queries so they re-fetch with the new session
         qc.invalidateQueries({ queryKey: ["meals"] });
         qc.invalidateQueries({ queryKey: ["possible_meals"] });
       }
@@ -77,12 +80,12 @@ export function useMeals() {
   const { data: possibleMeals = [], isLoading: pl } = useQuery({
     queryKey: ["possible_meals"],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("possible_meals")
         .select("*, meals(*)")
         .order("sort_order", { ascending: true });
       if (error) throw error;
-      return data as PossibleMeal[];
+      return data as unknown as PossibleMeal[];
     },
     retry: 3,
     retryDelay: 500,
@@ -95,18 +98,17 @@ export function useMeals() {
   const addMeal = useMutation({
     mutationFn: async ({ name, category }: { name: string; category: string }) => {
       const maxOrder = meals.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order), -1);
-      // Insert first to get the generated id, then update color based on id for uniqueness
       const { data: inserted, error: insertErr } = await supabase
         .from("meals")
-        .insert({ name, category, color: colorFromName(name), sort_order: maxOrder + 1, is_available: true } as any)
+        .insert({ name, category, color: colorFromName(name), sort_order: maxOrder + 1, is_available: true })
         .select()
         .single();
       if (insertErr) throw insertErr;
-      // Update color using the real id so each card gets a unique color
       const { error } = await supabase.from("meals").update({ color: colorFromName(inserted.id) }).eq("id", inserted.id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const addMealToPossibleDirectly = useMutation({
@@ -122,16 +124,15 @@ export function useMeals() {
           ...(calories !== undefined ? { calories } : {}),
           ...(grams !== undefined ? { grams } : {}),
           ...(ingredients !== undefined ? { ingredients } : {}),
-        } as any)
+        })
         .select()
         .single();
       if (mealError) throw mealError;
-      // Use colorSeed (e.g. food item id) if provided, otherwise use meal id
       const seed = colorSeed ?? mealData.id;
       await supabase.from("meals").update({ color: colorFromName(seed) }).eq("id", mealData.id);
       const maxOrder = possibleMeals.length;
       const normalizedQuantity = Math.max(1, Math.round(possible_quantity ?? 1));
-      const { data: insertedPm, error } = await (supabase as any)
+      const { data: insertedPm, error } = await supabase
         .from("possible_meals")
         .insert({ meal_id: mealData.id, sort_order: maxOrder, quantity: normalizedQuantity, ...(expiration_date ? { expiration_date } : {}) })
         .select()
@@ -140,6 +141,7 @@ export function useMeals() {
       return insertedPm as { id: string };
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const renameMeal = useMutation({
@@ -148,54 +150,61 @@ export function useMeals() {
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateCalories = useMutation({
     mutationFn: async ({ id, calories }: { id: string; calories: string | null }) => {
-      const { error } = await supabase.from("meals").update({ calories } as any).eq("id", id);
+      const { error } = await supabase.from("meals").update({ calories }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateGrams = useMutation({
     mutationFn: async ({ id, grams }: { id: string; grams: string | null }) => {
-      const { error } = await supabase.from("meals").update({ grams } as any).eq("id", id);
+      const { error } = await supabase.from("meals").update({ grams }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateIngredients = useMutation({
     mutationFn: async ({ id, ingredients }: { id: string; ingredients: string | null }) => {
-      const { error } = await supabase.from("meals").update({ ingredients } as any).eq("id", id);
+      const { error } = await supabase.from("meals").update({ ingredients }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateOvenTemp = useMutation({
     mutationFn: async ({ id, oven_temp }: { id: string; oven_temp: string | null }) => {
-      const { error } = await supabase.from("meals").update({ oven_temp } as any).eq("id", id);
+      const { error } = await supabase.from("meals").update({ oven_temp }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateOvenMinutes = useMutation({
     mutationFn: async ({ id, oven_minutes }: { id: string; oven_minutes: string | null }) => {
-      const { error } = await supabase.from("meals").update({ oven_minutes } as any).eq("id", id);
+      const { error } = await supabase.from("meals").update({ oven_minutes }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const toggleFavorite = useMutation({
     mutationFn: async ({ id, is_favorite }: { id: string; is_favorite: boolean }) => {
-      const { error } = await supabase.from("meals").update({ is_favorite } as any).eq("id", id);
+      const { error } = await supabase.from("meals").update({ is_favorite }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const deleteMeal = useMutation({
@@ -204,6 +213,7 @@ export function useMeals() {
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const reorderMeals = useMutation({
@@ -213,6 +223,7 @@ export function useMeals() {
       ));
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   // --- Possible meal mutations ---
@@ -220,17 +231,18 @@ export function useMeals() {
   const moveToPossible = useMutation({
     mutationFn: async ({ mealId, expiration_date }: { mealId: string; expiration_date?: string | null }) => {
       const maxOrder = possibleMeals.length;
-      const insertData: any = { meal_id: mealId, sort_order: maxOrder };
+      const insertData: Record<string, unknown> = { meal_id: mealId, sort_order: maxOrder };
       if (expiration_date) insertData.expiration_date = expiration_date;
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("possible_meals")
-        .insert(insertData)
+        .insert(insertData as any)
         .select()
         .single();
       if (error) throw error;
-      return data as { id: string };
+      return data as unknown as { id: string };
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const duplicatePossibleMeal = useMutation({
@@ -238,7 +250,7 @@ export function useMeals() {
       const source = possibleMeals.find(pm => pm.id === sourcePmId);
       if (!source) return;
       const maxOrder = possibleMeals.length;
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .insert({
           meal_id: source.meal_id,
@@ -249,17 +261,17 @@ export function useMeals() {
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const removeFromPossible = useMutation({
     mutationFn: async (possibleMealId: string) => {
       const pm = possibleMeals.find(p => p.id === possibleMealId);
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .delete()
         .eq("id", possibleMealId);
       if (error) throw error;
-      // Clean up orphaned hidden meals
       if (pm && !pm.meals?.is_available) {
         const otherRefs = possibleMeals.filter(p => p.meal_id === pm.meal_id && p.id !== possibleMealId);
         if (otherRefs.length === 0) {
@@ -268,48 +280,51 @@ export function useMeals() {
       }
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateExpiration = useMutation({
     mutationFn: async ({ id, expiration_date }: { id: string; expiration_date: string | null }) => {
-      // Linked: update all possible_meals with same meal_id
       const pm = possibleMeals.find(p => p.id === id);
       if (!pm) return;
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .update({ expiration_date })
         .eq("meal_id", pm.meal_id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updatePlanning = useMutation({
     mutationFn: async ({ id, day_of_week, meal_time }: { id: string; day_of_week: string | null; meal_time: string | null }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .update({ day_of_week, meal_time })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updateCounter = useMutation({
     mutationFn: async ({ id, counter_start_date }: { id: string; counter_start_date: string | null }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .update({ counter_start_date })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const deletePossibleMeal = useMutation({
     mutationFn: async (id: string) => {
       const pm = possibleMeals.find(p => p.id === id);
-      const { error } = await (supabase as any).from("possible_meals").delete().eq("id", id);
+      const { error } = await supabase.from("possible_meals").delete().eq("id", id);
       if (error) throw error;
       if (pm && !pm.meals?.is_available) {
         const otherRefs = possibleMeals.filter(p => p.meal_id === pm.meal_id && p.id !== id);
@@ -319,39 +334,42 @@ export function useMeals() {
       }
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const reorderPossibleMeals = useMutation({
     mutationFn: async (items: { id: string; sort_order: number }[]) => {
       await Promise.all(items.map((item) =>
-        (supabase as any).from("possible_meals").update({ sort_order: item.sort_order }).eq("id", item.id)
+        supabase.from("possible_meals").update({ sort_order: item.sort_order }).eq("id", item.id)
       ));
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updatePossibleIngredients = useMutation({
     mutationFn: async ({ id, ingredients_override }: { id: string; ingredients_override: string | null }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .update({ ingredients_override })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
 
   const updatePossibleQuantity = useMutation({
     mutationFn: async ({ id, quantity }: { id: string; quantity: number }) => {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("possible_meals")
         .update({ quantity: Math.max(1, Math.round(quantity)) })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: invalidateAll,
+    onError: onMutationError,
   });
-
 
   const getMealsByCategory = (cat: string) =>
     meals.filter((m) => m.category === cat && m.is_available).sort((a, b) => a.sort_order - b.sort_order);
@@ -361,7 +379,6 @@ export function useMeals() {
 
   const sortByExpiration = (items: PossibleMeal[]) =>
     [...items].sort((a, b) => {
-      const today = new Date(new Date().toDateString());
       const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
       const bCounter = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
       const aHasDate = !!a.expiration_date;
@@ -369,14 +386,11 @@ export function useMeals() {
       const aHasCounter = aCounter !== null;
       const bHasCounter = bCounter !== null;
 
-      // Priority: all cards WITH counter come first, then cards WITHOUT counter
-      // Group: 0=has counter (regardless of date), 1=has date only (no counter), 2=nothing
       const aGroup = aHasCounter ? 0 : aHasDate ? 1 : 2;
       const bGroup = bHasCounter ? 0 : bHasDate ? 1 : 2;
 
       if (aGroup !== bGroup) return aGroup - bGroup;
 
-      // Both have counter: higher counter first, then by date
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
         if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
@@ -385,7 +399,6 @@ export function useMeals() {
         return 0;
       }
 
-      // Both have dates (no counter)
       if (aGroup === 1) {
         return a.expiration_date!.localeCompare(b.expiration_date!);
       }

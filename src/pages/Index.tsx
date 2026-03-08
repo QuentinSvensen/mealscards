@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Lock, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { Chronometer } from "@/components/Chronometer";
 import { MealPlanGenerator } from "@/components/MealPlanGenerator";
 import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
@@ -9,6 +8,7 @@ import { MasterList } from "@/components/MasterList";
 import { PossibleList } from "@/components/PossibleList";
 import { AvailableList } from "@/components/AvailableList";
 import { UnParUnSection } from "@/components/UnParUnSection";
+import { PinLock } from "@/components/PinLock";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -53,9 +53,12 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "dessert", label: "Desserts", emoji: "🍰" },
 { value: "bonus", label: "Bonus", emoji: "⭐" }];
 
-const mealSchema = z.object({
-  name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)")
-});
+function validateMealName(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return "Le nom est requis";
+  if (trimmed.length > 100) return "Nom trop long (100 car. max)";
+  return null;
+}
 
 type SortMode = "manual" | "expiration" | "planning";
 type MasterSortMode = "manual" | "calories" | "favorites" | "ingredients";
@@ -63,77 +66,6 @@ type AvailableSortMode = "manual" | "calories" | "expiration";
 type UnParUnSortMode = "manual" | "expiration";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
-function PinLock({ onUnlock }: {onUnlock: () => void;}) {
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("Code incorrect");
-  const [loading, setLoading] = useState(false);
-
-  const showError = (msg = "Code incorrect") => {
-    setErrorMsg(msg);
-    setError(true);
-    setPin("");
-    setTimeout(() => setError(false), 2000);
-  };
-
-  const handleSubmit = async () => {
-    if (pin.length !== 4 || loading) return;
-    setLoading(true);
-    try {
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/verify-pin`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "apikey": anonKey, "Authorization": `Bearer ${anonKey}` },
-          body: JSON.stringify({ pin }),
-        }
-      );
-      let data: Record<string, unknown> = {};
-      try { data = await res.json(); } catch { /* ignore */ }
-
-      if (data.success && data.access_token && data.refresh_token) {
-        await supabase.auth.setSession({
-          access_token: data.access_token as string,
-          refresh_token: data.refresh_token as string,
-        });
-        onUnlock();
-      } else if (res.status === 401 && data.error?.toString().includes("Accès refusé")) {
-        showError((data.error as string) || "Accès refusé");
-      } else {
-        showError((data.error as string) || "Code incorrect");
-      }
-    } catch {
-      showError("Service indisponible, réessaie");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-background flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4 p-8">
-        <Lock className="h-10 w-10 text-muted-foreground" />
-        <h2 className="text-lg font-bold text-foreground">Code d'accès</h2>
-        <Input
-          type="password"
-          inputMode="numeric"
-          maxLength={4}
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          placeholder="••••"
-          className={`w-32 text-center text-2xl tracking-[0.5em] font-mono rounded-xl ${error ? 'border-destructive animate-shake' : ''}`}
-          autoFocus
-          disabled={loading} />
-
-        <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32 rounded-xl">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
-        </Button>
-      </div>
-    </div>);
-}
 
 const ROUTE_TO_PAGE: Record<string, MainPage> = {
   "/aliments": "aliments",
@@ -382,17 +314,18 @@ const Index = () => {
   };
 
   const handleAdd = () => {
-    const result = mealSchema.safeParse({ name: newName });
-    if (!result.success) {
-      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+    const validationError = validateMealName(newName);
+    if (validationError) {
+      toast({ title: "Données invalides", description: validationError, variant: "destructive" });
       return;
     }
+    const trimmedName = newName.trim();
     if (addTarget === "possible") {
-      addMealToPossibleDirectly.mutate({ name: result.data.name, category: newCategory }, {
+      addMealToPossibleDirectly.mutate({ name: trimmedName, category: newCategory }, {
         onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" }); }
       });
     } else {
-      addMeal.mutate({ name: result.data.name, category: newCategory }, {
+      addMeal.mutate({ name: trimmedName, category: newCategory }, {
         onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté 🎉" }); }
       });
     }
@@ -786,11 +719,11 @@ const Index = () => {
         const paramsStr = match ? match[2] : '';
         const params: Record<string, string> = {};
         paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
-        const result = mealSchema.safeParse({ name });
-        if (!result.success) { skipped++; continue; }
+        const validationErr = validateMealName(name);
+        if (validationErr) { skipped++; continue; }
         const cat = (params.cat as MealCategory) || 'plat';
         const { data: inserted, error: insertErr } = await supabase.from("meals").insert({
-          name: result.data.name, category: cat, color: colorFromName(result.data.name), sort_order: count, is_available: true,
+          name: name.trim(), category: cat, color: colorFromName(name.trim()), sort_order: count, is_available: true,
           calories: params.cal || null, grams: params.grams || null, ingredients: params.ing || null,
           oven_temp: params.oven_temp || null, oven_minutes: params.oven_minutes || null, is_favorite: params.fav === '1',
         } as any).select().single();
