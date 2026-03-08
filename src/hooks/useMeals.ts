@@ -47,7 +47,8 @@ const onMutationError = (error: Error) => {
   toast({ title: "Erreur", description: error.message, variant: "destructive" });
 };
 
-export function useMeals() {
+export function useMeals(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const qc = useQueryClient();
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["meals"] });
@@ -55,6 +56,7 @@ export function useMeals() {
   };
 
   useEffect(() => {
+    if (!enabled) return;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
         qc.invalidateQueries({ queryKey: ["meals"] });
@@ -62,7 +64,7 @@ export function useMeals() {
       }
     });
     return () => subscription.unsubscribe();
-  }, [qc]);
+  }, [qc, enabled]);
 
   const { data: meals = [], isLoading: ml } = useQuery({
     queryKey: ["meals"],
@@ -76,6 +78,7 @@ export function useMeals() {
     },
     retry: 3,
     retryDelay: 500,
+    enabled,
   });
 
   const { data: possibleMeals = [], isLoading: pl } = useQuery({
@@ -90,6 +93,7 @@ export function useMeals() {
     },
     retry: 3,
     retryDelay: 500,
+    enabled,
   });
 
   const isLoading = ml || pl;

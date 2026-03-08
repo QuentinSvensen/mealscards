@@ -142,7 +142,7 @@ const Index = () => {
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients, updatePossibleQuantity,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
-  } = useMeals();
+  } = useMeals({ enabled: mainPage !== "courses" });
 
   // One-time color refresh
   const colorRefreshDone = useRef(false);
