@@ -11,6 +11,7 @@ import { normalizeKey, parseIngredientLineRaw, smartFoodContains } from "@/lib/i
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
 const MENU_SORT_KEY = "menu_generator_sort_v1";
+const MENU_GRIMPE_COUNT_KEY = "menu_generator_grimpe_count_v1";
 
 type MenuSortMode = "manual" | "calories" | "alphabetical";
 
@@ -68,7 +69,12 @@ export function MealPlanGenerator() {
   const persistedNeeds = getPreference<Record<string, { grams: number; count: number }>>(MENU_NEEDS_KEY, {});
 
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
+  const persistedGrimpeCount = getPreference<number>(MENU_GRIMPE_COUNT_KEY, 4);
+  const [grimpeCount, setGrimpeCount] = useState<number>(4);
 
+  useEffect(() => {
+    if (typeof persistedGrimpeCount === 'number') setGrimpeCount(persistedGrimpeCount);
+  }, [persistedGrimpeCount]);
   useEffect(() => {
     if (persistedIds.length === 0) return;
     setSelectedMealIds((prev) => (prev.length === 0 ? persistedIds : prev));
@@ -250,7 +256,8 @@ export function MealPlanGenerator() {
 
     // Greedy selection: 16 recipes optimizing for whole-multiple consumption
     // Priorité forte: fermer les ingrédients en grammes entamés
-    for (let i = 0; i < 16; i++) {
+    const mainTarget = 20 - grimpeCount;
+    for (let i = 0; i < mainTarget; i++) {
       const isLateRound = i >= 10;
 
       const openGramKeys = new Set<string>();
@@ -412,8 +419,8 @@ export function MealPlanGenerator() {
       if (!swapped) break;
     }
 
-    if (avantGrimpe) {
-      for (let j = 0; j < 4; j++) selectedIds.push(avantGrimpe.id);
+    if (avantGrimpe && grimpeCount > 0) {
+      for (let j = 0; j < grimpeCount; j++) selectedIds.push(avantGrimpe.id);
     }
 
     // Build total needs map for shopping check persistence
@@ -557,6 +564,22 @@ export function MealPlanGenerator() {
               {Math.round(totalCal)} kcal
             </span>
           )}
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span>🧗</span>
+            <select
+              value={grimpeCount}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                setGrimpeCount(val);
+                setPreference.mutate({ key: MENU_GRIMPE_COUNT_KEY, value: val });
+              }}
+              className="bg-muted text-foreground rounded-md px-1.5 py-0.5 text-xs border-0 outline-none"
+            >
+              {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
           <Button onClick={generatePlan} className="rounded-full gap-1.5 text-xs">
             <Dice5 className="h-3.5 w-3.5" />
             Générer
