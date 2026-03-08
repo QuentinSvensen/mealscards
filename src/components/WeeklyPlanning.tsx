@@ -555,7 +555,7 @@ export function WeeklyPlanning() {
   const weekTotal = DAYS.reduce((sum, day) => sum + getDayCalories(day), 0);
 
   return (
-    <div className={`max-w-4xl mx-auto space-y-3 ${touchDragActive ? "touch-none" : ""}`}>
+    <div className={`max-w-4xl mx-auto space-y-3 overflow-x-hidden ${touchDragActive ? "touch-none" : ""}`}>
       {DAYS.map((day) => {
         const isToday_ = day === todayKey;
         const dayCalories = getDayCalories(day);
