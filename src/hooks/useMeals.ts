@@ -413,6 +413,21 @@ export function useMeals(options?: { enabled?: boolean }) {
   const getPossibleByCategory = (cat: string) =>
     possibleMeals.filter((pm) => pm.meals?.category === cat).sort((a, b) => a.sort_order - b.sort_order);
 
+  const extractSortableCalories = (pm: PossibleMeal): number | null => {
+    const ingredients = pm.ingredients_override ?? pm.meals?.ingredients;
+    const ingCal = computeIngredientCalories(ingredients);
+    if (ingCal !== null && Number.isFinite(ingCal)) return ingCal;
+
+    const raw = pm.meals?.calories;
+    if (!raw) return null;
+
+    const match = raw.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   const sortByExpiration = (items: PossibleMeal[]) =>
     [...items].sort((a, b) => {
       const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
@@ -429,20 +444,19 @@ export function useMeals(options?: { enabled?: boolean }) {
 
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
-        // Same counter days → sort by calories ascending (prefer ingredient-computed over manual)
-        const aIngredients = a.ingredients_override ?? a.meals?.ingredients;
-        const bIngredients = b.ingredients_override ?? b.meals?.ingredients;
-        const aCal = computeIngredientCalories(aIngredients) ?? (a.meals?.calories ? parseFloat(a.meals.calories) : null);
-        const bCal = computeIngredientCalories(bIngredients) ?? (b.meals?.calories ? parseFloat(b.meals.calories) : null);
-        // Both have calories → sort ascending
+
+        // Same counter days -> sort by displayed calories ascending
+        const aCal = extractSortableCalories(a);
+        const bCal = extractSortableCalories(b);
+
         if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
-        // One has calories, the other doesn't → the one with calories first
         if (aCal !== null && bCal === null) return -1;
         if (aCal === null && bCal !== null) return 1;
+
         if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
         if (aHasDate) return -1;
         if (bHasDate) return 1;
-        // Last resort: alphabetical
+
         return (a.meals?.name ?? '').localeCompare(b.meals?.name ?? '');
       }
 
