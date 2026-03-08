@@ -471,8 +471,8 @@ export function WeeklyPlanning() {
   const renderMiniCard = (pm: PossibleMeal, compact = false) => {
     const meal = pm.meals;
     if (!meal) return null;
-    const expired = isExpiredDate(pm.expiration_date);
-    const counterDays = getCounterDays(pm.counter_start_date);
+    const expired = isExpiredOnDay(pm.expiration_date, pm.day_of_week);
+    const counterDays = getAdaptedCounterDays(pm.counter_start_date, pm.day_of_week);
     const counterUrgent = counterDays !== null && counterDays >= 3;
     const overrideCal = calOverrides[pm.id];
     const displayCal = overrideCal || meal.calories;
