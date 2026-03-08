@@ -13,7 +13,7 @@ import { DAYS, TIMES } from "@/hooks/useMeals";
 import { format, parseISO } from "date-fns";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
-  parseIngredientsToLines, serializeIngredients,
+  parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 import { scaleIngredientStringExact } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
@@ -169,7 +169,15 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           <ArrowLeft className="h-3.5 w-3.5" />
         </Button>
 
-        <span className="font-semibold text-white text-sm truncate">{meal.name}</span>
+        <span className="font-semibold text-white text-sm truncate">
+          {meal.name}
+          {(() => {
+            const ingCal = computeIngredientCalories(displayIngredients);
+            return ingCal !== null ? (
+              <span className="ml-1.5 text-[10px] font-normal text-white/60 bg-white/15 px-1 py-0.5 rounded-full">🔥{ingCal}</span>
+            ) : null;
+          })()}
+        </span>
 
         {counterDays !== null && (
           <button
