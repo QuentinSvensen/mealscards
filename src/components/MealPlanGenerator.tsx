@@ -242,10 +242,10 @@ export function MealPlanGenerator() {
       const remainder = cumGrams % pkgGrams;
       const dist = Math.min(remainder, pkgGrams - remainder);
       const ratio = dist / pkgGrams; // 0 = perfect multiple, 0.5 = worst
-      if (ratio < 0.02) return 10;  // nearly exact multiple → huge bonus
-      if (ratio < 0.1) return 5;    // close to multiple
-      if (ratio < 0.25) return 1;   // acceptable
-      return -ratio * 4;            // strong penalty for waste
+      if (ratio < 0.02) return 15;   // exact multiple → massive bonus
+      if (ratio < 0.1) return 8;     // close to multiple
+      if (ratio < 0.2) return 2;     // acceptable
+      return -ratio * 12;            // very strong penalty (300g/200g pot → -6)
     };
 
     // Greedy selection: 16 recipes optimizing for whole-multiple consumption
