@@ -126,6 +126,8 @@ export function ShoppingList() {
     }
     return visibleSet;
   }, [ambiguousItemData, confirmedAmbiguous]);
+  // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
+  const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
