@@ -22,6 +22,7 @@ export interface FoodItem {
   name: string;
   grams: string | null;
   calories: string | null;
+  protein: string | null;
   expiration_date: string | null;
   counter_start_date: string | null;
   sort_order: number;
@@ -29,6 +30,7 @@ export interface FoodItem {
   is_meal: boolean;
   is_infinite: boolean;
   is_dry: boolean;
+  is_indivisible: boolean;
   storage_type: StorageType;
   quantity: number | null;
   food_type: FoodType;
