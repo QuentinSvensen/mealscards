@@ -23,7 +23,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   const invalidateStock = () => qc.invalidateQueries({ queryKey: ["food_items"] });
 
   /** Safely run a supabase mutation, catching network errors */
-  const safeMutate = async <T>(label: string, fn: () => Promise<T>): Promise<T | null> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const safeMutate = async (label: string, fn: () => any): Promise<any> => {
     try {
       return await fn();
     } catch (err: any) {
