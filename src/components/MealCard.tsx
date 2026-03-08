@@ -327,7 +327,7 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
 
           {/* Expiration + Ingredients display */}
           {(expirationLabel || meal.ingredients) && (
-            <div className="flex items-start gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1">
               {expirationLabel && (
                 <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
                   expirationIsToday
