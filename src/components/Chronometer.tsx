@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Pause, RotateCcw } from "lucide-react";
@@ -69,7 +69,6 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // Update display every 100ms
   useEffect(() => {
     const id = setInterval(() => setDisplay(formatTime(getElapsed(storedState))), 100);
     return () => clearInterval(id);
