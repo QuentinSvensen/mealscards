@@ -752,4 +752,4 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
       </div>
     </div>
   );
-}
+});
