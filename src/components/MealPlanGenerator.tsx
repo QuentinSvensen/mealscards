@@ -18,6 +18,16 @@ function keyMatch(a: string, b: string): boolean {
   return normalizeKey(a) === normalizeKey(b);
 }
 
+/** Fuzzy contains check: a contains b or b contains a, with tolerance for trailing 'e' differences */
+function fuzzyContains(a: string, b: string): boolean {
+  if (a.includes(b) || b.includes(a)) return true;
+  // Handle "hache" vs "hachee" - strip trailing 'e' for comparison
+  const stripE = (s: string) => s.replace(/e+$/, '');
+  const wordsA = a.split(/\s+/).map(stripE).join(' ');
+  const wordsB = b.split(/\s+/).map(stripE).join(' ');
+  return wordsA.includes(wordsB) || wordsB.includes(wordsA);
+}
+
 function parseStoredIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((id): id is string => typeof id === "string" && id.length > 0);
@@ -139,9 +149,9 @@ export function MealPlanGenerator() {
       const itemNorm = normalizeForMatch(item.name);
 
       for (const [needKey, need] of needsMap) {
-        // Exact key match OR contains match (e.g. "viande hachee 5%" contains "viande hachee")
+        // Exact key match OR fuzzy contains match (e.g. "viande hache 5" contains "viande hachee")
         const needNorm = normalizeForMatch(needKey);
-        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || itemNorm.includes(needNorm) || needNorm.includes(itemNorm);
+        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || fuzzyContains(itemNorm, needNorm);
         if (!isMatch) continue;
 
         const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
@@ -339,10 +349,11 @@ export function MealPlanGenerator() {
       if (exactFound) continue;
 
       // 2) Contains match: shopping item name contains the ingredient name or vice-versa
+      // Uses fuzzyContains to handle "hache" vs "hachee" type differences
       for (const si of shoppingItems) {
         if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
         const siNorm = normalizeForMatch(si.name);
-        if (siNorm.includes(ingNorm) || ingNorm.includes(siNorm)) {
+        if (fuzzyContains(siNorm, ingNorm)) {
           item.matched = true;
           break;
         }
