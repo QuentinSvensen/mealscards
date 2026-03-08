@@ -43,7 +43,7 @@ interface MealCardProps {
 export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames, counterIngredientNames }: MealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
+  const [editing, setEditing] = useState<"name" | "calories" | "protein" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
@@ -55,6 +55,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
     const val = editValue.trim();
     if (editing === "name" && val && val !== meal.name) onRename(val);
     if (editing === "calories") onUpdateCalories(val || null);
+    if (editing === "protein") onUpdateProtein?.(val || null);
     if (editing === "grams") onUpdateGrams(val || null);
     if (editing === "oven_temp") onUpdateOvenTemp?.(val || null);
     if (editing === "oven_minutes") onUpdateOvenMinutes?.(val || null);
