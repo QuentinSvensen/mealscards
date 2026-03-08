@@ -224,6 +224,11 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
               {meal.grams}
             </span>
           )}
+          {meal.protein && (
+            <span className="text-[9px] font-bold text-white/70 flex items-center gap-0.5">
+              P {meal.protein}
+            </span>
+          )}
         </div>
       )}
       {!compact && meal.ingredients && (
