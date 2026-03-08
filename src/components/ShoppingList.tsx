@@ -73,13 +73,14 @@ export function ShoppingList() {
   }, [items, toujoursFoodKeys]);
 
   // Compute which items have ambiguous partial matches with menu ingredients (ONLY multi-match)
-  // ambiguousItemData: Map<itemId, { colorIndex: number, needKey: string }>
-  const ambiguousItemData = useMemo(() => {
+  // Returns ALL items in ambiguous groups, plus tracks which needKey has a confirmed item
+  const { ambiguousItemData, confirmedAmbiguous } = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
-    if (ingredientKeys.length === 0) return new Map<string, { colorIndex: number; needKey: string }>();
-
     const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
+    const confirmed = new Map<string, string>(); // needKey → confirmed itemId
+    if (ingredientKeys.length === 0) return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
+
     let colorIndex = 0;
 
     for (const ingKey of ingredientKeys) {
@@ -97,22 +98,34 @@ export function ShoppingList() {
         }
       }
 
-      // Only multi-match without exact match → colored ❓
       if (!hasExactMatch && matchingItems.length > 1) {
-        // If one item in the group is already confirmed (secondary_checked), skip the group
+        const groupColor = colorIndex % ambiguousColors.length;
+        matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
+        colorIndex++;
+        // Track if one is already confirmed
         const confirmedItem = matchingItems.find(id => items.find(i => i.id === id)?.secondary_checked);
-        if (!confirmedItem) {
-          const groupColor = colorIndex % ambiguousColors.length;
-          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
-          colorIndex++;
+        if (confirmedItem) {
+          confirmed.set(ingKey, confirmedItem);
         }
       }
     }
 
-    return itemToGroup;
+    return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
   }, [items, getPreference, isToujoursPresent]);
 
-  const ambiguousItemIds = useMemo(() => new Set(ambiguousItemData.keys()), [ambiguousItemData]);
+  // An item shows the colored ❓ if it's in an ambiguous group AND either:
+  // - no item in the group is confirmed yet, OR
+  // - this item IS the confirmed one (shows as green ✓ but still handled by ambiguous logic)
+  const ambiguousItemIds = useMemo(() => {
+    const visibleSet = new Set<string>();
+    for (const [itemId, data] of ambiguousItemData) {
+      const confirmedId = confirmedAmbiguous.get(data.needKey);
+      if (!confirmedId || confirmedId === itemId) {
+        visibleSet.add(itemId);
+      }
+    }
+    return visibleSet;
+  }, [ambiguousItemData, confirmedAmbiguous]);
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
@@ -153,6 +166,9 @@ export function ShoppingList() {
   const [localBrands, setLocalBrands] = useState<Record<string, string>>({});
   const [localQuantities, setLocalQuantities] = useState<Record<string, string>>({});
   const [localNbs, setLocalNbs] = useState<Record<string, string>>({});
+
+  // Track last ambiguous uncheck time per needKey for double-click detection
+  const lastAmbiguousUncheck = useRef<Record<string, number>>({});
 
   // Drag state
   const dragPayload = useRef<DragPayload | null>(null);
@@ -368,9 +384,12 @@ export function ShoppingList() {
           return (
             <button
               onClick={() => {
-                const newChecked = !item.secondary_checked;
-                if (newChecked) {
-                  // Check this item
+                const now = Date.now();
+                const lastUncheck = needKey ? (lastAmbiguousUncheck.current[needKey] || 0) : 0;
+                const isQuickReclick = now - lastUncheck < 800;
+
+                if (!item.secondary_checked && !isQuickReclick) {
+                  // Check this item (confirm choice)
                   toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
                   const qty = computeSuggestedQty();
                   updateItemQuantity.mutate({ id: item.id, quantity: String(qty) });
@@ -389,9 +408,13 @@ export function ShoppingList() {
                     }
                   }
                 } else {
+                  // Uncheck (either from green ✓ or quick re-click on ❓)
                   toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+                  if (needKey) {
+                    lastAmbiguousUncheck.current[needKey] = now;
+                  }
                 }
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
