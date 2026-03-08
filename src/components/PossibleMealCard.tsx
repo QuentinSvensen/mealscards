@@ -171,12 +171,6 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
 
         <span className="font-semibold text-white text-sm truncate">
           {meal.name}
-          {(() => {
-            const ingCal = computeIngredientCalories(displayIngredients);
-            return ingCal !== null ? (
-              <span className="ml-1.5 text-[10px] font-normal text-white/60 bg-white/15 px-1 py-0.5 rounded-full">🔥{ingCal}</span>
-            ) : null;
-          })()}
         </span>
 
         {counterDays !== null && (
@@ -207,11 +201,18 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
             <Weight className="h-2.5 w-2.5" />{meal.grams}
           </button>
         )}
-        {meal.calories && (
-          <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className="text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
-            <Flame className="h-2.5 w-2.5" />{meal.calories}
-          </button>
-        )}
+        {(() => {
+          const ingCal = computeIngredientCalories(displayIngredients);
+          const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
+          const isComputed = ingCal !== null;
+          return displayCal ? (
+            <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className={`text-[10px] text-white/70 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${
+              isComputed ? 'bg-orange-500/50 font-bold hover:bg-orange-500/60' : 'bg-white/20 hover:bg-white/30'
+            }`}>
+              <Flame className="h-2.5 w-2.5" />{displayCal}
+            </button>
+          ) : null;
+        })()}
         {meal.protein && (
           <span className="text-[10px] text-white/70 bg-blue-500/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold">
             🍗 {meal.protein}
