@@ -200,11 +200,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             </button>
           )
         )}
-        {!compact && meal.protein && (
-          <span className="text-[10px] font-bold text-white bg-white/20 px-1.5 py-0.5 rounded-full shrink-0">
-            P {meal.protein}
-          </span>
-        )}
         {!compact && (
           <button
             onClick={onRemove}
