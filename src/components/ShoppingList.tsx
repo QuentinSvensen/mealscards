@@ -99,11 +99,14 @@ export function ShoppingList() {
 
       // Only multi-match without exact match → colored ❓
       if (!hasExactMatch && matchingItems.length > 1) {
-        const groupColor = colorIndex % ambiguousColors.length;
-        matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
-        colorIndex++;
+        // If one item in the group is already confirmed (secondary_checked), skip the group
+        const confirmedItem = matchingItems.find(id => items.find(i => i.id === id)?.secondary_checked);
+        if (!confirmedItem) {
+          const groupColor = colorIndex % ambiguousColors.length;
+          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
+          colorIndex++;
+        }
       }
-      // Single partial match → no ❓, will be handled as green check by updateShoppingChecks
     }
 
     return itemToGroup;
