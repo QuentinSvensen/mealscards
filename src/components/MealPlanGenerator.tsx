@@ -56,6 +56,7 @@ function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: numbe
 export function MealPlanGenerator() {
   const { getMealsByCategory } = useMeals();
   const { items: shoppingItems, groups: shoppingGroups, toggleSecondaryCheck, updateItemQuantity } = useShoppingList();
+  const { items: foodItems } = useFoodItems();
   const { getPreference, setPreference } = usePreferences();
 
   const allPlats = getMealsByCategory("plat");
