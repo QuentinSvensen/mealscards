@@ -34,11 +34,11 @@ function parseNbValue(nb: string | null, type: string | null): { grams: number; 
 }
 
 /** Get recipe ingredient usage. No-ingredient meals → name is the ingredient */
-function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: number }> {
-  const usage = new Map<string, { grams: number; count: number }>();
+function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: number; rawName: string }> {
+  const usage = new Map<string, { grams: number; count: number; rawName: string }>();
   if (!recipe.ingredients) {
     const key = normalizeKey(recipe.name);
-    usage.set(key, { grams: 0, count: 1 });
+    usage.set(key, { grams: 0, count: 1, rawName: recipe.name });
     return usage;
   }
   const groups = recipe.ingredients.split(/(?:\n|,(?!\d))/).map((s) => s.trim()).filter(Boolean);
@@ -46,11 +46,11 @@ function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: numbe
     const alts = group.split(/\|/);
     const first = alts[0]?.trim();
     if (!first) continue;
-    const parsed = parseIngredientLine(first);
+    const parsed = parseIngredientLineRaw(first);
     if (!parsed.name) continue;
     const key = normalizeKey(parsed.name);
-    const prev = usage.get(key) || { grams: 0, count: 0 };
-    usage.set(key, { grams: prev.grams + parsed.qty, count: prev.count + parsed.count });
+    const prev = usage.get(key) || { grams: 0, count: 0, rawName: parsed.rawName };
+    usage.set(key, { grams: prev.grams + parsed.qty, count: prev.count + parsed.count, rawName: prev.rawName });
   }
   return usage;
 }
