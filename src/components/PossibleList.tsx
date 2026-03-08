@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Dice5, ArrowUpDown, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
+import { computeIngredientCalories } from "@/lib/ingredientUtils";
 import type { FoodItem } from "@/components/FoodItems";
 
 type SortMode = "manual" | "expiration" | "planning";
