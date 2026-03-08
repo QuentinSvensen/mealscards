@@ -66,9 +66,9 @@ export function smartFoodContains(a: string, b: string): boolean {
     const bLight = lightNormalize(b).split(/\s+/);
     for (let i = 0; i < Math.min(aLight.length, bLight.length); i++) {
       // If normalized (no-accent) forms match but accented forms differ → different food (pâte vs pâté)
-      if (stripTrailingE(normalizeForMatch(aLight[i])) === stripTrailingE(normalizeForMatch(bLight[i]))
+      if (fuzzyWord(normalizeForMatch(aLight[i])) === fuzzyWord(normalizeForMatch(bLight[i]))
           && aLight[i] !== bLight[i]
-          && stripTrailingE(aLight[i]) !== stripTrailingE(bLight[i])) {
+          && fuzzyWord(aLight[i]) !== fuzzyWord(bLight[i])) {
         return false;
       }
     }
