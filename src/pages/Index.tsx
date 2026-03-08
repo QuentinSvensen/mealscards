@@ -85,14 +85,21 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 const Index = () => {
   const qc = useQueryClient();
   const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
-  const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems();
-  const deleteFoodItem = (id: string) => deleteFoodItemMutation.mutate(id);
   const [blockedCount, setBlockedCount] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
   const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
   const setMainPage = (page: MainPage) => navigate(PAGE_TO_ROUTE[page]);
+
+  const unlocked = !!session;
+  const pageNeedsMealsData = unlocked && mainPage !== "courses";
+  const pageNeedsIndexFoodData = unlocked && mainPage !== "courses";
+  const pageNeedsIndexShoppingData = unlocked && mainPage !== "courses";
+  const pageNeedsIndexPreferences = unlocked && mainPage !== "courses";
+
+  const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems({ enabled: pageNeedsIndexFoodData });
+  const deleteFoodItem = (id: string) => deleteFoodItemMutation.mutate(id);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
@@ -106,7 +113,7 @@ const Index = () => {
     return () => window.removeEventListener("beforeunload", handleUnload);
   }, []);
 
-  const unlocked = !!session;
+  // unlocked computed above to gate data hooks before PIN unlock
 
   useEffect(() => {
     if (!unlocked) return;
@@ -143,7 +150,7 @@ const Index = () => {
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients, updatePossibleQuantity,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
-  } = useMeals({ enabled: mainPage !== "courses" });
+  } = useMeals({ enabled: pageNeedsMealsData });
 
   // One-time color refresh
   const colorRefreshDone = useRef(false);
@@ -157,8 +164,8 @@ const Index = () => {
     )).then(() => qc.invalidateQueries({ queryKey: ["meals"] }));
   }, [unlocked, meals]);
 
-  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList();
-  const { getPreference, setPreference } = usePreferences();
+  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList({ enabled: pageNeedsIndexShoppingData });
+  const { getPreference, setPreference } = usePreferences({ enabled: pageNeedsIndexPreferences });
 
   // Sunday auto-clear
   const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
