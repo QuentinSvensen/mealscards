@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useMeals, type Meal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
+import { useFoodItems } from "@/components/FoodItems";
 import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
@@ -55,6 +56,7 @@ function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: numbe
 export function MealPlanGenerator() {
   const { getMealsByCategory } = useMeals();
   const { items: shoppingItems, groups: shoppingGroups, toggleSecondaryCheck, updateItemQuantity } = useShoppingList();
+  const { items: foodItems } = useFoodItems();
   const { getPreference, setPreference } = usePreferences();
 
   const allPlats = getMealsByCategory("plat");
@@ -99,6 +101,13 @@ export function MealPlanGenerator() {
         .map(g => g.id)
     );
   }, [shoppingGroups]);
+
+  // Build set of normalized keys for "Toujours présent" food items
+  const toujoursFoodKeys = useMemo(() => {
+    return new Set(
+      foodItems.filter(fi => fi.storage_type === 'toujours').map(fi => normalizeKey(fi.name))
+    );
+  }, [foodItems]);
 
   // Build shopping inventory from items with Nb, excluding frozen
   const shoppingInventory = useMemo(() => {
@@ -301,8 +310,13 @@ export function MealPlanGenerator() {
       }
     }
 
-    // Check which ingredients match shopping list items
+    // Check which ingredients match shopping list items or "Toujours présent" food items
     for (const [key, item] of map) {
+      // If ingredient matches a "Toujours présent" food item, mark as matched
+      if (toujoursFoodKeys.has(key)) {
+        item.matched = true;
+        continue;
+      }
       for (const si of shoppingItems) {
         if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
         const siKey = normalizeKey(si.name);
@@ -316,7 +330,7 @@ export function MealPlanGenerator() {
     return Array.from(map.entries())
       .map(([, v]) => v)
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
-  }, [selectedMeals, shoppingItems, toujoursPresentGroupIds]);
+  }, [selectedMeals, shoppingItems, toujoursPresentGroupIds, toujoursFoodKeys]);
 
   const totalCal = selectedMeals.reduce((sum, m) => {
     const c = parseFloat((m.calories || "0").replace(/[^0-9.]/g, "")) || 0;
