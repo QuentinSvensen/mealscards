@@ -14,7 +14,7 @@ import {
   formatExpirationLabel, compareExpirationWithCounter, buildScaledMealForRatio,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups,
+  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -83,6 +83,27 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       }
     }
     setEditingRatioId(null);
+  };
+
+  const getDisplayedCalories = (meal: Meal): number | null => {
+    const ingCal = computeIngredientCalories(meal.ingredients);
+    if (ingCal !== null && Number.isFinite(ingCal)) return ingCal;
+    if (!meal.calories) return null;
+    const match = meal.calories.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const getUnifiedItemName = (u: {
+    type: 'isMeal' | 'nameMatch' | 'available' | 'partial';
+    fi?: FoodItem;
+    nm?: NameMatch;
+    item?: { meal: Meal };
+  }): string => {
+    if (u.type === 'isMeal') return u.fi?.name ?? '';
+    if (u.type === 'nameMatch') return u.nm?.meal.name ?? '';
+    return u.item?.meal.name ?? '';
   };
 
   // 1. Meals realizable via ingredient matching
@@ -540,30 +561,35 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
 
             if (sortMode === "expiration") {
               type UnifiedItem =
-                | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null }
-                | { type: 'nameMatch'; nm: NameMatch; idx: number; sortDate: string | null; sortCounter: number | null }
-                | { type: 'available'; item: typeof available[0]; sortDate: string | null; sortCounter: number | null }
-                | { type: 'partial'; item: typeof partialAvailable[0]; sortDate: string | null; sortCounter: number | null };
+                | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null; sortCalories: number | null }
+                | { type: 'nameMatch'; nm: NameMatch; idx: number; sortDate: string | null; sortCounter: number | null; sortCalories: number | null }
+                | { type: 'available'; item: typeof available[0]; sortDate: string | null; sortCounter: number | null; sortCalories: number | null }
+                | { type: 'partial'; item: typeof partialAvailable[0]; sortDate: string | null; sortCounter: number | null; sortCalories: number | null };
 
               const unified: UnifiedItem[] = [];
               for (const fi of [...sortedIsMealItems, ...isMealWithDate]) {
                 const counter = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
-                unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter });
+                const fakeMeal: Meal = { ...fi as unknown as Meal, calories: fi.calories, ingredients: null };
+                unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(fakeMeal) });
               }
               for (let i = 0; i < sortedNameMatches.length; i++) {
                 const nm = sortedNameMatches[i];
                 const counter = nm.fi.counter_start_date ? Math.floor((Date.now() - new Date(nm.fi.counter_start_date).getTime()) / 86400000) : null;
-                unified.push({ type: 'nameMatch', nm, idx: i, sortDate: nm.fi.expiration_date, sortCounter: counter });
+                unified.push({ type: 'nameMatch', nm, idx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(nm.meal) });
               }
               for (const item of sortedAvailable) {
                 const expDate = getEarliestIngredientExpiration(item.meal, foodItems);
                 const maxCounter = getMaxIngredientCounter(item.meal, foodItems);
-                unified.push({ type: 'available', item, sortDate: expDate, sortCounter: maxCounter });
+                const ratio = customRatios[item.meal.id] ?? 1;
+                const displayMeal = ratio !== 1 ? buildScaledMealForRatio(item.meal, ratio) : item.meal;
+                unified.push({ type: 'available', item, sortDate: expDate, sortCounter: maxCounter, sortCalories: getDisplayedCalories(displayMeal) });
               }
               for (const item of partialAvailable) {
                 const expDate = getEarliestIngredientExpiration(item.meal, foodItems);
                 const maxCounter = getMaxIngredientCounter(item.meal, foodItems);
-                unified.push({ type: 'partial', item, sortDate: expDate, sortCounter: maxCounter });
+                const ratio = customRatios[`partial-${item.meal.id}`] ?? item.ratio;
+                const displayMeal = buildScaledMealForRatio(item.meal, ratio);
+                unified.push({ type: 'partial', item, sortDate: expDate, sortCounter: maxCounter, sortCalories: getDisplayedCalories(displayMeal) });
               }
 
               unified.sort((a, b) => {
@@ -573,7 +599,20 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
                   const bIsMeal = b.type === 'isMeal' ? 1 : 0;
                   if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
                 }
-                return compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
+
+                const baseCmp = compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
+                if (baseCmp !== 0) return baseCmp;
+
+                // Same non-zero counter + same date => calories ascending
+                const sameCounter = a.sortCounter !== null && b.sortCounter !== null && a.sortCounter === b.sortCounter;
+                const sameDate = (a.sortDate ?? null) === (b.sortDate ?? null);
+                if (sameCounter && a.sortCounter !== 0 && sameDate) {
+                  if (a.sortCalories !== null && b.sortCalories !== null && a.sortCalories !== b.sortCalories) return a.sortCalories - b.sortCalories;
+                  if (a.sortCalories !== null && b.sortCalories === null) return -1;
+                  if (a.sortCalories === null && b.sortCalories !== null) return 1;
+                }
+
+                return getUnifiedItemName(a).localeCompare(getUnifiedItemName(b));
               });
 
               const firstIsMealIdx = !isPlat ? unified.findIndex(u => u.type === 'isMeal') : -1;
