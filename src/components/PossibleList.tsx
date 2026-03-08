@@ -68,11 +68,24 @@ export function PossibleList({ category, items, sortMode, onToggleSort, onRandom
     return [...items].sort((a, b) => {
       const aCounter = getCounterDays(a.counter_start_date);
       const bCounter = getCounterDays(b.counter_start_date);
+      // Only re-sort items with same non-null, non-zero counter
       if (aCounter === null || bCounter === null || aCounter !== bCounter) return 0;
 
+      // Same counter (non-zero): sort by date first
+      if (aCounter !== 0) {
+        const aDate = a.expiration_date;
+        const bDate = b.expiration_date;
+        if (aDate && bDate) {
+          const dateCmp = aDate.localeCompare(bDate);
+          if (dateCmp !== 0) return dateCmp;
+        }
+        if (aDate && !bDate) return -1;
+        if (!aDate && bDate) return 1;
+      }
+
+      // Same counter + same date: sort by calories ascending
       const aCal = getDisplayedCalories(a);
       const bCal = getDisplayedCalories(b);
-
       if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
       if (aCal !== null && bCal === null) return -1;
       if (aCal === null && bCal !== null) return 1;
