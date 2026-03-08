@@ -1544,7 +1544,7 @@ const Index = () => {
                           possible_quantity: displayQty,
                         });
                         if (pmResult?.id) {
-                          setDeductionSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                          updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
                           setUnParUnSourcePmIds(prev => new Set([...prev, pmResult.id]));
                         }
                       }}
