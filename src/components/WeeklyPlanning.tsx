@@ -29,6 +29,23 @@ const JS_DAY_TO_KEY: Record<number, string> = {
   0: "dimanche",
 };
 
+const DAY_KEY_TO_INDEX: Record<string, number> = {
+  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
+};
+
+/** Get the date for a given day key in the current week (Mon-Sun) */
+function getDateForDayKey(dayKey: string): Date {
+  const today = new Date();
+  const todayDow = today.getDay(); // 0=Sun
+  const todayIdx = todayDow === 0 ? 6 : todayDow - 1; // 0=Mon
+  const targetIdx = DAY_KEY_TO_INDEX[dayKey] ?? 0;
+  const diff = targetIdx - todayIdx;
+  const d = new Date(today);
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 const DAILY_GOAL = 2750;
 const WEEKLY_GOAL = 19250;
 
@@ -55,9 +72,29 @@ function getCounterDays(startDate: string | null): number | null {
   return Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000);
 }
 
+/** Counter days adapted: adds offset based on the difference between target day and today */
+function getAdaptedCounterDays(startDate: string | null, dayKey: string | null): number | null {
+  if (!startDate) return null;
+  const baseDays = Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000);
+  if (!dayKey) return baseDays;
+  const targetDate = getDateForDayKey(dayKey);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayOffset = Math.round((targetDate.getTime() - today.getTime()) / 86400000);
+  return baseDays + dayOffset;
+}
+
 function isExpiredDate(d: string | null) {
   if (!d) return false;
   return new Date(d) < new Date(new Date().toDateString());
+}
+
+/** Check if expired relative to target day */
+function isExpiredOnDay(d: string | null, dayKey: string | null) {
+  if (!d) return false;
+  if (!dayKey) return isExpiredDate(d);
+  const targetDate = getDateForDayKey(dayKey);
+  return new Date(d) < targetDate;
 }
 
 function parseCalories(cal: string | null | undefined): number {
@@ -434,8 +471,8 @@ export function WeeklyPlanning() {
   const renderMiniCard = (pm: PossibleMeal, compact = false) => {
     const meal = pm.meals;
     if (!meal) return null;
-    const expired = isExpiredDate(pm.expiration_date);
-    const counterDays = getCounterDays(pm.counter_start_date);
+    const expired = isExpiredOnDay(pm.expiration_date, pm.day_of_week);
+    const counterDays = getAdaptedCounterDays(pm.counter_start_date, pm.day_of_week);
     const counterUrgent = counterDays !== null && counterDays >= 3;
     const overrideCal = calOverrides[pm.id];
     const displayCal = overrideCal || meal.calories;

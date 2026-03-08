@@ -521,6 +521,26 @@ const Index = () => {
     });
   };
 
+  /** Sort food items for stock deduction: counter items first, then remainders, then shortest expiration */
+  const sortStockDeductionPriority = (a: FoodItem, b: FoodItem): number => {
+    // 1. Items with counter first (active partial consumption)
+    const aHasCounter = !!a.counter_start_date;
+    const bHasCounter = !!b.counter_start_date;
+    if (aHasCounter && !bHasCounter) return -1;
+    if (!aHasCounter && bHasCounter) return 1;
+    // 2. Among counter items, higher counter days first
+    if (aHasCounter && bHasCounter) {
+      const aDays = Math.floor((Date.now() - new Date(a.counter_start_date!).getTime()) / 86400000);
+      const bDays = Math.floor((Date.now() - new Date(b.counter_start_date!).getTime()) / 86400000);
+      if (aDays !== bDays) return bDays - aDays;
+    }
+    // 3. Shortest expiration date first
+    if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+    if (a.expiration_date) return -1;
+    if (b.expiration_date) return 1;
+    return 0;
+  };
+
   /** Deduct ingredients from stock and return pre-deduction snapshots for exact rollback */
   const deductIngredientsFromStock = async (meal: Meal): Promise<FoodItem[]> => {
     if (!meal.ingredients?.trim()) return [];
@@ -548,12 +568,7 @@ const Index = () => {
 
       const matchingItems = foodItems
         .filter((fi) => strictNameMatch(fi.name, key) && !fi.is_infinite)
-        .sort((a, b) => {
-          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
-          if (a.expiration_date) return -1;
-          if (b.expiration_date) return 1;
-          return 0;
-        });
+        .sort(sortStockDeductionPriority);
 
       if (neededCount > 0) {
         let toDeduct = neededCount;
@@ -679,12 +694,7 @@ const Index = () => {
       const { qty: neededGrams, count: neededCount, name } = alt;
       const matchingItems = foodItems
         .filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite)
-        .sort((a, b) => {
-          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
-          if (a.expiration_date) return -1;
-          if (b.expiration_date) return 1;
-          return 0;
-        });
+        .sort(sortStockDeductionPriority);
       if (matchingItems.length === 0) continue;
       const fi = matchingItems[0];
 
@@ -771,12 +781,7 @@ const Index = () => {
 
       const matchingItems = foodItems
         .filter(fi => strictNameMatch(fi.name, ingName) && !fi.is_infinite)
-        .sort((a, b) => {
-          if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
-          if (a.expiration_date) return -1;
-          if (b.expiration_date) return 1;
-          return 0;
-        });
+        .sort(sortStockDeductionPriority);
       if (matchingItems.length === 0) continue;
 
       if (deltaGrams > 0) {
@@ -2564,17 +2569,16 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
     }
 
     return nonToujoursItems.filter(fi => {
+      // is_meal items already appear as cards in "au choix", don't show in unused list
+      if (fi.is_meal) return false;
       if (fi.is_infinite) {
-        // Infinite items are unused only if no available recipe uses them
         const fiKey = normalizeForMatch(fi.name);
-        // Check with strict matching
         for (const usedKey of usedIngredientKeys) {
           if (strictNameMatch(fiKey, usedKey)) return false;
         }
         return true;
       }
       const fiKey = normalizeForMatch(fi.name);
-      // Check with strict matching against used ingredient keys
       for (const usedKey of usedIngredientKeys) {
         if (strictNameMatch(fiKey, usedKey)) return false;
       }
@@ -2759,9 +2763,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                 id: `fi-${fi.id}`,
                 name: fi.name,
                 category: "plat",
-                calories: fi.quantity && fi.quantity > 1 && fi.calories
-                  ? `${parseFloat(fi.calories.replace(/[^0-9.]/g, '')) * fi.quantity}`
-                  : fi.calories,
+                calories: fi.calories,
                 grams: displayGrams,
                 ingredients: null,
                 color: colorFromName(fi.id),
