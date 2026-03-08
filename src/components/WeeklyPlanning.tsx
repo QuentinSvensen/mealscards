@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Timer, Flame, Weight, Calendar, Lock } from "lucide-react";
+import { computeIngredientCalories } from "@/lib/ingredientUtils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -121,8 +122,8 @@ interface TouchDragState {
 }
 
 // ─── PlanningMiniCard ────────────────────────────────────────────────────────
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; compact: boolean;
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, isComputedCal, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; isComputedCal: boolean; compact: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
@@ -218,7 +219,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             ) : displayCal ? (
               <button
                 onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                className="text-xs font-black text-white bg-black/30 px-2 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40"
+                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
+                  isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
+                }`}
                 title="Modifier les calories (temporaire)"
               >
                 <Flame className="h-3 w-3" />
@@ -327,7 +330,10 @@ export function WeeklyPlanning() {
         if (slotMeals.length > 0) {
           return total + slotMeals.reduce((s, pm) => {
             const override = calOverrides[pm.id];
-            return s + (override ? parseCalories(override) : parseCalories(pm.meals?.calories));
+            if (override) return s + parseCalories(override);
+            const ingCal = computeIngredientCalories(pm.meals?.ingredients);
+            if (ingCal !== null) return s + ingCal;
+            return s + parseCalories(pm.meals?.calories);
           }, 0);
         }
         return total + (manualCalories[`${day}-${time}`] || 0);
@@ -508,7 +514,9 @@ export function WeeklyPlanning() {
     const counterDays = getAdaptedCounterDays(pm.counter_start_date, pm.day_of_week);
     const counterUrgent = counterDays !== null && counterDays >= 3;
     const overrideCal = calOverrides[pm.id];
-    const displayCal = overrideCal || meal.calories;
+    const ingCal = computeIngredientCalories(meal.ingredients);
+    const isComputedCal = !overrideCal && ingCal !== null;
+    const displayCal = overrideCal || (ingCal !== null ? String(ingCal) : meal.calories);
 
     return (
       <PlanningMiniCard
@@ -519,6 +527,7 @@ export function WeeklyPlanning() {
         counterDays={counterDays}
         counterUrgent={counterUrgent}
         displayCal={displayCal}
+        isComputedCal={isComputedCal}
         compact={compact}
         isTouchDevice={isTouchDevice}
         touchDragActive={touchDragActive}
