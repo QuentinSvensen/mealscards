@@ -165,40 +165,47 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
         )}
         <div className="flex-1" />
         {!compact && (
-          editingCal ? (
-            <input
-              autoFocus
-              type="text"
-              inputMode="numeric"
-              value={calValue}
-              onChange={(e) => setCalValue(e.target.value)}
-              onBlur={() => {
-                const trimmed = calValue.trim();
-                onCalorieChange(trimmed || null);
-                setEditingCal(false);
-              }}
-              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-              className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-              placeholder="kcal"
-            />
-          ) : displayCal ? (
-            <button
-              onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-              className="text-xs font-black text-white bg-black/30 px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 hover:bg-black/40"
-              title="Modifier les calories (temporaire)"
-            >
-              <Flame className="h-3 w-3" />
-              {displayCal}
-            </button>
-          ) : (
-            <button
-              onClick={() => { setCalValue(""); setEditingCal(true); }}
-              className="text-[10px] text-white/40 hover:text-white/60 shrink-0"
-              title="Ajouter des calories"
-            >
-              <Flame className="h-3 w-3" />
-            </button>
-          )
+          <div className="flex flex-col items-end shrink-0">
+            {editingCal ? (
+              <input
+                autoFocus
+                type="text"
+                inputMode="numeric"
+                value={calValue}
+                onChange={(e) => setCalValue(e.target.value)}
+                onBlur={() => {
+                  const trimmed = calValue.trim();
+                  onCalorieChange(trimmed || null);
+                  setEditingCal(false);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
+                placeholder="kcal"
+              />
+            ) : displayCal ? (
+              <button
+                onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
+                className="text-xs font-black text-white bg-black/30 px-2 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40"
+                title="Modifier les calories (temporaire)"
+              >
+                <Flame className="h-3 w-3" />
+                {displayCal}
+              </button>
+            ) : (
+              <button
+                onClick={() => { setCalValue(""); setEditingCal(true); }}
+                className="text-[10px] text-white/40 hover:text-white/60"
+                title="Ajouter des calories"
+              >
+                <Flame className="h-3 w-3" />
+              </button>
+            )}
+            {meal.protein && (
+              <span className="text-[9px] font-bold text-white/70 mt-0.5">
+                P {meal.protein}
+              </span>
+            )}
+          </div>
         )}
         {!compact && (
           <button
