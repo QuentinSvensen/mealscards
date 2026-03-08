@@ -17,7 +17,7 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
   const qc = useQueryClient();
   const [display, setDisplay] = useState("00:00:00");
 
-  // Poll DB every 1 second for cross-device sync
+  // Only poll DB when dialog is open and running (cross-device sync)
   const { data: storedState = DEFAULT_STATE } = useQuery({
     queryKey: ["chronometer_state"],
     queryFn: async () => {
@@ -29,7 +29,8 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
       if (error) throw error;
       return (data?.value as ChronoState) ?? DEFAULT_STATE;
     },
-    refetchInterval: 1000,
+    refetchInterval: open ? 1000 : false,
+    enabled: open,
     retry: 2,
   });
 
