@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
+import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
+import { colorFromName } from "@/lib/foodColors";
 
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";

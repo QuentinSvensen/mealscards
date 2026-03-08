@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useMeals, type Meal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
-import { useFoodItems } from "@/components/FoodItems";
+import { useFoodItems } from "@/hooks/useFoodItems";
 import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
