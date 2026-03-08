@@ -149,9 +149,9 @@ export function MealPlanGenerator() {
       const itemNorm = normalizeForMatch(item.name);
 
       for (const [needKey, need] of needsMap) {
-        // Exact key match OR contains match (e.g. "viande hachee 5%" contains "viande hachee")
+        // Exact key match OR fuzzy contains match (e.g. "viande hache 5" contains "viande hachee")
         const needNorm = normalizeForMatch(needKey);
-        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || itemNorm.includes(needNorm) || needNorm.includes(itemNorm);
+        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || fuzzyContains(itemNorm, needNorm);
         if (!isMatch) continue;
 
         const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
