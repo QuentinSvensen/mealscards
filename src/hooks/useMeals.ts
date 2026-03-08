@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { colorFromName } from "@/lib/foodColors";
+import { computeIngredientCalories } from "@/lib/ingredientUtils";
 import { toast } from "@/hooks/use-toast";
 
 export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
@@ -428,6 +429,10 @@ export function useMeals(options?: { enabled?: boolean }) {
 
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
+        // Same counter days → sort by calories ascending
+        const aCal = computeIngredientCalories(a.meals?.ingredients) ?? (a.meals?.calories ? Number(a.meals.calories) : Infinity);
+        const bCal = computeIngredientCalories(b.meals?.ingredients) ?? (b.meals?.calories ? Number(b.meals.calories) : Infinity);
+        if (aCal !== bCal) return aCal - bCal;
         if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
         if (aHasDate) return -1;
         if (bHasDate) return 1;
