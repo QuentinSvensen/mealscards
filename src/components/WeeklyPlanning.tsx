@@ -200,11 +200,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             </button>
           )
         )}
-        {!compact && meal.protein && (
-          <span className="text-[10px] font-bold text-white bg-white/20 px-1.5 py-0.5 rounded-full shrink-0">
-            P {meal.protein}
-          </span>
-        )}
         {!compact && (
           <button
             onClick={onRemove}
@@ -227,6 +222,11 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             <span className="text-[9px] text-white/60 flex items-center gap-0.5">
               <Weight className="h-2 w-2" />
               {meal.grams}
+            </span>
+          )}
+          {meal.protein && (
+            <span className="text-[9px] font-bold text-white/70 flex items-center gap-0.5">
+              P {meal.protein}
             </span>
           )}
         </div>
