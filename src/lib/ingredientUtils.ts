@@ -88,6 +88,8 @@ export function parseIngredientLine(ing: string): ParsedIngredient {
   let trimmed = ing.trim().replace(/\s+/g, " ");
   const optional = trimmed.startsWith("?");
   if (optional) trimmed = trimmed.slice(1).trim();
+  // Strip {cal} suffix
+  trimmed = trimmed.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
   const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
