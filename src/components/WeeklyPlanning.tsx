@@ -152,21 +152,12 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       `}
       style={{ backgroundColor: meal.color }}
     >
-      {/* Title row: name + counter | calories + protein + close */}
+      {/* Title row: name | calories + protein + counter */}
       <div className="flex items-start gap-1 min-w-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 min-w-0">
             <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
             <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
-            {counterDays !== null && (
-              <span
-                className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
-                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-              >
-                <Timer className="h-2.5 w-2.5" />
-                {counterDays}j
-              </span>
-            )}
           </div>
         </div>
         {!compact && (
@@ -210,6 +201,15 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             {meal.protein && (
               <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
                 🍗 {meal.protein}
+              </span>
+            )}
+            {counterDays !== null && (
+              <span
+                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
+                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
+              >
+                <Timer className="h-2.5 w-2.5" />
+                {counterDays}j
               </span>
             )}
           </div>
