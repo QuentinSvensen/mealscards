@@ -202,7 +202,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             )}
             {meal.protein && (
               <span className="text-[9px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
-                P {meal.protein}
+                🍗 {meal.protein}
               </span>
             )}
           </div>
@@ -636,7 +636,7 @@ export function WeeklyPlanning() {
                 )}
                 {getDayProtein(day) > 0 && (
                   <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
-                    P {Math.round(getDayProtein(day))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL}</span>
+                    🍗 {Math.round(getDayProtein(day))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL}</span>
                   </span>
                 )}
               </div>
