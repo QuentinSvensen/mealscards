@@ -563,7 +563,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
                 unified.push({ type: 'partial', item, sortDate: expDate, sortCounter: maxCounter });
               }
 
-              unified.sort((a, b) => compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter));
+              unified.sort((a, b) => {
+                // is_meal items always at bottom
+                const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+                const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+                if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+                return compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
+              });
 
               return unified.map((u, idx) => {
                 if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
