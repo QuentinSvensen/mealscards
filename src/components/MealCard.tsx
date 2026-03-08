@@ -17,6 +17,7 @@ interface MealCardProps {
   onRename: (name: string) => void;
   onDelete: () => void;
   onUpdateCalories: (calories: string | null) => void;
+  onUpdateProtein?: (protein: string | null) => void;
   onUpdateGrams: (grams: string | null) => void;
   onUpdateIngredients: (ingredients: string | null) => void;
   onToggleFavorite?: () => void;
@@ -39,7 +40,7 @@ interface MealCardProps {
 
 // Ingredient parsing utilities imported from @/lib/ingredientUtils
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames, counterIngredientNames }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames, counterIngredientNames }: MealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
   const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
@@ -218,6 +219,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
               {meal.calories && (
                 <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <Flame className="h-3 w-3" />{meal.calories}
+                </span>
+              )}
+              {meal.protein && (
+                <span className="text-xs text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold">
+                  P {meal.protein}
                 </span>
               )}
               {hasCuisson && (
