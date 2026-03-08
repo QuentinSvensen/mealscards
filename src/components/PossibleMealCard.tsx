@@ -87,6 +87,21 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       const qty = parseInt(editValue.trim());
       if (!isNaN(qty) && qty >= 1) onUpdateQuantity(qty);
     }
+    if (editing === "ratio" && meal.ingredients && onUpdatePossibleIngredients) {
+      const trimmed = editValue.trim().toLowerCase();
+      let ratio: number | null = null;
+      if (trimmed.startsWith("x")) {
+        const mult = parseFloat(trimmed.slice(1));
+        if (!isNaN(mult) && mult >= 0.5) ratio = mult;
+      } else {
+        const pct = parseFloat(trimmed.replace("%", ""));
+        if (!isNaN(pct) && pct >= 50) ratio = pct / 100;
+      }
+      if (ratio !== null) {
+        const scaledIngredients = scaleIngredientStringExact(meal.ingredients, ratio);
+        onUpdatePossibleIngredients(scaledIngredients);
+      }
+    }
     setEditing(null);
   };
 
