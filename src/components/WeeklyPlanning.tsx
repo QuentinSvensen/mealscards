@@ -167,6 +167,13 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                 {counterDays}j
               </span>
             )}
+            {/* Expiration date on desktop only (title row) */}
+            {!compact && pm.expiration_date && (
+              <span className={`hidden md:inline-flex items-center gap-0.5 text-[9px] shrink-0 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+                <Calendar className="h-2 w-2" />
+                {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+              </span>
+            )}
           </div>
         </div>
         {!compact && (
