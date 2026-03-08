@@ -263,10 +263,11 @@ export function useMeals(options?: { enabled?: boolean }) {
   // --- Possible meal mutations ---
 
   const moveToPossible = useMutation({
-    mutationFn: async ({ mealId, expiration_date }: { mealId: string; expiration_date?: string | null }) => {
+    mutationFn: async ({ mealId, expiration_date, counter_start_date }: { mealId: string; expiration_date?: string | null; counter_start_date?: string | null }) => {
       const maxOrder = possibleMeals.length;
       const insertData: Record<string, unknown> = { meal_id: mealId, sort_order: maxOrder };
       if (expiration_date) insertData.expiration_date = expiration_date;
+      if (counter_start_date) insertData.counter_start_date = counter_start_date;
       const { data, error } = await supabase
         .from("possible_meals")
         .insert(insertData as any)
