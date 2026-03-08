@@ -165,7 +165,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
         )}
         <div className="flex-1" />
         {!compact && (
-          <div className="flex flex-col items-end shrink-0">
+          <div className="flex flex-col items-center shrink-0">
             {editingCal ? (
               <input
                 autoFocus
