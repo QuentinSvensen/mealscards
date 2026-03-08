@@ -11,9 +11,74 @@ export function normalizeForMatch(text: string): string {
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").trim();
 }
 
+/** Lowercase but preserve accents — used to detect accent-different words (pâte vs pâté) */
+export function lightNormalize(text: string): string {
+  return text.toLowerCase().replace(/[^a-zà-ÿ0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
 /** Normalize + strip trailing 's' for ingredient key matching */
 export function normalizeKey(name: string): string {
   return normalizeForMatch(name).replace(/s$/, "");
+}
+
+// ─── Smart Food Matching ────────────────────────────────────────────────────
+
+/** French prepositions/articles that signal a compound food name */
+const FOOD_PREPOSITIONS = new Set(['de', 'du', 'au', 'aux', 'a', 'en', 'la', 'le', 'les', 'des']);
+
+const stripTrailingE = (s: string) => s.replace(/e+$/, '');
+
+/**
+ * Smart "contains" match for food items:
+ * - Accepts adjective additions: "pâte intégrale" matches "pâte" ✓
+ * - Rejects compound food names: "pain de mie" does NOT match "pain" ✗
+ * - Rejects accent-different words: "pâté" does NOT match "pâte" ✗
+ * - Handles trailing 'e' tolerance: "hachée" matches "haché" ✓
+ */
+export function smartFoodContains(a: string, b: string): boolean {
+  const aNorm = normalizeForMatch(a);
+  const bNorm = normalizeForMatch(b);
+  if (!aNorm || !bNorm) return false;
+
+  const wordsA = aNorm.split(/\s+/);
+  const wordsB = bNorm.split(/\s+/);
+  const [shorter, longer] = wordsA.length <= wordsB.length ? [wordsA, wordsB] : [wordsB, wordsA];
+
+  // All words of shorter must appear in longer (with fuzzy e-tolerance)
+  const matchedIndices = new Set<number>();
+  for (const sw of shorter) {
+    let found = false;
+    for (let i = 0; i < longer.length; i++) {
+      if (matchedIndices.has(i)) continue;
+      if (longer[i] === sw || stripTrailingE(longer[i]) === stripTrailingE(sw)) {
+        matchedIndices.add(i);
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+
+  // Same word count → check accent-level differences
+  if (shorter.length === longer.length) {
+    const aLight = lightNormalize(a).split(/\s+/);
+    const bLight = lightNormalize(b).split(/\s+/);
+    for (let i = 0; i < Math.min(aLight.length, bLight.length); i++) {
+      // If normalized (no-accent) forms match but accented forms differ → different food (pâte vs pâté)
+      if (stripTrailingE(normalizeForMatch(aLight[i])) === stripTrailingE(normalizeForMatch(bLight[i]))
+          && aLight[i] !== bLight[i]
+          && stripTrailingE(aLight[i]) !== stripTrailingE(bLight[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Extra words in longer: reject if they contain prepositions (compound food name)
+  const extraWords = longer.filter((_, i) => !matchedIndices.has(i));
+  if (extraWords.some(w => FOOD_PREPOSITIONS.has(w))) return false;
+
+  return true;
 }
 
 /**
