@@ -249,34 +249,26 @@ export function MealPlanGenerator() {
     };
 
     // Greedy selection: 16 recipes optimizing for whole-multiple consumption
+    // Two-pass: first only unique recipes, then allow duplicates only if needed
     for (let i = 0; i < 16; i++) {
-      const scored: { id: string; score: number }[] = [];
-      const isLateRound = i >= 10; // last 6 picks: prioritize alignment strongly
+      const isLateRound = i >= 10;
 
-      for (const recipe of shuffled) {
-        const alreadySelected = counts.get(recipe.id) || 0;
-        // Hard cap at 2, and strongly avoid duplicates — only allow if no unique option scores well
-        if (alreadySelected >= 2) continue;
-        let score = alreadySelected > 0 ? -15 : 0;
-
+      // Score all candidates
+      const scoreRecipe = (recipe: typeof shuffled[0]) => {
+        let score = 0;
         if (hasInventory) {
           const usage = getRecipeUsage(recipe);
           let usesConstrainedItem = false;
-
           for (const [ingKey, used] of usage) {
             const matchKey = findInvKey(ingKey);
             if (!matchKey) continue;
             const inv = shoppingInventory.get(matchKey)!;
             if (inv.grams <= 0 && inv.count <= 0) continue;
             usesConstrainedItem = true;
-
             const prevUsage = totalUsage.get(matchKey) || { grams: 0, count: 0 };
-
             if (used.grams > 0 && inv.pkgGrams > 0) {
               const newCumGrams = prevUsage.grams + used.grams;
-              const totalAvail = inv.grams;
-              
-              if (newCumGrams > totalAvail * 1.05) {
+              if (newCumGrams > inv.grams * 1.05) {
                 score -= 4;
               } else {
                 const ms = multipleScore(newCumGrams, inv.pkgGrams);
@@ -285,8 +277,7 @@ export function MealPlanGenerator() {
             }
             if (used.count > 0 && inv.pkgCount > 0) {
               const newCumCount = prevUsage.count + used.count;
-              const totalAvailCount = inv.count;
-              if (newCumCount > totalAvailCount * 1.05) {
+              if (newCumCount > inv.count * 1.05) {
                 score -= 4;
               } else {
                 const remainder = newCumCount % inv.pkgCount;
@@ -297,24 +288,36 @@ export function MealPlanGenerator() {
           }
           if (usesConstrainedItem) score += 1;
         }
-
-        // Random factor: reduced to not override package alignment
         score += Math.random() * (isLateRound ? 1 : 2.5);
-        scored.push({ id: recipe.id, score });
+        return score;
+      };
+
+      // Pass 1: only unique (not yet selected) recipes
+      const uniqueCandidates = shuffled
+        .filter(r => !counts.has(r.id))
+        .map(r => ({ id: r.id, score: scoreRecipe(r) }));
+
+      if (uniqueCandidates.length > 0) {
+        uniqueCandidates.sort((a, b) => b.score - a.score);
+        const topN = uniqueCandidates.slice(0, Math.min(isLateRound ? 2 : 4, uniqueCandidates.length));
+        const pick = topN[Math.floor(Math.random() * topN.length)];
+        selectedIds.push(pick.id);
+        counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
+      } else {
+        // Pass 2: fallback to duplicates (max 2 of same recipe)
+        const dupCandidates = shuffled
+          .filter(r => (counts.get(r.id) || 0) >= 1 && (counts.get(r.id) || 0) < 2)
+          .map(r => ({ id: r.id, score: scoreRecipe(r) }));
+        if (dupCandidates.length === 0) break;
+        dupCandidates.sort((a, b) => b.score - a.score);
+        const pick = dupCandidates[0];
+        selectedIds.push(pick.id);
+        counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
       }
 
-      if (scored.length === 0) break;
-
-      scored.sort((a, b) => b.score - a.score);
-      // Tighter selection pool for better optimization
-      const topN = scored.slice(0, Math.min(isLateRound ? 2 : 4, scored.length));
-      const pick = topN[Math.floor(Math.random() * topN.length)];
-
-      selectedIds.push(pick.id);
-      counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
-
       // Update cumulative usage
-      const recipe = candidatePlats.find(r => r.id === pick.id);
+      const pickedId = selectedIds[selectedIds.length - 1];
+      const recipe = candidatePlats.find(r => r.id === pickedId);
       if (recipe && hasInventory) {
         const usage = getRecipeUsage(recipe);
         for (const [ingKey, used] of usage) {
