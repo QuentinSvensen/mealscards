@@ -234,8 +234,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       {/* Date + ingredients: full width below the title row */}
       {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
         <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
+          {/* Expiration date on mobile only (inline with ingredients) */}
           {pm.expiration_date && (
-            <span className={`inline-flex items-center gap-0.5 mr-1 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+            <span className={`md:hidden inline-flex items-center gap-0.5 mr-1 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
               <Calendar className="h-2 w-2 inline" />
               {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
               {(meal.grams || meal.ingredients) && " •"}
