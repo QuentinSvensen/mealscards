@@ -258,6 +258,8 @@ export function WeeklyPlanning() {
 
   const unplanned = planningMeals.filter((pm) => !pm.day_of_week || !pm.meal_time);
 
+  const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
+
   const getDayCalories = (day: string): number => {
     const mealCals = TIMES.reduce(
       (total, time) => {
@@ -274,7 +276,8 @@ export function WeeklyPlanning() {
     );
     const breakfast = getBreakfastForDay(day);
     const extra = extraCalories[day] || 0;
-    return mealCals + (breakfast ? parseCalories(breakfast.calories) : 0) + extra;
+    const breakfastCal = breakfast ? parseCalories(breakfast.calories) : (breakfastManualCalories[day] || 0);
+    return mealCals + breakfastCal + extra;
   };
 
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
@@ -527,6 +530,25 @@ export function WeeklyPlanning() {
                     </div>
                   </PopoverContent>
                 </Popover>
+                {/* Manual calorie input when no breakfast selected */}
+                {!getBreakfastForDay(day) && (
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="kcal"
+                    key={`breakfast-cal-${day}`}
+                    defaultValue={breakfastManualCalories[day] || ''}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      const updated = { ...breakfastManualCalories };
+                      if (val > 0) updated[day] = val;
+                      else delete updated[day];
+                      setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: updated });
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40"
+                  />
+                )}
                 <Checkbox
                   checked={!!keepOnReset[`breakfast-${day}`]}
                   onCheckedChange={(checked) => {
