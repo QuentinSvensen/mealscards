@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2 } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +15,7 @@ import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients,
 } from "@/lib/ingredientUtils";
+import { scaleIngredientStringExact } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
 
 interface PossibleMealCardProps {
@@ -55,7 +56,7 @@ function getCounterDays(startDate: string | null): number | null {
 export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | null>(null);
+  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | "ratio" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -85,6 +86,21 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
     if (editing === "quantity" && onUpdateQuantity) {
       const qty = parseInt(editValue.trim());
       if (!isNaN(qty) && qty >= 1) onUpdateQuantity(qty);
+    }
+    if (editing === "ratio" && meal.ingredients && onUpdatePossibleIngredients) {
+      const trimmed = editValue.trim().toLowerCase();
+      let ratio: number | null = null;
+      if (trimmed.startsWith("x")) {
+        const mult = parseFloat(trimmed.slice(1));
+        if (!isNaN(mult) && mult >= 0.5) ratio = mult;
+      } else {
+        const pct = parseFloat(trimmed.replace("%", ""));
+        if (!isNaN(pct) && pct >= 50) ratio = pct / 100;
+      }
+      if (ratio !== null) {
+        const scaledIngredients = scaleIngredientStringExact(meal.ingredients, ratio);
+        onUpdatePossibleIngredients(scaledIngredients);
+      }
     }
     setEditing(null);
   };
@@ -230,13 +246,18 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
             <DropdownMenuItem onClick={onDelete} className="text-destructive">
               <Trash2 className="mr-2 h-4 w-4" /> Supprimer
             </DropdownMenuItem>
+            {meal.ingredients && onUpdatePossibleIngredients && (
+              <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
+                <Percent className="mr-2 h-4 w-4" /> Pourcentage
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
       {/* Editing overlay */}
       {editing ? (
-        <Input autoFocus placeholder={editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"} value={editValue}
+        <Input autoFocus placeholder={editing === "ratio" ? "75% ou x2" : editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"} value={editValue}
           onChange={(e) => setEditValue(e.target.value)} onBlur={handleSaveEdit}
           onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
           className="mt-1.5 h-6 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />

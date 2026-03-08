@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName, type FoodItem } from "@/components/FoodItems";
@@ -50,6 +51,38 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
   const [avDragIndex, setAvDragIndex] = useState<number | null>(null);
+  const [customRatios, setCustomRatios] = useState<Record<string, number>>({});
+  const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
+  const [ratioInput, setRatioInput] = useState("");
+
+  const parseRatioInput = (input: string, maxRatio: number): number | null => {
+    const trimmed = input.trim().toLowerCase();
+    if (trimmed.startsWith("x")) {
+      const mult = parseFloat(trimmed.slice(1));
+      if (isNaN(mult) || mult < 0.5) return null;
+      return Math.min(mult, maxRatio);
+    }
+    const pct = parseFloat(trimmed.replace("%", ""));
+    if (isNaN(pct) || pct < 50) return null;
+    return Math.min(pct / 100, maxRatio);
+  };
+
+  const formatRatioBadge = (ratio: number): string => {
+    if (ratio >= 1 && Number.isInteger(ratio)) return `x${ratio}`;
+    return `${Math.round(ratio * 100)}%`;
+  };
+
+  const commitRatio = (mealId: string, maxRatio: number) => {
+    const parsed = parseRatioInput(ratioInput, maxRatio);
+    if (parsed !== null && parsed >= 0.5) {
+      if (parsed === 1) {
+        setCustomRatios(prev => { const next = { ...prev }; delete next[mealId]; return next; });
+      } else {
+        setCustomRatios(prev => ({ ...prev, [mealId]: parsed }));
+      }
+    }
+    setEditingRatioId(null);
+  };
 
   // 1. Meals realizable via ingredient matching
   const available: { meal: Meal; multiple: number | null }[] = meals
@@ -266,6 +299,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
 
   const renderAvailableCard = (item: typeof available[0], unifiedIdx?: number) => {
     const { meal, multiple } = item;
+    const maxRatio = multiple === Infinity ? 99 : (multiple ?? 1);
+    const customRatio = customRatios[meal.id];
+    const effectiveRatio = customRatio ?? 1;
+    const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio) : meal;
     const expDate = getEarliestIngredientExpiration(meal, foodItems);
     const expLabel = formatExpirationLabel(expDate);
     const expiringIng = getExpiringIngredientName(meal, foodItems);
@@ -275,8 +312,16 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     const expIsTodayAv = isToday(expDate);
     return (
       <div key={meal.id} className="relative">
-        <MealCard meal={meal}
-          onMoveToPossible={() => onMoveToPossible(meal.id)}
+        <MealCard meal={displayMeal}
+          onMoveToPossible={() => {
+            const cr = customRatios[meal.id];
+            if (cr && cr !== 1) {
+              onMovePartialToPossible(meal, cr);
+            } else {
+              onMoveToPossible(meal.id);
+            }
+            setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
+          }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
           onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)} onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
@@ -285,28 +330,51 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           hideDelete expirationLabel={expLabel} expirationDate={expDate} expirationIsToday={expIsTodayAv}
           expiringIngredientName={expiringIng} expiredIngredientNames={expiredIngs} counterIngredientNames={counterIngs} maxIngredientCounter={maxCounter} />
-        {multiple !== null &&
-          <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-            x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
-          </div>
-        }
+        {multiple !== null && (
+          editingRatioId === meal.id ? (
+            <div className="absolute top-1 right-8 z-20">
+              <Input autoFocus value={ratioInput}
+                onChange={(e) => setRatioInput(e.target.value)}
+                onBlur={() => commitRatio(meal.id, maxRatio)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitRatio(meal.id, maxRatio); if (e.key === "Escape") setEditingRatioId(null); }}
+                placeholder="75% ou x2"
+                className="w-20 h-6 text-[10px] bg-black/80 text-white border-white/30 placeholder:text-white/40 px-1.5 rounded-full"
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => { setEditingRatioId(meal.id); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
+              className={`absolute top-2 right-8 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${customRatio ? 'bg-orange-500/80' : 'bg-black/60'}`}
+            >
+              {customRatio ? formatRatioBadge(customRatio) : (
+                <>x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}</>
+              )}
+            </button>
+          )
+        )}
       </div>
     );
   };
 
   const renderPartialCard = (item: typeof partialAvailable[0], unifiedIdx?: number) => {
-    const { meal, ratio } = item;
-    const pct = Math.round(ratio * 100);
+    const { meal, ratio: defaultRatio } = item;
+    const customRatio = customRatios[`partial-${meal.id}`];
+    const effectiveRatio = customRatio ?? defaultRatio;
+    const pct = Math.round(effectiveRatio * 100);
     const expDate = getEarliestIngredientExpiration(meal, foodItems);
     const expLabel = formatExpirationLabel(expDate);
     const expIsTodayPa = isToday(expDate);
     const maxCounter = getMaxIngredientCounter(meal, foodItems);
     const counterIngs = getCounterIngredientNames(meal, foodItems);
-    const partialMeal = buildScaledMealForRatio(meal, ratio);
+    const partialMeal = buildScaledMealForRatio(meal, effectiveRatio);
+    const partialKey = `partial-${meal.id}`;
     return (
-      <div key={`partial-${meal.id}`} className="relative">
+      <div key={partialKey} className="relative">
         <MealCard meal={partialMeal}
-          onMoveToPossible={() => onMovePartialToPossible(meal, ratio)}
+          onMoveToPossible={() => {
+            onMovePartialToPossible(meal, effectiveRatio);
+            setCustomRatios(prev => { const next = { ...prev }; delete next[partialKey]; return next; });
+          }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
           onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)} onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
@@ -314,9 +382,24 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           hideDelete expirationLabel={expLabel} expirationDate={expDate} expirationIsToday={expIsTodayPa} counterIngredientNames={counterIngs} maxIngredientCounter={maxCounter} />
-        <div className="absolute top-2 right-8 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-          {pct}%
-        </div>
+        {editingRatioId === partialKey ? (
+          <div className="absolute top-1 right-8 z-20">
+            <Input autoFocus value={ratioInput}
+              onChange={(e) => setRatioInput(e.target.value)}
+              onBlur={() => commitRatio(partialKey, defaultRatio)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitRatio(partialKey, defaultRatio); if (e.key === "Escape") setEditingRatioId(null); }}
+              placeholder="50-100%"
+              className="w-20 h-6 text-[10px] bg-black/80 text-white border-white/30 placeholder:text-white/40 px-1.5 rounded-full"
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => { setEditingRatioId(partialKey); setRatioInput(`${pct}%`); }}
+            className="absolute top-2 right-8 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all"
+          >
+            {pct}%
+          </button>
+        )}
       </div>
     );
   };
