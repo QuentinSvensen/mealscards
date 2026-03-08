@@ -9,7 +9,7 @@ import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
 import { usePreferences } from "@/hooks/usePreferences";
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch, normalizeKey, smartFoodContains } from "@/lib/ingredientUtils";
-import { useFoodItems } from "@/components/FoodItems";
+import { useFoodItems } from "@/hooks/useFoodItems";
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
 const shoppingItemSchema = z.object({
