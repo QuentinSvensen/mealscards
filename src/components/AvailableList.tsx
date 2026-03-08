@@ -297,7 +297,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           expirationLabel={expLabel} expirationDate={fi.expiration_date} expirationIsToday={expIsTodayFi} maxIngredientCounter={counterDays} />
         {fi.quantity && fi.quantity > 1 && (
-          <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+          <div className="absolute top-1 right-2 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
             x{fi.quantity}
           </div>
         )}
@@ -325,9 +325,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           hideDelete expirationLabel={expLabel} expirationDate={fi.expiration_date} expirationIsToday={expIsTodayNm} maxIngredientCounter={counterDays} />
-        <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
+          <div className="absolute top-1 right-2 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
           {fi.is_infinite ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : portionsAvailable !== null ? `x${portionsAvailable}` : `x${fi.quantity ?? 1}`}
-        </div>
+          </div>
       </div>
     );
   };
@@ -367,7 +367,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           expiringIngredientName={expiringIng} expiredIngredientNames={expiredIngs} counterIngredientNames={counterIngs} maxIngredientCounter={maxCounter} />
         {multiple !== null && (
           editingRatioId === meal.id ? (
-            <div className="absolute top-1 right-8 z-20">
+            <div className="absolute top-0 right-2 z-20">
               <Input autoFocus value={ratioInput}
                 onChange={(e) => setRatioInput(e.target.value)}
                 onBlur={() => commitRatio(meal.id, maxRatio)}
@@ -379,7 +379,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           ) : (
             <button
               onClick={() => { setEditingRatioId(meal.id); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
-              className={`absolute top-2 right-8 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${customRatio ? 'bg-orange-500/80' : 'bg-black/60'}`}
+              className={`absolute top-1 right-2 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${customRatio ? 'bg-orange-500/80' : 'bg-black/60'}`}
             >
               {customRatio ? formatRatioBadge(customRatio) : (
                 <>x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}</>
@@ -418,7 +418,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           hideDelete expirationLabel={expLabel} expirationDate={expDate} expirationIsToday={expIsTodayPa} counterIngredientNames={counterIngs} maxIngredientCounter={maxCounter} />
         {editingRatioId === partialKey ? (
-          <div className="absolute top-1 right-8 z-20">
+          <div className="absolute top-0 right-2 z-20">
             <Input autoFocus value={ratioInput}
               onChange={(e) => setRatioInput(e.target.value)}
               onBlur={() => commitRatio(partialKey, defaultRatio)}
@@ -430,7 +430,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
         ) : (
           <button
             onClick={() => { setEditingRatioId(partialKey); setRatioInput(`${pct}%`); }}
-            className="absolute top-2 right-8 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all"
+            className="absolute top-1 right-2 z-10 bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all"
           >
             {pct}%
           </button>
