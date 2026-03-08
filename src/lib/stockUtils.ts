@@ -212,7 +212,7 @@ export function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInf
         }
       }
     }
-    if (!groupSatisfied) for (const alt of group) missing.add(alt.name.replace(/s$/, ""));
+    if (!groupSatisfied) for (const alt of group) missing.add(normalizeKey(alt.name));
   }
   return missing;
 }
