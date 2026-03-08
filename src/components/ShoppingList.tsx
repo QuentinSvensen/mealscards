@@ -324,8 +324,8 @@ export function ShoppingList() {
             }}
             className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] transition-colors ${
               item.secondary_checked 
-                ? 'bg-amber-500 border-amber-500 text-white' 
-                : 'border-amber-500/50 text-amber-500 hover:bg-amber-500/10'
+                ? 'bg-blue-500 border-blue-500 text-white' 
+                : 'border-blue-500/50 text-blue-500 hover:bg-blue-500/10'
             }`}
             title="Plusieurs articles correspondent à un ingrédient du menu"
           >
