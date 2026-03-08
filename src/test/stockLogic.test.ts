@@ -294,7 +294,7 @@ describe("getMealFractionalRatio", () => {
 
   it("correctly caps at limiting ingredient, not at the abundant one", () => {
     const items = [
-      makeFoodItem({ name: "Viande", quantity: 1, grams: "250" }),  // 250/250 = 1.0
+      makeFoodItem({ name: "Viande hachée", quantity: 1, grams: "250" }),  // 250/250 = 1.0
       makeFoodItem({ name: "Galette", quantity: 1 }),                // 1/1 = 1.0
       makeFoodItem({ name: "Sauce", quantity: 1, grams: "25" }),     // 25/25 = 1.0
       makeFoodItem({ name: "Chorizo", quantity: 1, grams: "10" }),   // 10/15 = 0.666
