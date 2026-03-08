@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick, UtensilsCrossed } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealCard } from "@/components/MealCard";
