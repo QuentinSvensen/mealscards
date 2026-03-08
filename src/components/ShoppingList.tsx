@@ -353,8 +353,8 @@ export function ShoppingList() {
       >
         {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
         {isAmbiguous ? (() => {
-          const colorIdx = ambiguousItemData.get(item.id) ?? 0;
-          const color = ambiguousColors[colorIdx];
+          const colorIdx = ambiguousItemData.get(item.id) ?? -1;
+          const color = colorIdx === -1 ? defaultAmbiguousColor : ambiguousColors[colorIdx];
           return (
             <button
               onClick={() => {
