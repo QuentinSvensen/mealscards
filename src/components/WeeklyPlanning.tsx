@@ -750,7 +750,7 @@ export function WeeklyPlanning() {
       })}
 
       {/* Total calorique de la semaine */}
-      <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+      <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
         <span className="text-sm font-bold text-foreground">Total semaine</span>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs text-muted-foreground font-medium">
