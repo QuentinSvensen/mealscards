@@ -349,6 +349,43 @@ export function MealPlanGenerator() {
     return sum + c;
   }, 0);
 
+  // Sorting
+  const persistedSort = getPreference<string>(MENU_SORT_KEY, "manual");
+  const [menuSort, setMenuSort] = useState<MenuSortMode>("manual");
+  useEffect(() => {
+    if (persistedSort === "calories" || persistedSort === "alphabetical") setMenuSort(persistedSort);
+  }, [persistedSort]);
+
+  const toggleMenuSort = () => {
+    const next: MenuSortMode = menuSort === "manual" ? "calories" : menuSort === "calories" ? "alphabetical" : "manual";
+    setMenuSort(next);
+    setPreference.mutate({ key: MENU_SORT_KEY, value: next });
+  };
+
+  // Separate avant grimpe from main meals
+  const avantGrimpeMeal = allPlats.find((m) => m.name.toLowerCase().includes("avant grimpe"));
+  const avantGrimpeId = avantGrimpeMeal?.id;
+  const mainMenuMeals = selectedMeals.filter((_, i) => {
+    const id = selectedMealIds[i];
+    return id !== avantGrimpeId;
+  });
+  const avantGrimpeMeals = selectedMeals.filter((_, i) => {
+    const id = selectedMealIds[i];
+    return id === avantGrimpeId;
+  });
+
+  // Sort main meals
+  let sortedMainMeals = [...mainMenuMeals];
+  if (menuSort === "calories") {
+    const parseCal = (cal: string | null) => parseFloat((cal || "0").replace(/[^0-9.]/g, "")) || 0;
+    sortedMainMeals.sort((a, b) => parseCal(a.calories) - parseCal(b.calories));
+  } else if (menuSort === "alphabetical") {
+    sortedMainMeals.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  }
+
+  const SortIcon = menuSort === "calories" ? Flame : menuSort === "alphabetical" ? ArrowUpDown : ArrowUpDown;
+  const sortLabel = menuSort === "calories" ? "Calories" : menuSort === "alphabetical" ? "A-Z" : "Manuel";
+
   return (
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
@@ -374,13 +411,19 @@ export function MealPlanGenerator() {
       ) : (
         <>
           <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
-              🍽️ Plats sélectionnés ({selectedMeals.length})
-            </p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                🍽️ Plats sélectionnés ({selectedMeals.length})
+              </p>
+              <Button size="sm" variant="ghost" onClick={toggleMenuSort} className="text-[10px] gap-0.5 h-6 px-1.5">
+                <SortIcon className="h-3 w-3" />
+                <span className="hidden sm:inline">{sortLabel}</span>
+              </Button>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {selectedMeals.map((meal, i) => (
+              {sortedMainMeals.map((meal, i) => (
                 <div
-                  key={`${meal.id}-${i}`}
+                  key={`${meal.id}-main-${i}`}
                   className="rounded-2xl px-3 py-2 shadow-md text-white"
                   style={{ backgroundColor: meal.color }}
                 >
@@ -405,9 +448,36 @@ export function MealPlanGenerator() {
                 </div>
               ))}
             </div>
+
+            {avantGrimpeMeals.length > 0 && (
+              <>
+                <Separator className="my-3 opacity-30" />
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">
+                  🧗 Avant grimpe ({avantGrimpeMeals.length})
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {avantGrimpeMeals.map((meal, i) => (
+                    <div
+                      key={`${meal.id}-ag-${i}`}
+                      className="rounded-2xl px-3 py-2 shadow-md text-white"
+                      style={{ backgroundColor: meal.color }}
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-sm flex-1 min-w-0 break-words">{meal.name}</span>
+                        {meal.calories && (
+                          <span className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                            <Flame className="h-2.5 w-2.5" />{meal.calories}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
+          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[50%]">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
               🛒 Liste d'ingrédients ({shoppingItems2.length})
             </p>
