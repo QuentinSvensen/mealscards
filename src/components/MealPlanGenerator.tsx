@@ -217,26 +217,43 @@ export function MealPlanGenerator() {
 
     if (candidatePlats.length === 0) return;
 
-    // Build remaining inventory (mutable copy)
-    const remaining = new Map<string, { grams: number; count: number }>();
-    for (const [k, v] of shoppingInventory) {
-      remaining.set(k, { grams: v.grams, count: v.count });
-    }
-    const hasInventory = remaining.size > 0;
+    const hasInventory = shoppingInventory.size > 0;
 
     const selectedIds: string[] = [];
     const counts = new Map<string, number>();
+    // Track cumulative usage per ingredient across all selected recipes
+    const totalUsage = new Map<string, { grams: number; count: number }>();
 
     // Shuffle candidates for better diversity
     const shuffled = [...candidatePlats].sort(() => Math.random() - 0.5);
 
-    // Greedy selection with HIGH diversity: 16 recipes
+    // Helper: find matching inventory key
+    const findInvKey = (ingKey: string): string | null => {
+      for (const rk of shoppingInventory.keys()) {
+        if (rk === ingKey || keyMatch(rk, ingKey)) return rk;
+      }
+      return null;
+    };
+
+    // Score how close cumulative usage is to a whole multiple of package size
+    const multipleScore = (cumGrams: number, pkgGrams: number): number => {
+      if (pkgGrams <= 0 || cumGrams <= 0) return 0;
+      const remainder = cumGrams % pkgGrams;
+      // How close to nearest multiple (0 = perfect)
+      const dist = Math.min(remainder, pkgGrams - remainder);
+      const ratio = dist / pkgGrams; // 0 = perfect multiple, 0.5 = worst
+      if (ratio < 0.02) return 6;  // nearly exact multiple → big bonus
+      if (ratio < 0.1) return 3;   // close to multiple
+      return -ratio * 2;           // penalty proportional to waste
+    };
+
+    // Greedy selection: 16 recipes optimizing for whole-multiple consumption
     for (let i = 0; i < 16; i++) {
       const scored: { id: string; score: number }[] = [];
+      const isLateRound = i >= 12; // last 4 picks: prioritize alignment more
 
       for (const recipe of shuffled) {
         if ((counts.get(recipe.id) || 0) >= 2) continue;
-        // Diversity penalty: reduce score heavily if already selected
         const alreadySelected = counts.get(recipe.id) || 0;
         let score = alreadySelected > 0 ? -3 : 0;
 
@@ -245,71 +262,67 @@ export function MealPlanGenerator() {
           let usesConstrainedItem = false;
 
           for (const [ingKey, used] of usage) {
-            let matchKey: string | null = null;
-            for (const rk of remaining.keys()) {
-              if (rk === ingKey || keyMatch(rk, ingKey)) { matchKey = rk; break; }
-            }
+            const matchKey = findInvKey(ingKey);
             if (!matchKey) continue;
-            const avail = remaining.get(matchKey)!;
-            if (avail.grams <= 0 && avail.count <= 0) continue;
+            const inv = shoppingInventory.get(matchKey)!;
+            if (inv.grams <= 0 && inv.count <= 0) continue;
             usesConstrainedItem = true;
 
-            if (used.grams > 0 && avail.grams > 0) {
-              const pkgGrams = shoppingInventory.get(matchKey)?.pkgGrams || 0;
-              const afterUse = avail.grams - used.grams;
+            const prevUsage = totalUsage.get(matchKey) || { grams: 0, count: 0 };
 
-              if (afterUse < 0) {
-                score -= 1;
-              } else if (Math.abs(afterUse) < 1) {
-                score += 5;
-              } else if (pkgGrams > 0 && afterUse % pkgGrams < 1) {
-                score += 3;
+            if (used.grams > 0 && inv.pkgGrams > 0) {
+              const newCumGrams = prevUsage.grams + used.grams;
+              const totalAvail = inv.grams; // total purchased grams
+              
+              // Penalize if we'd exceed total available
+              if (newCumGrams > totalAvail * 1.05) {
+                score -= 2;
               } else {
-                score += Math.min(1, used.grams / avail.grams);
+                // Reward alignment to package multiples
+                const ms = multipleScore(newCumGrams, inv.pkgGrams);
+                score += isLateRound ? ms * 2 : ms;
               }
             }
-            if (used.count > 0 && avail.count > 0) {
-              if (avail.count < used.count) {
-                score -= 1;
-              } else if (Math.abs(avail.count - used.count) < 0.5) {
-                score += 5;
+            if (used.count > 0 && inv.pkgCount > 0) {
+              const newCumCount = prevUsage.count + used.count;
+              const totalAvailCount = inv.count;
+              if (newCumCount > totalAvailCount * 1.05) {
+                score -= 2;
               } else {
-                score += Math.min(1, used.count / avail.count);
+                const remainder = newCumCount % inv.pkgCount;
+                const dist = Math.min(remainder, inv.pkgCount - remainder);
+                score += dist < 0.1 ? 4 : -dist;
               }
             }
           }
           if (usesConstrainedItem) score += 0.5;
         }
 
-        // Larger random factor for diversity
-        score += Math.random() * 4;
+        // Random factor for diversity (smaller in late rounds for precision)
+        score += Math.random() * (isLateRound ? 2 : 4);
         scored.push({ id: recipe.id, score });
       }
 
       if (scored.length === 0) break;
 
-      // Pick from top 6 candidates for more diversity
       scored.sort((a, b) => b.score - a.score);
-      const topN = scored.slice(0, Math.min(6, scored.length));
+      const topN = scored.slice(0, Math.min(isLateRound ? 3 : 6, scored.length));
       const pick = topN[Math.floor(Math.random() * topN.length)];
 
       selectedIds.push(pick.id);
       counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
 
-      // Deduct from remaining inventory
+      // Update cumulative usage
       const recipe = candidatePlats.find(r => r.id === pick.id);
       if (recipe && hasInventory) {
         const usage = getRecipeUsage(recipe);
         for (const [ingKey, used] of usage) {
-          let matchKey: string | null = null;
-          for (const rk of remaining.keys()) {
-            if (rk === ingKey || keyMatch(rk, ingKey)) { matchKey = rk; break; }
-          }
+          const matchKey = findInvKey(ingKey);
           if (!matchKey) continue;
-          const avail = remaining.get(matchKey)!;
-          remaining.set(matchKey, {
-            grams: Math.max(0, avail.grams - used.grams),
-            count: Math.max(0, avail.count - used.count),
+          const prev = totalUsage.get(matchKey) || { grams: 0, count: 0 };
+          totalUsage.set(matchKey, {
+            grams: prev.grams + used.grams,
+            count: prev.count + used.count,
           });
         }
       }
