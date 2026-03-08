@@ -347,12 +347,11 @@ export function MealPlanGenerator() {
     for (const meal of selectedMeals) {
       const usage = getRecipeUsage(meal);
       for (const [key, used] of usage) {
-        const existing = map.get(key) || { grams: 0, count: 0, displayName: !meal.ingredients ? meal.name : key, matched: false };
-        const displayName = !meal.ingredients ? meal.name : existing.displayName;
+        const existing = map.get(key) || { grams: 0, count: 0, displayName: used.rawName, matched: false };
         map.set(key, {
           grams: existing.grams + used.grams,
           count: existing.count + used.count,
-          displayName,
+          displayName: existing.displayName,
           matched: existing.matched,
         });
       }
