@@ -27,7 +27,7 @@ export function normalizeKey(name: string): string {
 const FOOD_PREPOSITIONS = new Set(['de', 'du', 'au', 'aux', 'a', 'en', 'la', 'le', 'les', 'des']);
 
 const stripTrailingE = (s: string) => s.replace(/e+$/, '');
-const fuzzyWord = (s: string) => stripTrailingE(s).replace(/s$/, '');
+const fuzzyWord = (s: string) => s.replace(/[es]+$/i, '');
 
 /**
  * Smart "contains" match for food items:
