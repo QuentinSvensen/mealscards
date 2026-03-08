@@ -344,38 +344,15 @@ export function MealPlanGenerator() {
         uniquePool.push({ id: r.id, score: scoreRecipe(r, false) });
       }
 
-      // Check if any unique recipe touches an open ingredient
-      const uniqueTouchesOpen = openGramKeys.size > 0 && uniquePool.some(entry => {
-        const r = shuffled.find(s => s.id === entry.id)!;
-        return recipeTouchesOpenKey(r);
-      });
-
-      // Only consider duplicates if NO unique recipe can touch the open ingredient
-      let dupPool: { id: string; score: number }[] = [];
-      if (openGramKeys.size > 0 && !uniqueTouchesOpen) {
-        for (const r of shuffled.filter(r => (counts.get(r.id) || 0) === 1 && recipeTouchesOpenKey(r))) {
-          dupPool.push({ id: r.id, score: scoreRecipe(r, true) });
-        }
-      }
-
-      const finalPool = [...uniquePool, ...dupPool];
-
-      if (finalPool.length > 0) {
-        finalPool.sort((a, b) => b.score - a.score);
-        const topN = finalPool.slice(0, Math.min(isLateRound ? 2 : 4, finalPool.length));
+      // Strict mode: no duplicates in the 16 main meals
+      if (uniquePool.length > 0) {
+        uniquePool.sort((a, b) => b.score - a.score);
+        const topN = uniquePool.slice(0, Math.min(isLateRound ? 2 : 4, uniquePool.length));
         const pick = topN[Math.floor(Math.random() * topN.length)];
         selectedIds.push(pick.id);
         counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
       } else {
-        // Fallback doublons (max 2)
-        const dupCandidates = shuffled
-          .filter(r => (counts.get(r.id) || 0) >= 1 && (counts.get(r.id) || 0) < 2)
-          .map(r => ({ id: r.id, score: scoreRecipe(r, true) }));
-        if (dupCandidates.length === 0) break;
-        dupCandidates.sort((a, b) => b.score - a.score);
-        const pick = dupCandidates[0];
-        selectedIds.push(pick.id);
-        counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
+        break;
       }
 
       // Update cumulative usage
