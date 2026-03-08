@@ -155,7 +155,7 @@ export function getExpiredIngredientNames(meal: Meal, foodItems: FoodItem[]): Se
   const groups = parseIngredientGroups(meal.ingredients);
   for (const group of groups) for (const alt of group) for (const fi of foodItems) {
     if (strictNameMatch(fi.name, alt.name) && fi.expiration_date && new Date(fi.expiration_date) < today)
-      expired.add(alt.name);
+      expired.add(normalizeKey(alt.name));
   }
   return expired;
 }
