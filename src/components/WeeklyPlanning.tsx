@@ -226,41 +226,23 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       </div>
       {/* Date + ingredients: full width below the title row */}
       {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
-        <div className="md:mt-0.5">
-          {/* Desktop: date + grams on their own line */}
-          {(pm.expiration_date || meal.grams) && (
-            <div className="hidden md:flex items-center gap-1 flex-wrap">
-              {pm.expiration_date && (
-                <span className={`text-[9px] flex items-center gap-0.5 rounded px-1 py-0.5 border ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
-                  <Calendar className="h-2 w-2" />
-                  {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-                </span>
-              )}
-              {meal.grams && (
-                <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                  <Weight className="h-2 w-2" />
-                  {meal.grams}
-                </span>
-              )}
-            </div>
-          )}
-          {/* Mobile: grams alone (no date, it goes inline with ingredients) */}
+        <div className="mt-0.5 md:mt-0.5">
+          {/* Grams on its own line if present */}
           {meal.grams && (
-            <div className="flex md:hidden items-center gap-1">
+            <div className="flex items-center gap-1">
               <span className="text-[9px] text-white/60 flex items-center gap-0.5">
                 <Weight className="h-2 w-2" />
                 {meal.grams}
               </span>
             </div>
           )}
-          {/* Ingredients line — on mobile, prepend the expiration date */}
-          {(meal.ingredients || (pm.expiration_date && typeof window !== 'undefined')) && (
-            <div className="md:mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
+          {/* Ingredients line with date prepended inline */}
+          {(meal.ingredients || pm.expiration_date) && (
+            <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
               {pm.expiration_date && (
-                <span className={`md:hidden inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
                   <Calendar className="h-2 w-2 inline" />
                   {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-                  {meal.ingredients ? " •" : ""}
                 </span>
               )}
               {meal.ingredients && meal.ingredients
