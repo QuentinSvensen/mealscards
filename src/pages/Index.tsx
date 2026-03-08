@@ -61,8 +61,8 @@ function validateMealName(name: string): string | null {
 }
 
 type SortMode = "manual" | "expiration" | "planning";
-type MasterSortMode = "manual" | "calories" | "favorites" | "ingredients";
-type AvailableSortMode = "manual" | "calories" | "expiration";
+type MasterSortMode = "manual" | "calories" | "protein" | "favorites" | "ingredients";
+type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 type UnParUnSortMode = "manual" | "expiration";
 type MainPage = "aliments" | "repas" | "planning" | "courses";
 
@@ -266,6 +266,10 @@ const Index = () => {
   const dbUnParUnSortModes = getPreference<Record<string, UnParUnSortMode>>('meal_unparun_sort_modes', {});
   const [unParUnSortModes, setUnParUnSortModes] = useState<Record<string, UnParUnSortMode>>({});
 
+  // Sort direction state (asc=true / desc=false for numeric sorts)
+  const dbSortDirections = getPreference<Record<string, boolean>>('meal_sort_directions', {});
+  const [sortDirections, setSortDirections] = useState<Record<string, boolean>>({});
+
   const dbSyncedRef = useRef(false);
   useEffect(() => {
     if (dbSyncedRef.current) return;
@@ -274,6 +278,7 @@ const Index = () => {
   useEffect(() => { if (Object.keys(dbMasterSortModes).length > 0) setMasterSortModes(dbMasterSortModes); }, [dbMasterSortModes]);
   useEffect(() => { if (Object.keys(dbAvailableSortModes).length > 0) setAvailableSortModes(dbAvailableSortModes); }, [dbAvailableSortModes]);
   useEffect(() => { if (Object.keys(dbUnParUnSortModes).length > 0) setUnParUnSortModes(dbUnParUnSortModes); }, [dbUnParUnSortModes]);
+  useEffect(() => { if (Object.keys(dbSortDirections).length > 0) setSortDirections(dbSortDirections); }, [dbSortDirections]);
 
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
@@ -374,7 +379,7 @@ const Index = () => {
   const toggleMasterSort = (cat: string) => {
     setMasterSortModes((prev) => {
       const current = prev[cat] || "manual";
-      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "favorites" : current === "favorites" ? "ingredients" : "manual";
+      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "protein" : current === "protein" ? "favorites" : current === "favorites" ? "ingredients" : "manual";
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_master_sort_modes', JSON.stringify(updated));
       setPreference.mutate({ key: 'meal_master_sort_modes', value: updated });
@@ -382,14 +387,31 @@ const Index = () => {
     });
   };
 
+
+  const toggleSortDirection = (key: string) => {
+    setSortDirections(prev => {
+      const updated = { ...prev, [key]: !prev[key] };
+      setPreference.mutate({ key: 'meal_sort_directions', value: updated });
+      return updated;
+    });
+  };
+
   const getSortedMaster = (cat: string): Meal[] => {
     const items = getMealsByCategory(cat);
     const mode = masterSortModes[cat] || "manual";
+    const asc = sortDirections[`master-${cat}`] !== false; // default asc
     if (mode === "calories") {
       return [...items].sort((a, b) => {
         const ca = parseFloat((a.calories || "0").replace(/[^0-9.]/g, "")) || 0;
         const cb = parseFloat((b.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        return ca - cb;
+        return asc ? ca - cb : cb - ca;
+      });
+    }
+    if (mode === "protein") {
+      return [...items].sort((a, b) => {
+        const pa = parseFloat((a.protein || "0").replace(/[^0-9.]/g, "")) || 0;
+        const pb = parseFloat((b.protein || "0").replace(/[^0-9.]/g, "")) || 0;
+        return asc ? pa - pb : pb - pa;
       });
     }
     if (mode === "favorites") return [...items].sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
@@ -419,7 +441,7 @@ const Index = () => {
   const toggleAvailableSort = (cat: string) => {
     setAvailableSortModes(prev => {
       const current = prev[cat] || "manual";
-      const next: AvailableSortMode = current === "manual" ? "calories" : current === "calories" ? "expiration" : "manual";
+      const next: AvailableSortMode = current === "manual" ? "calories" : current === "calories" ? "protein" : current === "protein" ? "expiration" : "manual";
       const updated = { ...prev, [cat]: next };
       setPreference.mutate({ key: 'meal_available_sort_modes', value: updated });
       return updated;
@@ -948,8 +970,10 @@ const Index = () => {
                   category={cat}
                   meals={getSortedMaster(cat.value)}
                   foodItems={foodItems}
-                  sortMode={masterSortModes[cat.value] || "manual"}
+                  sortMode={(masterSortModes[cat.value] || "manual") as any}
+                  sortAsc={sortDirections[`master-${cat.value}`] !== false}
                   onToggleSort={() => toggleMasterSort(cat.value)}
+                  onToggleSortDirection={() => toggleSortDirection(`master-${cat.value}`)}
                   collapsed={collapsedSections[`master-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`master-${cat.value}`)}
                   onMoveToPossible={async (id) => {
@@ -959,6 +983,7 @@ const Index = () => {
                   onRename={(id, name) => renameMeal.mutate({ id, name })}
                   onDelete={(id) => deleteMeal.mutate(id)}
                   onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                  onUpdateProtein={(id, prot) => updateProtein.mutate({ id, protein: prot })}
                   onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                   onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
                   onToggleFavorite={(id) => {
@@ -975,7 +1000,9 @@ const Index = () => {
                   foodItems={foodItems}
                   allMeals={meals}
                   sortMode={availableSortModes[cat.value] || "manual"}
+                  sortAsc={sortDirections[`available-${cat.value}`] !== false}
                   onToggleSort={() => toggleAvailableSort(cat.value)}
+                  onToggleSortDirection={() => toggleSortDirection(`available-${cat.value}`)}
                   collapsed={collapsedSections[`available-${cat.value}`] ?? false}
                   onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
                   onMoveToPossible={async (mealId) => {

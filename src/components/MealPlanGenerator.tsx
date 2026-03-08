@@ -451,7 +451,7 @@ export function MealPlanGenerator() {
             )}
           </div>
 
-          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[50%]">
+          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[50%] mx-auto">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
               🛒 Liste d'ingrédients ({shoppingItems2.length})
             </p>

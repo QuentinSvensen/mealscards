@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Flame, Star, List, ArrowUpDown, Search } from "lucide-react";
+import { Flame, Star, List, ArrowUpDown, Search, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealList } from "@/components/MealList";
@@ -9,20 +9,23 @@ import type { FoodItem } from "@/components/FoodItems";
 import { buildStockMap, getMissingIngredients } from "@/lib/stockUtils";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
 
-type MasterSortMode = "manual" | "calories" | "favorites" | "ingredients";
+export type MasterSortMode = "manual" | "calories" | "protein" | "favorites" | "ingredients";
 
 interface MasterListProps {
   category: { value: string; label: string; emoji: string };
   meals: Meal[];
   foodItems: FoodItem[];
   sortMode: MasterSortMode;
+  sortAsc: boolean;
   onToggleSort: () => void;
+  onToggleSortDirection: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onMoveToPossible: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onUpdateCalories: (id: string, cal: string | null) => void;
+  onUpdateProtein: (id: string, prot: string | null) => void;
   onUpdateGrams: (id: string, g: string | null) => void;
   onUpdateIngredients: (id: string, ing: string | null) => void;
   onToggleFavorite: (id: string) => void;
@@ -31,13 +34,14 @@ interface MasterListProps {
   onReorder: (fromIndex: number, toIndex: number) => void;
 }
 
-export function MasterList({ category, meals, foodItems, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder }: MasterListProps) {
+export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder }: MasterListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const stockMap = buildStockMap(foodItems);
 
-  const SortIcon = sortMode === "calories" ? Flame : sortMode === "favorites" ? Star : sortMode === "ingredients" ? List : ArrowUpDown;
-  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
+  const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "favorites" ? Star : sortMode === "ingredients" ? List : ArrowUpDown;
+  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
+  const isNumericSort = sortMode === "calories" || sortMode === "protein";
 
   const filteredMeals = searchQuery.trim()
     ? meals.filter(m => {
@@ -80,6 +84,11 @@ export function MasterList({ category, meals, foodItems, sortMode, onToggleSort,
             <SortIcon className={`h-3 w-3 ${sortMode === "favorites" ? "text-yellow-400 fill-yellow-400" : ""}`} />
             <span className="hidden sm:inline">{sortLabel}</span>
           </Button>
+          {isNumericSort && (
+            <Button size="sm" variant="ghost" onClick={onToggleSortDirection} className="h-6 w-6 p-0">
+              {sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+            </Button>
+          )}
         </>
       }>
 
@@ -94,6 +103,7 @@ export function MasterList({ category, meals, foodItems, sortMode, onToggleSort,
                 onRename={(name) => onRename(meal.id, name)}
                 onDelete={() => onDelete(meal.id)}
                 onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
+                onUpdateProtein={(prot) => onUpdateProtein(meal.id, prot)}
                 onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
                 onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
                 onToggleFavorite={() => onToggleFavorite(meal.id)}

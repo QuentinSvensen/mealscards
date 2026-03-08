@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
@@ -17,7 +17,7 @@ import {
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
-type AvailableSortMode = "manual" | "calories" | "expiration";
+type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 
 interface AvailableListProps {
   category: { value: string; label: string; emoji: string };
@@ -25,7 +25,9 @@ interface AvailableListProps {
   foodItems: FoodItem[];
   allMeals: Meal[];
   sortMode: AvailableSortMode;
+  sortAsc: boolean;
   onToggleSort: () => void;
+  onToggleSortDirection: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onMoveToPossible: (id: string) => void;
@@ -42,7 +44,7 @@ interface AvailableListProps {
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
 }
 
-export function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
+export function AvailableList({ category, meals, foodItems, allMeals, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
   const isPlat = category.value === "plat";
   const stockMap = buildStockMap(foodItems);
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
@@ -158,11 +160,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   let sortedNameMatches = [...nameMatches];
   let sortedIsMealItems = [...isMealItems];
 
-  if (sortMode === "calories") {
-    const parseCal = (cal: string | null) => parseFloat((cal || "0").replace(/[^0-9.]/g, "")) || 0;
-    sortedAvailable.sort((a, b) => parseCal(a.meal.calories) - parseCal(b.meal.calories));
-    sortedNameMatches.sort((a, b) => parseCal(a.meal.calories) - parseCal(b.meal.calories));
-    sortedIsMealItems.sort((a, b) => parseCal(a.calories) - parseCal(b.calories));
+  if (sortMode === "calories" || sortMode === "protein") {
+    const field = sortMode === "calories" ? "calories" : "protein";
+    const parseVal = (val: string | null) => parseFloat((val || "0").replace(/[^0-9.]/g, "")) || 0;
+    const dir = sortAsc ? 1 : -1;
+    sortedAvailable.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
+    sortedNameMatches.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
+    sortedIsMealItems.sort((a, b) => dir * (parseVal((a as any)[field]) - parseVal((b as any)[field])));
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
       const aExp = getEarliestIngredientExpiration(a.meal, foodItems);
@@ -188,8 +192,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   }
 
   const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length + partialAvailable.length;
-  const SortIcon = sortMode === "calories" ? Flame : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
-  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "expiration" ? "Péremption" : "Manuel";
+  const isNumericSort = sortMode === "calories" || sortMode === "protein";
+  const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
+  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : sortMode === "expiration" ? "Péremption" : "Manuel";
 
   const isToday = (dateStr: string | null) => {
     if (!dateStr) return false;
@@ -334,15 +339,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
       items.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
     }
-    if (sortMode === "calories") {
-      const getCal = (u: UnifiedAvail): number => {
-        if (u.type === 'isMeal') return parseFloat((u.fi.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'nm') return parseFloat((u.nm.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'av') return parseFloat((u.item.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'partial') return parseFloat((u.item.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+    if (sortMode === "calories" || sortMode === "protein") {
+      const field = sortMode === "calories" ? "calories" : "protein";
+      const dir = sortAsc ? 1 : -1;
+      const getVal = (u: UnifiedAvail): number => {
+        if (u.type === 'isMeal') return parseFloat(((u.fi as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (u.type === 'nm') return parseFloat(((u.nm.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (u.type === 'av') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (u.type === 'partial') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
         return 0;
       };
-      items.sort((a, b) => getCal(a) - getCal(b));
+      items.sort((a, b) => dir * (getVal(a) - getVal(b)));
     }
     return items;
   };
@@ -416,6 +423,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           <SortIcon className="h-3 w-3" />
           <span className="hidden sm:inline">{sortLabel}</span>
         </Button>
+        {isNumericSort && (
+          <Button size="sm" variant="ghost" onClick={onToggleSortDirection} className="h-6 w-6 p-0">
+            {sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+          </Button>
+        )}
       </div>
 
       {!collapsed &&
