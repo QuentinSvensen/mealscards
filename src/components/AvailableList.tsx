@@ -95,6 +95,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const parseMacroValue = (value: string | null | undefined): number => {
+    if (!value) return 0;
+    const match = value.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return 0;
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   const getUnifiedItemName = (u: {
     type: 'isMeal' | 'nameMatch' | 'available' | 'partial';
     fi?: FoodItem;
@@ -216,12 +224,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   let sortedIsMealItems = [...isMealItems];
 
   if (sortMode === "calories" || sortMode === "protein") {
-    const field = sortMode === "calories" ? "calories" : "protein";
-    const parseVal = (val: string | null) => parseFloat((val || "0").replace(/[^0-9.]/g, "")) || 0;
     const dir = sortAsc ? 1 : -1;
-    sortedAvailable.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
-    sortedNameMatches.sort((a, b) => dir * (parseVal((a.meal as any)[field]) - parseVal((b.meal as any)[field])));
-    sortedIsMealItems.sort((a, b) => dir * (parseVal((a as any)[field]) - parseVal((b as any)[field])));
+
+    if (sortMode === "calories") {
+      sortedAvailable.sort((a, b) => dir * ((getDisplayedCalories(a.meal) ?? 0) - (getDisplayedCalories(b.meal) ?? 0)));
+      sortedNameMatches.sort((a, b) => dir * ((getDisplayedCalories(a.meal) ?? 0) - (getDisplayedCalories(b.meal) ?? 0)));
+      sortedIsMealItems.sort((a, b) => dir * (parseMacroValue(a.calories) - parseMacroValue(b.calories)));
+    } else {
+      sortedAvailable.sort((a, b) => dir * (parseMacroValue(a.meal.protein) - parseMacroValue(b.meal.protein)));
+      sortedNameMatches.sort((a, b) => dir * (parseMacroValue(a.meal.protein) - parseMacroValue(b.meal.protein)));
+      sortedIsMealItems.sort((a, b) => dir * (parseMacroValue(a.protein) - parseMacroValue(b.protein)));
+    }
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
       const aExp = getEarliestIngredientExpiration(a.meal, foodItems);
@@ -445,13 +458,31 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       items.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
     }
     if (sortMode === "calories" || sortMode === "protein") {
-      const field = sortMode === "calories" ? "calories" : "protein";
       const dir = sortAsc ? 1 : -1;
       const getVal = (u: UnifiedAvail): number => {
-        if (u.type === 'isMeal') return parseFloat(((u.fi as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'nm') return parseFloat(((u.nm.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'av') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'partial') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (sortMode === "calories") {
+          if (u.type === 'isMeal') {
+            const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
+            return getDisplayedCalories(fakeMeal) ?? 0;
+          }
+          if (u.type === 'nm') return getDisplayedCalories(u.nm.meal) ?? 0;
+          if (u.type === 'av') {
+            const ratio = customRatios[u.item.meal.id] ?? 1;
+            const displayMeal = ratio !== 1 ? buildScaledMealForRatio(u.item.meal, ratio) : u.item.meal;
+            return getDisplayedCalories(displayMeal) ?? 0;
+          }
+          if (u.type === 'partial') {
+            const ratio = customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
+            const displayMeal = buildScaledMealForRatio(u.item.meal, ratio);
+            return getDisplayedCalories(displayMeal) ?? 0;
+          }
+          return 0;
+        }
+
+        if (u.type === 'isMeal') return parseMacroValue(u.fi.protein);
+        if (u.type === 'nm') return parseMacroValue(u.nm.meal.protein);
+        if (u.type === 'av') return parseMacroValue(u.item.meal.protein);
+        if (u.type === 'partial') return parseMacroValue(u.item.meal.protein);
         return 0;
       };
       items.sort((a, b) => {
