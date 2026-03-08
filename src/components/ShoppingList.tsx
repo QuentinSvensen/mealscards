@@ -354,8 +354,8 @@ export function ShoppingList() {
         {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
         {isAmbiguous ? (() => {
           const ambData = ambiguousItemData.get(item.id);
-          const colorIdx = ambData?.colorIndex ?? -1;
-          const color = colorIdx === -1 ? defaultAmbiguousColor : ambiguousColors[colorIdx];
+          const colorIdx = ambData?.colorIndex ?? 0;
+          const color = ambiguousColors[colorIdx % ambiguousColors.length];
           const needKey = ambData?.needKey;
 
           // Compute suggested quantity from menu needs
@@ -376,24 +376,39 @@ export function ShoppingList() {
             <button
               onClick={() => {
                 const newChecked = !item.secondary_checked;
-                toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
                 if (newChecked) {
+                  // Check this item
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
                   const qty = computeSuggestedQty();
                   updateItemQuantity.mutate({ id: item.id, quantity: String(qty) });
                   setLocalQuantities(prev => ({ ...prev, [item.id]: String(qty) }));
+                  // Uncheck siblings in same ambiguous group
+                  if (needKey) {
+                    for (const [sibId, sibData] of ambiguousItemData) {
+                      if (sibId !== item.id && sibData.needKey === needKey) {
+                        const sibItem = items.find(i => i.id === sibId);
+                        if (sibItem?.secondary_checked) {
+                          toggleSecondaryCheck.mutate({ id: sibId, secondary_checked: false });
+                          updateItemQuantity.mutate({ id: sibId, quantity: null });
+                          setLocalQuantities(prev => { const next = { ...prev }; delete next[sibId]; return next; });
+                        }
+                      }
+                    }
+                  }
                 } else {
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                 }
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
                 item.secondary_checked 
-                  ? `${color.bg} ${color.border} ${color.checkedText}` 
+                  ? `bg-green-400 border-green-400 text-white` 
                   : `${color.borderLight} ${color.text} ${color.hover}`
               }`}
               title="Plusieurs articles correspondent à un ingrédient du menu"
             >
-              ?
+              {item.secondary_checked ? '✓' : '?'}
             </button>
           );
         })() : (
