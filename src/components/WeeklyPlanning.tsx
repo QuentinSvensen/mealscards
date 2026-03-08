@@ -227,8 +227,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       {/* Date + ingredients: full width below the title row */}
       {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
         <div className="mt-0.5">
+          {/* Desktop: date + grams on their own line */}
           {(pm.expiration_date || meal.grams) && (
-            <div className="flex items-center gap-1 flex-wrap">
+            <div className="hidden md:flex items-center gap-1 flex-wrap">
               {pm.expiration_date && (
                 <span className={`text-[9px] flex items-center gap-0.5 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
                   <Calendar className="h-2 w-2" />
@@ -243,9 +244,26 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
               )}
             </div>
           )}
-          {meal.ingredients && (
+          {/* Mobile: grams alone (no date, it goes inline with ingredients) */}
+          {meal.grams && (
+            <div className="flex md:hidden items-center gap-1">
+              <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                <Weight className="h-2 w-2" />
+                {meal.grams}
+              </span>
+            </div>
+          )}
+          {/* Ingredients line — on mobile, prepend the expiration date */}
+          {(meal.ingredients || (pm.expiration_date && typeof window !== 'undefined')) && (
             <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
-              {meal.ingredients
+              {pm.expiration_date && (
+                <span className={`md:hidden inline-flex items-center gap-0.5 mr-1 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+                  <Calendar className="h-2 w-2 inline" />
+                  {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                  {meal.ingredients ? " •" : ""}
+                </span>
+              )}
+              {meal.ingredients && meal.ingredients
                 .split(/[,\n]+/)
                 .filter(Boolean)
                 .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
