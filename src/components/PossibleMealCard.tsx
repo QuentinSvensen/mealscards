@@ -160,9 +160,19 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
+      className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
+      {/* Multiplier button - top right corner */}
+      {meal.ingredients && onUpdatePossibleIngredients && (
+        <button
+          onClick={() => { setEditValue(""); setEditing("ratio"); }}
+          className="absolute top-0 right-0 z-10 h-6 min-w-[1.75rem] px-1.5 rounded-tr-2xl rounded-bl-xl bg-white/20 hover:bg-white/30 text-[10px] font-bold text-white/70 hover:text-white flex items-center justify-center gap-0.5 transition-all"
+          title="Ajuster les portions (ex: x2, 75%)"
+        >
+          <Percent className="h-2.5 w-2.5" />
+        </button>
+      )}
       {/* Row 1: name + counter inline + actions */}
       <div className="flex items-center gap-1.5">
         <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
@@ -255,11 +265,6 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
             <DropdownMenuItem onClick={onDelete} className="text-destructive">
               <Trash2 className="mr-2 h-4 w-4" /> Supprimer
             </DropdownMenuItem>
-            {meal.ingredients && onUpdatePossibleIngredients && (
-              <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
-                <Percent className="mr-2 h-4 w-4" /> Pourcentage
-              </DropdownMenuItem>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
