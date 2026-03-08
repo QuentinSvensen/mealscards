@@ -660,20 +660,20 @@ export function MealPlanGenerator() {
             <div className="space-y-1">
               {shoppingItems2.map((item, i) => (
                 <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-xl bg-muted/40 text-sm min-w-0">
-                  <span className="font-medium text-foreground flex-1">{item.displayName}</span>
+                  <span className="font-medium text-foreground flex-1 min-w-0 break-words">{item.displayName}</span>
                   {!item.matched && (
-                    <span className="text-amber-500 text-xs" title="Pas trouvé dans Courses-Liste">❓</span>
+                    <span className="text-amber-500 text-xs shrink-0" title="Pas trouvé dans Courses-Liste">❓</span>
                   )}
                   {item.matched && item.ambiguous && (
-                    <span className="text-blue-500 text-xs" title="Plusieurs articles correspondent, choix à faire dans Courses-Liste">❓</span>
+                    <span className="text-blue-500 text-xs shrink-0" title="Plusieurs articles correspondent, choix à faire dans Courses-Liste">❓</span>
                   )}
                   {item.grams > 0 && (
-                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
+                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono shrink-0">
                       {Math.round(item.grams)}g
                     </span>
                   )}
                   {item.count > 0 && item.grams <= 0 && (
-                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
+                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono shrink-0">
                       ×{Math.round(item.count)}
                     </span>
                   )}
