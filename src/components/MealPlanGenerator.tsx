@@ -342,26 +342,25 @@ export function MealPlanGenerator() {
   };
 
   const shoppingItems2 = useMemo(() => {
-    const map = new Map<string, { grams: number; count: number; displayName: string; matched: boolean }>();
+    const map = new Map<string, { grams: number; count: number; displayName: string; matched: boolean; ambiguous: boolean }>();
 
     for (const meal of selectedMeals) {
       const usage = getRecipeUsage(meal);
       for (const [key, used] of usage) {
-        const existing = map.get(key) || { grams: 0, count: 0, displayName: used.rawName, matched: false };
+        const existing = map.get(key) || { grams: 0, count: 0, displayName: used.rawName, matched: false, ambiguous: false };
         map.set(key, {
           grams: existing.grams + used.grams,
           count: existing.count + used.count,
           displayName: existing.displayName,
           matched: existing.matched,
+          ambiguous: existing.ambiguous,
         });
       }
     }
 
     // Check which ingredients match shopping list items or "Toujours présent" food items
-    // Priority: 1) exact key match, 2) partial smart match, 3) no match → ❓
     const toujoursKeys = [...toujoursFoodKeys];
     for (const [key, item] of map) {
-      // If ingredient matches a "Toujours présent" food item, mark as matched
       if (toujoursFoodKeys.has(key) || toujoursKeys.some((tjKey) => smartFoodContains(item.displayName, tjKey))) {
         item.matched = true;
         continue;
@@ -388,6 +387,10 @@ export function MealPlanGenerator() {
 
       if (partialMatches.length > 0) {
         item.matched = true;
+        // Multiple partial matches = ambiguous (user needs to choose)
+        if (partialMatches.length > 1) {
+          item.ambiguous = true;
+        }
       }
     }
 
@@ -558,6 +561,9 @@ export function MealPlanGenerator() {
                   <span className="font-medium text-foreground flex-1">{item.displayName}</span>
                   {!item.matched && (
                     <span className="text-amber-500 text-xs" title="Pas trouvé dans Courses-Liste">❓</span>
+                  )}
+                  {item.matched && item.ambiguous && (
+                    <span className="text-blue-500 text-xs" title="Plusieurs articles correspondent, choix à faire dans Courses-Liste">❓</span>
                   )}
                   {item.grams > 0 && (
                     <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">

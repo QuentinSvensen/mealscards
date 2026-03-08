@@ -37,16 +37,6 @@ export function ShoppingList() {
 
   const { items: foodItems } = useFoodItems();
 
-  // Default color for non-paired ambiguous items (white)
-  const defaultAmbiguousColor = {
-    bg: 'bg-background',
-    border: 'border-border',
-    borderLight: 'border-border',
-    text: 'text-foreground',
-    hover: 'hover:bg-muted/50',
-    checkedText: 'text-foreground',
-  };
-
   // Color palette for paired ambiguous groups
   const ambiguousColors = [
     { bg: 'bg-blue-500', border: 'border-blue-500', borderLight: 'border-blue-500/50', text: 'text-blue-500', hover: 'hover:bg-blue-500/10', checkedText: 'text-white' },
@@ -82,8 +72,8 @@ export function ShoppingList() {
     return result;
   }, [items, toujoursFoodKeys]);
 
-  // Compute which items have ambiguous partial matches with menu ingredients + their color group
-  // ambiguousItemData: Map<itemId, { colorIndex: number (-1=white), needKey: string }>
+  // Compute which items have ambiguous partial matches with menu ingredients (ONLY multi-match)
+  // ambiguousItemData: Map<itemId, { colorIndex: number, needKey: string }>
   const ambiguousItemData = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
@@ -92,13 +82,11 @@ export function ShoppingList() {
     const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
     let colorIndex = 0;
 
-    // For each ingredient, find all matching shopping items
     for (const ingKey of ingredientKeys) {
       const matchingItems: string[] = [];
       let hasExactMatch = false;
 
       for (const si of items) {
-        // Skip "Toujours présent" items
         if (isToujoursPresent.has(si.id)) continue;
         const siKey = normalizeKey(si.name);
         const ingKeyNorm = normalizeKey(ingKey);
@@ -109,18 +97,13 @@ export function ShoppingList() {
         }
       }
 
-      // If no exact match and has partial matches → ambiguous
-      if (!hasExactMatch && matchingItems.length > 0) {
-        if (matchingItems.length > 1) {
-          // Multiple matches → same color for the group
-          const groupColor = colorIndex % ambiguousColors.length;
-          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
-          colorIndex++;
-        } else {
-          // Single match but no exact → default white (-1)
-          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: -1, needKey: ingKey }));
-        }
+      // Only multi-match without exact match → colored ❓
+      if (!hasExactMatch && matchingItems.length > 1) {
+        const groupColor = colorIndex % ambiguousColors.length;
+        matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
+        colorIndex++;
       }
+      // Single partial match → no ❓, will be handled as green check by updateShoppingChecks
     }
 
     return itemToGroup;
@@ -361,8 +344,8 @@ export function ShoppingList() {
         {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
         {isAmbiguous ? (() => {
           const ambData = ambiguousItemData.get(item.id);
-          const colorIdx = ambData?.colorIndex ?? -1;
-          const color = colorIdx === -1 ? defaultAmbiguousColor : ambiguousColors[colorIdx];
+          const colorIdx = ambData?.colorIndex ?? 0;
+          const color = ambiguousColors[colorIdx % ambiguousColors.length];
           const needKey = ambData?.needKey;
 
           // Compute suggested quantity from menu needs
@@ -383,24 +366,39 @@ export function ShoppingList() {
             <button
               onClick={() => {
                 const newChecked = !item.secondary_checked;
-                toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
                 if (newChecked) {
+                  // Check this item
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
                   const qty = computeSuggestedQty();
                   updateItemQuantity.mutate({ id: item.id, quantity: String(qty) });
                   setLocalQuantities(prev => ({ ...prev, [item.id]: String(qty) }));
+                  // Uncheck siblings in same ambiguous group
+                  if (needKey) {
+                    for (const [sibId, sibData] of ambiguousItemData) {
+                      if (sibId !== item.id && sibData.needKey === needKey) {
+                        const sibItem = items.find(i => i.id === sibId);
+                        if (sibItem?.secondary_checked) {
+                          toggleSecondaryCheck.mutate({ id: sibId, secondary_checked: false });
+                          updateItemQuantity.mutate({ id: sibId, quantity: null });
+                          setLocalQuantities(prev => { const next = { ...prev }; delete next[sibId]; return next; });
+                        }
+                      }
+                    }
+                  }
                 } else {
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                 }
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
                 item.secondary_checked 
-                  ? `${color.bg} ${color.border} ${color.checkedText}` 
+                  ? `bg-green-400 border-green-400 text-white` 
                   : `${color.borderLight} ${color.text} ${color.hover}`
               }`}
               title="Plusieurs articles correspondent à un ingrédient du menu"
             >
-              ?
+              {item.secondary_checked ? '✓' : '?'}
             </button>
           );
         })() : (
