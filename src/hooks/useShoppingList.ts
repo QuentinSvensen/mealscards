@@ -110,8 +110,19 @@ export function useShoppingList() {
       const { error } = await supabase.from("shopping_items").update({ checked }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: invalidate,
-    onError: onMutationError,
+    onMutate: async ({ id, checked }) => {
+      await qc.cancelQueries({ queryKey: ["shopping_items"] });
+      const prev = qc.getQueryData<ShoppingItem[]>(["shopping_items"]);
+      qc.setQueryData<ShoppingItem[]>(["shopping_items"], old =>
+        old?.map(i => i.id === id ? { ...i, checked } : i) ?? []
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["shopping_items"], ctx.prev);
+      onMutationError(_err);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["shopping_items"] }),
   });
 
   const updateItemQuantity = useMutation({
@@ -146,8 +157,19 @@ export function useShoppingList() {
       const { error } = await supabase.from("shopping_items").update({ secondary_checked }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: invalidate,
-    onError: onMutationError,
+    onMutate: async ({ id, secondary_checked }) => {
+      await qc.cancelQueries({ queryKey: ["shopping_items"] });
+      const prev = qc.getQueryData<ShoppingItem[]>(["shopping_items"]);
+      qc.setQueryData<ShoppingItem[]>(["shopping_items"], old =>
+        old?.map(i => i.id === id ? { ...i, secondary_checked } : i) ?? []
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["shopping_items"], ctx.prev);
+      onMutationError(_err);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["shopping_items"] }),
   });
 
   const updateItemContentQuantityType = useMutation({

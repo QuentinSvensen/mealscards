@@ -203,8 +203,19 @@ export function useMeals() {
       const { error } = await supabase.from("meals").update({ is_favorite }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: invalidateAll,
-    onError: onMutationError,
+    onMutate: async ({ id, is_favorite }) => {
+      await qc.cancelQueries({ queryKey: ["meals"] });
+      const prev = qc.getQueryData<Meal[]>(["meals"]);
+      qc.setQueryData<Meal[]>(["meals"], old =>
+        old?.map(m => m.id === id ? { ...m, is_favorite } : m) ?? []
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["meals"], ctx.prev);
+      onMutationError(_err);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["meals"] }),
   });
 
   const deleteMeal = useMutation({
