@@ -430,13 +430,18 @@ export function useMeals(options?: { enabled?: boolean }) {
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
         // Same counter days → sort by calories ascending
-        const aCal = computeIngredientCalories(a.meals?.ingredients) ?? (a.meals?.calories ? Number(a.meals.calories) : Infinity);
-        const bCal = computeIngredientCalories(b.meals?.ingredients) ?? (b.meals?.calories ? Number(b.meals.calories) : Infinity);
-        if (aCal !== bCal) return aCal - bCal;
+        const aCal = computeIngredientCalories(a.meals?.ingredients) ?? (a.meals?.calories ? parseFloat(a.meals.calories) : null);
+        const bCal = computeIngredientCalories(b.meals?.ingredients) ?? (b.meals?.calories ? parseFloat(b.meals.calories) : null);
+        // Both have calories → sort ascending
+        if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
+        // One has calories, the other doesn't → the one with calories first
+        if (aCal !== null && bCal === null) return -1;
+        if (aCal === null && bCal !== null) return 1;
         if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
         if (aHasDate) return -1;
         if (bHasDate) return 1;
-        return 0;
+        // Last resort: alphabetical
+        return (a.meals?.name ?? '').localeCompare(b.meals?.name ?? '');
       }
 
       if (aGroup === 1) {
