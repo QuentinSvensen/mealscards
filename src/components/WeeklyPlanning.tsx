@@ -156,8 +156,8 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       <div className="flex items-start gap-1 min-w-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 min-w-0">
-            <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-            <span className="font-semibold text-xs min-w-0 break-words">{meal.name}</span>
+            <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
+            <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
             {counterDays !== null && (
               <span
                 className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
