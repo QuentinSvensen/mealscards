@@ -2764,9 +2764,7 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
                 id: `fi-${fi.id}`,
                 name: fi.name,
                 category: "plat",
-                calories: fi.quantity && fi.quantity > 1 && fi.calories
-                  ? `${parseFloat(fi.calories.replace(/[^0-9.]/g, '')) * fi.quantity}`
-                  : fi.calories,
+                calories: fi.calories,
                 grams: displayGrams,
                 ingredients: null,
                 color: colorFromName(fi.id),
