@@ -61,22 +61,22 @@ function makeMeal(overrides: Partial<Meal> & { name: string }): Meal {
 
 describe("parseIngredientLine", () => {
   it("parses gram-based ingredients", () => {
-    expect(parseIngredientLine("200g Poulet")).toEqual({ qty: 200, count: 0, name: "poulet" });
-    expect(parseIngredientLine("50g Farine d'avoine")).toEqual({ qty: 50, count: 0, name: "farine davoine" });
+    expect(parseIngredientLine("200g Poulet")).toEqual({ qty: 200, count: 0, name: "poulet", optional: false });
+    expect(parseIngredientLine("50g Farine d'avoine")).toEqual({ qty: 50, count: 0, name: "farine davoine", optional: false });
   });
 
   it("parses count-based ingredients", () => {
-    expect(parseIngredientLine("3 Oeufs")).toEqual({ qty: 0, count: 3, name: "oeufs" });
-    expect(parseIngredientLine("1 Galette")).toEqual({ qty: 0, count: 1, name: "galette" });
+    expect(parseIngredientLine("3 Oeufs")).toEqual({ qty: 0, count: 3, name: "oeufs", optional: false });
+    expect(parseIngredientLine("1 Galette")).toEqual({ qty: 0, count: 1, name: "galette", optional: false });
   });
 
   it("parses both qty and count", () => {
-    expect(parseIngredientLine("200g 3 Poulet")).toEqual({ qty: 200, count: 3, name: "poulet" });
+    expect(parseIngredientLine("200g 3 Poulet")).toEqual({ qty: 200, count: 3, name: "poulet", optional: false });
   });
 
   it("parses decimal values", () => {
-    expect(parseIngredientLine("12,5g Sucre")).toEqual({ qty: 12.5, count: 0, name: "sucre" });
-    expect(parseIngredientLine("0,5 Oeuf")).toEqual({ qty: 0, count: 0.5, name: "oeuf" });
+    expect(parseIngredientLine("12,5g Sucre")).toEqual({ qty: 12.5, count: 0, name: "sucre", optional: false });
+    expect(parseIngredientLine("0,5 Oeuf")).toEqual({ qty: 0, count: 0.5, name: "oeuf", optional: false });
   });
 });
 
@@ -85,8 +85,8 @@ describe("parseIngredientGroups", () => {
     const groups = parseIngredientGroups("200g Poulet, 100g Riz");
     expect(groups).toHaveLength(2);
     expect(groups[0]).toHaveLength(1);
-    expect(groups[0][0]).toEqual({ qty: 200, count: 0, name: "poulet" });
-    expect(groups[1][0]).toEqual({ qty: 100, count: 0, name: "riz" });
+    expect(groups[0][0]).toEqual({ qty: 200, count: 0, name: "poulet", optional: false });
+    expect(groups[1][0]).toEqual({ qty: 100, count: 0, name: "riz", optional: false });
   });
 
   it("parses OR alternatives with pipe", () => {
