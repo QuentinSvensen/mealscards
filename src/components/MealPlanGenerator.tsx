@@ -338,25 +338,31 @@ export function MealPlanGenerator() {
         return score;
       };
 
-      // Pool: uniques first, then doublons qui ferment un ingrédient entamé
-      const poolMap = new Map<string, { id: string; score: number }>();
-
+      // Pool: UNIQUEMENT des recettes uniques d'abord
+      const uniquePool: { id: string; score: number }[] = [];
       for (const r of shuffled.filter(r => !counts.has(r.id))) {
-        poolMap.set(r.id, { id: r.id, score: scoreRecipe(r, false) });
+        uniquePool.push({ id: r.id, score: scoreRecipe(r, false) });
       }
 
-      // Allow duplicates only if they touch an open ingredient
-      if (openGramKeys.size > 0) {
+      // Check if any unique recipe touches an open ingredient
+      const uniqueTouchesOpen = openGramKeys.size > 0 && uniquePool.some(entry => {
+        const r = shuffled.find(s => s.id === entry.id)!;
+        return recipeTouchesOpenKey(r);
+      });
+
+      // Only consider duplicates if NO unique recipe can touch the open ingredient
+      let dupPool: { id: string; score: number }[] = [];
+      if (openGramKeys.size > 0 && !uniqueTouchesOpen) {
         for (const r of shuffled.filter(r => (counts.get(r.id) || 0) === 1 && recipeTouchesOpenKey(r))) {
-          const next = { id: r.id, score: scoreRecipe(r, true) };
-          const prev = poolMap.get(r.id);
-          if (!prev || next.score > prev.score) poolMap.set(r.id, next);
+          dupPool.push({ id: r.id, score: scoreRecipe(r, true) });
         }
       }
 
-      if (poolMap.size > 0) {
-        const pool = Array.from(poolMap.values()).sort((a, b) => b.score - a.score);
-        const topN = pool.slice(0, Math.min(isLateRound ? 2 : 4, pool.length));
+      const finalPool = [...uniquePool, ...dupPool];
+
+      if (finalPool.length > 0) {
+        finalPool.sort((a, b) => b.score - a.score);
+        const topN = finalPool.slice(0, Math.min(isLateRound ? 2 : 4, finalPool.length));
         const pick = topN[Math.floor(Math.random() * topN.length)];
         selectedIds.push(pick.id);
         counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
