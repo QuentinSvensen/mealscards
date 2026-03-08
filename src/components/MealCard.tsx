@@ -349,7 +349,7 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
       )}
     </div>
   );
-}
+});
 
 /** Render ingredient display with OR groups, expired/missing highlighting */
 function renderIngredientDisplay(
