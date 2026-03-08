@@ -421,6 +421,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           <SortIcon className="h-3 w-3" />
           <span className="hidden sm:inline">{sortLabel}</span>
         </Button>
+        {isNumericSort && (
+          <Button size="sm" variant="ghost" onClick={onToggleSortDirection} className="h-6 w-6 p-0">
+            {sortAsc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+          </Button>
+        )}
       </div>
 
       {!collapsed &&
