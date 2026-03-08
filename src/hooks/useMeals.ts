@@ -428,8 +428,16 @@ export function useMeals(options?: { enabled?: boolean }) {
     return Number.isFinite(parsed) ? parsed : null;
   };
 
-  const sortByExpiration = (items: PossibleMeal[]) =>
-    [...items].sort((a, b) => {
+  const sortByExpiration = (items: PossibleMeal[]) => {
+    // Debug: log calories for items with counters
+    const debugItems = items.map(pm => {
+      const counter = pm.counter_start_date ? Math.floor((Date.now() - new Date(pm.counter_start_date).getTime()) / 86400000) : null;
+      const cal = extractSortableCalories(pm);
+      return { name: pm.meals?.name, counter, cal, id: pm.id };
+    });
+    console.log('[sortByExpiration] items before sort:', JSON.stringify(debugItems));
+
+    const sorted = [...items].sort((a, b) => {
       const aCounter = a.counter_start_date ? Math.floor((Date.now() - new Date(a.counter_start_date).getTime()) / 86400000) : null;
       const bCounter = b.counter_start_date ? Math.floor((Date.now() - new Date(b.counter_start_date).getTime()) / 86400000) : null;
       const aHasDate = !!a.expiration_date;
@@ -445,7 +453,6 @@ export function useMeals(options?: { enabled?: boolean }) {
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
 
-        // Same counter days -> sort by displayed calories ascending
         const aCal = extractSortableCalories(a);
         const bCal = extractSortableCalories(b);
 
@@ -466,6 +473,15 @@ export function useMeals(options?: { enabled?: boolean }) {
 
       return 0;
     });
+
+    const debugSorted = sorted.map(pm => {
+      const cal = extractSortableCalories(pm);
+      return { name: pm.meals?.name, cal };
+    });
+    console.log('[sortByExpiration] items after sort:', JSON.stringify(debugSorted));
+
+    return sorted;
+  };
 
   const sortByPlanning = (items: PossibleMeal[]) =>
     [...items].sort((a, b) => {
