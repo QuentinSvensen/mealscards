@@ -445,9 +445,10 @@ export function MealPlanGenerator() {
 
           for (const cand of candidatePlats) {
             if (cand.id === selectedIds[idx]) continue;
+            // Do not introduce new duplicates during repair swaps
+            if (selectedIds.includes(cand.id)) continue;
             const testIds = [...selectedIds];
             testIds[idx] = cand.id;
-            const newMis = getMisaligned(testIds);
             if (!newMis.some(m => m.key === mis.key) && newMis.length <= misaligned.length) {
               selectedIds[idx] = cand.id;
               swapped = true;
