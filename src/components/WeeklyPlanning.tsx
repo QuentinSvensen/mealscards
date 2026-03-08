@@ -361,6 +361,11 @@ export function WeeklyPlanning() {
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
   const keepOnReset = getPreference<Record<string, boolean>>('planning_keep_on_reset', {});
+  const DAILY_GOAL = getPreference<number>('planning_daily_goal', DEFAULT_DAILY_GOAL);
+  const WEEKLY_GOAL = DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
+  const DAILY_PROTEIN_GOAL_PREF = getPreference<number>('planning_protein_goal', DAILY_PROTEIN_GOAL);
+  const [editingGoal, setEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState("");
 
   const getBreakfastForDay = (day: string) => {
     const mealId = breakfastSelections[day];
@@ -738,18 +743,41 @@ export function WeeklyPlanning() {
               </div>
               <div className="flex-1" />
               <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
-                <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
+                <button
+                  onClick={() => { setEditingGoal(true); setGoalInput(String(DAILY_GOAL)); }}
+                  className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap hover:bg-muted/80 transition-colors cursor-pointer"
+                  title="Cliquer pour modifier l'objectif"
+                >
                   <Flame className="h-2.5 w-2.5 text-orange-500" />
                   {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
-                </span>
-                {dayCalories > 0 && (
+                </button>
+                {editingGoal && (
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      type="number"
+                      inputMode="numeric"
+                      value={goalInput}
+                      onChange={(e) => setGoalInput(e.target.value)}
+                      onBlur={() => {
+                        const val = parseInt(goalInput);
+                        if (val && val > 0) setPreference.mutate({ key: 'planning_daily_goal', value: val });
+                        setEditingGoal(false);
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingGoal(false); }}
+                      className="w-16 h-5 text-[10px] bg-muted border border-border rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <span className="text-[9px] text-muted-foreground">kcal/j</span>
+                  </div>
+                )}
+                {!editingGoal && dayCalories > 0 && (
                   <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_GOAL - dayCalories > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                     {DAILY_GOAL - dayCalories > 0 ? `reste ${Math.round(DAILY_GOAL - dayCalories)}` : `+${Math.round(dayCalories - DAILY_GOAL)}`}
                   </span>
                 )}
                 {getDayProtein(day) > 0 && (
                   <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
-                    🍗 {Math.round(getDayProtein(day))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL}</span>
+                    🍗 {Math.round(getDayProtein(day))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL_PREF}</span>
                   </span>
                 )}
               </div>
