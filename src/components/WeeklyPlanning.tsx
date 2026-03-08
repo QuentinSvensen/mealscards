@@ -148,7 +148,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
         transition-transform hover:scale-[1.01]
         ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
         ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
-        ${compact ? "px-2 py-1" : "px-2 py-1 md:py-1.5"}
+        ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
       `}
       style={{ backgroundColor: meal.color }}
     >
@@ -156,8 +156,8 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       <div className="flex items-start gap-1 min-w-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 min-w-0">
-            <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-            <span className="font-semibold text-xs min-w-0 break-words">{meal.name}</span>
+            <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
+            <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
             {counterDays !== null && (
               <span
                 className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
@@ -563,7 +563,7 @@ export function WeeklyPlanning() {
           <div
             key={day}
             ref={isToday_ ? todayRef : undefined}
-            className={`rounded-2xl p-3 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
+            className={`rounded-2xl p-2 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
           >
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               <h3
@@ -650,7 +650,7 @@ export function WeeklyPlanning() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3">
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-1 sm:gap-3">
               {TIMES.map((time) => {
                 const slotKey = `${day}-${time}`;
                 const slotMeals = getMealsForSlot(day, time);
@@ -667,9 +667,9 @@ export function WeeklyPlanning() {
                     }}
                     onDragLeave={() => setDragOverSlot(null)}
                     onDrop={(e) => handleDrop(e, day, time)}
-                    className={`min-h-[52px] rounded-xl border border-dashed p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+                    className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
                   >
-                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                       {TIME_LABELS[time]}
                     </span>
                     <div className="mt-0.5 space-y-1">
@@ -712,8 +712,8 @@ export function WeeklyPlanning() {
                 );
               })}
               {/* Extra column */}
-              <div className="min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1.5 w-20 flex flex-col items-center">
-                <span className="text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
+              <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-16 sm:w-20 flex flex-col items-center">
+                <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
                 <div className="flex items-center gap-0.5 mt-1">
                   <input
                     type="number"
