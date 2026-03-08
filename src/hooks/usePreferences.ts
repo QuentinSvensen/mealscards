@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -29,10 +29,10 @@ export function usePreferences() {
     retryDelay: 500,
   });
 
-  const getPreference = <T>(key: string, defaultValue: T): T => {
+  const getPreference = useCallback(<T>(key: string, defaultValue: T): T => {
     const pref = preferences.find(p => p.key === key);
     return pref ? (pref.value as T) : defaultValue;
-  };
+  }, [preferences]);
 
   const setPreference = useMutation({
     mutationFn: async ({ key, value }: { key: string; value: any }) => {
