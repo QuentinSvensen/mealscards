@@ -229,12 +229,6 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
           <div className="flex items-start gap-1 flex-wrap">
             <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">
               {meal.name}
-              {(() => {
-                const ingCal = computeIngredientCalories(meal.ingredients);
-                return ingCal !== null ? (
-                  <span className="ml-1.5 text-[10px] font-normal text-white/60 bg-white/15 px-1 py-0.5 rounded-full">🔥{ingCal}</span>
-                ) : null;
-              })()}
             </span>
             {/* Options row - wraps below title on narrow screens and stays right-aligned */}
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
@@ -252,11 +246,18 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
                   <Weight className="h-3 w-3" />{meal.grams}
                 </span>
               )}
-              {meal.calories && (
-                <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
-                  <Flame className="h-3 w-3" />{meal.calories}
-                </span>
-              )}
+              {(() => {
+                const ingCal = computeIngredientCalories(meal.ingredients);
+                const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
+                const isComputed = ingCal !== null;
+                return displayCal ? (
+                  <span className={`text-xs text-white/70 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 ${
+                    isComputed ? 'bg-orange-500/50 font-bold' : 'bg-white/20'
+                  }`}>
+                    <Flame className="h-3 w-3" />{displayCal}
+                  </span>
+                ) : null;
+              })()}
               {meal.protein && (
                 <span className="text-xs text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold">
                   🍗 {meal.protein}
