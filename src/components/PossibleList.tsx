@@ -116,7 +116,7 @@ export function PossibleList({ category, items, sortMode, onToggleSort, onRandom
           onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g)}
           onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
           onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
-          onUpdateQuantity={(qty) => onUpdateQuantity(pm.id, qty)}
+          onUpdateQuantity={unParUnSourcePmIds.has(pm.id) ? (qty) => onUpdateQuantity(pm.id, qty) : undefined}
           onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDrop={(e) => {
