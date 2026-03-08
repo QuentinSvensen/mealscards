@@ -85,6 +85,13 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 const Index = () => {
   const qc = useQueryClient();
   const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
+  const [blockedCount, setBlockedCount] = useState<number | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
+  const setMainPage = (page: MainPage) => navigate(PAGE_TO_ROUTE[page]);
+
   const unlocked = !!session;
   const pageNeedsMealsData = unlocked && mainPage !== "courses";
   const pageNeedsIndexFoodData = unlocked && mainPage !== "courses";
@@ -93,12 +100,6 @@ const Index = () => {
 
   const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems({ enabled: pageNeedsIndexFoodData });
   const deleteFoodItem = (id: string) => deleteFoodItemMutation.mutate(id);
-  const [blockedCount, setBlockedCount] = useState<number | null>(null);
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
-  const setMainPage = (page: MainPage) => navigate(PAGE_TO_ROUTE[page]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
