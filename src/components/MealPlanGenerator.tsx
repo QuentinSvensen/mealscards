@@ -395,6 +395,70 @@ export function MealPlanGenerator() {
       }
     }
 
+    // ── Repair pass: force exact multiples of package sizes ──
+    const mainCount = selectedIds.length;
+    const computeRepairUsage = (ids: string[]) => {
+      const usage = new Map<string, number>();
+      for (const id of ids) {
+        const recipe = candidatePlats.find(r => r.id === id);
+        if (!recipe) continue;
+        for (const [ingKey, used] of getRecipeUsage(recipe)) {
+          if (used.grams <= 0) continue;
+          const matchKey = findInvKey(ingKey);
+          if (!matchKey) continue;
+          usage.set(matchKey, (usage.get(matchKey) || 0) + used.grams);
+        }
+      }
+      return usage;
+    };
+
+    const getMisaligned = (ids: string[]) => {
+      const usage = computeRepairUsage(ids);
+      const bad: { key: string }[] = [];
+      for (const [k, totalG] of usage) {
+        const inv = shoppingInventory.get(k);
+        if (!inv || inv.pkgGrams <= 0) continue;
+        const remainder = totalG % inv.pkgGrams;
+        if (remainder > 1 && inv.pkgGrams - remainder > 1) {
+          bad.push({ key: k });
+        }
+      }
+      return bad;
+    };
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const misaligned = getMisaligned(selectedIds);
+      if (misaligned.length === 0) break;
+
+      let swapped = false;
+      for (const mis of misaligned) {
+        if (swapped) break;
+        for (let idx = 0; idx < mainCount; idx++) {
+          if (swapped) break;
+          const cur = candidatePlats.find(r => r.id === selectedIds[idx]);
+          if (!cur) continue;
+          let usesIt = false;
+          for (const [ingKey, used] of getRecipeUsage(cur)) {
+            if (used.grams > 0 && findInvKey(ingKey) === mis.key) { usesIt = true; break; }
+          }
+          if (!usesIt) continue;
+
+          for (const cand of candidatePlats) {
+            if (cand.id === selectedIds[idx]) continue;
+            const testIds = [...selectedIds];
+            testIds[idx] = cand.id;
+            const newMis = getMisaligned(testIds);
+            if (!newMis.some(m => m.key === mis.key) && newMis.length <= misaligned.length) {
+              selectedIds[idx] = cand.id;
+              swapped = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!swapped) break;
+    }
+
     if (avantGrimpe) {
       for (let j = 0; j < 4; j++) selectedIds.push(avantGrimpe.id);
     }
