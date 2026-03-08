@@ -24,7 +24,7 @@ export function normalizeKey(name: string): string {
 // ─── Smart Food Matching ────────────────────────────────────────────────────
 
 /** French prepositions/articles that signal a compound food name */
-const FOOD_PREPOSITIONS = new Set(['de', 'du', 'au', 'aux', 'a', 'en', 'la', 'le', 'les', 'des']);
+const FOOD_PREPOSITIONS = new Set(['de', 'du', 'au', 'aux', 'a', 'la', 'le', 'les', 'des']);
 
 const stripTrailingE = (s: string) => s.replace(/e+$/, '');
 const fuzzyWord = (s: string) => s.replace(/[es]+$/i, '');
