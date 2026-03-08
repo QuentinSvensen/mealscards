@@ -366,6 +366,8 @@ function renderIngredientDisplay(
     const groupIsOptional = alts[0]?.startsWith("?");
     alts.forEach((alt, ai) => {
       const cleanAlt = alt.startsWith("?") ? alt.slice(1).trim() : alt;
+      // Strip {cal} suffix from display
+      const displayAlt = cleanAlt.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
       const parsed = parseIngredientLineDisplay(cleanAlt);
       const normalizedName = normalizeKey(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);
@@ -385,7 +387,7 @@ function renderIngredientDisplay(
       }
       elements.push(
         <span key={key} className={cls}>
-          {groupIsOptional && ai === 0 ? '?' : ''}{cleanAlt}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
+          {groupIsOptional && ai === 0 ? '?' : ''}{displayAlt}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
         </span>
       );
     });
