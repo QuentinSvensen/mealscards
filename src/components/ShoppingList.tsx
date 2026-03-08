@@ -34,13 +34,26 @@ export function ShoppingList() {
   const isMobile = useIsMobile();
   const { getPreference, setPreference } = usePreferences();
 
-  // Compute which items have ambiguous partial matches with menu ingredients
-  const ambiguousItemIds = useMemo(() => {
+  // Color palette for ambiguous groups
+  const ambiguousColors = [
+    { bg: 'bg-blue-500', border: 'border-blue-500', borderLight: 'border-blue-500/50', text: 'text-blue-500', hover: 'hover:bg-blue-500/10' },
+    { bg: 'bg-purple-500', border: 'border-purple-500', borderLight: 'border-purple-500/50', text: 'text-purple-500', hover: 'hover:bg-purple-500/10' },
+    { bg: 'bg-pink-500', border: 'border-pink-500', borderLight: 'border-pink-500/50', text: 'text-pink-500', hover: 'hover:bg-pink-500/10' },
+    { bg: 'bg-cyan-500', border: 'border-cyan-500', borderLight: 'border-cyan-500/50', text: 'text-cyan-500', hover: 'hover:bg-cyan-500/10' },
+    { bg: 'bg-teal-500', border: 'border-teal-500', borderLight: 'border-teal-500/50', text: 'text-teal-500', hover: 'hover:bg-teal-500/10' },
+    { bg: 'bg-indigo-500', border: 'border-indigo-500', borderLight: 'border-indigo-500/50', text: 'text-indigo-500', hover: 'hover:bg-indigo-500/10' },
+    { bg: 'bg-rose-500', border: 'border-rose-500', borderLight: 'border-rose-500/50', text: 'text-rose-500', hover: 'hover:bg-rose-500/10' },
+    { bg: 'bg-sky-500', border: 'border-sky-500', borderLight: 'border-sky-500/50', text: 'text-sky-500', hover: 'hover:bg-sky-500/10' },
+  ];
+
+  // Compute which items have ambiguous partial matches with menu ingredients + their color group
+  const ambiguousItemData = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
-    if (ingredientKeys.length === 0) return new Set<string>();
+    if (ingredientKeys.length === 0) return new Map<string, number>();
 
-    const ambiguous = new Set<string>();
+    const itemToGroup = new Map<string, number>();
+    let colorIndex = 0;
 
     // Helper for fuzzy contains with trailing 'e' tolerance
     const fuzzyContains = (a: string, b: string): boolean => {
@@ -64,22 +77,23 @@ export function ShoppingList() {
         const ingKeyNorm = ingNorm.replace(/s$/, '');
         if (siKey === ingKeyNorm) {
           hasExactMatch = true;
-          // Don't mark as ambiguous if exact match
         } else if (fuzzyContains(siNorm, ingNorm)) {
           matchingItems.push(si.id);
         }
       }
 
-      // If no exact match and multiple partial matches, mark all as ambiguous
+      // If no exact match and multiple partial matches, assign same color to all
       if (!hasExactMatch && matchingItems.length > 1) {
-        matchingItems.forEach(id => ambiguous.add(id));
+        const groupColor = colorIndex % ambiguousColors.length;
+        matchingItems.forEach(id => itemToGroup.set(id, groupColor));
+        colorIndex++;
       }
-      // If no exact match and only one partial match, that's fine (not ambiguous)
-      // If there's partial match but also exact match exists, only exact is used
     }
 
-    return ambiguous;
+    return itemToGroup;
   }, [items, getPreference]);
+
+  const ambiguousItemIds = useMemo(() => new Set(ambiguousItemData.keys()), [ambiguousItemData]);
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
@@ -311,27 +325,31 @@ export function ShoppingList() {
         onDrop={(e) => handleDropOnItem(e, item)}
         className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
-        {/* Secondary checkbox OR ambiguous indicator (clickable) */}
-        {isAmbiguous ? (
-          <button
-            onClick={() => {
-              const newChecked = !item.secondary_checked;
-              toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
-              if (!newChecked) {
-                updateItemQuantity.mutate({ id: item.id, quantity: null });
-                setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
-              }
-            }}
-            className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] transition-colors ${
-              item.secondary_checked 
-                ? 'bg-blue-500 border-blue-500 text-white' 
-                : 'border-blue-500/50 text-blue-500 hover:bg-blue-500/10'
-            }`}
-            title="Plusieurs articles correspondent à un ingrédient du menu"
-          >
-            ?
-          </button>
-        ) : (
+        {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
+        {isAmbiguous ? (() => {
+          const colorIdx = ambiguousItemData.get(item.id) ?? 0;
+          const color = ambiguousColors[colorIdx];
+          return (
+            <button
+              onClick={() => {
+                const newChecked = !item.secondary_checked;
+                toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
+                if (!newChecked) {
+                  updateItemQuantity.mutate({ id: item.id, quantity: null });
+                  setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+                }
+              }}
+              className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
+                item.secondary_checked 
+                  ? `${color.bg} ${color.border} text-white` 
+                  : `${color.borderLight} ${color.text} ${color.hover}`
+              }`}
+              title="Plusieurs articles correspondent à un ingrédient du menu"
+            >
+              ?
+            </button>
+          );
+        })() : (
           <Checkbox
             checked={item.secondary_checked}
             onCheckedChange={(checked) => {
