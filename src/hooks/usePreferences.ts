@@ -3,18 +3,20 @@ import { useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
-export function usePreferences() {
+export function usePreferences(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["user_preferences"] });
 
   useEffect(() => {
+    if (!enabled) return;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
         qc.invalidateQueries({ queryKey: ["user_preferences"] });
       }
     });
     return () => subscription.unsubscribe();
-  }, [qc]);
+  }, [qc, enabled]);
 
   const { data: preferences = [] } = useQuery({
     queryKey: ["user_preferences"],
@@ -27,6 +29,7 @@ export function usePreferences() {
     },
     retry: 3,
     retryDelay: 500,
+    enabled,
   });
 
   const getPreference = useCallback(<T>(key: string, defaultValue: T): T => {

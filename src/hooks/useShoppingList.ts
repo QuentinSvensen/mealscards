@@ -27,7 +27,8 @@ const onMutationError = (error: Error) => {
   toast({ title: "Erreur", description: error.message, variant: "destructive" });
 };
 
-export function useShoppingList() {
+export function useShoppingList(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const qc = useQueryClient();
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["shopping_groups"] });
@@ -42,6 +43,7 @@ export function useShoppingList() {
       if (error) throw error;
       return data as ShoppingGroup[];
     },
+    enabled,
   });
 
   const { data: items = [] } = useQuery({
@@ -52,6 +54,7 @@ export function useShoppingList() {
       if (error) throw error;
       return data as ShoppingItem[];
     },
+    enabled,
   });
 
   const addGroup = useMutation({
