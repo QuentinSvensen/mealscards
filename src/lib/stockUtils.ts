@@ -8,7 +8,7 @@ import type { Meal } from "@/hooks/useMeals";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
-  getFoodItemTotalGrams, parseIngredientLine, parseIngredientGroups,
+  getFoodItemTotalGrams, parseIngredientLine, parseIngredientLineRaw, parseIngredientGroups,
   type ParsedIngredient,
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
@@ -289,10 +289,10 @@ export function scaleIngredientStringExact(rawIngredients: string | null, ratio:
     .map(group => {
       return group.split(/\|/).map(s => s.trim()).filter(Boolean)
         .map(alt => {
-          const parsed = parseIngredientLine(alt);
+          const parsed = parseIngredientLineRaw(alt);
           const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : "";
           const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : "";
-          return [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.name].filter(Boolean).join(" ");
+          return [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
         }).join(" | ");
     }).join(", ");
 }
