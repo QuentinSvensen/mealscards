@@ -165,19 +165,43 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           </button>
         )}
       </div>
-      {/* Row 2: Badges */}
+      {/* Row 2: Info left + badges right */}
       {!compact && (
-        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          {counterDays !== null && (
-            <span
-              className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
-              ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-            >
-              <Timer className="h-2.5 w-2.5" />
-              {counterDays}j
-            </span>
-          )}
-          <div className="flex-1" />
+        <div className="flex items-start gap-1 mt-0.5">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1 flex-wrap">
+              {counterDays !== null && (
+                <span
+                  className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
+                  ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
+                >
+                  <Timer className="h-2.5 w-2.5" />
+                  {counterDays}j
+                </span>
+              )}
+              {pm.expiration_date && (
+                <span className={`text-[9px] flex items-center gap-0.5 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+                  <Calendar className="h-2 w-2" />
+                  {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                </span>
+              )}
+              {meal.grams && (
+                <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                  <Weight className="h-2 w-2" />
+                  {meal.grams}
+                </span>
+              )}
+            </div>
+            {meal.ingredients && (
+              <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
+                {meal.ingredients
+                  .split(/[,\n]+/)
+                  .filter(Boolean)
+                  .map((s: string) => s.trim())
+                  .join(" • ")}
+              </div>
+            )}
+          </div>
           <div className="flex flex-col items-center shrink-0">
             {editingCal ? (
               <input
@@ -219,31 +243,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
               </span>
             )}
           </div>
-        </div>
-      )}
-      {!compact && (
-        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          {pm.expiration_date && (
-            <span className={`text-[9px] flex items-center gap-0.5 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
-              <Calendar className="h-2 w-2" />
-              {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-            </span>
-          )}
-          {meal.grams && (
-            <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-              <Weight className="h-2 w-2" />
-              {meal.grams}
-            </span>
-          )}
-        </div>
-      )}
-      {!compact && meal.ingredients && (
-        <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
-          {meal.ingredients
-            .split(/[,\n]+/)
-            .filter(Boolean)
-            .map((s: string) => s.trim())
-            .join(" • ")}
         </div>
       )}
     </div>
