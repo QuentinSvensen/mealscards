@@ -1,13 +1,14 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { z } from "zod";
-import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
 import { usePreferences } from "@/hooks/usePreferences";
 import { toast } from "@/hooks/use-toast";
+import { normalizeForMatch } from "@/lib/ingredientUtils";
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
 const shoppingItemSchema = z.object({
