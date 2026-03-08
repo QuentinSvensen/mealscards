@@ -395,32 +395,48 @@ export function MealPlanGenerator() {
               </Button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {sortedMainMeals.map((meal, i) => (
-                <div
-                  key={`${meal.id}-main-${i}`}
-                  className="rounded-2xl px-3 py-2 shadow-md text-white"
-                  style={{ backgroundColor: meal.color }}
-                >
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-semibold text-sm flex-1 min-w-0 break-words">{meal.name}</span>
-                    {meal.calories && (
-                      <span className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                        <Flame className="h-2.5 w-2.5" />{meal.calories}
-                      </span>
-                    )}
-                    {meal.grams && (
-                      <span className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                        <Weight className="h-2.5 w-2.5" />{meal.grams}
-                      </span>
+              {(() => {
+                // Column-first order: all items in col1, then col2
+                const half = Math.ceil(sortedMainMeals.length / 2);
+                const col1 = sortedMainMeals.slice(0, half);
+                const col2 = sortedMainMeals.slice(half);
+                const renderMealCard = (meal: Meal, prefix: string, i: number) => (
+                  <div
+                    key={`${meal.id}-${prefix}-${i}`}
+                    className="rounded-2xl px-3 py-2 shadow-md text-white"
+                    style={{ backgroundColor: meal.color }}
+                  >
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-semibold text-sm flex-1 min-w-0 break-words">{meal.name}</span>
+                      {meal.calories && (
+                        <span className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                          <Flame className="h-2.5 w-2.5" />{meal.calories}
+                        </span>
+                      )}
+                      {meal.grams && (
+                        <span className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                          <Weight className="h-2.5 w-2.5" />{meal.grams}
+                        </span>
+                      )}
+                    </div>
+                    {meal.ingredients && (
+                      <p className="text-[10px] text-white/50 mt-0.5 break-words">
+                        {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((s) => s.trim()).join(" • ")}
+                      </p>
                     )}
                   </div>
-                  {meal.ingredients && (
-                    <p className="text-[10px] text-white/50 mt-0.5 break-words">
-                      {meal.ingredients.split(/[,\n]+/).filter(Boolean).map((s) => s.trim()).join(" • ")}
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+                return (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      {col1.map((meal, i) => renderMealCard(meal, "c1", i))}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {col2.map((meal, i) => renderMealCard(meal, "c2", i))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {avantGrimpeMeals.length > 0 && (
