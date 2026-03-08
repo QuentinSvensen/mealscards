@@ -650,7 +650,7 @@ export function WeeklyPlanning() {
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3">
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3 min-w-0">
               {TIMES.map((time) => {
                 const slotKey = `${day}-${time}`;
                 const slotMeals = getMealsForSlot(day, time);
