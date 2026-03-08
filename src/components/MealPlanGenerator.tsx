@@ -653,27 +653,27 @@ export function MealPlanGenerator() {
             )}
           </div>
 
-          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[50%] mx-auto">
+          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[85%] sm:max-w-[50%] mx-auto">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
               🛒 Liste d'ingrédients ({shoppingItems2.length})
             </p>
             <div className="space-y-1">
               {shoppingItems2.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-xl bg-muted/40 text-sm">
-                  <span className="font-medium text-foreground flex-1">{item.displayName}</span>
+                <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-xl bg-muted/40 text-sm min-w-0">
+                  <span className="font-medium text-foreground flex-1 min-w-0 break-words">{item.displayName}</span>
                   {!item.matched && (
-                    <span className="text-amber-500 text-xs" title="Pas trouvé dans Courses-Liste">❓</span>
+                    <span className="text-amber-500 text-xs shrink-0" title="Pas trouvé dans Courses-Liste">❓</span>
                   )}
                   {item.matched && item.ambiguous && (
-                    <span className="text-blue-500 text-xs" title="Plusieurs articles correspondent, choix à faire dans Courses-Liste">❓</span>
+                    <span className="text-blue-500 text-xs shrink-0" title="Plusieurs articles correspondent, choix à faire dans Courses-Liste">❓</span>
                   )}
                   {item.grams > 0 && (
-                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
+                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono shrink-0">
                       {Math.round(item.grams)}g
                     </span>
                   )}
                   {item.count > 0 && item.grams <= 0 && (
-                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
+                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono shrink-0">
                       ×{Math.round(item.count)}
                     </span>
                   )}
