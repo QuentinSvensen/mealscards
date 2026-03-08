@@ -167,6 +167,9 @@ export function ShoppingList() {
   const [localQuantities, setLocalQuantities] = useState<Record<string, string>>({});
   const [localNbs, setLocalNbs] = useState<Record<string, string>>({});
 
+  // Track last ambiguous uncheck time per needKey for double-click detection
+  const lastAmbiguousUncheck = useRef<Record<string, number>>({});
+
   // Drag state
   const dragPayload = useRef<DragPayload | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
