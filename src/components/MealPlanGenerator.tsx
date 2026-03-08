@@ -136,22 +136,26 @@ export function MealPlanGenerator() {
       if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) continue;
 
       const itemKey = normalizeKey(item.name);
+      const itemNorm = normalizeForMatch(item.name);
 
       for (const [needKey, need] of needsMap) {
-        if (itemKey === needKey || keyMatch(itemKey, needKey)) {
-          const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
-          let qtyNeeded = 1;
-          if (nb && nb.grams > 0 && need.grams > 0) {
-            qtyNeeded = Math.ceil(need.grams / nb.grams);
-          } else if (nb && nb.count > 0 && need.count > 0) {
-            qtyNeeded = Math.ceil(need.count / nb.count);
-          } else if (need.count > 0) {
-            qtyNeeded = Math.ceil(need.count);
-          }
-          toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
-          updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
-          break;
+        // Exact key match OR contains match (e.g. "viande hachee 5%" contains "viande hachee")
+        const needNorm = normalizeForMatch(needKey);
+        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || itemNorm.includes(needNorm) || needNorm.includes(itemNorm);
+        if (!isMatch) continue;
+
+        const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
+        let qtyNeeded = 1;
+        if (nb && nb.grams > 0 && need.grams > 0) {
+          qtyNeeded = Math.ceil(need.grams / nb.grams);
+        } else if (nb && nb.count > 0 && need.count > 0) {
+          qtyNeeded = Math.ceil(need.count / nb.count);
+        } else if (need.count > 0) {
+          qtyNeeded = Math.ceil(need.count);
         }
+        toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
+        updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
+        break;
       }
     }
   };
