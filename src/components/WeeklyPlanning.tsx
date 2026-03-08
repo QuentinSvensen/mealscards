@@ -153,14 +153,14 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       style={{ backgroundColor: meal.color }}
     >
       {/* Single flex row: left (name + date/ingredients) | right (badges) */}
-      <div className="flex items-start gap-1 min-w-0">
-        <div className="flex-1 min-w-0">
+      <div className="flex items-stretch gap-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
           <div className="flex items-center gap-1 min-w-0">
             <span className="text-[9px] sm:text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
             <span className="font-semibold text-[10px] sm:text-xs min-w-0 break-words leading-tight">{meal.name}</span>
           </div>
           {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
-            <div className="pt-0.5">
+            <div className="mt-auto pt-0.5">
               {meal.grams && (
                 <div className="flex items-center gap-1">
                   <span className="text-[9px] text-white/60 flex items-center gap-0.5">
