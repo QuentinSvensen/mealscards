@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Timer, Flame, Weight, Calendar, Lock } from "lucide-react";
+import { computeIngredientCalories } from "@/lib/ingredientUtils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
