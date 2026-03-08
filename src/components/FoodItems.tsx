@@ -731,13 +731,21 @@ export function FoodItems() {
         const aCounter = getCounterDays(a.counter_start_date);
         const bCounter = getCounterDays(b.counter_start_date);
 
+        const parseCal = (fi: FoodItem): number => {
+          if (!fi.calories) return 0;
+          const m = fi.calories.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+          return m ? parseFloat(m[0]) || 0 : 0;
+        };
+
         const aG1 = aExpired && aCounter !== null;
         const bG1 = bExpired && bCounter !== null;
         if (aG1 && !bG1) return -1;
         if (!aG1 && bG1) return 1;
         if (aG1 && bG1) {
           if (aCounter !== bCounter) return (bCounter ?? 0) - (aCounter ?? 0);
-          return (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+          const dateCmp = (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+          if (dateCmp !== 0) return dateCmp;
+          return parseCal(a) - parseCal(b);
         }
 
         const aG2 = !aExpired && aCounter !== null;
@@ -745,7 +753,10 @@ export function FoodItems() {
         if (aG2 && !bG2) return -1;
         if (!aG2 && bG2) return 1;
         if (aG2 && bG2) {
-          return (bCounter ?? 0) - (aCounter ?? 0);
+          if ((bCounter ?? 0) !== (aCounter ?? 0)) return (bCounter ?? 0) - (aCounter ?? 0);
+          const dateCmp = (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+          if (dateCmp !== 0) return dateCmp;
+          return parseCal(a) - parseCal(b);
         }
 
         const aG3 = aExpired && aCounter === null;
@@ -753,13 +764,17 @@ export function FoodItems() {
         if (aG3 && !bG3) return -1;
         if (!aG3 && bG3) return 1;
         if (aG3 && bG3) {
-          return (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+          const dateCmp = (a.expiration_date ?? '').localeCompare(b.expiration_date ?? '');
+          if (dateCmp !== 0) return dateCmp;
+          return parseCal(a) - parseCal(b);
         }
 
         if (!a.expiration_date && !b.expiration_date) return 0;
         if (!a.expiration_date) return 1;
         if (!b.expiration_date) return -1;
-        return a.expiration_date.localeCompare(b.expiration_date);
+        const dateCmp = a.expiration_date.localeCompare(b.expiration_date);
+        if (dateCmp !== 0) return dateCmp;
+        return parseCal(a) - parseCal(b);
       });
     } else {
       sorted = sectionItems;
