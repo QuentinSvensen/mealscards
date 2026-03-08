@@ -298,6 +298,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
 
   const renderAvailableCard = (item: typeof available[0], unifiedIdx?: number) => {
     const { meal, multiple } = item;
+    const maxRatio = multiple === Infinity ? 99 : (multiple ?? 1);
+    const customRatio = customRatios[meal.id];
+    const effectiveRatio = customRatio ?? 1;
+    const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio) : meal;
     const expDate = getEarliestIngredientExpiration(meal, foodItems);
     const expLabel = formatExpirationLabel(expDate);
     const expiringIng = getExpiringIngredientName(meal, foodItems);
@@ -307,8 +311,16 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     const expIsTodayAv = isToday(expDate);
     return (
       <div key={meal.id} className="relative">
-        <MealCard meal={meal}
-          onMoveToPossible={() => onMoveToPossible(meal.id)}
+        <MealCard meal={displayMeal}
+          onMoveToPossible={() => {
+            const cr = customRatios[meal.id];
+            if (cr && cr !== 1) {
+              onMovePartialToPossible(meal, cr);
+            } else {
+              onMoveToPossible(meal.id);
+            }
+            setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
+          }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
           onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)} onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
@@ -317,11 +329,28 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           hideDelete expirationLabel={expLabel} expirationDate={expDate} expirationIsToday={expIsTodayAv}
           expiringIngredientName={expiringIng} expiredIngredientNames={expiredIngs} counterIngredientNames={counterIngs} maxIngredientCounter={maxCounter} />
-        {multiple !== null &&
-          <div className="absolute top-2 right-8 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-            x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}
-          </div>
-        }
+        {multiple !== null && (
+          editingRatioId === meal.id ? (
+            <div className="absolute top-1 right-8 z-20">
+              <Input autoFocus value={ratioInput}
+                onChange={(e) => setRatioInput(e.target.value)}
+                onBlur={() => commitRatio(meal.id, maxRatio)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitRatio(meal.id, maxRatio); if (e.key === "Escape") setEditingRatioId(null); }}
+                placeholder="75% ou x2"
+                className="w-20 h-6 text-[10px] bg-black/80 text-white border-white/30 placeholder:text-white/40 px-1.5 rounded-full"
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => { setEditingRatioId(meal.id); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
+              className={`absolute top-2 right-8 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${customRatio ? 'bg-orange-500/80' : 'bg-black/60'}`}
+            >
+              {customRatio ? formatRatioBadge(customRatio) : (
+                <>x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}</>
+              )}
+            </button>
+          )
+        )}
       </div>
     );
   };
