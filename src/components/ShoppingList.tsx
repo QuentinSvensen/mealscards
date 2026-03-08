@@ -311,40 +311,44 @@ export function ShoppingList() {
         onDrop={(e) => handleDropOnItem(e, item)}
         className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
-        {/* Secondary checkbox */}
-        <Checkbox
-          checked={item.secondary_checked}
-          onCheckedChange={(checked) => {
-            toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked });
-            if (!checked) {
-              updateItemQuantity.mutate({ id: item.id, quantity: null });
-              setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
-            } else {
-              // Re-checking green: restore the needed quantity from persisted menu needs
-              const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
-              const normalizeKey = (name: string) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/, "").trim();
-              const itemKey = normalizeKey(item.name);
-              for (const [needKey, need] of Object.entries(needsRaw)) {
-                if (itemKey === needKey || normalizeKey(needKey) === itemKey) {
-                  const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
-                  const nbType = (item as any).content_quantity_type;
-                  let qtyNeeded = 1;
-                  if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) {
-                    qtyNeeded = Math.ceil(need.grams / nb);
-                  } else if (nb > 0 && need.count > 0) {
-                    qtyNeeded = Math.ceil(need.count / nb);
-                  } else if (need.count > 0) {
-                    qtyNeeded = Math.ceil(need.count);
+        {/* Secondary checkbox OR ambiguous indicator */}
+        {isAmbiguous ? (
+          <span className="text-amber-500 text-sm shrink-0 w-4 h-4 flex items-center justify-center" title="Plusieurs articles correspondent à un ingrédient du menu">❓</span>
+        ) : (
+          <Checkbox
+            checked={item.secondary_checked}
+            onCheckedChange={(checked) => {
+              toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked });
+              if (!checked) {
+                updateItemQuantity.mutate({ id: item.id, quantity: null });
+                setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+              } else {
+                // Re-checking green: restore the needed quantity from persisted menu needs
+                const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+                const normalizeKey = (name: string) => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").replace(/s$/, "").trim();
+                const itemKey = normalizeKey(item.name);
+                for (const [needKey, need] of Object.entries(needsRaw)) {
+                  if (itemKey === needKey || normalizeKey(needKey) === itemKey) {
+                    const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
+                    const nbType = (item as any).content_quantity_type;
+                    let qtyNeeded = 1;
+                    if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) {
+                      qtyNeeded = Math.ceil(need.grams / nb);
+                    } else if (nb > 0 && need.count > 0) {
+                      qtyNeeded = Math.ceil(need.count / nb);
+                    } else if (need.count > 0) {
+                      qtyNeeded = Math.ceil(need.count);
+                    }
+                    updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
+                    setLocalQuantities(prev => ({ ...prev, [item.id]: String(qtyNeeded) }));
+                    break;
                   }
-                  updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
-                  setLocalQuantities(prev => ({ ...prev, [item.id]: String(qtyNeeded) }));
-                  break;
                 }
               }
-            }
-          }}
-          className="shrink-0 opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
-        />
+            }}
+            className="shrink-0 opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
+          />
+        )}
 
         {/* Primary checkbox */}
         <Checkbox
@@ -362,11 +366,6 @@ export function ShoppingList() {
           }}
           className={`shrink-0 opacity-100 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
         />
-
-        {/* Ambiguous match indicator */}
-        {isAmbiguous && (
-          <span className="text-amber-500 text-xs shrink-0" title="Plusieurs articles correspondent à un ingrédient du menu">❓</span>
-        )}
 
         {/* Nb (content quantity) — small cell before name */}
         {isNbEditing ? (
