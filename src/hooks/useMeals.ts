@@ -117,13 +117,14 @@ export function useMeals(options?: { enabled?: boolean }) {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category, colorSeed, calories, grams, ingredients, expiration_date, possible_quantity }: { name: string; category: string; colorSeed?: string; calories?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number }) => {
+    mutationFn: async ({ name, category, colorSeed, calories, grams, ingredients, expiration_date, possible_quantity, counter_start_date }: { name: string; category: string; colorSeed?: string; calories?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null }) => {
+      const finalColor = colorFromName(colorSeed ?? name);
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
         .insert({
           name,
           category,
-          color: colorFromName(name),
+          color: finalColor,
           sort_order: 0,
           is_available: false,
           ...(calories !== undefined ? { calories } : {}),
@@ -133,13 +134,21 @@ export function useMeals(options?: { enabled?: boolean }) {
         .select()
         .single();
       if (mealError) throw mealError;
-      const seed = colorSeed ?? mealData.id;
-      await supabase.from("meals").update({ color: colorFromName(seed) }).eq("id", mealData.id);
+      // Update color with final seed (id-based) if no colorSeed was provided
+      if (!colorSeed) {
+        await supabase.from("meals").update({ color: colorFromName(mealData.id) }).eq("id", mealData.id);
+      }
       const maxOrder = possibleMeals.length;
       const normalizedQuantity = Math.max(1, Math.round(possible_quantity ?? 1));
       const { data: insertedPm, error } = await supabase
         .from("possible_meals")
-        .insert({ meal_id: mealData.id, sort_order: maxOrder, quantity: normalizedQuantity, ...(expiration_date ? { expiration_date } : {}) })
+        .insert({
+          meal_id: mealData.id,
+          sort_order: maxOrder,
+          quantity: normalizedQuantity,
+          ...(expiration_date ? { expiration_date } : {}),
+          ...(counter_start_date ? { counter_start_date } : {}),
+        })
         .select()
         .single();
       if (error) throw error;
