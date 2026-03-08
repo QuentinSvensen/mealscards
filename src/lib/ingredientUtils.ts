@@ -134,7 +134,7 @@ export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
 
 // ─── Ingredient Editing (String-based — for UI) ─────────────────────────────
 
-export interface IngLine { qty: string; count: string; name: string; isOr: boolean; isOptional: boolean; }
+export interface IngLine { qty: string; count: string; name: string; cal: string; isOr: boolean; isOptional: boolean; }
 
 export function parseIngredientLineDisplay(raw: string): IngLine {
   let trimmed = raw.trim().replace(/\s+/g, " ");
