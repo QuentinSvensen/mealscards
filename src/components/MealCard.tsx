@@ -9,6 +9,7 @@ import type { Meal } from "@/hooks/useMeals";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, normalizeKey,
+  computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 
 interface MealCardProps {
@@ -73,12 +74,12 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
     setEditingIngredients(false);
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal", value: string) => {
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
+        next.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -142,15 +143,16 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
           }}
           className="flex flex-col gap-1"
         >
-          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1 mb-0.5">
             <span className="text-[9px] text-white/50 text-center">Ou</span>
             <span className="text-[9px] text-white/50 text-center">?</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
+            <span className="text-[9px] text-white/50 text-center">Cal</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1">
+            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1">
               <button
                 type="button"
                 onClick={() => toggleOr(idx)}
@@ -209,6 +211,14 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                 onKeyDown={e => handleIngKeyDown(idx, "name", e)}
                 className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
               />
+              <Input
+                placeholder="cal"
+                inputMode="decimal"
+                value={line.cal}
+                onChange={e => updateLine(idx, "cal", e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
+              />
             </div>
           ))}
           <button onClick={commitIngredients} className="text-[10px] text-white/60 hover:text-white text-left mt-0.5">✓ Valider</button>
@@ -217,7 +227,15 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
         <>
           {/* Title row */}
           <div className="flex items-start gap-1 flex-wrap">
-            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">{meal.name}</span>
+            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">
+              {meal.name}
+              {(() => {
+                const ingCal = computeIngredientCalories(meal.ingredients);
+                return ingCal !== null ? (
+                  <span className="ml-1.5 text-[10px] font-normal text-white/60 bg-white/15 px-1 py-0.5 rounded-full">🔥{ingCal}</span>
+                ) : null;
+              })()}
+            </span>
             {/* Options row - wraps below title on narrow screens and stays right-aligned */}
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
               {maxIngredientCounter !== null && maxIngredientCounter !== undefined && (
@@ -348,6 +366,8 @@ function renderIngredientDisplay(
     const groupIsOptional = alts[0]?.startsWith("?");
     alts.forEach((alt, ai) => {
       const cleanAlt = alt.startsWith("?") ? alt.slice(1).trim() : alt;
+      // Strip {cal} suffix from display
+      const displayAlt = cleanAlt.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
       const parsed = parseIngredientLineDisplay(cleanAlt);
       const normalizedName = normalizeKey(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);
@@ -367,7 +387,7 @@ function renderIngredientDisplay(
       }
       elements.push(
         <span key={key} className={cls}>
-          {groupIsOptional && ai === 0 ? '?' : ''}{cleanAlt}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
+          {groupIsOptional && ai === 0 ? '?' : ''}{displayAlt}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
         </span>
       );
     });

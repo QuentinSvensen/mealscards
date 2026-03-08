@@ -326,10 +326,15 @@ export function scaleIngredientStringExact(rawIngredients: string | null, ratio:
         .map(alt => {
           const isOptional = alt.startsWith("?");
           const cleanAlt = isOptional ? alt.slice(1).trim() : alt;
-          const parsed = parseIngredientLineRaw(cleanAlt);
+          // Extract {cal} suffix before parsing
+          const calMatch = cleanAlt.match(/\{(\d+(?:[.,]\d+)?)\}\s*$/);
+          const calSuffix = calMatch ? `{${calMatch[1]}}` : "";
+          const withoutCal = calMatch ? cleanAlt.slice(0, calMatch.index!).trim() : cleanAlt;
+          const parsed = parseIngredientLineRaw(withoutCal);
           const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : "";
           const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : "";
-          const token = [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
+          let token = [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
+          if (calSuffix) token += calSuffix;
           return isOptional ? `?${token}` : token;
         }).join(" | ");
     }).join(", ");

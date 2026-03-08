@@ -13,7 +13,7 @@ import { DAYS, TIMES } from "@/hooks/useMeals";
 import { format, parseISO } from "date-fns";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
-  parseIngredientsToLines, serializeIngredients,
+  parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 import { scaleIngredientStringExact } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
@@ -120,12 +120,12 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
     setEditingIngredients(false);
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal", value: string) => {
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
+        next.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -169,7 +169,15 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           <ArrowLeft className="h-3.5 w-3.5" />
         </Button>
 
-        <span className="font-semibold text-white text-sm truncate">{meal.name}</span>
+        <span className="font-semibold text-white text-sm truncate">
+          {meal.name}
+          {(() => {
+            const ingCal = computeIngredientCalories(displayIngredients);
+            return ingCal !== null ? (
+              <span className="ml-1.5 text-[10px] font-normal text-white/60 bg-white/15 px-1 py-0.5 rounded-full">🔥{ingCal}</span>
+            ) : null;
+          })()}
+        </span>
 
         {counterDays !== null && (
           <button
@@ -268,15 +276,16 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           }}
           className="flex flex-col gap-1 mt-1.5"
         >
-          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1 mb-0.5">
             <span className="text-[9px] text-white/50 text-center">Ou</span>
             <span className="text-[9px] text-white/50 text-center">?</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
+            <span className="text-[9px] text-white/50 text-center">Cal</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1">
+            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1">
               <button
                 type="button"
                 onClick={() => toggleOr(idx)}
@@ -333,6 +342,14 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
                 onChange={e => updateLine(idx, "name", e.target.value)}
                 onKeyDown={e => handleIngKeyDown(idx, "name", e)}
                 className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
+              />
+              <Input
+                placeholder="cal"
+                inputMode="decimal"
+                value={line.cal}
+                onChange={e => updateLine(idx, "cal", e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
               />
             </div>
           ))}
