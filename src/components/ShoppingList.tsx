@@ -83,13 +83,13 @@ export function ShoppingList() {
   }, [items, toujoursFoodKeys]);
 
   // Compute which items have ambiguous partial matches with menu ingredients + their color group
-  // ambiguousItemData: Map<itemId, colorIndex | -1 for default green>
+  // ambiguousItemData: Map<itemId, { colorIndex: number (-1=white), needKey: string }>
   const ambiguousItemData = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
-    if (ingredientKeys.length === 0) return new Map<string, number>();
+    if (ingredientKeys.length === 0) return new Map<string, { colorIndex: number; needKey: string }>();
 
-    const itemToGroup = new Map<string, number>();
+    const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
     let colorIndex = 0;
 
     // For each ingredient, find all matching shopping items
@@ -114,11 +114,11 @@ export function ShoppingList() {
         if (matchingItems.length > 1) {
           // Multiple matches → same color for the group
           const groupColor = colorIndex % ambiguousColors.length;
-          matchingItems.forEach(id => itemToGroup.set(id, groupColor));
+          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
           colorIndex++;
         } else {
-          // Single match but no exact → default green (-1)
-          matchingItems.forEach(id => itemToGroup.set(id, -1));
+          // Single match but no exact → default white (-1)
+          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: -1, needKey: ingKey }));
         }
       }
     }
