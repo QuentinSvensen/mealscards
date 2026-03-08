@@ -24,7 +24,7 @@ import { fr } from "date-fns/locale";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
-  getFoodItemTotalGrams, parseIngredientGroups,
+  getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
@@ -63,6 +63,17 @@ const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "plat", label: "Plats", emoji: "🍽️" },
 { value: "dessert", label: "Desserts", emoji: "🍰" },
 { value: "bonus", label: "Bonus", emoji: "⭐" }];
+
+/** Get displayed calories for a meal: ingredient-computed (orange) takes priority over raw */
+function getDisplayedMealCalories(meal: Meal): number {
+  const ingCal = computeIngredientCalories(meal.ingredients);
+  if (ingCal !== null && Number.isFinite(ingCal)) return ingCal;
+  if (!meal.calories) return 0;
+  const match = meal.calories.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const parsed = Number.parseFloat(match[0]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function validateMealName(name: string): string | null {
   const trimmed = name.trim();
@@ -441,8 +452,8 @@ const Index = () => {
     const asc = sortDirections[`master-${cat}`] !== false; // default asc
     if (mode === "calories") {
       return [...items].sort((a, b) => {
-        const ca = parseFloat((a.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        const cb = parseFloat((b.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+        const ca = getDisplayedMealCalories(a);
+        const cb = getDisplayedMealCalories(b);
         return asc ? ca - cb : cb - ca;
       });
     }
