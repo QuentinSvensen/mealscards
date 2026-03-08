@@ -201,7 +201,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
               </button>
             )}
             {meal.protein && (
-              <span className="text-[9px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
+              <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
                 🍗 {meal.protein}
               </span>
             )}
