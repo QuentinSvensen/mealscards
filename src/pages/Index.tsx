@@ -29,7 +29,7 @@ import {
 import {
   buildStockMap, findStockKey, pickBestAlternative,
   getMealMultiple, getMealFractionalRatio,
-  getEarliestIngredientExpiration, getExpiringIngredientName, getExpiredIngredientNames,
+  getEarliestIngredientExpiration, getEarliestIngredientCounterDate, getExpiringIngredientName, getExpiredIngredientNames,
   getMaxIngredientCounter, getMaxIngredientCounterName, getCounterIngredientNames,
   getMissingIngredients, isFoodUsedInMeals,
   formatExpirationLabel, compareExpirationWithCounter,
