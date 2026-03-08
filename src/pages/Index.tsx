@@ -900,39 +900,16 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {showDevMenu &&
-      <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center" onClick={() => setShowDevMenu(false)}>
-          <div className="bg-card rounded-2xl p-6 space-y-3 w-72 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-bold text-foreground">🛠 Outils cachés</h3>
-            <p className="text-xs text-muted-foreground">Ces outils permettent d'exporter/importer vos données.</p>
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Catalogue repas</p>
-              <button onClick={handleExportMeals} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Download className="h-4 w-4" /> Exporter repas (.txt)</button>
-              <button onClick={handleImportMeals} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Upload className="h-4 w-4" /> Importer repas (.txt)</button>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Liste de courses</p>
-              <button onClick={handleExportShopping} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Download className="h-4 w-4" /> Exporter courses (.txt)</button>
-              <button onClick={handleImportShopping} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Upload className="h-4 w-4" /> Importer courses (.txt)</button>
-            </div>
-            <p className="text-[10px] text-muted-foreground/50">Format repas: NOM (cat=plat; cal=350kcal; ing=riz, légumes)</p>
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Sécurité</p>
-              <button onClick={async () => {
-                try {
-                  const { data } = await supabase.functions.invoke("verify-pin", { body: { reset_blocked: true } });
-                  if (data?.success) { setBlockedCount(0); toast({ title: "✅ Score PIN réinitialisé" }); }
-                  else toast({ title: "❌ Erreur", variant: "destructive" });
-                } catch { toast({ title: "❌ Erreur", variant: "destructive" }); }
-                setShowDevMenu(false);
-              }} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-destructive/10 hover:bg-destructive/20 text-destructive">
-                <ShieldAlert className="h-4 w-4" /> Réinitialiser score PIN ({blockedCount ?? 0})
-              </button>
-            </div>
-            <button onClick={() => setShowDevMenu(false)} className="text-xs text-muted-foreground w-full text-center hover:text-foreground">Fermer</button>
-          </div>
-        </div>
-      }
+      {showDevMenu && (
+        <DevMenu
+          onClose={() => setShowDevMenu(false)}
+          getMealsByCategory={getMealsByCategory}
+          shoppingGroups={shoppingGroups}
+          shoppingItems={shoppingItems}
+          blockedCount={blockedCount}
+          setBlockedCount={setBlockedCount}
+        />
+      )}
 
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
         <div className="max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
