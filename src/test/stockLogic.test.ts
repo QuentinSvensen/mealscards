@@ -48,6 +48,7 @@ function makeMeal(overrides: Partial<Meal> & { name: string }): Meal {
     is_available: true,
     is_favorite: false,
     calories: null,
+    protein: null,
     grams: null,
     ingredients: null,
     oven_temp: null,
