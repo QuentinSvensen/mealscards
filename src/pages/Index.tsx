@@ -926,8 +926,7 @@ const Index = () => {
                 <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
               </div>
             </div>
-            <div className={coursesTab === "liste" ? "" : "hidden"}><ShoppingList /></div>
-            <div className={coursesTab === "menu" ? "" : "hidden"}><MealPlanGenerator /></div>
+            {coursesTab === "liste" ? <ShoppingList /> : <MealPlanGenerator />}
           </div>
         )}
         {mainPage === "planning" && <WeeklyPlanning />}
