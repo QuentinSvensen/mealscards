@@ -317,8 +317,8 @@ function renderIngredientDisplay(
   groups.forEach((group, gi) => {
     const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
     alts.forEach((alt, ai) => {
-      const parsed = parseIngredientLine(alt);
-      const normalizedName = normalizeIngName(parsed.name);
+      const parsed = parseIngredientLineDisplay(alt);
+      const normalizedName = normalizeKey(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);
       const isMissing = missingIngredientNames?.has(normalizedName);
       const hasCounter = counterIngredientNames?.has(normalizedName);
