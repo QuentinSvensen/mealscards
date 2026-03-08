@@ -231,7 +231,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           {(pm.expiration_date || meal.grams) && (
             <div className="hidden md:flex items-center gap-1 flex-wrap">
               {pm.expiration_date && (
-                <span className={`text-[9px] flex items-center gap-0.5 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+                <span className={`text-[9px] flex items-center gap-0.5 rounded px-1 py-0.5 border ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
                   <Calendar className="h-2 w-2" />
                   {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                 </span>
@@ -257,7 +257,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           {(meal.ingredients || (pm.expiration_date && typeof window !== 'undefined')) && (
             <div className="mt-0.5 text-[9px] text-white/50 break-words whitespace-normal">
               {pm.expiration_date && (
-                <span className={`md:hidden inline-flex items-center gap-0.5 mr-1 ${expired ? "text-red-200 font-bold" : "text-white/60"}`}>
+                <span className={`md:hidden inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
                   <Calendar className="h-2 w-2 inline" />
                   {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   {meal.ingredients ? " •" : ""}
