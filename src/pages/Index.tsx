@@ -181,7 +181,7 @@ const Index = () => {
     updateExpiration, updatePlanning, updateCounter,
     deletePossibleMeal, reorderPossibleMeals, updatePossibleIngredients, updatePossibleQuantity,
     getMealsByCategory, getPossibleByCategory, sortByExpiration, sortByPlanning, getRandomPossible
-  } = useMeals({ enabled: pageNeedsMealsData });
+  } = useMeals({ enabled: unlocked });
 
   // One-time color refresh
   const colorRefreshDone = useRef(false);
@@ -195,8 +195,8 @@ const Index = () => {
     )).then(() => qc.invalidateQueries({ queryKey: ["meals"] }));
   }, [unlocked, meals]);
 
-  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList({ enabled: pageNeedsIndexShoppingData });
-  const { getPreference, setPreference } = usePreferences({ enabled: pageNeedsIndexPreferences });
+  const { groups: shoppingGroups, items: shoppingItems } = useShoppingList({ enabled: unlocked });
+  const { getPreference, setPreference } = usePreferences({ enabled: unlocked });
 
   // Sunday auto-clear
   const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
