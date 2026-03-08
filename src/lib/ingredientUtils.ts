@@ -8,12 +8,12 @@ import type { FoodItem } from "@/components/FoodItems";
 // ─── Text Normalization ─────────────────────────────────────────────────────
 
 export function normalizeForMatch(text: string): string {
-  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").trim();
+  return text.toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, "").trim();
 }
 
 /** Lowercase but preserve accents — used to detect accent-different words (pâte vs pâté) */
 export function lightNormalize(text: string): string {
-  return text.toLowerCase().replace(/[^a-zà-ÿ0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  return text.toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae").replace(/[^a-zà-ÿ0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
 /** Normalize + strip trailing 's' for ingredient key matching */
@@ -27,6 +27,7 @@ export function normalizeKey(name: string): string {
 const FOOD_PREPOSITIONS = new Set(['de', 'du', 'au', 'aux', 'a', 'en', 'la', 'le', 'les', 'des']);
 
 const stripTrailingE = (s: string) => s.replace(/e+$/, '');
+const fuzzyWord = (s: string) => stripTrailingE(s).replace(/s$/, '');
 
 /**
  * Smart "contains" match for food items:
@@ -50,7 +51,7 @@ export function smartFoodContains(a: string, b: string): boolean {
     let found = false;
     for (let i = 0; i < longer.length; i++) {
       if (matchedIndices.has(i)) continue;
-      if (longer[i] === sw || stripTrailingE(longer[i]) === stripTrailingE(sw)) {
+      if (longer[i] === sw || fuzzyWord(longer[i]) === fuzzyWord(sw)) {
         matchedIndices.add(i);
         found = true;
         break;
@@ -65,9 +66,9 @@ export function smartFoodContains(a: string, b: string): boolean {
     const bLight = lightNormalize(b).split(/\s+/);
     for (let i = 0; i < Math.min(aLight.length, bLight.length); i++) {
       // If normalized (no-accent) forms match but accented forms differ → different food (pâte vs pâté)
-      if (stripTrailingE(normalizeForMatch(aLight[i])) === stripTrailingE(normalizeForMatch(bLight[i]))
+      if (fuzzyWord(normalizeForMatch(aLight[i])) === fuzzyWord(normalizeForMatch(bLight[i]))
           && aLight[i] !== bLight[i]
-          && stripTrailingE(aLight[i]) !== stripTrailingE(bLight[i])) {
+          && fuzzyWord(aLight[i]) !== fuzzyWord(bLight[i])) {
         return false;
       }
     }
