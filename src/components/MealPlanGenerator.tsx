@@ -364,7 +364,22 @@ export function MealPlanGenerator() {
         selectedIds.push(pick.id);
         counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
       }
-    }
+
+      // Update cumulative usage
+      const pickedId = selectedIds[selectedIds.length - 1];
+      const recipe = candidatePlats.find(r => r.id === pickedId);
+      if (recipe && hasInventory) {
+        const usage = getRecipeUsage(recipe);
+        for (const [ingKey, used] of usage) {
+          const matchKey = findInvKey(ingKey);
+          if (!matchKey) continue;
+          const prev = totalUsage.get(matchKey) || { grams: 0, count: 0 };
+          totalUsage.set(matchKey, {
+            grams: prev.grams + used.grams,
+            count: prev.count + used.count,
+          });
+        }
+      }
     }
 
     if (avantGrimpe) {
