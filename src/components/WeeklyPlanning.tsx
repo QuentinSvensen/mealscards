@@ -161,7 +161,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
           </div>
         </div>
         {!compact && (
-          <div className="flex flex-col items-center shrink-0">
+          <div className="flex flex-wrap items-center gap-0.5 shrink-0 justify-end">
             {editingCal ? (
               <input
                 autoFocus
@@ -181,12 +181,12 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             ) : displayCal ? (
               <button
                 onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${
+                className={`text-[10px] font-black text-white px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${
                   isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
                 }`}
                 title="Modifier les calories (temporaire)"
               >
-                <Flame className="h-3 w-3" />
+                <Flame className="h-2.5 w-2.5" />
                 {displayCal}
               </button>
             ) : (
@@ -195,20 +195,20 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                 className="text-[10px] text-white/40 hover:text-white/60"
                 title="Ajouter des calories"
               >
-                <Flame className="h-3 w-3" />
+                <Flame className="h-2.5 w-2.5" />
               </button>
             )}
             {meal.protein && (
-              <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
+              <span className="text-[9px] font-bold text-white bg-black/30 px-1 py-0.5 rounded-full flex items-center">
                 🍗 {meal.protein}
               </span>
             )}
             {counterDays !== null && (
               <span
-                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
+                className={`text-[9px] font-black px-1 py-0.5 rounded-full flex items-center gap-0.5 border
                 ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
               >
-                <Timer className="h-2.5 w-2.5" />
+                <Timer className="h-2 w-2" />
                 {counterDays}j
               </span>
             )}
