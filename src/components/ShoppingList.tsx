@@ -411,14 +411,24 @@ export function ShoppingList() {
                       }
                     }
                   }
-                } else {
-                  // Uncheck (either from green ✓ or quick re-click on ❓)
+                } else if (item.secondary_checked) {
+                  // Uncheck from green ✓ → siblings will reappear as ❓
                   toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                   if (needKey) {
                     lastAmbiguousUncheck.current[needKey] = now;
                   }
+                } else if (isQuickReclick) {
+                  // Quick re-click on ❓ after uncheck → dismiss the whole ambiguous group
+                  if (needKey) {
+                    setDismissedAmbiguous(prev => new Set([...prev, needKey]));
+                  }
+                } else {
+                  // Normal click on unchecked ❓ that was already unchecked → just uncheck
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
+                  updateItemQuantity.mutate({ id: item.id, quantity: null });
+                  setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                 }
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
