@@ -102,6 +102,13 @@ export function MealPlanGenerator() {
     );
   }, [shoppingGroups]);
 
+  // Build set of normalized keys for "Toujours présent" food items
+  const toujoursFoodKeys = useMemo(() => {
+    return new Set(
+      foodItems.filter(fi => fi.storage_type === 'toujours').map(fi => normalizeKey(fi.name))
+    );
+  }, [foodItems]);
+
   // Build shopping inventory from items with Nb, excluding frozen
   const shoppingInventory = useMemo(() => {
     const inv = new Map<string, { grams: number; count: number; pkgGrams: number; pkgCount: number }>();
