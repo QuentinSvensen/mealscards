@@ -415,6 +415,8 @@ export function WeeklyPlanning() {
   const unplanned = planningMeals.filter((pm) => !pm.day_of_week || !pm.meal_time);
 
   const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
+  const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
+  const DRINK_CALORIES = 150;
 
   const getDayCalories = (day: string): number => {
     const mealCals = TIMES.reduce(
@@ -436,7 +438,8 @@ export function WeeklyPlanning() {
     const breakfast = getBreakfastForDay(day);
     const extra = extraCalories[day] || 0;
     const breakfastCal = breakfast ? parseCalories(breakfast.calories) : (breakfastManualCalories[day] || 0);
-    return mealCals + breakfastCal + extra;
+    const drinkCal = TIMES.reduce((sum, time) => sum + (drinkChecks[`${day}-${time}`] ? DRINK_CALORIES : 0), 0);
+    return mealCals + breakfastCal + extra + drinkCal;
   };
 
   const getDayProtein = (day: string): number => {
@@ -770,9 +773,28 @@ export function WeeklyPlanning() {
                     onDrop={(e) => handleDrop(e, day, time)}
                     className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
                   >
-                    <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                      {TIME_LABELS[time]}
-                    </span>
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {TIME_LABELS[time]}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const key = `${day}-${time}`;
+                          const updated = { ...drinkChecks };
+                          if (updated[key]) delete updated[key];
+                          else updated[key] = true;
+                          setPreference.mutate({ key: 'planning_drink_checks', value: updated });
+                        }}
+                        className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${
+                          drinkChecks[`${day}-${time}`]
+                            ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold'
+                            : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'
+                        }`}
+                        title="+ Boisson sucrée (+150 cal)"
+                      >
+                        🥤 {drinkChecks[`${day}-${time}`] ? '+150' : ''}
+                      </button>
+                    </div>
                     <div className="mt-0.5 space-y-1">
                       {slotMeals.length === 0 ? (
                         <div className="flex items-center gap-1">
