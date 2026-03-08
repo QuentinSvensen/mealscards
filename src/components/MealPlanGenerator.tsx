@@ -349,10 +349,11 @@ export function MealPlanGenerator() {
       if (exactFound) continue;
 
       // 2) Contains match: shopping item name contains the ingredient name or vice-versa
+      // Uses fuzzyContains to handle "hache" vs "hachee" type differences
       for (const si of shoppingItems) {
         if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
         const siNorm = normalizeForMatch(si.name);
-        if (siNorm.includes(ingNorm) || ingNorm.includes(siNorm)) {
+        if (fuzzyContains(siNorm, ingNorm)) {
           item.matched = true;
           break;
         }
