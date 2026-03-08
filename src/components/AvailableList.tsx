@@ -458,13 +458,31 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       items.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
     }
     if (sortMode === "calories" || sortMode === "protein") {
-      const field = sortMode === "calories" ? "calories" : "protein";
       const dir = sortAsc ? 1 : -1;
       const getVal = (u: UnifiedAvail): number => {
-        if (u.type === 'isMeal') return parseFloat(((u.fi as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'nm') return parseFloat(((u.nm.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'av') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'partial') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (sortMode === "calories") {
+          if (u.type === 'isMeal') {
+            const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
+            return getDisplayedCalories(fakeMeal) ?? 0;
+          }
+          if (u.type === 'nm') return getDisplayedCalories(u.nm.meal) ?? 0;
+          if (u.type === 'av') {
+            const ratio = customRatios[u.item.meal.id] ?? 1;
+            const displayMeal = ratio !== 1 ? buildScaledMealForRatio(u.item.meal, ratio) : u.item.meal;
+            return getDisplayedCalories(displayMeal) ?? 0;
+          }
+          if (u.type === 'partial') {
+            const ratio = customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
+            const displayMeal = buildScaledMealForRatio(u.item.meal, ratio);
+            return getDisplayedCalories(displayMeal) ?? 0;
+          }
+          return 0;
+        }
+
+        if (u.type === 'isMeal') return parseMacroValue(u.fi.protein);
+        if (u.type === 'nm') return parseMacroValue(u.nm.meal.protein);
+        if (u.type === 'av') return parseMacroValue(u.item.meal.protein);
+        if (u.type === 'partial') return parseMacroValue(u.item.meal.protein);
         return 0;
       };
       items.sort((a, b) => {
