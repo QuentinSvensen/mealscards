@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2 } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +15,7 @@ import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients,
 } from "@/lib/ingredientUtils";
+import { scaleIngredientStringExact } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
 
 interface PossibleMealCardProps {
@@ -55,7 +56,7 @@ function getCounterDays(startDate: string | null): number | null {
 export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | null>(null);
+  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | "ratio" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [editingIngredients, setEditingIngredients] = useState(false);
