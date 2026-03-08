@@ -36,6 +36,7 @@ import {
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
 } from "@/lib/stockUtils";
+import { useMealTransfers } from "@/hooks/useMealTransfers";
 
 // Lazy component factories (for preloading)
 const importShoppingList = () => import("@/components/ShoppingList").then((m) => ({ default: m.ShoppingList }));
