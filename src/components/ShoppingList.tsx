@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, forwardRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { z } from "zod";
 import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search, HelpCircle } from "lucide-react";
@@ -25,7 +25,7 @@ type DragPayload =
   | { kind: "item"; id: string; groupId: string | null }
   | { kind: "group"; id: string };
 
-export function ShoppingList() {
+export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_props, ref) {
   const {
     groups, ungroupedItems, items,
     addGroup, renameGroup, deleteGroup,
@@ -752,4 +752,4 @@ export function ShoppingList() {
       </div>
     </div>
   );
-}
+});
