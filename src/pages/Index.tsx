@@ -1,9 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, Download, Upload, ShieldAlert, Apple, Sparkles, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { Chronometer } from "@/components/Chronometer";
-import { MealPlanGenerator } from "@/components/MealPlanGenerator";
-import { FoodItemsSuggestions } from "@/components/FoodItemsSuggestions";
 import { MasterList } from "@/components/MasterList";
 import { PossibleList } from "@/components/PossibleList";
 import { AvailableList } from "@/components/AvailableList";
@@ -20,9 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { MealList } from "@/components/MealList";
 import { MealCard } from "@/components/MealCard";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
-import { ShoppingList } from "@/components/ShoppingList";
-import { WeeklyPlanning } from "@/components/WeeklyPlanning";
-import { FoodItems, useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
+import { useFoodItems, colorFromName, type FoodItem } from "@/components/FoodItems";
 
 import { useMeals, type MealCategory, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
@@ -45,6 +41,12 @@ import {
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
 } from "@/lib/stockUtils";
+
+const LazyShoppingList = lazy(() => import("@/components/ShoppingList").then((m) => ({ default: m.ShoppingList })));
+const LazyMealPlanGenerator = lazy(() => import("@/components/MealPlanGenerator").then((m) => ({ default: m.MealPlanGenerator })));
+const LazyFoodItems = lazy(() => import("@/components/FoodItems").then((m) => ({ default: m.FoodItems })));
+const LazyFoodItemsSuggestions = lazy(() => import("@/components/FoodItemsSuggestions").then((m) => ({ default: m.FoodItemsSuggestions })));
+const LazyWeeklyPlanning = lazy(() => import("@/components/WeeklyPlanning").then((m) => ({ default: m.WeeklyPlanning })));
 
 const CATEGORIES: {value: MealCategory;label: string;emoji: string;}[] = [
 { value: "petit_dejeuner", label: "Petit déj", emoji: "🥐" },
@@ -914,22 +916,23 @@ const Index = () => {
       <Chronometer open={chronoOpen} onOpenChange={setChronoOpen} />
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
-        <div className={mainPage === "aliments" ? "" : "hidden"}>
-          <FoodItems />
-          <FoodItemsSuggestions foodItems={foodItems} existingMealNames={meals.filter(m => m.is_available).map(m => m.name)} />
-        </div>
-        {mainPage === "courses" && (
-          <div>
-            <div className="sticky top-[44px] sm:top-[52px] z-10 bg-background/95 backdrop-blur-sm pb-2 pt-1">
-              <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 max-w-xs mx-auto">
-                <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🛒 Liste</button>
-                <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
-              </div>
-            </div>
-            {coursesTab === "liste" ? <ShoppingList /> : <MealPlanGenerator />}
+        <Suspense fallback={<div className="flex justify-center py-8 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}>
+          <div className={mainPage === "aliments" ? "" : "hidden"}>
+            <LazyFoodItems />
+            <LazyFoodItemsSuggestions foodItems={foodItems} existingMealNames={meals.filter(m => m.is_available).map(m => m.name)} />
           </div>
-        )}
-        {mainPage === "planning" && <WeeklyPlanning />}
+          {mainPage === "courses" && (
+            <div>
+              <div className="sticky top-[44px] sm:top-[52px] z-10 bg-background/95 backdrop-blur-sm pb-2 pt-1">
+                <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 max-w-xs mx-auto">
+                  <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🛒 Liste</button>
+                  <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
+                </div>
+              </div>
+              {coursesTab === "liste" ? <LazyShoppingList /> : <LazyMealPlanGenerator />}
+            </div>
+          )}
+          {mainPage === "planning" && <LazyWeeklyPlanning />}
         {mainPage === "repas" &&
         <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
             <div className="flex items-center gap-2 mb-3 sm:mb-4">
@@ -1243,6 +1246,7 @@ const Index = () => {
           )}
           </Tabs>
         }
+        </Suspense>
       </main>
     </div>);
 };
