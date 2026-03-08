@@ -246,13 +246,18 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
             <DropdownMenuItem onClick={onDelete} className="text-destructive">
               <Trash2 className="mr-2 h-4 w-4" /> Supprimer
             </DropdownMenuItem>
+            {meal.ingredients && onUpdatePossibleIngredients && (
+              <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
+                <Percent className="mr-2 h-4 w-4" /> Pourcentage
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
       {/* Editing overlay */}
       {editing ? (
-        <Input autoFocus placeholder={editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"} value={editValue}
+        <Input autoFocus placeholder={editing === "ratio" ? "75% ou x2" : editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"} value={editValue}
           onChange={(e) => setEditValue(e.target.value)} onBlur={handleSaveEdit}
           onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
           className="mt-1.5 h-6 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
