@@ -191,7 +191,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
         {(pm.quantity > 1 || onUpdateQuantity) && (
           <button
             onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
-            className={`text-[10px] text-white/70 bg-white/20 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-white/30 cursor-pointer' : ''}`}
+            className={`absolute -top-1.5 -right-1.5 z-10 text-[10px] text-white/90 bg-white/30 backdrop-blur-sm px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-md border border-white/20 ${onUpdateQuantity ? 'hover:bg-white/40 cursor-pointer' : ''}`}
           >
             <Hash className="h-2.5 w-2.5" />{pm.quantity}
           </button>
