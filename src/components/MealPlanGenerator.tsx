@@ -192,6 +192,18 @@ export function MealPlanGenerator() {
     }
   };
 
+  const initialMenuSyncDone = useRef(false);
+  useEffect(() => {
+    if (initialMenuSyncDone.current) return;
+    if (shoppingItems.length === 0) return;
+
+    const entries = Object.entries(persistedNeeds);
+    if (entries.length > 0) {
+      updateShoppingChecks(new Map(entries));
+    }
+    initialMenuSyncDone.current = true;
+  }, [shoppingItems.length, persistedNeeds]);
+
   const generatePlan = () => {
     const avantGrimpe = allPlats.find((m) => m.name.toLowerCase().includes("avant grimpe"));
     const painFuet = allPlats.find((m) => {
