@@ -262,15 +262,17 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                   </span>
                 </div>
               )}
-              {(meal.ingredients || pm.expiration_date) && (
-                <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
-                  {pm.expiration_date && (
-                    <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
-                      <Calendar className="h-2 w-2 inline" />
-                      {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
-                    </span>
-                  )}
-                  {meal.ingredients && meal.ingredients
+              {pm.expiration_date && (
+                <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px]`}>
+                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                    <Calendar className="h-2 w-2 inline" />
+                    {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                  </span>
+                </div>
+              )}
+              {meal.ingredients && (
+                <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
+                  {meal.ingredients
                     .split(/[,\n]+/)
                     .filter(Boolean)
                     .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
