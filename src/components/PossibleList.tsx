@@ -42,7 +42,44 @@ export function PossibleList({ category, items, sortMode, onToggleSort, onRandom
   const sortLabel = sortMode === "manual" ? "Manuel" : sortMode === "expiration" ? "Péremption" : "Planning";
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
 
-  return (
+  const getCounterDays = (startDate: string | null): number | null => {
+    if (!startDate) return null;
+    return Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000);
+  };
+
+  const getDisplayedCalories = (pm: PossibleMeal): number | null => {
+    const ingredients = pm.ingredients_override ?? pm.meals?.ingredients;
+    const ingCal = computeIngredientCalories(ingredients);
+    if (ingCal !== null && Number.isFinite(ingCal)) return ingCal;
+
+    const raw = pm.meals?.calories;
+    if (!raw) return null;
+
+    const match = raw.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const displayItems = useMemo(() => {
+    if (sortMode !== "expiration") return items;
+
+    return [...items].sort((a, b) => {
+      const aCounter = getCounterDays(a.counter_start_date);
+      const bCounter = getCounterDays(b.counter_start_date);
+      if (aCounter === null || bCounter === null || aCounter !== bCounter) return 0;
+
+      const aCal = getDisplayedCalories(a);
+      const bCal = getDisplayedCalories(b);
+
+      if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
+      if (aCal !== null && bCal === null) return -1;
+      if (aCal === null && bCal !== null) return 1;
+
+      return (a.meals?.name ?? "").localeCompare(b.meals?.name ?? "");
+    });
+  }, [items, sortMode]);
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={items.length} onExternalDrop={onExternalDrop}
       headerActions={<>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
