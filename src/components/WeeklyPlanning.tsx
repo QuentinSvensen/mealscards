@@ -152,7 +152,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       `}
       style={{ backgroundColor: meal.color }}
     >
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col">
         {/* Top: title row with badges */}
         <div className="flex items-start gap-1 min-w-0">
           <div className="flex-1 min-w-0">
@@ -218,7 +218,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
         </div>
         {/* Bottom: date + ingredients pushed to card bottom */}
         {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
-          <div className="mt-auto pt-0.5">
+          <div className="pt-0.5">
             {meal.grams && (
               <div className="flex items-center gap-1">
                 <span className="text-[9px] text-white/60 flex items-center gap-0.5">
