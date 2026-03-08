@@ -432,7 +432,22 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
         if (u.type === 'partial') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
         return 0;
       };
-      items.sort((a, b) => dir * (getVal(a) - getVal(b)));
+      items.sort((a, b) => {
+        // is_meal items always at bottom
+        const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+        const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+        if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+        return dir * (getVal(a) - getVal(b));
+      });
+    } else if (sortMode === "manual") {
+      // For manual sort, also push is_meal to bottom when no stored order
+      if (storedOrder.length === 0) {
+        items.sort((a, b) => {
+          const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+          const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+          return aIsMeal - bIsMeal;
+        });
+      }
     }
     return items;
   };
@@ -548,7 +563,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
                 unified.push({ type: 'partial', item, sortDate: expDate, sortCounter: maxCounter });
               }
 
-              unified.sort((a, b) => compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter));
+              unified.sort((a, b) => {
+                // is_meal items always at bottom
+                const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+                const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+                if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+                return compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
+              });
 
               return unified.map((u, idx) => {
                 if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
