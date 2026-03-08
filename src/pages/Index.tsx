@@ -2569,17 +2569,16 @@ function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggl
     }
 
     return nonToujoursItems.filter(fi => {
+      // is_meal items already appear as cards in "au choix", don't show in unused list
+      if (fi.is_meal) return false;
       if (fi.is_infinite) {
-        // Infinite items are unused only if no available recipe uses them
         const fiKey = normalizeForMatch(fi.name);
-        // Check with strict matching
         for (const usedKey of usedIngredientKeys) {
           if (strictNameMatch(fiKey, usedKey)) return false;
         }
         return true;
       }
       const fiKey = normalizeForMatch(fi.name);
-      // Check with strict matching against used ingredient keys
       for (const usedKey of usedIngredientKeys) {
         if (strictNameMatch(fiKey, usedKey)) return false;
       }
