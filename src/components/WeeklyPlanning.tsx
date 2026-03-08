@@ -148,7 +148,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
         transition-transform hover:scale-[1.01]
         ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
         ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
-        ${compact ? "px-2 py-1" : "px-2 py-1 md:py-1.5"}
+        ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
       `}
       style={{ backgroundColor: meal.color }}
     >
