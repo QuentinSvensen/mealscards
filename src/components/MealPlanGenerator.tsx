@@ -249,32 +249,67 @@ export function MealPlanGenerator() {
     };
 
     // Greedy selection: 16 recipes optimizing for whole-multiple consumption
-    // Two-pass: first only unique recipes, then allow duplicates only if needed
+    // Priorité forte: fermer les ingrédients en grammes entamés
     for (let i = 0; i < 16; i++) {
       const isLateRound = i >= 10;
 
-      // Score all candidates
+      const openGramKeys = new Set<string>();
+      for (const [k, used] of totalUsage) {
+        const inv = shoppingInventory.get(k);
+        if (!inv || inv.pkgGrams <= 0) continue;
+        if (used.grams > 0 && used.grams < inv.grams - 1) openGramKeys.add(k);
+      }
+
+      const recipeTouchesOpenKey = (recipe: typeof shuffled[0]) => {
+        if (openGramKeys.size === 0) return false;
+        const usage = getRecipeUsage(recipe);
+        for (const [ingKey, used] of usage) {
+          if (used.grams <= 0) continue;
+          const matchKey = findInvKey(ingKey);
+          if (matchKey && openGramKeys.has(matchKey)) return true;
+        }
+        return false;
+      };
+
       const scoreRecipe = (recipe: typeof shuffled[0]) => {
         let score = 0;
+        let usesConstrainedItem = false;
+        let touchesOpen = false;
+
         if (hasInventory) {
           const usage = getRecipeUsage(recipe);
-          let usesConstrainedItem = false;
           for (const [ingKey, used] of usage) {
             const matchKey = findInvKey(ingKey);
             if (!matchKey) continue;
             const inv = shoppingInventory.get(matchKey)!;
             if (inv.grams <= 0 && inv.count <= 0) continue;
             usesConstrainedItem = true;
+
             const prevUsage = totalUsage.get(matchKey) || { grams: 0, count: 0 };
+            const isOpenKey = openGramKeys.has(matchKey);
+            if (isOpenKey) touchesOpen = true;
+
             if (used.grams > 0 && inv.pkgGrams > 0) {
               const newCumGrams = prevUsage.grams + used.grams;
               if (newCumGrams > inv.grams * 1.05) {
-                score -= 4;
+                score -= 6;
               } else {
                 const ms = multipleScore(newCumGrams, inv.pkgGrams);
                 score += isLateRound ? ms * 2.5 : ms;
+
+                // Bonus très fort quand on rapproche un ingrédient entamé de 100%
+                if (isOpenKey) {
+                  const prevDeficit = Math.max(0, inv.grams - prevUsage.grams);
+                  const newDeficit = Math.max(0, inv.grams - Math.min(newCumGrams, inv.grams));
+                  if (newDeficit < prevDeficit) score += 10;
+                  if (newDeficit <= 1) score += 28;
+                } else if (openGramKeys.size > 0 && prevUsage.grams === 0 && newCumGrams < inv.grams - 1) {
+                  // Évite d'entamer un nouvel ingrédient tant qu'un autre est ouvert
+                  score -= 8;
+                }
               }
             }
+
             if (used.count > 0 && inv.pkgCount > 0) {
               const newCumCount = prevUsage.count + used.count;
               if (newCumCount > inv.count * 1.05) {
@@ -286,25 +321,40 @@ export function MealPlanGenerator() {
               }
             }
           }
+
           if (usesConstrainedItem) score += 1;
+          if (openGramKeys.size > 0 && !touchesOpen) {
+            score -= isLateRound ? 14 : 8;
+          }
         }
+
         score += Math.random() * (isLateRound ? 1 : 2.5);
         return score;
       };
 
-      // Pass 1: only unique (not yet selected) recipes
-      const uniqueCandidates = shuffled
-        .filter(r => !counts.has(r.id))
-        .map(r => ({ id: r.id, score: scoreRecipe(r) }));
+      // Pool: uniques + doublons qui ferment un ingrédient entamé
+      const poolMap = new Map<string, { id: string; score: number }>();
 
-      if (uniqueCandidates.length > 0) {
-        uniqueCandidates.sort((a, b) => b.score - a.score);
-        const topN = uniqueCandidates.slice(0, Math.min(isLateRound ? 2 : 4, uniqueCandidates.length));
+      for (const r of shuffled.filter(r => !counts.has(r.id))) {
+        poolMap.set(r.id, { id: r.id, score: scoreRecipe(r) });
+      }
+
+      if (openGramKeys.size > 0) {
+        for (const r of shuffled.filter(r => (counts.get(r.id) || 0) === 1 && recipeTouchesOpenKey(r))) {
+          const next = { id: r.id, score: scoreRecipe(r) };
+          const prev = poolMap.get(r.id);
+          if (!prev || next.score > prev.score) poolMap.set(r.id, next);
+        }
+      }
+
+      if (poolMap.size > 0) {
+        const pool = Array.from(poolMap.values()).sort((a, b) => b.score - a.score);
+        const topN = pool.slice(0, Math.min(isLateRound ? 2 : 4, pool.length));
         const pick = topN[Math.floor(Math.random() * topN.length)];
         selectedIds.push(pick.id);
         counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
       } else {
-        // Pass 2: fallback to duplicates (max 2 of same recipe)
+        // Fallback doublons (max 2)
         const dupCandidates = shuffled
           .filter(r => (counts.get(r.id) || 0) >= 1 && (counts.get(r.id) || 0) < 2)
           .map(r => ({ id: r.id, score: scoreRecipe(r) }));
@@ -314,22 +364,7 @@ export function MealPlanGenerator() {
         selectedIds.push(pick.id);
         counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
       }
-
-      // Update cumulative usage
-      const pickedId = selectedIds[selectedIds.length - 1];
-      const recipe = candidatePlats.find(r => r.id === pickedId);
-      if (recipe && hasInventory) {
-        const usage = getRecipeUsage(recipe);
-        for (const [ingKey, used] of usage) {
-          const matchKey = findInvKey(ingKey);
-          if (!matchKey) continue;
-          const prev = totalUsage.get(matchKey) || { grams: 0, count: 0 };
-          totalUsage.set(matchKey, {
-            grams: prev.grams + used.grams,
-            count: prev.count + used.count,
-          });
-        }
-      }
+    }
     }
 
     if (avantGrimpe) {
