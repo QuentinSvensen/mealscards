@@ -256,7 +256,8 @@ export function MealPlanGenerator() {
 
     // Greedy selection: 16 recipes optimizing for whole-multiple consumption
     // Priorité forte: fermer les ingrédients en grammes entamés
-    for (let i = 0; i < 16; i++) {
+    const mainTarget = 20 - grimpeCount;
+    for (let i = 0; i < mainTarget; i++) {
       const isLateRound = i >= 10;
 
       const openGramKeys = new Set<string>();
@@ -418,8 +419,8 @@ export function MealPlanGenerator() {
       if (!swapped) break;
     }
 
-    if (avantGrimpe) {
-      for (let j = 0; j < 4; j++) selectedIds.push(avantGrimpe.id);
+    if (avantGrimpe && grimpeCount > 0) {
+      for (let j = 0; j < grimpeCount; j++) selectedIds.push(avantGrimpe.id);
     }
 
     // Build total needs map for shopping check persistence
