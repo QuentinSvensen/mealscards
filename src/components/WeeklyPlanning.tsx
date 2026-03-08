@@ -759,14 +759,6 @@ export function WeeklyPlanning() {
             <Flame className="h-4 w-4" />
             {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
           </span>
-          {(() => {
-            const weekProtein = DAYS.reduce((sum, day) => sum + getDayProtein(day), 0);
-            return weekProtein > 0 ? (
-              <span className="flex items-center gap-1 text-xs font-bold text-blue-400">
-                P Moy. {Math.round(weekProtein / 7)}g/j
-              </span>
-            ) : null;
-          })()}
         </div>
       </div>
 
