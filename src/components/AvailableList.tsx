@@ -95,6 +95,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     return Number.isFinite(parsed) ? parsed : null;
   };
 
+  const parseMacroValue = (value: string | null | undefined): number => {
+    if (!value) return 0;
+    const match = value.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+    if (!match) return 0;
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   const getUnifiedItemName = (u: {
     type: 'isMeal' | 'nameMatch' | 'available' | 'partial';
     fi?: FoodItem;
