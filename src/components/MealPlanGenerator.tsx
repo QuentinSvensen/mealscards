@@ -653,13 +653,13 @@ export function MealPlanGenerator() {
             )}
           </div>
 
-          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[50%] mx-auto">
+          <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 max-w-[85%] sm:max-w-[50%] mx-auto">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
               🛒 Liste d'ingrédients ({shoppingItems2.length})
             </p>
             <div className="space-y-1">
               {shoppingItems2.map((item, i) => (
-                <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-xl bg-muted/40 text-sm">
+                <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-xl bg-muted/40 text-sm min-w-0">
                   <span className="font-medium text-foreground flex-1">{item.displayName}</span>
                   {!item.matched && (
                     <span className="text-amber-500 text-xs" title="Pas trouvé dans Courses-Liste">❓</span>
