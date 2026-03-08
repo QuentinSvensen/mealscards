@@ -564,6 +564,22 @@ export function MealPlanGenerator() {
               {Math.round(totalCal)} kcal
             </span>
           )}
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span>🧗</span>
+            <select
+              value={grimpeCount}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                setGrimpeCount(val);
+                setPreference.mutate({ key: MENU_GRIMPE_COUNT_KEY, value: val });
+              }}
+              className="bg-muted text-foreground rounded-md px-1.5 py-0.5 text-xs border-0 outline-none"
+            >
+              {[0, 1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
           <Button onClick={generatePlan} className="rounded-full gap-1.5 text-xs">
             <Dice5 className="h-3.5 w-3.5" />
             Générer
