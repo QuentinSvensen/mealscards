@@ -254,9 +254,10 @@ export function MealPlanGenerator() {
       const isLateRound = i >= 10; // last 6 picks: prioritize alignment strongly
 
       for (const recipe of shuffled) {
-        if ((counts.get(recipe.id) || 0) >= 2) continue;
         const alreadySelected = counts.get(recipe.id) || 0;
-        let score = alreadySelected > 0 ? -3 : 0;
+        // Hard cap at 2, and strongly avoid duplicates — only allow if no unique option scores well
+        if (alreadySelected >= 2) continue;
+        let score = alreadySelected > 0 ? -15 : 0;
 
         if (hasInventory) {
           const usage = getRecipeUsage(recipe);
