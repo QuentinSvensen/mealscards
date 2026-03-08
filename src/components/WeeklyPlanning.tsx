@@ -712,7 +712,7 @@ export function WeeklyPlanning() {
                 );
               })}
               {/* Extra column */}
-              <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-16 sm:w-20 flex flex-col items-center">
+              <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
                 <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
                 <div className="flex items-center gap-0.5 mt-1">
                   <input
