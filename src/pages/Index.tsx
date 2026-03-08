@@ -260,6 +260,7 @@ const Index = () => {
         if (keepOnReset[`breakfast-${key}`]) keptBreakfast[key] = val;
       }
       setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
+      setPreference.mutate({ key: 'planning_drink_checks', value: {} });
       setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
       qc.invalidateQueries({ queryKey: ["possible_meals"] });
       toast({ title: "🔄 Reset hebdomadaire effectué", description: "Les cartes possibles et calories manuelles ont été effacées." });
