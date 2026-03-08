@@ -135,7 +135,7 @@ const Index = () => {
   const {
     isLoading,
     meals, possibleMeals,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateIngredients,
+    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateIngredients,
     updateOvenTemp, updateOvenMinutes,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
@@ -687,6 +687,7 @@ const Index = () => {
     const lines = allCats.flatMap((cat) => getMealsByCategory(cat)).map((m) => {
       const parts: string[] = [`cat=${m.category}`];
       if (m.calories) parts.push(`cal=${m.calories}`);
+      if (m.protein) parts.push(`prot=${m.protein}`);
       if (m.grams) parts.push(`grams=${m.grams}`);
       if (m.ingredients) parts.push(`ing=${m.ingredients.replace(/\n/g, ', ')}`);
       if (m.oven_temp) parts.push(`oven_temp=${m.oven_temp}`);
@@ -724,7 +725,7 @@ const Index = () => {
         const cat = (params.cat as MealCategory) || 'plat';
         const { data: inserted, error: insertErr } = await supabase.from("meals").insert({
           name: name.trim(), category: cat, color: colorFromName(name.trim()), sort_order: count, is_available: true,
-          calories: params.cal || null, grams: params.grams || null, ingredients: params.ing || null,
+          calories: params.cal || null, protein: params.prot || null, grams: params.grams || null, ingredients: params.ing || null,
           oven_temp: params.oven_temp || null, oven_minutes: params.oven_minutes || null, is_favorite: params.fav === '1',
         } as any).select().single();
         if (insertErr) { skipped++; continue; }

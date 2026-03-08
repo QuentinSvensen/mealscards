@@ -209,6 +209,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     const counterDays = fi.counter_start_date ? Math.floor((Date.now() - new Date(fi.counter_start_date).getTime()) / 86400000) : null;
     const fakeMeal: Meal = {
       id: `fi-${fi.id}`, name: fi.name, category: "plat", calories: fi.calories,
+      protein: fi.protein ?? null,
       grams: displayGrams, ingredients: null, color: colorFromName(fi.id),
       sort_order: 0, created_at: fi.created_at, is_available: true, is_favorite: false,
       oven_temp: null, oven_minutes: null,

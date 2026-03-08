@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { z } from "zod";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -22,6 +22,7 @@ export interface FoodItem {
   name: string;
   grams: string | null;
   calories: string | null;
+  protein: string | null;
   expiration_date: string | null;
   counter_start_date: string | null;
   sort_order: number;
@@ -29,6 +30,7 @@ export interface FoodItem {
   is_meal: boolean;
   is_infinite: boolean;
   is_dry: boolean;
+  is_indivisible: boolean;
   storage_type: StorageType;
   quantity: number | null;
   food_type: FoodType;
@@ -79,6 +81,27 @@ const FOOD_COLORS = [
   "hsl(205, 45%, 42%)",  // azure
   "hsl(285, 40%, 38%)",  // eggplant
   "hsl(325, 45%, 44%)",  // magenta rose
+  // Additional colors for more diversity
+  "hsl(10, 55%, 42%)",   // brick red
+  "hsl(35, 50%, 35%)",   // chocolate
+  "hsl(60, 40%, 32%)",   // dark olive
+  "hsl(100, 38%, 32%)",  // hunter green
+  "hsl(140, 42%, 30%)",  // deep forest
+  "hsl(175, 48%, 30%)",  // dark turquoise
+  "hsl(210, 52%, 38%)",  // denim blue
+  "hsl(245, 38%, 45%)",  // royal blue
+  "hsl(280, 42%, 35%)",  // dark purple
+  "hsl(320, 42%, 38%)",  // dark rose
+  "hsl(350, 50%, 40%)",  // carmine
+  "hsl(15, 52%, 38%)",   // sienna
+  "hsl(85, 35%, 30%)",   // olive drab
+  "hsl(115, 32%, 36%)",  // fern
+  "hsl(150, 38%, 32%)",  // dark jade
+  "hsl(225, 48%, 36%)",  // sapphire
+  "hsl(265, 42%, 38%)",  // twilight
+  "hsl(295, 38%, 42%)",  // violet
+  "hsl(335, 48%, 36%)",  // wine
+  "hsl(5, 48%, 36%)",    // dark coral
 ];
 
 /** Deterministic color from any string (id or name) — unique per input, FNV-1a for better distribution */
@@ -159,9 +182,11 @@ export function useFoodItems() {
         is_meal: d.is_meal ?? false,
         is_infinite: d.is_infinite ?? false,
         is_dry: d.is_dry ?? false,
+        is_indivisible: d.is_indivisible ?? false,
         storage_type: d.storage_type ?? (d.is_dry ? 'sec' : 'frigo'),
         quantity: d.quantity ?? null,
         food_type: d.food_type ?? null,
+        protein: d.protein ?? null,
       })) as FoodItem[];
     },
     retry: 3,
@@ -265,7 +290,7 @@ interface FoodItemCardProps {
 }
 
 function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
-  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "quantity" | "partial" | null>(null);
+  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
 
@@ -289,6 +314,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     if (editing === "name" && val) onUpdate({ name: val });
     if (editing === "grams") onUpdate({ grams: val || null });
     if (editing === "calories") onUpdate({ calories: val || null });
+    if (editing === "protein") onUpdate({ protein: val || null });
     if (editing === "quantity") onUpdate({ quantity: val ? parseInt(val) || null : null });
     if (editing === "partial" && gramsData.unit !== null) {
       if (!val) {
@@ -307,13 +333,15 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     setEditing(null);
   };
 
-  const startEdit = (field: "name" | "grams" | "calories" | "quantity" | "partial") => {
+  const startEdit = (field: "name" | "grams" | "calories" | "protein" | "quantity" | "partial") => {
     if (field === "quantity") {
       setEditValue(item.quantity ? String(item.quantity) : "");
     } else if (field === "grams") {
       setEditValue(gramsData.unit !== null ? formatNumeric(gramsData.unit) : "");
     } else if (field === "calories") {
       setEditValue(item.calories ?? "");
+    } else if (field === "protein") {
+      setEditValue(item.protein ?? "");
     } else if (field === "partial") {
       setEditValue(gramsData.remainder !== null ? formatNumeric(gramsData.remainder) : "");
     } else {
@@ -491,6 +519,26 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             </button>
           ) : null}
 
+          {/* Protein */}
+          {editing === "protein" ? (
+            <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 25" inputMode="numeric" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
+          ) : item.protein ? (
+            <button onClick={() => startEdit("protein")} className="text-[10px] text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-blue-500/40 shrink-0 font-semibold">
+              P {item.protein}
+            </button>
+          ) : null}
+
+          {/* Indivisible toggle */}
+          {item.grams && !item.is_infinite && (
+            <button
+              onClick={() => onUpdate({ is_indivisible: !item.is_indivisible })}
+              className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_indivisible ? 'bg-orange-400/30 text-orange-200 border-orange-400/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
+              title={item.is_indivisible ? "Indivisible (cliquer pour désactiver)" : "Marquer comme indivisible (grammage entier obligatoire)"}
+            >
+              <Lock className="h-2.5 w-2.5" />{item.is_indivisible ? 'Indiv.' : ''}
+            </button>
+          )}
+
           {/* is_meal toggle */}
           <button
             onClick={() => onUpdate({ is_meal: !item.is_meal })}
@@ -552,8 +600,12 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
             <Flame className="h-2.5 w-2.5" />+ calories
           </button>
         )}
+        {!item.protein && editing !== "protein" && (
+          <button onClick={() => startEdit("protein")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+            P + protéines
+          </button>
+        )}
 
-        {/* Expiration date picker */}
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
             <button className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${

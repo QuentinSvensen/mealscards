@@ -17,6 +17,7 @@ interface MealCardProps {
   onRename: (name: string) => void;
   onDelete: () => void;
   onUpdateCalories: (calories: string | null) => void;
+  onUpdateProtein?: (protein: string | null) => void;
   onUpdateGrams: (grams: string | null) => void;
   onUpdateIngredients: (ingredients: string | null) => void;
   onToggleFavorite?: () => void;
@@ -39,10 +40,10 @@ interface MealCardProps {
 
 // Ingredient parsing utilities imported from @/lib/ingredientUtils
 
-export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames, counterIngredientNames }: MealCardProps) {
+export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart, onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate, expirationIsToday, expiringIngredientName, expiredIngredientNames, maxIngredientCounter, missingIngredientNames, counterIngredientNames }: MealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const [editing, setEditing] = useState<"name" | "calories" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
+  const [editing, setEditing] = useState<"name" | "calories" | "protein" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
@@ -54,6 +55,7 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
     const val = editValue.trim();
     if (editing === "name" && val && val !== meal.name) onRename(val);
     if (editing === "calories") onUpdateCalories(val || null);
+    if (editing === "protein") onUpdateProtein?.(val || null);
     if (editing === "grams") onUpdateGrams(val || null);
     if (editing === "oven_temp") onUpdateOvenTemp?.(val || null);
     if (editing === "oven_minutes") onUpdateOvenMinutes?.(val || null);
@@ -220,6 +222,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                   <Flame className="h-3 w-3" />{meal.calories}
                 </span>
               )}
+              {meal.protein && (
+                <span className="text-xs text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold">
+                  P {meal.protein}
+                </span>
+              )}
               {hasCuisson && (
                 <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <Thermometer className="h-3 w-3" />
@@ -251,6 +258,11 @@ export function MealCard({ meal, onMoveToPossible, onRename, onDelete, onUpdateC
                   <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
                     <Flame className="mr-2 h-4 w-4" /> Calories
                   </DropdownMenuItem>
+                  {onUpdateProtein && (
+                    <DropdownMenuItem onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}>
+                      <Weight className="mr-2 h-4 w-4" /> Protéines
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
                     <Weight className="mr-2 h-4 w-4" /> Grammes
                   </DropdownMenuItem>
