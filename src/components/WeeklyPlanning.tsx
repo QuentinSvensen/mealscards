@@ -151,20 +151,33 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
       `}
       style={{ backgroundColor: meal.color }}
     >
-      <div className="flex items-center gap-1 min-w-0 flex-wrap">
+      {/* Row 1: Title */}
+      <div className="flex items-start gap-1 min-w-0">
         <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-        <span className="font-semibold text-xs min-w-0 break-words">{meal.name}</span>
-        {counterDays !== null && (
-          <span
-            className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
-            ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-          >
-            <Timer className="h-2.5 w-2.5" />
-            {counterDays}j
-          </span>
-        )}
-        <div className="flex-1" />
+        <span className="font-semibold text-xs min-w-0 break-words flex-1">{meal.name}</span>
         {!compact && (
+          <button
+            onClick={onRemove}
+            className="text-white/60 hover:text-white text-[10px] shrink-0 ml-0.5 hover:bg-white/20 rounded px-0.5"
+            title="Retirer"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {/* Row 2: Badges */}
+      {!compact && (
+        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          {counterDays !== null && (
+            <span
+              className={`text-[11px] font-black px-1.5 py-0.5 rounded-full shrink-0 flex items-center gap-0.5 border
+              ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
+            >
+              <Timer className="h-2.5 w-2.5" />
+              {counterDays}j
+            </span>
+          )}
+          <div className="flex-1" />
           <div className="flex flex-col items-center shrink-0">
             {editingCal ? (
               <input
@@ -206,17 +219,8 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
               </span>
             )}
           </div>
-        )}
-        {!compact && (
-          <button
-            onClick={onRemove}
-            className="text-white/60 hover:text-white text-[10px] shrink-0 ml-0.5 hover:bg-white/20 rounded px-0.5"
-            title="Retirer"
-          >
-            ✕
-          </button>
-        )}
-      </div>
+        </div>
+      )}
       {!compact && (
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
           {pm.expiration_date && (
