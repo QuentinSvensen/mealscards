@@ -204,6 +204,18 @@ export function getMaxIngredientCounter(meal: Meal, foodItems: FoodItem[]): numb
   return maxDays;
 }
 
+export function getEarliestIngredientCounterDate(meal: Meal, foodItems: FoodItem[]): string | null {
+  if (!meal.ingredients?.trim()) return null;
+  const groups = parseIngredientGroups(meal.ingredients);
+  let earliest: string | null = null;
+  for (const group of groups) for (const alt of group) for (const fi of foodItems) {
+    if (strictNameMatch(fi.name, alt.name) && fi.counter_start_date) {
+      if (!earliest || fi.counter_start_date < earliest) earliest = fi.counter_start_date;
+    }
+  }
+  return earliest;
+}
+
 export function getMaxIngredientCounterName(meal: Meal, foodItems: FoodItem[]): string | null {
   if (!meal.ingredients?.trim()) return null;
   const groups = parseIngredientGroups(meal.ingredients);
