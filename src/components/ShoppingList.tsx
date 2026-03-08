@@ -119,7 +119,6 @@ export function ShoppingList() {
   // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
   const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
   // Reset dismissed state when menu is regenerated (needs change)
-  const needsJson = JSON.stringify(getPreference('menu_generator_needs_v1', {}));
   const prevNeedsJson = useRef(needsJson);
   useEffect(() => {
     if (needsJson !== prevNeedsJson.current) {
