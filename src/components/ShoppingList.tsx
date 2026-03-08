@@ -119,13 +119,14 @@ export function ShoppingList() {
   const ambiguousItemIds = useMemo(() => {
     const visibleSet = new Set<string>();
     for (const [itemId, data] of ambiguousItemData) {
+      if (dismissedAmbiguous.has(data.needKey)) continue;
       const confirmedId = confirmedAmbiguous.get(data.needKey);
       if (!confirmedId || confirmedId === itemId) {
         visibleSet.add(itemId);
       }
     }
     return visibleSet;
-  }, [ambiguousItemData, confirmedAmbiguous]);
+  }, [ambiguousItemData, confirmedAmbiguous, dismissedAmbiguous]);
   // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
   const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
   const [newGroupName, setNewGroupName] = useState("");
