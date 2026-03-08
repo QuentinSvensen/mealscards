@@ -74,9 +74,12 @@ export function ShoppingList() {
 
   // Compute which items have ambiguous partial matches with menu ingredients (ONLY multi-match)
   // Returns ALL items in ambiguous groups, plus tracks which needKey has a confirmed item
+  const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+  const needsJson = JSON.stringify(needsRaw);
+
   const { ambiguousItemData, confirmedAmbiguous } = useMemo(() => {
-    const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
-    const ingredientKeys = Object.keys(needsRaw);
+    const needs: Record<string, { grams: number; count: number }> = JSON.parse(needsJson);
+    const ingredientKeys = Object.keys(needs);
     const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
     const confirmed = new Map<string, string>(); // needKey → confirmed itemId
     if (ingredientKeys.length === 0) return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
@@ -111,12 +114,11 @@ export function ShoppingList() {
     }
 
     return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
-  }, [items, getPreference, isToujoursPresent]);
+  }, [items, needsJson, isToujoursPresent]);
 
   // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
   const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
   // Reset dismissed state when menu is regenerated (needs change)
-  const needsJson = JSON.stringify(getPreference('menu_generator_needs_v1', {}));
   const prevNeedsJson = useRef(needsJson);
   useEffect(() => {
     if (needsJson !== prevNeedsJson.current) {
