@@ -113,19 +113,23 @@ export function ShoppingList() {
     return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
   }, [items, getPreference, isToujoursPresent]);
 
+  // Track dismissed ambiguous groups (user double-clicked to fully dismiss)
+  const [dismissedAmbiguous, setDismissedAmbiguous] = useState<Set<string>>(new Set());
+
   // An item shows the colored ❓ if it's in an ambiguous group AND either:
   // - no item in the group is confirmed yet, OR
   // - this item IS the confirmed one (shows as green ✓ but still handled by ambiguous logic)
   const ambiguousItemIds = useMemo(() => {
     const visibleSet = new Set<string>();
     for (const [itemId, data] of ambiguousItemData) {
+      if (dismissedAmbiguous.has(data.needKey)) continue;
       const confirmedId = confirmedAmbiguous.get(data.needKey);
       if (!confirmedId || confirmedId === itemId) {
         visibleSet.add(itemId);
       }
     }
     return visibleSet;
-  }, [ambiguousItemData, confirmedAmbiguous]);
+  }, [ambiguousItemData, confirmedAmbiguous, dismissedAmbiguous]);
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
@@ -407,14 +411,24 @@ export function ShoppingList() {
                       }
                     }
                   }
-                } else {
-                  // Uncheck (either from green ✓ or quick re-click on ❓)
+                } else if (item.secondary_checked) {
+                  // Uncheck from green ✓ → siblings will reappear as ❓
                   toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                   if (needKey) {
                     lastAmbiguousUncheck.current[needKey] = now;
                   }
+                } else if (isQuickReclick) {
+                  // Quick re-click on ❓ after uncheck → dismiss the whole ambiguous group
+                  if (needKey) {
+                    setDismissedAmbiguous(prev => new Set([...prev, needKey]));
+                  }
+                } else {
+                  // Normal click on unchecked ❓ that was already unchecked → just uncheck
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
+                  updateItemQuantity.mutate({ id: item.id, quantity: null });
+                  setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                 }
               }}
               className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${
