@@ -18,7 +18,7 @@ function keyMatch(a: string, b: string): boolean {
   return normalizeKey(a) === normalizeKey(b);
 }
 
-/** @deprecated Use smartFoodContains from ingredientUtils instead */
+
 
 function parseStoredIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -138,7 +138,6 @@ export function MealPlanGenerator() {
       if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) continue;
 
       const itemKey = normalizeKey(item.name);
-      const itemNorm = normalizeForMatch(item.name);
 
       for (const [needKey, need] of needsMap) {
         // Exact key match OR smart contains match (e.g. "viande hache 5" matches "viande hachee")
