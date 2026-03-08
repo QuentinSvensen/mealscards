@@ -73,13 +73,14 @@ export function ShoppingList() {
   }, [items, toujoursFoodKeys]);
 
   // Compute which items have ambiguous partial matches with menu ingredients (ONLY multi-match)
-  // ambiguousItemData: Map<itemId, { colorIndex: number, needKey: string }>
-  const ambiguousItemData = useMemo(() => {
+  // Returns ALL items in ambiguous groups, plus tracks which needKey has a confirmed item
+  const { ambiguousItemData, confirmedAmbiguous } = useMemo(() => {
     const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
     const ingredientKeys = Object.keys(needsRaw);
-    if (ingredientKeys.length === 0) return new Map<string, { colorIndex: number; needKey: string }>();
-
     const itemToGroup = new Map<string, { colorIndex: number; needKey: string }>();
+    const confirmed = new Map<string, string>(); // needKey → confirmed itemId
+    if (ingredientKeys.length === 0) return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
+
     let colorIndex = 0;
 
     for (const ingKey of ingredientKeys) {
@@ -97,22 +98,34 @@ export function ShoppingList() {
         }
       }
 
-      // Only multi-match without exact match → colored ❓
       if (!hasExactMatch && matchingItems.length > 1) {
-        // If one item in the group is already confirmed (secondary_checked), skip the group
+        const groupColor = colorIndex % ambiguousColors.length;
+        matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
+        colorIndex++;
+        // Track if one is already confirmed
         const confirmedItem = matchingItems.find(id => items.find(i => i.id === id)?.secondary_checked);
-        if (!confirmedItem) {
-          const groupColor = colorIndex % ambiguousColors.length;
-          matchingItems.forEach(id => itemToGroup.set(id, { colorIndex: groupColor, needKey: ingKey }));
-          colorIndex++;
+        if (confirmedItem) {
+          confirmed.set(ingKey, confirmedItem);
         }
       }
     }
 
-    return itemToGroup;
+    return { ambiguousItemData: itemToGroup, confirmedAmbiguous: confirmed };
   }, [items, getPreference, isToujoursPresent]);
 
-  const ambiguousItemIds = useMemo(() => new Set(ambiguousItemData.keys()), [ambiguousItemData]);
+  // An item shows the colored ❓ if it's in an ambiguous group AND either:
+  // - no item in the group is confirmed yet, OR
+  // - this item IS the confirmed one (shows as green ✓ but still handled by ambiguous logic)
+  const ambiguousItemIds = useMemo(() => {
+    const visibleSet = new Set<string>();
+    for (const [itemId, data] of ambiguousItemData) {
+      const confirmedId = confirmedAmbiguous.get(data.needKey);
+      if (!confirmedId || confirmedId === itemId) {
+        visibleSet.add(itemId);
+      }
+    }
+    return visibleSet;
+  }, [ambiguousItemData, confirmedAmbiguous]);
   const [newGroupName, setNewGroupName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [newItemTexts, setNewItemTexts] = useState<Record<string, string>>({});
