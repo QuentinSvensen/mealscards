@@ -338,16 +338,17 @@ export function MealPlanGenerator() {
         return score;
       };
 
-      // Pool: uniques + doublons qui ferment un ingrédient entamé
+      // Pool: uniques first, then doublons qui ferment un ingrédient entamé
       const poolMap = new Map<string, { id: string; score: number }>();
 
       for (const r of shuffled.filter(r => !counts.has(r.id))) {
-        poolMap.set(r.id, { id: r.id, score: scoreRecipe(r) });
+        poolMap.set(r.id, { id: r.id, score: scoreRecipe(r, false) });
       }
 
+      // Allow duplicates only if they touch an open ingredient
       if (openGramKeys.size > 0) {
         for (const r of shuffled.filter(r => (counts.get(r.id) || 0) === 1 && recipeTouchesOpenKey(r))) {
-          const next = { id: r.id, score: scoreRecipe(r) };
+          const next = { id: r.id, score: scoreRecipe(r, true) };
           const prev = poolMap.get(r.id);
           if (!prev || next.score > prev.score) poolMap.set(r.id, next);
         }
@@ -363,7 +364,7 @@ export function MealPlanGenerator() {
         // Fallback doublons (max 2)
         const dupCandidates = shuffled
           .filter(r => (counts.get(r.id) || 0) >= 1 && (counts.get(r.id) || 0) < 2)
-          .map(r => ({ id: r.id, score: scoreRecipe(r) }));
+          .map(r => ({ id: r.id, score: scoreRecipe(r, true) }));
         if (dupCandidates.length === 0) break;
         dupCandidates.sort((a, b) => b.score - a.score);
         const pick = dupCandidates[0];
