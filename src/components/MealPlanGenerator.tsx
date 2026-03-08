@@ -165,7 +165,9 @@ export function MealPlanGenerator() {
         }
       }
 
-      const targetMatches = exactMatches.length > 0 ? exactMatches : partialMatches;
+      // Only auto-check if exact match OR single partial match
+      // Multiple partial matches → leave unchecked for colored ❓ system
+      const targetMatches = exactMatches.length > 0 ? exactMatches : (partialMatches.length === 1 ? partialMatches : []);
       for (const item of targetMatches) {
         matchedItemIds.add(item.id);
         const qtyNeeded = computeQtyNeeded(item, need);
