@@ -351,7 +351,10 @@ export function MealPlanGenerator() {
 
     return Array.from(map.entries())
       .map(([, v]) => v)
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
+      .sort((a, b) => {
+        if (a.matched !== b.matched) return a.matched ? 1 : -1;
+        return a.displayName.localeCompare(b.displayName, "fr");
+      });
   }, [selectedMeals, shoppingItems, toujoursPresentGroupIds, toujoursFoodKeys]);
 
   const totalCal = selectedMeals.reduce((sum, m) => {
