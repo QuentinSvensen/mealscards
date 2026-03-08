@@ -415,6 +415,8 @@ export function WeeklyPlanning() {
   const unplanned = planningMeals.filter((pm) => !pm.day_of_week || !pm.meal_time);
 
   const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
+  const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
+  const DRINK_CALORIES = 150;
 
   const getDayCalories = (day: string): number => {
     const mealCals = TIMES.reduce(
