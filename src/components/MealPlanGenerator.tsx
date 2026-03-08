@@ -6,7 +6,7 @@ import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "luc
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Separator } from "@/components/ui/separator";
-import { normalizeKey, parseIngredientLine } from "@/lib/ingredientUtils";
+import { normalizeKey, normalizeForMatch, parseIngredientLine } from "@/lib/ingredientUtils";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
@@ -136,22 +136,26 @@ export function MealPlanGenerator() {
       if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) continue;
 
       const itemKey = normalizeKey(item.name);
+      const itemNorm = normalizeForMatch(item.name);
 
       for (const [needKey, need] of needsMap) {
-        if (itemKey === needKey || keyMatch(itemKey, needKey)) {
-          const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
-          let qtyNeeded = 1;
-          if (nb && nb.grams > 0 && need.grams > 0) {
-            qtyNeeded = Math.ceil(need.grams / nb.grams);
-          } else if (nb && nb.count > 0 && need.count > 0) {
-            qtyNeeded = Math.ceil(need.count / nb.count);
-          } else if (need.count > 0) {
-            qtyNeeded = Math.ceil(need.count);
-          }
-          toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
-          updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
-          break;
+        // Exact key match OR contains match (e.g. "viande hachee 5%" contains "viande hachee")
+        const needNorm = normalizeForMatch(needKey);
+        const isMatch = itemKey === needKey || keyMatch(itemKey, needKey) || itemNorm.includes(needNorm) || needNorm.includes(itemNorm);
+        if (!isMatch) continue;
+
+        const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
+        let qtyNeeded = 1;
+        if (nb && nb.grams > 0 && need.grams > 0) {
+          qtyNeeded = Math.ceil(need.grams / nb.grams);
+        } else if (nb && nb.count > 0 && need.count > 0) {
+          qtyNeeded = Math.ceil(need.count / nb.count);
+        } else if (need.count > 0) {
+          qtyNeeded = Math.ceil(need.count);
         }
+        toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
+        updateItemQuantity.mutate({ id: item.id, quantity: String(qtyNeeded) });
+        break;
       }
     }
   };
@@ -311,16 +315,34 @@ export function MealPlanGenerator() {
     }
 
     // Check which ingredients match shopping list items or "Toujours présent" food items
+    // Priority: 1) exact key match, 2) "contains" match (e.g. "viande hachee" in "viande hachee 5%"), 3) no match → ❓
     for (const [key, item] of map) {
       // If ingredient matches a "Toujours présent" food item, mark as matched
       if (toujoursFoodKeys.has(key)) {
         item.matched = true;
         continue;
       }
+
+      const ingNorm = normalizeForMatch(item.displayName);
+
+      // 1) Exact key match
+      let exactFound = false;
       for (const si of shoppingItems) {
         if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
         const siKey = normalizeKey(si.name);
         if (siKey === key || keyMatch(siKey, key)) {
+          item.matched = true;
+          exactFound = true;
+          break;
+        }
+      }
+      if (exactFound) continue;
+
+      // 2) Contains match: shopping item name contains the ingredient name or vice-versa
+      for (const si of shoppingItems) {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
+        const siNorm = normalizeForMatch(si.name);
+        if (siNorm.includes(ingNorm) || ingNorm.includes(siNorm)) {
           item.matched = true;
           break;
         }
