@@ -1,12 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
 import { useMeals, type Meal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
-import { Dice5, Flame, Weight, HelpCircle } from "lucide-react";
+import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
+import { Separator } from "@/components/ui/separator";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
+const MENU_SORT_KEY = "menu_generator_sort_v1";
+
+type MenuSortMode = "manual" | "calories" | "alphabetical";
 
 function parseIngredientLine(raw: string) {
   const trimmed = raw.trim().replace(/\s+/g, " ");
