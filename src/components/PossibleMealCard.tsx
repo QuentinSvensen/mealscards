@@ -11,6 +11,10 @@ import {
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { DAYS, TIMES } from "@/hooks/useMeals";
 import { format, parseISO } from "date-fns";
+import {
+  type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
+  parseIngredientsToLines, serializeIngredients,
+} from "@/lib/ingredientUtils";
 import { fr } from "date-fns/locale";
 
 interface PossibleMealCardProps {
@@ -46,63 +50,11 @@ function getCounterDays(startDate: string | null): number | null {
   return Math.floor(diff / 86400000);
 }
 
-// --- Ingredient grid helpers (same logic as MealCard) ---
-
-interface IngLine { qty: string; count: string; name: string; isOr: boolean; }
-
-function parseIngredientLine(raw: string): IngLine {
-  const trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", isOr: false };
-  const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
-  const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), isOr: false };
-  const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), isOr: false };
-  const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), isOr: false };
-  return { qty: "", count: "", name: trimmed, isOr: false };
-}
-
-function formatQty(qty: string): string {
-  const trimmed = qty.trim();
-  if (!trimmed) return "";
-  if (/^\d+([.,]\d+)?$/.test(trimmed)) return trimmed + "g";
-  return trimmed;
-}
-
-function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", isOr: false }];
-  const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
-  const lines: IngLine[] = [];
-  for (const group of groups) {
-    const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
-    alts.forEach((alt, i) => {
-      const parsed = parseIngredientLine(alt);
-      parsed.isOr = i > 0;
-      lines.push(parsed);
-    });
-  }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", isOr: false });
-  return lines;
-}
-
-function serializeIngredients(lines: IngLine[]): string | null {
-  const result: string[] = [];
-  let currentGroup: string[] = [];
-  const flushGroup = () => { if (currentGroup.length > 0) { result.push(currentGroup.join(" | ")); currentGroup = []; } };
-  for (const l of lines) {
-    const qtyStr = formatQty(l.qty);
-    const countStr = l.count.trim();
-    const nameStr = l.name.trim();
-    if (!qtyStr && !countStr && !nameStr) continue;
-    const token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
-    if (l.isOr) { currentGroup.push(token); } else { flushGroup(); currentGroup.push(token); }
-  }
-  flushGroup();
-  return result.length ? result.join(", ") : null;
-}
+// Ingredient parsing utilities imported from @/lib/ingredientUtils
 
 export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity, onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver, onDrop, isHighlighted }: PossibleMealCardProps) {
+  const parseIngredientLine = parseIngredientLineDisplay;
+  const formatQty = formatQtyDisplay;
   const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
