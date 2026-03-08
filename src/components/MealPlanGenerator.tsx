@@ -311,16 +311,34 @@ export function MealPlanGenerator() {
     }
 
     // Check which ingredients match shopping list items or "Toujours présent" food items
+    // Priority: 1) exact key match, 2) "contains" match (e.g. "viande hachee" in "viande hachee 5%"), 3) no match → ❓
     for (const [key, item] of map) {
       // If ingredient matches a "Toujours présent" food item, mark as matched
       if (toujoursFoodKeys.has(key)) {
         item.matched = true;
         continue;
       }
+
+      const ingNorm = normalizeForMatch(item.displayName);
+
+      // 1) Exact key match
+      let exactFound = false;
       for (const si of shoppingItems) {
         if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
         const siKey = normalizeKey(si.name);
         if (siKey === key || keyMatch(siKey, key)) {
+          item.matched = true;
+          exactFound = true;
+          break;
+        }
+      }
+      if (exactFound) continue;
+
+      // 2) Contains match: shopping item name contains the ingredient name or vice-versa
+      for (const si of shoppingItems) {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
+        const siNorm = normalizeForMatch(si.name);
+        if (siNorm.includes(ingNorm) || ingNorm.includes(siNorm)) {
           item.matched = true;
           break;
         }
