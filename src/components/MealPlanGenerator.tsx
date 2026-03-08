@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { useMeals, type Meal } from "@/hooks/useMeals";
 import { useShoppingList } from "@/hooks/useShoppingList";
-import { Dice5, Flame, Weight } from "lucide-react";
+import { Dice5, Flame, Weight, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
+const MENU_NEEDS_KEY = "menu_generator_needs_v1";
 
 function parseIngredientLine(raw: string) {
   const trimmed = raw.trim().replace(/\s+/g, " ");
@@ -55,7 +56,6 @@ function parseNbValue(nb: string | null, type: string | null): { grams: number; 
 function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: number }> {
   const usage = new Map<string, { grams: number; count: number }>();
   if (!recipe.ingredients) {
-    // No ingredients = the meal itself is bought whole (e.g. "hachis parmentier")
     const key = normalizeKey(recipe.name);
     usage.set(key, { grams: 0, count: 1 });
     return usage;
@@ -82,6 +82,7 @@ export function MealPlanGenerator() {
   const allPlats = getMealsByCategory("plat");
   const persistedRaw = getPreference<unknown>(MENU_PREF_KEY, null);
   const persistedIds = useMemo(() => parseStoredIds(persistedRaw), [JSON.stringify(persistedRaw)]);
+  const persistedNeeds = getPreference<Record<string, { grams: number; count: number }>>(MENU_NEEDS_KEY, {});
 
   const [selectedMealIds, setSelectedMealIds] = useState<string[]>([]);
 
@@ -109,6 +110,18 @@ export function MealPlanGenerator() {
     );
   }, [shoppingGroups]);
 
+  // Identify "Toujours présents" group IDs
+  const toujoursPresentGroupIds = useMemo(() => {
+    return new Set(
+      shoppingGroups
+        .filter(g => {
+          const n = normalizeKey(g.name);
+          return n.includes('toujours present') || n.includes('toujours la');
+        })
+        .map(g => g.id)
+    );
+  }, [shoppingGroups]);
+
   // Build shopping inventory from items with Nb, excluding frozen
   const shoppingInventory = useMemo(() => {
     const inv = new Map<string, { grams: number; count: number; pkgGrams: number; pkgCount: number }>();
@@ -129,27 +142,16 @@ export function MealPlanGenerator() {
     return inv;
   }, [shoppingItems, frozenGroupIds]);
 
-  const updateShoppingChecks = (selIds: string[]) => {
-    // Build total ingredient needs from selected recipes
-    const needs = new Map<string, { grams: number; count: number }>();
-    for (const id of selIds) {
-      const recipe = allPlats.find(r => r.id === id);
-      if (!recipe) continue;
-      const usage = getRecipeUsage(recipe);
-      for (const [key, used] of usage) {
-        const prev = needs.get(key) || { grams: 0, count: 0 };
-        needs.set(key, { grams: prev.grams + used.grams, count: prev.count + used.count });
-      }
-    }
-
+  const updateShoppingChecks = (selIds: string[], needsMap: Map<string, { grams: number; count: number }>) => {
     // Match to shopping items and update
     for (const item of shoppingItems) {
-      const itemKey = normalizeKey(item.name);
-      let matched = false;
+      // Skip items in "Toujours présents" group
+      if (item.group_id && toujoursPresentGroupIds.has(item.group_id)) continue;
 
-      for (const [needKey, need] of needs) {
+      const itemKey = normalizeKey(item.name);
+
+      for (const [needKey, need] of needsMap) {
         if (itemKey === needKey || keyMatch(itemKey, needKey)) {
-          matched = true;
           const nb = parseNbValue(item.content_quantity, item.content_quantity_type);
           let qtyNeeded = 1;
           if (nb && nb.grams > 0 && need.grams > 0) {
@@ -164,8 +166,6 @@ export function MealPlanGenerator() {
           break;
         }
       }
-
-      // Don't uncheck items not matched — user may have manually checked them
     }
   };
 
@@ -190,13 +190,18 @@ export function MealPlanGenerator() {
     const selectedIds: string[] = [];
     const counts = new Map<string, number>();
 
-    // Greedy selection with diversity: 16 recipes
+    // Shuffle candidates for better diversity
+    const shuffled = [...candidatePlats].sort(() => Math.random() - 0.5);
+
+    // Greedy selection with HIGH diversity: 16 recipes
     for (let i = 0; i < 16; i++) {
       const scored: { id: string; score: number }[] = [];
 
-      for (const recipe of candidatePlats) {
+      for (const recipe of shuffled) {
         if ((counts.get(recipe.id) || 0) >= 2) continue;
-        let score = 0;
+        // Diversity penalty: reduce score heavily if already selected
+        const alreadySelected = counts.get(recipe.id) || 0;
+        let score = alreadySelected > 0 ? -3 : 0;
 
         if (hasInventory) {
           const usage = getRecipeUsage(recipe);
@@ -217,11 +222,11 @@ export function MealPlanGenerator() {
               const afterUse = avail.grams - used.grams;
 
               if (afterUse < 0) {
-                score -= 1; // not enough
+                score -= 1;
               } else if (Math.abs(afterUse) < 1) {
-                score += 5; // exactly finishes
+                score += 5;
               } else if (pkgGrams > 0 && afterUse % pkgGrams < 1) {
-                score += 3; // remaining is a perfect package multiple
+                score += 3;
               } else {
                 score += Math.min(1, used.grams / avail.grams);
               }
@@ -239,16 +244,16 @@ export function MealPlanGenerator() {
           if (usesConstrainedItem) score += 0.5;
         }
 
-        // Random factor for diversity (each generation is different)
-        score += Math.random() * 2.5;
+        // Larger random factor for diversity
+        score += Math.random() * 4;
         scored.push({ id: recipe.id, score });
       }
 
       if (scored.length === 0) break;
 
-      // Pick from top 4 candidates for diversity
+      // Pick from top 6 candidates for more diversity
       scored.sort((a, b) => b.score - a.score);
-      const topN = scored.slice(0, Math.min(4, scored.length));
+      const topN = scored.slice(0, Math.min(6, scored.length));
       const pick = topN[Math.floor(Math.random() * topN.length)];
 
       selectedIds.push(pick.id);
@@ -277,34 +282,63 @@ export function MealPlanGenerator() {
       for (let j = 0; j < 4; j++) selectedIds.push(avantGrimpe.id);
     }
 
+    // Build total needs map for shopping check persistence
+    const needsMap = new Map<string, { grams: number; count: number }>();
+    for (const id of selectedIds) {
+      const recipe = allPlats.find(r => r.id === id);
+      if (!recipe) continue;
+      const usage = getRecipeUsage(recipe);
+      for (const [key, used] of usage) {
+        const prev = needsMap.get(key) || { grams: 0, count: 0 };
+        needsMap.set(key, { grams: prev.grams + used.grams, count: prev.count + used.count });
+      }
+    }
+
+    // Persist needs for re-check on green toggle
+    const needsObj: Record<string, { grams: number; count: number }> = {};
+    for (const [k, v] of needsMap) needsObj[k] = v;
+
     setSelectedMealIds(selectedIds);
     setPreference.mutate({ key: MENU_PREF_KEY, value: selectedIds });
+    setPreference.mutate({ key: MENU_NEEDS_KEY, value: needsObj });
 
     // Update shopping list checkboxes & quantities
-    updateShoppingChecks(selectedIds);
+    updateShoppingChecks(selectedIds, needsMap);
   };
 
   const shoppingItems2 = useMemo(() => {
-    const map = new Map<string, { grams: number; count: number; displayName: string }>();
+    const map = new Map<string, { grams: number; count: number; displayName: string; matched: boolean }>();
 
     for (const meal of selectedMeals) {
       const usage = getRecipeUsage(meal);
       for (const [key, used] of usage) {
-        const existing = map.get(key) || { grams: 0, count: 0, displayName: used.grams > 0 || used.count > 0 ? key : meal.name };
-        // Use meal name for display if no-ingredient meal
+        const existing = map.get(key) || { grams: 0, count: 0, displayName: !meal.ingredients ? meal.name : key, matched: false };
         const displayName = !meal.ingredients ? meal.name : existing.displayName;
         map.set(key, {
           grams: existing.grams + used.grams,
           count: existing.count + used.count,
           displayName,
+          matched: existing.matched,
         });
+      }
+    }
+
+    // Check which ingredients match shopping list items
+    for (const [key, item] of map) {
+      for (const si of shoppingItems) {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
+        const siKey = normalizeKey(si.name);
+        if (siKey === key || keyMatch(siKey, key)) {
+          item.matched = true;
+          break;
+        }
       }
     }
 
     return Array.from(map.entries())
       .map(([, v]) => v)
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
-  }, [selectedMeals]);
+  }, [selectedMeals, shoppingItems, toujoursPresentGroupIds]);
 
   const totalCal = selectedMeals.reduce((sum, m) => {
     const c = parseFloat((m.calories || "0").replace(/[^0-9.]/g, "")) || 0;
@@ -377,12 +411,15 @@ export function MealPlanGenerator() {
               {shoppingItems2.map((item, i) => (
                 <div key={i} className="flex items-center gap-2 py-1 px-2 rounded-xl bg-muted/40 text-sm">
                   <span className="font-medium text-foreground flex-1">{item.displayName}</span>
+                  {!item.matched && (
+                    <span className="text-amber-500 text-xs" title="Pas trouvé dans Courses-Liste">❓</span>
+                  )}
                   {item.grams > 0 && (
                     <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
                       {Math.round(item.grams)}g
                     </span>
                   )}
-                  {item.count > 0 && (
+                  {item.count > 0 && item.grams <= 0 && (
                     <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-mono">
                       ×{Math.round(item.count)}
                     </span>
