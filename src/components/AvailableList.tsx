@@ -434,15 +434,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
         return 0;
       };
       items.sort((a, b) => {
-        // is_meal items always at bottom
-        const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-        const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-        if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+        // is_meal items always at bottom (except for Plat)
+        if (!isPlat) {
+          const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+          const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+          if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+        }
         return dir * (getVal(a) - getVal(b));
       });
     } else if (sortMode === "manual") {
-      // For manual sort, also push is_meal to bottom when no stored order
-      if (storedOrder.length === 0) {
+      // For manual sort, also push is_meal to bottom when no stored order (except for Plat)
+      if (storedOrder.length === 0 && !isPlat) {
         items.sort((a, b) => {
           const aIsMeal = a.type === 'isMeal' ? 1 : 0;
           const bIsMeal = b.type === 'isMeal' ? 1 : 0;
@@ -565,46 +567,30 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
               }
 
               unified.sort((a, b) => {
-                // is_meal items always at bottom
-                const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-                const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-                if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+                // is_meal items always at bottom (except for Plat)
+                if (!isPlat) {
+                  const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+                  const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+                  if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+                }
                 return compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
               });
 
-              const firstIsMealIdx = unified.findIndex(u => u.type === 'isMeal');
               return unified.map((u, idx) => {
-                const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
-                  <div key={`sep-ismeal`} className="flex items-center gap-2 my-2">
-                    <Separator className="flex-1" />
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>
-                    <Separator className="flex-1" />
-                  </div>
-                ) : null;
-                const card = u.type === 'isMeal' ? renderIsMealCard(u.fi, idx)
-                  : u.type === 'nameMatch' ? renderNameMatchCard(u.nm, u.idx, idx)
-                  : u.type === 'partial' ? renderPartialCard(u.item, idx)
-                  : renderAvailableCard(u.item, idx);
-                return sep ? <>{sep}{card}</> : card;
+                if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
+                if (u.type === 'nameMatch') return renderNameMatchCard(u.nm, u.idx, idx);
+                if (u.type === 'partial') return renderPartialCard(u.item, idx);
+                return renderAvailableCard(u.item, idx);
               });
             }
 
             // manual or calories: use unified items
             const unifiedItems = buildUnifiedItems();
-            const firstIsMealIdx2 = unifiedItems.findIndex(u => u.type === 'isMeal');
             return unifiedItems.map((u, idx) => {
-              const sep = (idx === firstIsMealIdx2 && firstIsMealIdx2 > 0) ? (
-                <div key={`sep-ismeal-m`} className="flex items-center gap-2 my-2">
-                  <Separator className="flex-1" />
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>
-                  <Separator className="flex-1" />
-                </div>
-              ) : null;
-              const card = u.type === 'isMeal' ? renderIsMealCard(u.fi, idx)
-                : u.type === 'nm' ? renderNameMatchCard(u.nm, u.nmIdx, idx)
-                : u.type === 'partial' ? renderPartialCard(u.item, idx)
-                : renderAvailableCard(u.item, idx);
-              return sep ? <>{sep}{card}</> : card;
+              if (u.type === 'isMeal') return renderIsMealCard(u.fi, idx);
+              if (u.type === 'nm') return renderNameMatchCard(u.nm, u.nmIdx, idx);
+              if (u.type === 'partial') return renderPartialCard(u.item, idx);
+              return renderAvailableCard(u.item, idx);
             });
           })()}
 
