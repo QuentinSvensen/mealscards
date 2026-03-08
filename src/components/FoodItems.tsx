@@ -290,7 +290,7 @@ interface FoodItemCardProps {
 }
 
 function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
-  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "quantity" | "partial" | null>(null);
+  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
 
@@ -314,6 +314,7 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     if (editing === "name" && val) onUpdate({ name: val });
     if (editing === "grams") onUpdate({ grams: val || null });
     if (editing === "calories") onUpdate({ calories: val || null });
+    if (editing === "protein") onUpdate({ protein: val || null });
     if (editing === "quantity") onUpdate({ quantity: val ? parseInt(val) || null : null });
     if (editing === "partial" && gramsData.unit !== null) {
       if (!val) {
@@ -332,13 +333,15 @@ function FoodItemCard({ item, color, onUpdate, onDelete, onDuplicate, onDragStar
     setEditing(null);
   };
 
-  const startEdit = (field: "name" | "grams" | "calories" | "quantity" | "partial") => {
+  const startEdit = (field: "name" | "grams" | "calories" | "protein" | "quantity" | "partial") => {
     if (field === "quantity") {
       setEditValue(item.quantity ? String(item.quantity) : "");
     } else if (field === "grams") {
       setEditValue(gramsData.unit !== null ? formatNumeric(gramsData.unit) : "");
     } else if (field === "calories") {
       setEditValue(item.calories ?? "");
+    } else if (field === "protein") {
+      setEditValue(item.protein ?? "");
     } else if (field === "partial") {
       setEditValue(gramsData.remainder !== null ? formatNumeric(gramsData.remainder) : "");
     } else {
