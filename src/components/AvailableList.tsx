@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
@@ -17,7 +17,7 @@ import {
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
-type AvailableSortMode = "manual" | "calories" | "expiration";
+type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 
 interface AvailableListProps {
   category: { value: string; label: string; emoji: string };
@@ -25,7 +25,9 @@ interface AvailableListProps {
   foodItems: FoodItem[];
   allMeals: Meal[];
   sortMode: AvailableSortMode;
+  sortAsc: boolean;
   onToggleSort: () => void;
+  onToggleSortDirection: () => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onMoveToPossible: (id: string) => void;
@@ -42,7 +44,7 @@ interface AvailableListProps {
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
 }
 
-export function AvailableList({ category, meals, foodItems, allMeals, sortMode, onToggleSort, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
+export function AvailableList({ category, meals, foodItems, allMeals, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
   const isPlat = category.value === "plat";
   const stockMap = buildStockMap(foodItems);
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
