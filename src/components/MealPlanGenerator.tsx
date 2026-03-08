@@ -326,7 +326,7 @@ export function MealPlanGenerator() {
     setPreference.mutate({ key: MENU_NEEDS_KEY, value: needsObj });
 
     // Update shopping list checkboxes & quantities
-    updateShoppingChecks(selectedIds, needsMap);
+    updateShoppingChecks(needsMap);
   };
 
   const shoppingItems2 = useMemo(() => {
