@@ -445,13 +445,24 @@ export function useMeals(options?: { enabled?: boolean }) {
       if (aGroup === 0) {
         if (aCounter !== bCounter) return bCounter! - aCounter!;
 
+        // Same counter days (non-zero): sort by expiration date first
+        if (aCounter !== 0) {
+          if (aHasDate && bHasDate) {
+            const dateCmp = a.expiration_date!.localeCompare(b.expiration_date!);
+            if (dateCmp !== 0) return dateCmp;
+          }
+          if (aHasDate && !bHasDate) return -1;
+          if (!aHasDate && bHasDate) return 1;
+        }
+
+        // Same counter + same date (or counter=0): sort by calories ascending
         const aCal = extractSortableCalories(a);
         const bCal = extractSortableCalories(b);
-
         if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;
         if (aCal !== null && bCal === null) return -1;
         if (aCal === null && bCal !== null) return 1;
 
+        // Fallback for counter=0: date then name
         if (aHasDate && bHasDate) return a.expiration_date!.localeCompare(b.expiration_date!);
         if (aHasDate) return -1;
         if (bHasDate) return 1;
