@@ -33,12 +33,13 @@ function parseNbValue(nb: string | null, type: string | null): { grams: number; 
   return { grams: 0, count: val };
 }
 
-/** Get recipe ingredient usage. No-ingredient meals → name is the ingredient */
+/** Get recipe ingredient usage. No-ingredient meals → use meal's grams or name as ingredient */
 function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: number; rawName: string }> {
   const usage = new Map<string, { grams: number; count: number; rawName: string }>();
   if (!recipe.ingredients) {
     const key = normalizeKey(recipe.name);
-    usage.set(key, { grams: 0, count: 1, rawName: recipe.name });
+    const mealGrams = parseFloat((recipe.grams || "0").replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
+    usage.set(key, { grams: mealGrams, count: mealGrams > 0 ? 0 : 1, rawName: recipe.name });
     return usage;
   }
   const groups = recipe.ingredients.split(/(?:\n|,(?!\d))/).map((s) => s.trim()).filter(Boolean);
