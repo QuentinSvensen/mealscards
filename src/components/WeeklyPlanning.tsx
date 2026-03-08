@@ -248,7 +248,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
               {meal.ingredients
                 .split(/[,\n]+/)
                 .filter(Boolean)
-                .map((s: string) => s.trim())
+                .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
                 .join(" • ")}
             </div>
           )}
