@@ -29,7 +29,7 @@ import {
 import {
   buildStockMap, findStockKey, pickBestAlternative,
   getMealMultiple, getMealFractionalRatio,
-  getEarliestIngredientExpiration, getExpiringIngredientName, getExpiredIngredientNames,
+  getEarliestIngredientExpiration, getEarliestIngredientCounterDate, getExpiringIngredientName, getExpiredIngredientNames,
   getMaxIngredientCounter, getMaxIngredientCounterName, getCounterIngredientNames,
   getMissingIngredients, isFoodUsedInMeals,
   formatExpirationLabel, compareExpirationWithCounter,
@@ -1056,7 +1056,8 @@ const Index = () => {
                       const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
                       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
                       const expDate = getEarliestIngredientExpiration(meal, foodItems);
-                      const result = await moveToPossible.mutateAsync({ mealId, expiration_date: expDate });
+                      const counterDate = getEarliestIngredientCounterDate(meal, foodItems);
+                      const result = await moveToPossible.mutateAsync({ mealId, expiration_date: expDate, counter_start_date: counterDate });
                       if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
                     }
                   }}
@@ -1064,16 +1065,17 @@ const Index = () => {
                     const partialMeal = buildScaledMealForRatio(meal, ratio);
                     const snapshots = await deductIngredientsFromStock(partialMeal);
                     const expDate = getEarliestIngredientExpiration(meal, foodItems);
+                    const counterDate = getEarliestIngredientCounterDate(meal, foodItems);
                     const result = await addMealToPossibleDirectly.mutateAsync({
                       name: meal.name, category: cat.value, colorSeed: meal.id,
-                      calories: partialMeal.calories, grams: partialMeal.grams, ingredients: partialMeal.ingredients, expiration_date: expDate,
+                      calories: partialMeal.calories, grams: partialMeal.grams, ingredients: partialMeal.ingredients, expiration_date: expDate, counter_start_date: counterDate,
                     });
                     if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
                   }}
                   onMoveNameMatchToPossible={async (meal, fi) => {
                     const snapshot = [{ ...fi }];
                     await deductNameMatchStock(meal);
-                    const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date });
+                    const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date, counter_start_date: fi.counter_start_date });
                     if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
                   }}
                   onMoveFoodItemToPossible={async (fi) => {
@@ -1084,7 +1086,7 @@ const Index = () => {
                       else { await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", fi.id); }
                       qc.invalidateQueries({ queryKey: ["food_items"] });
                     }
-                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id });
+                    const pmResult = await addMealToPossibleDirectly.mutateAsync({ name: fi.name, category: cat.value, colorSeed: fi.id, calories: fi.calories, grams: fi.grams, expiration_date: fi.expiration_date, counter_start_date: fi.counter_start_date });
                     if (pmResult?.id) updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
                   }}
                   onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
