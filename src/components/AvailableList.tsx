@@ -339,15 +339,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
       items.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
     }
-    if (sortMode === "calories") {
-      const getCal = (u: UnifiedAvail): number => {
-        if (u.type === 'isMeal') return parseFloat((u.fi.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'nm') return parseFloat((u.nm.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'av') return parseFloat((u.item.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
-        if (u.type === 'partial') return parseFloat((u.item.meal.calories || "0").replace(/[^0-9.]/g, "")) || 0;
+    if (sortMode === "calories" || sortMode === "protein") {
+      const field = sortMode === "calories" ? "calories" : "protein";
+      const dir = sortAsc ? 1 : -1;
+      const getVal = (u: UnifiedAvail): number => {
+        if (u.type === 'isMeal') return parseFloat(((u.fi as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (u.type === 'nm') return parseFloat(((u.nm.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (u.type === 'av') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
+        if (u.type === 'partial') return parseFloat(((u.item.meal as any)[field] || "0").replace(/[^0-9.]/g, "")) || 0;
         return 0;
       };
-      items.sort((a, b) => getCal(a) - getCal(b));
+      items.sort((a, b) => dir * (getVal(a) - getVal(b)));
     }
     return items;
   };
