@@ -470,20 +470,18 @@ describe("percentage cards max validation", () => {
 
   it("correctly handles when all ingredients have different ratios", () => {
     const items = [
-      makeFoodItem({ name: "A", quantity: 1, grams: "90" }),   // 90/100 = 0.9
-      makeFoodItem({ name: "B", quantity: 1, grams: "140" }),  // 140/200 = 0.7
-      makeFoodItem({ name: "C", quantity: 1, grams: "240" }),  // 240/300 = 0.8
+      makeFoodItem({ name: "Pomme", quantity: 1, grams: "90" }),
+      makeFoodItem({ name: "Banane", quantity: 1, grams: "140" }),
+      makeFoodItem({ name: "Carotte", quantity: 1, grams: "240" }),
     ];
-    const meal = makeMeal({ name: "Test", ingredients: "100g A, 200g B, 300g C" });
+    const meal = makeMeal({ name: "Test", ingredients: "100g Pomme, 200g Banane, 300g Carotte" });
     const map = buildStockMap(items);
     const ratio = getMealFractionalRatio(meal, map);
-    expect(ratio).toBeCloseTo(0.7); // B is the limiting factor
+    expect(ratio).toBeCloseTo(0.7);
 
-    // Verify B's scaled value doesn't exceed stock
     const scaled = buildScaledMealForRatio(meal, ratio!);
     const groups = parseIngredientGroups(scaled.ingredients!);
-    expect(groups[1][0].qty).toBeLessThanOrEqual(140); // B scaled = 200*0.7 = 140 ✓
-    // A is over-satisfied: 100*0.7 = 70 ≤ 90 ✓
+    expect(groups[1][0].qty).toBeLessThanOrEqual(140);
     expect(groups[0][0].qty).toBeLessThanOrEqual(90);
   });
 });
