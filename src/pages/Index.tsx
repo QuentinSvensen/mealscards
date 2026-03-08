@@ -1718,26 +1718,7 @@ function parseIngredientGroups(raw: string): Array<Array<{qty: number; count: nu
   });
 }
 
-function scaleIngredientString(rawIngredients: string | null, ratio: number): string | null {
-  if (!rawIngredients?.trim()) return null;
-
-  return rawIngredients
-    .split(/(?:\n|,(?!\d))/)
-    .map(s => s.trim())
-    .filter(Boolean)
-    .map(group => {
-      const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
-      return alts
-        .map(alt => {
-          const parsed = parseIngredientLine(alt);
-          const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : "";
-          const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : "";
-          return [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.name].filter(Boolean).join(" ");
-        })
-        .join(" | ");
-    })
-    .join(", ");
-}
+// scaleIngredientString removed — use scaleIngredientStringExact instead
 
 function buildScaledMealForRatio(meal: Meal, ratio: number): Meal {
   const mealCal = meal.calories ? parseFloat(meal.calories.replace(/[^0-9.]/g, "")) : 0;
