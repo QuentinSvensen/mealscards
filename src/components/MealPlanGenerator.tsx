@@ -399,7 +399,10 @@ export function MealPlanGenerator() {
     return Array.from(map.entries())
       .map(([, v]) => v)
       .sort((a, b) => {
-        if (a.matched !== b.matched) return a.matched ? 1 : -1;
+        // Ambiguous (❓ bleu) first, then unmatched (❓ orange), then matched
+        const aScore = a.ambiguous ? 0 : !a.matched ? 1 : 2;
+        const bScore = b.ambiguous ? 0 : !b.matched ? 1 : 2;
+        if (aScore !== bScore) return aScore - bScore;
         return a.displayName.localeCompare(b.displayName, "fr");
       });
   }, [selectedMeals, shoppingItems, toujoursPresentGroupIds, toujoursFoodKeys]);
