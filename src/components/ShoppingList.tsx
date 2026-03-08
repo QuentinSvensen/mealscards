@@ -218,7 +218,7 @@ export function ShoppingList() {
   const handleAddGroup = () => {
     const result = shoppingGroupSchema.safeParse({ name: newGroupName });
     if (!result.success) {
-      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+      toast({ title: "Données invalides", description: result.error.issues[0].message, variant: "destructive" });
       return;
     }
     addGroup.mutate(result.data.name);

@@ -770,7 +770,7 @@ export function FoodItems() {
   const handleAdd = () => {
     const result = foodItemSchema.safeParse({ name: newName });
     if (!result.success) {
-      toast({ title: "Données invalides", description: result.error.errors[0].message, variant: "destructive" });
+      toast({ title: "Données invalides", description: result.error.issues[0].message, variant: "destructive" });
       return;
     }
     setPendingName(result.data.name);
