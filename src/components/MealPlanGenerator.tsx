@@ -301,12 +301,23 @@ export function MealPlanGenerator() {
         uniqueCandidates.sort((a, b) => b.score - a.score);
         const topN = uniqueCandidates.slice(0, Math.min(isLateRound ? 2 : 4, uniqueCandidates.length));
         const pick = topN[Math.floor(Math.random() * topN.length)];
-
-      selectedIds.push(pick.id);
-      counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
+        selectedIds.push(pick.id);
+        counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
+      } else {
+        // Pass 2: fallback to duplicates (max 2 of same recipe)
+        const dupCandidates = shuffled
+          .filter(r => (counts.get(r.id) || 0) >= 1 && (counts.get(r.id) || 0) < 2)
+          .map(r => ({ id: r.id, score: scoreRecipe(r) }));
+        if (dupCandidates.length === 0) break;
+        dupCandidates.sort((a, b) => b.score - a.score);
+        const pick = dupCandidates[0];
+        selectedIds.push(pick.id);
+        counts.set(pick.id, (counts.get(pick.id) || 0) + 1);
+      }
 
       // Update cumulative usage
-      const recipe = candidatePlats.find(r => r.id === pick.id);
+      const pickedId = selectedIds[selectedIds.length - 1];
+      const recipe = candidatePlats.find(r => r.id === pickedId);
       if (recipe && hasInventory) {
         const usage = getRecipeUsage(recipe);
         for (const [ingKey, used] of usage) {
