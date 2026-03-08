@@ -179,8 +179,15 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
 
   const handleConsumeConfirm = () => {
     if (!consumeDialogItem) return;
-    const qtyVal = consumeQty ? parseInt(consumeQty) || undefined : undefined;
-    const gramsVal = consumeGrams ? parseFloat(consumeGrams.replace(",", ".")) || undefined : undefined;
+    const maxQty = consumeDialogItem.quantity ?? 1;
+    const maxGrams = getFoodItemTotalGrams(consumeDialogItem);
+    let qtyVal = consumeQty ? parseInt(consumeQty) || undefined : undefined;
+    let gramsVal = consumeGrams ? parseFloat(consumeGrams.replace(",", ".")) || undefined : undefined;
+    // Enforce maximums
+    if (qtyVal !== undefined && qtyVal > maxQty) qtyVal = maxQty;
+    if (qtyVal !== undefined && qtyVal < 1) qtyVal = 1;
+    if (gramsVal !== undefined && gramsVal > maxGrams) gramsVal = maxGrams;
+    if (gramsVal !== undefined && gramsVal < 1) gramsVal = 1;
     onMoveToPossible(consumeDialogItem, qtyVal, gramsVal);
     setConsumeDialogItem(null);
     setConsumeQty("");
