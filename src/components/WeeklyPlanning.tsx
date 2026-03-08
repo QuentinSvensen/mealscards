@@ -438,7 +438,8 @@ export function WeeklyPlanning() {
     const breakfast = getBreakfastForDay(day);
     const extra = extraCalories[day] || 0;
     const breakfastCal = breakfast ? parseCalories(breakfast.calories) : (breakfastManualCalories[day] || 0);
-    return mealCals + breakfastCal + extra;
+    const drinkCal = TIMES.reduce((sum, time) => sum + (drinkChecks[`${day}-${time}`] ? DRINK_CALORIES : 0), 0);
+    return mealCals + breakfastCal + extra + drinkCal;
   };
 
   const getDayProtein = (day: string): number => {
