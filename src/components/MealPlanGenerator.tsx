@@ -240,18 +240,18 @@ export function MealPlanGenerator() {
     const multipleScore = (cumGrams: number, pkgGrams: number): number => {
       if (pkgGrams <= 0 || cumGrams <= 0) return 0;
       const remainder = cumGrams % pkgGrams;
-      // How close to nearest multiple (0 = perfect)
       const dist = Math.min(remainder, pkgGrams - remainder);
       const ratio = dist / pkgGrams; // 0 = perfect multiple, 0.5 = worst
-      if (ratio < 0.02) return 6;  // nearly exact multiple → big bonus
-      if (ratio < 0.1) return 3;   // close to multiple
-      return -ratio * 2;           // penalty proportional to waste
+      if (ratio < 0.02) return 10;  // nearly exact multiple → huge bonus
+      if (ratio < 0.1) return 5;    // close to multiple
+      if (ratio < 0.25) return 1;   // acceptable
+      return -ratio * 4;            // strong penalty for waste
     };
 
     // Greedy selection: 16 recipes optimizing for whole-multiple consumption
     for (let i = 0; i < 16; i++) {
       const scored: { id: string; score: number }[] = [];
-      const isLateRound = i >= 12; // last 4 picks: prioritize alignment more
+      const isLateRound = i >= 10; // last 6 picks: prioritize alignment strongly
 
       for (const recipe of shuffled) {
         if ((counts.get(recipe.id) || 0) >= 2) continue;
@@ -273,41 +273,40 @@ export function MealPlanGenerator() {
 
             if (used.grams > 0 && inv.pkgGrams > 0) {
               const newCumGrams = prevUsage.grams + used.grams;
-              const totalAvail = inv.grams; // total purchased grams
+              const totalAvail = inv.grams;
               
-              // Penalize if we'd exceed total available
               if (newCumGrams > totalAvail * 1.05) {
-                score -= 2;
+                score -= 4;
               } else {
-                // Reward alignment to package multiples
                 const ms = multipleScore(newCumGrams, inv.pkgGrams);
-                score += isLateRound ? ms * 2 : ms;
+                score += isLateRound ? ms * 2.5 : ms;
               }
             }
             if (used.count > 0 && inv.pkgCount > 0) {
               const newCumCount = prevUsage.count + used.count;
               const totalAvailCount = inv.count;
               if (newCumCount > totalAvailCount * 1.05) {
-                score -= 2;
+                score -= 4;
               } else {
                 const remainder = newCumCount % inv.pkgCount;
                 const dist = Math.min(remainder, inv.pkgCount - remainder);
-                score += dist < 0.1 ? 4 : -dist;
+                score += dist < 0.1 ? 8 : -dist * 2;
               }
             }
           }
-          if (usesConstrainedItem) score += 0.5;
+          if (usesConstrainedItem) score += 1;
         }
 
-        // Random factor for diversity (smaller in late rounds for precision)
-        score += Math.random() * (isLateRound ? 2 : 4);
+        // Random factor: reduced to not override package alignment
+        score += Math.random() * (isLateRound ? 1 : 2.5);
         scored.push({ id: recipe.id, score });
       }
 
       if (scored.length === 0) break;
 
       scored.sort((a, b) => b.score - a.score);
-      const topN = scored.slice(0, Math.min(isLateRound ? 3 : 6, scored.length));
+      // Tighter selection pool for better optimization
+      const topN = scored.slice(0, Math.min(isLateRound ? 2 : 4, scored.length));
       const pick = topN[Math.floor(Math.random() * topN.length)];
 
       selectedIds.push(pick.id);
