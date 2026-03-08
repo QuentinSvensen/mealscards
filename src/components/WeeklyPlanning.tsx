@@ -47,8 +47,8 @@ function getDateForDayKey(dayKey: string): Date {
   return d;
 }
 
-const DAILY_GOAL = 2750;
-const WEEKLY_GOAL = 19250;
+const DEFAULT_DAILY_GOAL = 2750;
+const DEFAULT_WEEKLY_MULTIPLIER = 7;
 
 // Calorie override key for planning cards
 function calOverrideKey(pmId: string) { return `planning_cal_override_${pmId}`; }
