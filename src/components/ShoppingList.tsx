@@ -360,14 +360,35 @@ export function ShoppingList() {
       >
         {/* Secondary checkbox OR ambiguous indicator (clickable with group color) */}
         {isAmbiguous ? (() => {
-          const colorIdx = ambiguousItemData.get(item.id) ?? -1;
+          const ambData = ambiguousItemData.get(item.id);
+          const colorIdx = ambData?.colorIndex ?? -1;
           const color = colorIdx === -1 ? defaultAmbiguousColor : ambiguousColors[colorIdx];
+          const needKey = ambData?.needKey;
+
+          // Compute suggested quantity from menu needs
+          const computeSuggestedQty = () => {
+            if (!needKey) return 1;
+            const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+            const need = needsRaw[needKey];
+            if (!need) return 1;
+            const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
+            const nbType = (item as any).content_quantity_type;
+            if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) return Math.ceil(need.grams / nb);
+            if (nb > 0 && need.count > 0) return Math.ceil(need.count / nb);
+            if (need.count > 0) return Math.ceil(need.count);
+            return 1;
+          };
+
           return (
             <button
               onClick={() => {
                 const newChecked = !item.secondary_checked;
                 toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: newChecked });
-                if (!newChecked) {
+                if (newChecked) {
+                  const qty = computeSuggestedQty();
+                  updateItemQuantity.mutate({ id: item.id, quantity: String(qty) });
+                  setLocalQuantities(prev => ({ ...prev, [item.id]: String(qty) }));
+                } else {
                   updateItemQuantity.mutate({ id: item.id, quantity: null });
                   setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
                 }
