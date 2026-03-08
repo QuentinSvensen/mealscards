@@ -23,20 +23,22 @@ export {
 
 // ─── Stock Map ──────────────────────────────────────────────────────────────
 
-export interface StockInfo { grams: number; count: number; infinite: boolean; }
+export interface StockInfo { grams: number; count: number; infinite: boolean; indivisibleUnit: number; }
 
 export function buildStockMap(foodItems: FoodItem[]): Map<string, StockInfo> {
   const map = new Map<string, StockInfo>();
   for (const fi of foodItems) {
     const key = normalizeKey(fi.name);
-    const prev = map.get(key) ?? { grams: 0, count: 0, infinite: false };
+    const prev = map.get(key) ?? { grams: 0, count: 0, infinite: false, indivisibleUnit: 0 };
     if (fi.is_infinite) {
       map.set(key, { ...prev, infinite: true });
     } else {
+      const unitGrams = parseQty(fi.grams);
       map.set(key, {
         grams: prev.grams + getFoodItemTotalGrams(fi),
         count: prev.count + (fi.quantity ?? 1),
         infinite: prev.infinite,
+        indivisibleUnit: fi.is_indivisible && unitGrams > 0 ? Math.max(prev.indivisibleUnit, unitGrams) : prev.indivisibleUnit,
       });
     }
   }
@@ -75,6 +77,8 @@ export function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): n
   let multiple = Infinity;
 
   for (const group of groups) {
+    // Skip optional groups
+    if (group[0]?.optional) continue;
     let bestGroupMultiple = 0;
     let anyMatch = false;
     for (const alt of group) {
@@ -91,6 +95,9 @@ export function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): n
     if (!anyMatch) return null;
     multiple = Math.min(multiple, bestGroupMultiple);
   }
+  // If all groups are optional, return null (no required ingredients)
+  const hasRequired = groups.some(g => !g[0]?.optional);
+  if (!hasRequired) return null;
   return multiple === Infinity ? Infinity : multiple;
 }
 
@@ -101,6 +108,8 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
   let minRatio = Infinity;
 
   for (const group of groups) {
+    // Skip optional groups
+    if (group[0]?.optional) continue;
     let bestGroupRatio = 0;
     let anyMatch = false;
     for (const alt of group) {
@@ -117,6 +126,28 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
     if (!anyMatch) return null;
     minRatio = Math.min(minRatio, bestGroupRatio);
   }
+
+  // Check if all groups are optional
+  const hasRequired = groups.some(g => !g[0]?.optional);
+  if (!hasRequired) return null;
+
+  // Snap ratio for indivisible ingredients
+  for (const group of groups) {
+    if (group[0]?.optional) continue;
+    for (const alt of group) {
+      const key = findStockKey(stockMap, alt.name);
+      if (!key) continue;
+      const stock = stockMap.get(key)!;
+      if (stock.indivisibleUnit > 0 && alt.qty > 0) {
+        const neededAtRatio = alt.qty * minRatio;
+        const snapped = Math.floor(neededAtRatio / stock.indivisibleUnit) * stock.indivisibleUnit;
+        if (snapped <= 0) return null;
+        const snappedRatio = snapped / alt.qty;
+        minRatio = Math.min(minRatio, snappedRatio);
+      }
+    }
+  }
+
   if (minRatio === Infinity || minRatio >= 1 || minRatio < 0.5) return null;
   return minRatio;
 }
@@ -202,6 +233,8 @@ export function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInf
   if (!meal.ingredients?.trim()) return missing;
   const groups = parseIngredientGroups(meal.ingredients);
   for (const group of groups) {
+    // Skip optional groups
+    if (group[0]?.optional) continue;
     let groupSatisfied = false;
     for (const alt of group) {
       const key = findStockKey(stockMap, alt.name);
@@ -274,10 +307,12 @@ export function sortStockDeductionPriority(a: FoodItem, b: FoodItem): number {
 
 export function buildScaledMealForRatio(meal: Meal, ratio: number): Meal {
   const mealCal = meal.calories ? parseFloat(meal.calories.replace(/[^0-9.]/g, "")) : 0;
+  const mealProt = meal.protein ? parseFloat(meal.protein.replace(/[^0-9.]/g, "")) : 0;
   const mealGrams = parseQty(meal.grams);
   return {
     ...meal,
     calories: meal.calories ? String(Math.round(mealCal * ratio)) : null,
+    protein: meal.protein ? String(Math.round(mealProt * ratio)) : null,
     grams: meal.grams ? formatNumeric(Math.round(mealGrams * ratio * 10) / 10) : null,
     ingredients: scaleIngredientStringExact(meal.ingredients, ratio),
   };
@@ -289,10 +324,13 @@ export function scaleIngredientStringExact(rawIngredients: string | null, ratio:
     .map(group => {
       return group.split(/\|/).map(s => s.trim()).filter(Boolean)
         .map(alt => {
-          const parsed = parseIngredientLineRaw(alt);
+          const isOptional = alt.startsWith("?");
+          const cleanAlt = isOptional ? alt.slice(1).trim() : alt;
+          const parsed = parseIngredientLineRaw(cleanAlt);
           const scaledQty = parsed.qty > 0 ? formatNumeric(Math.round(parsed.qty * ratio * 10) / 10) : "";
           const scaledCount = parsed.count > 0 ? formatNumeric(Math.round(parsed.count * ratio * 10) / 10) : "";
-          return [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
+          const token = [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
+          return isOptional ? `?${token}` : token;
         }).join(" | ");
     }).join(", ");
 }

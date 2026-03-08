@@ -109,7 +109,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", isOr: false });
+        next.push({ qty: "", count: "", name: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -247,14 +247,15 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           }}
           className="flex flex-col gap-1 mt-1.5"
         >
-          <div className="grid grid-cols-[1.5rem_3.5rem_2.5rem_1fr] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1 mb-0.5">
             <span className="text-[9px] text-white/50 text-center">Ou</span>
+            <span className="text-[9px] text-white/50 text-center">?</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[1.5rem_3.5rem_2.5rem_1fr] gap-1">
+            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr] gap-1">
               <button
                 type="button"
                 onClick={() => toggleOr(idx)}
@@ -268,6 +269,22 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
                 disabled={idx === 0}
               >
                 {line.isOr ? "ou" : idx > 0 ? "+" : ""}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIngLines(prev => {
+                  const next = [...prev];
+                  next[idx] = { ...next[idx], isOptional: !next[idx].isOptional };
+                  return next;
+                })}
+                className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
+                  line.isOptional
+                    ? 'bg-purple-400/30 text-purple-200 border border-purple-400/50'
+                    : 'text-white/20 hover:text-white/50 hover:bg-white/10'
+                }`}
+                title="Ingrédient optionnel"
+              >
+                ?
               </button>
               <Input
                 ref={el => { qtyRefs.current[idx] = el; }}
@@ -370,9 +387,15 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       {/* Row 3: ingredients (click to edit) */}
       {!editing && !editingIngredients && displayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
-          {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => (
-            <span key={i}>{ing.trim()}{i < arr.length - 1 ? ' •' : ''}</span>
-          ))}
+          {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => {
+            const isOpt = ing.trim().startsWith("?");
+            const display = isOpt ? ing.trim().slice(1).trim() : ing.trim();
+            return (
+              <span key={i} className={isOpt ? 'italic text-white/40' : ''}>
+                {isOpt ? '?' : ''}{display}{i < arr.length - 1 ? ' •' : ''}
+              </span>
+            );
+          })}
         </button>
       )}
     </div>
