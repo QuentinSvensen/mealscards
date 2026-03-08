@@ -266,6 +266,10 @@ const Index = () => {
   const dbUnParUnSortModes = getPreference<Record<string, UnParUnSortMode>>('meal_unparun_sort_modes', {});
   const [unParUnSortModes, setUnParUnSortModes] = useState<Record<string, UnParUnSortMode>>({});
 
+  // Sort direction state (asc=true / desc=false for numeric sorts)
+  const dbSortDirections = getPreference<Record<string, boolean>>('meal_sort_directions', {});
+  const [sortDirections, setSortDirections] = useState<Record<string, boolean>>({});
+
   const dbSyncedRef = useRef(false);
   useEffect(() => {
     if (dbSyncedRef.current) return;
@@ -274,6 +278,7 @@ const Index = () => {
   useEffect(() => { if (Object.keys(dbMasterSortModes).length > 0) setMasterSortModes(dbMasterSortModes); }, [dbMasterSortModes]);
   useEffect(() => { if (Object.keys(dbAvailableSortModes).length > 0) setAvailableSortModes(dbAvailableSortModes); }, [dbAvailableSortModes]);
   useEffect(() => { if (Object.keys(dbUnParUnSortModes).length > 0) setUnParUnSortModes(dbUnParUnSortModes); }, [dbUnParUnSortModes]);
+  useEffect(() => { if (Object.keys(dbSortDirections).length > 0) setSortDirections(dbSortDirections); }, [dbSortDirections]);
 
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
