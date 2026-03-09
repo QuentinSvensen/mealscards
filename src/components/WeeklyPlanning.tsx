@@ -252,7 +252,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
             <span className="font-semibold text-xs min-w-0 break-words leading-tight">{meal.name}</span>
           </div>
-          {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
+          {!compact && (pm.expiration_date || meal.grams || (pm.ingredients_override ?? meal.ingredients)) && (
             <div className="pt-0.5">
               {meal.grams && (
                 <div className="flex items-center gap-1">
@@ -270,13 +270,13 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                   </span>
                 </div>
               )}
-              {meal.ingredients && (
+              {(pm.ingredients_override ?? meal.ingredients) && (
                 <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 flex flex-wrap gap-x-1`}>
-                  {meal.ingredients
+                  {(pm.ingredients_override ?? meal.ingredients)!
                     .split(/[,\n]+/)
                     .filter(Boolean)
                     .map((s: string) => s.trim())
-                    .map((s: string) => s.replace(/\{\d+(?:[.,]\d+)?\}\s*/g, "").trim())
+                    .map((s: string) => s.replace(/\[\d+(?:[.,]\d+)?\]\s*/g, "").replace(/\{\d+(?:[.,]\d+)?\}\s*/g, "").trim())
                     .map((item, i, arr) => (
                       <span key={i} className="whitespace-nowrap">
                         {item}{i < arr.length - 1 ? " •" : ""}
