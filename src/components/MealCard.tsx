@@ -9,7 +9,7 @@ import type { Meal } from "@/hooks/useMeals";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, normalizeKey,
-  computeIngredientCalories,
+  computeIngredientCalories, computeIngredientProtein,
 } from "@/lib/ingredientUtils";
 
 interface MealCardProps {
@@ -74,12 +74,12 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
     setEditingIngredients(false);
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "prot", value: string) => {
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
+        next.push({ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -143,82 +143,45 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
           }}
           className="flex flex-col gap-1"
         >
-          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_2.5rem_2.5rem] gap-1 mb-0.5">
             <span className="text-[9px] text-white/50 text-center">Ou</span>
             <span className="text-[9px] text-white/50 text-center">?</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
             <span className="text-[9px] text-white/50 text-center">Cal</span>
+            <span className="text-[9px] text-white/50 text-center">Prot</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1">
-              <button
-                type="button"
-                onClick={() => toggleOr(idx)}
+            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_2.5rem_2.5rem] gap-1">
+              <button type="button" onClick={() => toggleOr(idx)}
                 className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
-                  idx === 0
-                    ? 'text-white/15 cursor-default'
-                    : line.isOr
-                      ? 'bg-yellow-400/30 text-yellow-200 border border-yellow-400/50'
-                      : 'text-white/30 hover:text-white/60 hover:bg-white/10'
-                }`}
-                disabled={idx === 0}
-                title={idx === 0 ? "" : line.isOr ? "Cet ingrédient est un OU du précédent" : "Marquer comme alternative (OU)"}
-              >
+                  idx === 0 ? 'text-white/15 cursor-default' : line.isOr ? 'bg-yellow-400/30 text-yellow-200 border border-yellow-400/50' : 'text-white/30 hover:text-white/60 hover:bg-white/10'
+                }`} disabled={idx === 0}
+                title={idx === 0 ? "" : line.isOr ? "Cet ingrédient est un OU du précédent" : "Marquer comme alternative (OU)"}>
                 {line.isOr ? "ou" : idx > 0 ? "+" : ""}
               </button>
-              <button
-                type="button"
-                onClick={() => setIngLines(prev => {
-                  const next = [...prev];
-                  next[idx] = { ...next[idx], isOptional: !next[idx].isOptional };
-                  return next;
-                })}
+              <button type="button" onClick={() => setIngLines(prev => { const next = [...prev]; next[idx] = { ...next[idx], isOptional: !next[idx].isOptional }; return next; })}
                 className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
-                  line.isOptional
-                    ? 'bg-purple-400/30 text-purple-200 border border-purple-400/50'
-                    : 'text-white/20 hover:text-white/50 hover:bg-white/10'
-                }`}
-                title="Ingrédient optionnel"
-              >
-                ?
-              </button>
-              <Input
-                ref={el => { qtyRefs.current[idx] = el; }}
-                autoFocus={idx === 0}
-                placeholder="g"
-                inputMode="decimal"
-                value={line.qty}
-                onChange={e => updateLine(idx, "qty", e.target.value)}
-                onKeyDown={e => handleIngKeyDown(idx, "qty", e)}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1.5"
-              />
-              <Input
-                ref={el => { countRefs.current[idx] = el; }}
-                placeholder="#"
-                inputMode="numeric"
-                value={line.count}
-                onChange={e => updateLine(idx, "count", e.target.value)}
-                onKeyDown={e => handleIngKeyDown(idx, "count", e)}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
-              />
-              <Input
-                ref={el => { nameRefs.current[idx] = el; }}
-                placeholder={`Ingrédient ${idx + 1}`}
-                value={line.name}
-                onChange={e => updateLine(idx, "name", e.target.value)}
-                onKeyDown={e => handleIngKeyDown(idx, "name", e)}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
-              />
-              <Input
-                placeholder="cal"
-                inputMode="decimal"
-                value={line.cal}
+                  line.isOptional ? 'bg-purple-400/30 text-purple-200 border border-purple-400/50' : 'text-white/20 hover:text-white/50 hover:bg-white/10'
+                }`} title="Ingrédient optionnel">?</button>
+              <Input ref={el => { qtyRefs.current[idx] = el; }} autoFocus={idx === 0} placeholder="g" inputMode="decimal"
+                value={line.qty} onChange={e => updateLine(idx, "qty", e.target.value)} onKeyDown={e => handleIngKeyDown(idx, "qty", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1.5" />
+              <Input ref={el => { countRefs.current[idx] = el; }} placeholder="#" inputMode="numeric"
+                value={line.count} onChange={e => updateLine(idx, "count", e.target.value)} onKeyDown={e => handleIngKeyDown(idx, "count", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1" />
+              <Input ref={el => { nameRefs.current[idx] = el; }} placeholder={`Ingrédient ${idx + 1}`}
+                value={line.name} onChange={e => updateLine(idx, "name", e.target.value)} onKeyDown={e => handleIngKeyDown(idx, "name", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2" />
+              <Input placeholder="cal" inputMode="decimal" value={line.cal}
                 onChange={e => updateLine(idx, "cal", e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
-              />
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1" />
+              <Input placeholder="prot" inputMode="decimal" value={line.prot}
+                onChange={e => updateLine(idx, "prot", e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1" />
             </div>
           ))}
           <button onClick={commitIngredients} className="text-[10px] text-white/60 hover:text-white text-left mt-0.5">✓ Valider</button>
@@ -258,11 +221,18 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
                   </span>
                 ) : null;
               })()}
-              {meal.protein && (
-                <span className="text-xs text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold">
-                  🍗 {meal.protein}
-                </span>
-              )}
+              {(() => {
+                const ingProt = computeIngredientProtein(meal.ingredients);
+                const displayProt = ingProt !== null ? String(ingProt) : meal.protein;
+                const isComputedProt = ingProt !== null;
+                return displayProt ? (
+                  <span className={`text-xs text-white/70 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
+                    isComputedProt ? 'bg-orange-500/50' : 'bg-blue-500/30'
+                  }`}>
+                    🍗 {displayProt}
+                  </span>
+                ) : null;
+              })()}
               {hasCuisson && (
                 <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <Thermometer className="h-3 w-3" />
@@ -368,7 +338,7 @@ function renderIngredientDisplay(
     alts.forEach((alt, ai) => {
       const cleanAlt = alt.startsWith("?") ? alt.slice(1).trim() : alt;
       // Strip {cal} suffix from display
-      const displayAlt = cleanAlt.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
+      const displayAlt = cleanAlt.replace(/\[\d+(?:[.,]\d+)?\]\s*$/, "").replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
       const parsed = parseIngredientLineDisplay(cleanAlt);
       const normalizedName = normalizeKey(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);

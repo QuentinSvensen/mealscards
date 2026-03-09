@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMeals, DAYS, TIMES, type PossibleMeal } from "@/hooks/useMeals";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Timer, Flame, Weight, Calendar, Lock } from "lucide-react";
-import { computeIngredientCalories } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein } from "@/lib/ingredientUtils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -122,8 +122,8 @@ interface TouchDragState {
 }
 
 // ─── PlanningMiniCard ────────────────────────────────────────────────────────
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, isComputedCal, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; isComputedCal: boolean; compact: boolean;
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, isComputedCal, displayProt, isComputedProt, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; isComputedCal: boolean; displayProt: string | null; isComputedProt: boolean; compact: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
@@ -199,9 +199,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                   <Flame className="h-3 w-3" />
                 </button>
               )}
-              {meal.protein && (
-                <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
-                  🍗 {meal.protein}
+              {displayProt && (
+                <span className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedProt ? 'bg-orange-500/60' : 'bg-black/30'}`}>
+                  🍗 {displayProt}
                 </span>
               )}
               {counterDays !== null && (
@@ -216,7 +216,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             </div>
           )}
         </div>
-        {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
+        {!compact && (pm.expiration_date || meal.grams || (pm.ingredients_override ?? meal.ingredients)) && (
           <div className="mt-auto pt-0.5">
             {meal.grams && (
               <div className="flex items-center gap-1">
@@ -226,7 +226,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                 </span>
               </div>
             )}
-            {(meal.ingredients || pm.expiration_date) && (
+            {((pm.ingredients_override ?? meal.ingredients) || pm.expiration_date) && (
               <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
                 {pm.expiration_date && (
                   <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
@@ -234,10 +234,10 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                     {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   </span>
                 )}
-                {meal.ingredients && meal.ingredients
+                {(pm.ingredients_override ?? meal.ingredients) && (pm.ingredients_override ?? meal.ingredients)!
                   .split(/[,\n]+/)
                   .filter(Boolean)
-                  .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
+                  .map((s: string) => s.trim().replace(/\[\d+(?:[.,]\d+)?\]\s*$/g, "").replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
                   .join(" • ")}
               </div>
             )}
@@ -252,7 +252,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
             <span className="font-semibold text-xs min-w-0 break-words leading-tight">{meal.name}</span>
           </div>
-          {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
+          {!compact && (pm.expiration_date || meal.grams || (pm.ingredients_override ?? meal.ingredients)) && (
             <div className="pt-0.5">
               {meal.grams && (
                 <div className="flex items-center gap-1">
@@ -270,13 +270,13 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                   </span>
                 </div>
               )}
-              {meal.ingredients && (
+              {(pm.ingredients_override ?? meal.ingredients) && (
                 <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 flex flex-wrap gap-x-1`}>
-                  {meal.ingredients
+                  {(pm.ingredients_override ?? meal.ingredients)!
                     .split(/[,\n]+/)
                     .filter(Boolean)
                     .map((s: string) => s.trim())
-                    .map((s: string) => s.replace(/\{\d+(?:[.,]\d+)?\}\s*/g, "").trim())
+                    .map((s: string) => s.replace(/\[\d+(?:[.,]\d+)?\]\s*/g, "").replace(/\{\d+(?:[.,]\d+)?\}\s*/g, "").trim())
                     .map((item, i, arr) => (
                       <span key={i} className="whitespace-nowrap">
                         {item}{i < arr.length - 1 ? " •" : ""}
@@ -325,9 +325,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                 <Flame className="h-3 w-3" />
               </button>
             )}
-            {meal.protein && (
-              <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
-                🍗 {meal.protein}
+            {displayProt && (
+              <span className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedProt ? 'bg-orange-500/60' : 'bg-black/30'}`}>
+                🍗 {displayProt}
               </span>
             )}
             {counterDays !== null && (
@@ -429,7 +429,7 @@ export function WeeklyPlanning() {
           return total + slotMeals.reduce((s, pm) => {
             const override = calOverrides[pm.id];
             if (override) return s + parseCalories(override);
-            const ingCal = computeIngredientCalories(pm.meals?.ingredients);
+            const ingCal = computeIngredientCalories(pm.ingredients_override ?? pm.meals?.ingredients);
             if (ingCal !== null) return s + ingCal;
             return s + parseCalories(pm.meals?.calories);
           }, 0);
@@ -448,7 +448,11 @@ export function WeeklyPlanning() {
   const getDayProtein = (day: string): number => {
     const mealProt = TIMES.reduce((total, time) => {
       const slotMeals = getMealsForSlot(day, time);
-      return total + slotMeals.reduce((s, pm) => s + parseProtein(pm.meals?.protein), 0);
+      return total + slotMeals.reduce((s, pm) => {
+        const ingProt = computeIngredientProtein(pm.ingredients_override ?? pm.meals?.ingredients);
+        if (ingProt !== null) return s + ingProt;
+        return s + parseProtein(pm.meals?.protein);
+      }, 0);
     }, 0);
     const breakfast = getBreakfastForDay(day);
     const breakfastProt = breakfast ? parseProtein(breakfast.protein) : 0;
@@ -613,9 +617,12 @@ export function WeeklyPlanning() {
     const counterDays = getAdaptedCounterDays(pm.counter_start_date, pm.day_of_week);
     const counterUrgent = counterDays !== null && counterDays >= 3;
     const overrideCal = calOverrides[pm.id];
-    const ingCal = computeIngredientCalories(meal.ingredients);
+    const ingCal = computeIngredientCalories(pm.ingredients_override ?? meal.ingredients);
     const isComputedCal = !overrideCal && ingCal !== null;
     const displayCal = overrideCal || (ingCal !== null ? String(ingCal) : meal.calories);
+    const ingProt = computeIngredientProtein(pm.ingredients_override ?? meal.ingredients);
+    const displayProt = ingProt !== null ? String(ingProt) : meal.protein;
+    const isComputedProt = ingProt !== null;
 
     return (
       <PlanningMiniCard
@@ -627,6 +634,8 @@ export function WeeklyPlanning() {
         counterUrgent={counterUrgent}
         displayCal={displayCal}
         isComputedCal={isComputedCal}
+        displayProt={displayProt}
+        isComputedProt={isComputedProt}
         compact={compact}
         isTouchDevice={isTouchDevice}
         touchDragActive={touchDragActive}

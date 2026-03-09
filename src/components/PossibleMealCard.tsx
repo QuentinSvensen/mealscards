@@ -14,6 +14,7 @@ import { format, parseISO } from "date-fns";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
+  computeIngredientProtein,
 } from "@/lib/ingredientUtils";
 import { scaleIngredientStringExact } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
@@ -120,12 +121,12 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
     setEditingIngredients(false);
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "prot", value: string) => {
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
+        next.push({ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false });
       }
       return next;
     });
@@ -163,105 +164,106 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
-      {/* Row 1: name + counter inline + actions */}
-      <div className="flex items-center gap-1.5">
-        <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
-
-        <span className="font-semibold text-white text-sm truncate">
-          {meal.name}
-        </span>
-
-        {counterDays !== null && (
-          <button
-            onClick={() => onUpdateCounter(null)}
-            className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${
-              counterUrgent
-                ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
-                : 'bg-white/25 text-white'
-            }`}
-          >
-            <Timer className="h-3 w-3" /> {counterDays}j
-          </button>
-        )}
-
-        <div className="flex-1" />
-
-        {(pm.quantity > 1 || onUpdateQuantity) && (
-          <button
-            onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
-            className={`text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-black/40 cursor-pointer' : ''}`}
-          >
-            <Hash className="h-2.5 w-2.5" />{pm.quantity}
-          </button>
-        )}
-        {meal.grams && (
-          <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40 shrink-0">
-            <Weight className="h-2.5 w-2.5" />{meal.grams}
-          </button>
-        )}
-        {(() => {
-          const ingCal = computeIngredientCalories(displayIngredients);
-          const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
-          const isComputed = ingCal !== null;
-          return displayCal ? (
-            <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className={`text-[10px] text-white/90 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${
-              isComputed ? 'bg-orange-500/50 font-bold hover:bg-orange-500/60' : 'bg-black/30 hover:bg-black/40'
-            }`}>
-              <Flame className="h-2.5 w-2.5" />{displayCal}
-            </button>
-          ) : null;
-        })()}
-        {meal.protein && (
-          <span className="text-[10px] text-white/90 bg-blue-500/40 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold">
-            🍗 {meal.protein}
+      {/* Row 1: name + options (wrapping) */}
+      <div className="flex items-start gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </Button>
+          <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal">
+            {meal.name}
           </span>
-        )}
+          {counterDays !== null && (
+            <button onClick={() => onUpdateCounter(null)}
+              className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${
+                counterUrgent ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30' : 'bg-white/25 text-white'
+              }`}>
+              <Timer className="h-3 w-3" /> {counterDays}j
+            </button>
+          )}
+        </div>
 
-        <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
-          <Copy className="h-3 w-3" />
-        </Button>
+        <div className="flex items-center justify-end gap-1 shrink-0 flex-wrap">
+          {(pm.quantity > 1 || onUpdateQuantity) && (
+            <button onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
+              className={`text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-black/40 cursor-pointer' : ''}`}>
+              <Hash className="h-2.5 w-2.5" />{pm.quantity}
+            </button>
+          )}
+          {meal.grams && (
+            <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40 shrink-0">
+              <Weight className="h-2.5 w-2.5" />{meal.grams}
+            </button>
+          )}
+          {(() => {
+            const ingCal = computeIngredientCalories(displayIngredients);
+            const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
+            const isComputed = ingCal !== null;
+            return displayCal ? (
+              <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className={`text-[10px] text-white/90 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${
+                isComputed ? 'bg-orange-500/50 font-bold hover:bg-orange-500/60' : 'bg-black/30 hover:bg-black/40'
+              }`}>
+                <Flame className="h-2.5 w-2.5" />{displayCal}
+              </button>
+            ) : null;
+          })()}
+          {(() => {
+            const ingProt = computeIngredientProtein(displayIngredients);
+            const displayProt = ingProt !== null ? String(ingProt) : meal.protein;
+            const isComputedProt = ingProt !== null;
+            return displayProt ? (
+              <span className={`text-[10px] text-white/90 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${
+                isComputedProt ? 'bg-orange-500/50 font-bold' : 'bg-blue-500/40'
+              }`}>
+                🍗 {displayProt}
+              </span>
+            ) : null;
+          })()}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-              <MoreVertical className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onReturnToMaster && (
-              <DropdownMenuItem onClick={onReturnToMaster}>
-                <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
+          <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
+            <Copy className="h-3 w-3" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+                <MoreVertical className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {onReturnToMaster && (
+                <DropdownMenuItem onClick={onReturnToMaster}>
+                  <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
+                </DropdownMenuItem>
+              )}
+              {onReturnWithoutDeduction && (
+                <DropdownMenuItem onClick={onReturnWithoutDeduction}>
+                  <Undo2 className="mr-2 h-4 w-4" /> {onReturnWithoutDeductionLabel || 'Remettre au choix (sans déduire)'}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
+                <Flame className="mr-2 h-4 w-4" /> Calories
               </DropdownMenuItem>
-            )}
-            {onReturnWithoutDeduction && (
-              <DropdownMenuItem onClick={onReturnWithoutDeduction}>
-                <Undo2 className="mr-2 h-4 w-4" /> {onReturnWithoutDeductionLabel || 'Remettre au choix (sans déduire)'}
+              <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
+                <Weight className="mr-2 h-4 w-4" /> Grammes
               </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
-              <Flame className="mr-2 h-4 w-4" /> Calories
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
-              <Weight className="mr-2 h-4 w-4" /> Grammes
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={openIngredients}>
-              <List className="mr-2 h-4 w-4" /> Ingrédients
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onUpdateCounter(pm.counter_start_date ? null : new Date().toISOString())}>
-              <Timer className="mr-2 h-4 w-4" /> {pm.counter_start_date ? 'Arrêter compteur' : 'Démarrer compteur'}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDelete} className="text-destructive">
-              <Trash2 className="mr-2 h-4 w-4" /> Supprimer
-            </DropdownMenuItem>
-            {meal.ingredients && onUpdatePossibleIngredients && (
-              <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
-                <Percent className="mr-2 h-4 w-4" /> Pourcentage
+              <DropdownMenuItem onClick={openIngredients}>
+                <List className="mr-2 h-4 w-4" /> Ingrédients
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem onClick={() => onUpdateCounter(pm.counter_start_date ? null : new Date().toISOString())}>
+                <Timer className="mr-2 h-4 w-4" /> {pm.counter_start_date ? 'Arrêter compteur' : 'Démarrer compteur'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                <Trash2 className="mr-2 h-4 w-4" /> Supprimer
+              </DropdownMenuItem>
+              {meal.ingredients && onUpdatePossibleIngredients && (
+                <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
+                  <Percent className="mr-2 h-4 w-4" /> Pourcentage
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* Editing overlay */}
@@ -277,81 +279,44 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           }}
           className="flex flex-col gap-1 mt-1.5"
         >
-          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1 mb-0.5">
+          <div className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_2.5rem_2.5rem] gap-1 mb-0.5">
             <span className="text-[9px] text-white/50 text-center">Ou</span>
             <span className="text-[9px] text-white/50 text-center">?</span>
             <span className="text-[9px] text-white/50 text-center">Grammes</span>
             <span className="text-[9px] text-white/50 text-center">Qté</span>
             <span className="text-[9px] text-white/50">Nom</span>
             <span className="text-[9px] text-white/50 text-center">Cal</span>
+            <span className="text-[9px] text-white/50 text-center">Prot</span>
           </div>
           {ingLines.map((line, idx) => (
-            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_3rem] gap-1">
-              <button
-                type="button"
-                onClick={() => toggleOr(idx)}
+            <div key={idx} className="grid grid-cols-[1.5rem_1rem_3.5rem_2.5rem_1fr_2.5rem_2.5rem] gap-1">
+              <button type="button" onClick={() => toggleOr(idx)}
                 className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
-                  idx === 0
-                    ? 'text-white/15 cursor-default'
-                    : line.isOr
-                      ? 'bg-yellow-400/30 text-yellow-200 border border-yellow-400/50'
-                      : 'text-white/30 hover:text-white/60 hover:bg-white/10'
-                }`}
-                disabled={idx === 0}
-              >
+                  idx === 0 ? 'text-white/15 cursor-default' : line.isOr ? 'bg-yellow-400/30 text-yellow-200 border border-yellow-400/50' : 'text-white/30 hover:text-white/60 hover:bg-white/10'
+                }`} disabled={idx === 0}>
                 {line.isOr ? "ou" : idx > 0 ? "+" : ""}
               </button>
-              <button
-                type="button"
-                onClick={() => setIngLines(prev => {
-                  const next = [...prev];
-                  next[idx] = { ...next[idx], isOptional: !next[idx].isOptional };
-                  return next;
-                })}
+              <button type="button" onClick={() => setIngLines(prev => { const next = [...prev]; next[idx] = { ...next[idx], isOptional: !next[idx].isOptional }; return next; })}
                 className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
-                  line.isOptional
-                    ? 'bg-purple-400/30 text-purple-200 border border-purple-400/50'
-                    : 'text-white/20 hover:text-white/50 hover:bg-white/10'
-                }`}
-                title="Ingrédient optionnel"
-              >
-                ?
-              </button>
-              <Input
-                ref={el => { qtyRefs.current[idx] = el; }}
-                autoFocus={idx === 0}
-                placeholder="g"
-                inputMode="decimal"
-                value={line.qty}
-                onChange={e => updateLine(idx, "qty", e.target.value)}
-                onKeyDown={e => handleIngKeyDown(idx, "qty", e)}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1.5"
-              />
-              <Input
-                ref={el => { countRefs.current[idx] = el; }}
-                placeholder="#"
-                inputMode="numeric"
-                value={line.count}
-                onChange={e => updateLine(idx, "count", e.target.value)}
-                onKeyDown={e => handleIngKeyDown(idx, "count", e)}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
-              />
-              <Input
-                ref={el => { nameRefs.current[idx] = el; }}
-                placeholder={`Ingrédient ${idx + 1}`}
-                value={line.name}
-                onChange={e => updateLine(idx, "name", e.target.value)}
-                onKeyDown={e => handleIngKeyDown(idx, "name", e)}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
-              />
-              <Input
-                placeholder="cal"
-                inputMode="decimal"
-                value={line.cal}
+                  line.isOptional ? 'bg-purple-400/30 text-purple-200 border border-purple-400/50' : 'text-white/20 hover:text-white/50 hover:bg-white/10'
+                }`} title="Ingrédient optionnel">?</button>
+              <Input ref={el => { qtyRefs.current[idx] = el; }} autoFocus={idx === 0} placeholder="g" inputMode="decimal"
+                value={line.qty} onChange={e => updateLine(idx, "qty", e.target.value)} onKeyDown={e => handleIngKeyDown(idx, "qty", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1.5" />
+              <Input ref={el => { countRefs.current[idx] = el; }} placeholder="#" inputMode="numeric"
+                value={line.count} onChange={e => updateLine(idx, "count", e.target.value)} onKeyDown={e => handleIngKeyDown(idx, "count", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1" />
+              <Input ref={el => { nameRefs.current[idx] = el; }} placeholder={`Ingrédient ${idx + 1}`}
+                value={line.name} onChange={e => updateLine(idx, "name", e.target.value)} onKeyDown={e => handleIngKeyDown(idx, "name", e)}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2" />
+              <Input placeholder="cal" inputMode="decimal" value={line.cal}
                 onChange={e => updateLine(idx, "cal", e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
-                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
-              />
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1" />
+              <Input placeholder="prot" inputMode="decimal" value={line.prot}
+                onChange={e => updateLine(idx, "prot", e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") commitIngredients(); if (e.key === "Escape") commitIngredients(); }}
+                className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1" />
             </div>
           ))}
           <button onClick={commitIngredients} className="text-[10px] text-white/60 hover:text-white text-left mt-0.5">✓ Valider</button>
@@ -429,7 +394,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => {
             const isOpt = ing.trim().startsWith("?");
             const raw = isOpt ? ing.trim().slice(1).trim() : ing.trim();
-            const display = raw.replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim();
+            const display = raw.replace(/\[\d+(?:[.,]\d+)?\]\s*$/g, "").replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim();
             return (
               <span key={i} className={isOpt ? 'italic text-white/40' : ''}>
                 {isOpt ? '?' : ''}{display}{i < arr.length - 1 ? ' •' : ''}
