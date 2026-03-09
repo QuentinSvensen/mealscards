@@ -247,7 +247,7 @@ export function formatQtyDisplay(qty: string): string {
 }
 
 export function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false }];
+  if (!raw) return [{ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false }];
   const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const lines: IngLine[] = [];
   for (const group of groups) {
@@ -258,7 +258,7 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
       lines.push(parsed);
     });
   }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false });
   return lines;
 }
 
@@ -273,6 +273,7 @@ export function serializeIngredients(lines: IngLine[]): string | null {
     if (!qtyStr && !countStr && !nameStr) continue;
     let token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
     if (l.cal.trim()) token += `{${l.cal.trim()}}`;
+    if (l.prot.trim()) token += `[${l.prot.trim()}]`;
     const finalToken = l.isOptional ? `?${token}` : token;
     if (l.isOr) { currentGroup.push(finalToken); } else { flushGroup(); currentGroup.push(finalToken); }
   }
