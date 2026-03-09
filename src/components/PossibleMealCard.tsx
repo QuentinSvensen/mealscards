@@ -164,105 +164,106 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
       className={`group flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: meal.color }}
     >
-      {/* Row 1: name + counter inline + actions */}
-      <div className="flex items-center gap-1.5">
-        <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
-
-        <span className="font-semibold text-white text-sm truncate">
-          {meal.name}
-        </span>
-
-        {counterDays !== null && (
-          <button
-            onClick={() => onUpdateCounter(null)}
-            className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${
-              counterUrgent
-                ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
-                : 'bg-white/25 text-white'
-            }`}
-          >
-            <Timer className="h-3 w-3" /> {counterDays}j
-          </button>
-        )}
-
-        <div className="flex-1" />
-
-        {(pm.quantity > 1 || onUpdateQuantity) && (
-          <button
-            onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
-            className={`text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-black/40 cursor-pointer' : ''}`}
-          >
-            <Hash className="h-2.5 w-2.5" />{pm.quantity}
-          </button>
-        )}
-        {meal.grams && (
-          <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40 shrink-0">
-            <Weight className="h-2.5 w-2.5" />{meal.grams}
-          </button>
-        )}
-        {(() => {
-          const ingCal = computeIngredientCalories(displayIngredients);
-          const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
-          const isComputed = ingCal !== null;
-          return displayCal ? (
-            <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className={`text-[10px] text-white/90 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${
-              isComputed ? 'bg-orange-500/50 font-bold hover:bg-orange-500/60' : 'bg-black/30 hover:bg-black/40'
-            }`}>
-              <Flame className="h-2.5 w-2.5" />{displayCal}
-            </button>
-          ) : null;
-        })()}
-        {meal.protein && (
-          <span className="text-[10px] text-white/90 bg-blue-500/40 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold">
-            🍗 {meal.protein}
+      {/* Row 1: name + options (wrapping) */}
+      <div className="flex items-start gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1 min-w-0 flex-1">
+          <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </Button>
+          <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal">
+            {meal.name}
           </span>
-        )}
+          {counterDays !== null && (
+            <button onClick={() => onUpdateCounter(null)}
+              className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${
+                counterUrgent ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30' : 'bg-white/25 text-white'
+              }`}>
+              <Timer className="h-3 w-3" /> {counterDays}j
+            </button>
+          )}
+        </div>
 
-        <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
-          <Copy className="h-3 w-3" />
-        </Button>
+        <div className="flex items-center justify-end gap-1 shrink-0 flex-wrap">
+          {(pm.quantity > 1 || onUpdateQuantity) && (
+            <button onClick={() => { if (onUpdateQuantity) { setEditValue(String(pm.quantity)); setEditing("quantity"); } }}
+              className={`text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${onUpdateQuantity ? 'hover:bg-black/40 cursor-pointer' : ''}`}>
+              <Hash className="h-2.5 w-2.5" />{pm.quantity}
+            </button>
+          )}
+          {meal.grams && (
+            <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40 shrink-0">
+              <Weight className="h-2.5 w-2.5" />{meal.grams}
+            </button>
+          )}
+          {(() => {
+            const ingCal = computeIngredientCalories(displayIngredients);
+            const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
+            const isComputed = ingCal !== null;
+            return displayCal ? (
+              <button onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }} className={`text-[10px] text-white/90 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${
+                isComputed ? 'bg-orange-500/50 font-bold hover:bg-orange-500/60' : 'bg-black/30 hover:bg-black/40'
+              }`}>
+                <Flame className="h-2.5 w-2.5" />{displayCal}
+              </button>
+            ) : null;
+          })()}
+          {(() => {
+            const ingProt = computeIngredientProtein(displayIngredients);
+            const displayProt = ingProt !== null ? String(ingProt) : meal.protein;
+            const isComputedProt = ingProt !== null;
+            return displayProt ? (
+              <span className={`text-[10px] text-white/90 px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${
+                isComputedProt ? 'bg-orange-500/50 font-bold' : 'bg-blue-500/40'
+              }`}>
+                🍗 {displayProt}
+              </span>
+            ) : null;
+          })()}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
-              <MoreVertical className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onReturnToMaster && (
-              <DropdownMenuItem onClick={onReturnToMaster}>
-                <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
+          <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
+            <Copy className="h-3 w-3" />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
+                <MoreVertical className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {onReturnToMaster && (
+                <DropdownMenuItem onClick={onReturnToMaster}>
+                  <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
+                </DropdownMenuItem>
+              )}
+              {onReturnWithoutDeduction && (
+                <DropdownMenuItem onClick={onReturnWithoutDeduction}>
+                  <Undo2 className="mr-2 h-4 w-4" /> {onReturnWithoutDeductionLabel || 'Remettre au choix (sans déduire)'}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
+                <Flame className="mr-2 h-4 w-4" /> Calories
               </DropdownMenuItem>
-            )}
-            {onReturnWithoutDeduction && (
-              <DropdownMenuItem onClick={onReturnWithoutDeduction}>
-                <Undo2 className="mr-2 h-4 w-4" /> {onReturnWithoutDeductionLabel || 'Remettre au choix (sans déduire)'}
+              <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
+                <Weight className="mr-2 h-4 w-4" /> Grammes
               </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
-              <Flame className="mr-2 h-4 w-4" /> Calories
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
-              <Weight className="mr-2 h-4 w-4" /> Grammes
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={openIngredients}>
-              <List className="mr-2 h-4 w-4" /> Ingrédients
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onUpdateCounter(pm.counter_start_date ? null : new Date().toISOString())}>
-              <Timer className="mr-2 h-4 w-4" /> {pm.counter_start_date ? 'Arrêter compteur' : 'Démarrer compteur'}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDelete} className="text-destructive">
-              <Trash2 className="mr-2 h-4 w-4" /> Supprimer
-            </DropdownMenuItem>
-            {meal.ingredients && onUpdatePossibleIngredients && (
-              <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
-                <Percent className="mr-2 h-4 w-4" /> Pourcentage
+              <DropdownMenuItem onClick={openIngredients}>
+                <List className="mr-2 h-4 w-4" /> Ingrédients
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem onClick={() => onUpdateCounter(pm.counter_start_date ? null : new Date().toISOString())}>
+                <Timer className="mr-2 h-4 w-4" /> {pm.counter_start_date ? 'Arrêter compteur' : 'Démarrer compteur'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                <Trash2 className="mr-2 h-4 w-4" /> Supprimer
+              </DropdownMenuItem>
+              {meal.ingredients && onUpdatePossibleIngredients && (
+                <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
+                  <Percent className="mr-2 h-4 w-4" /> Pourcentage
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* Editing overlay */}
