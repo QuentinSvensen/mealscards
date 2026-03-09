@@ -9,7 +9,7 @@ import type { Meal } from "@/hooks/useMeals";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, normalizeKey,
-  computeIngredientCalories,
+  computeIngredientCalories, computeIngredientProtein,
 } from "@/lib/ingredientUtils";
 
 interface MealCardProps {
