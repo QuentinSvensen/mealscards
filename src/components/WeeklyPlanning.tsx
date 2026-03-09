@@ -122,8 +122,8 @@ interface TouchDragState {
 }
 
 // ─── PlanningMiniCard ────────────────────────────────────────────────────────
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, isComputedCal, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; isComputedCal: boolean; compact: boolean;
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displayCal, isComputedCal, displayProt, isComputedProt, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterUrgent: boolean; displayCal: string | null; isComputedCal: boolean; displayProt: string | null; isComputedProt: boolean; compact: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
