@@ -429,7 +429,7 @@ export function WeeklyPlanning() {
           return total + slotMeals.reduce((s, pm) => {
             const override = calOverrides[pm.id];
             if (override) return s + parseCalories(override);
-            const ingCal = computeIngredientCalories(pm.meals?.ingredients);
+            const ingCal = computeIngredientCalories(pm.ingredients_override ?? pm.meals?.ingredients);
             if (ingCal !== null) return s + ingCal;
             return s + parseCalories(pm.meals?.calories);
           }, 0);
@@ -448,7 +448,11 @@ export function WeeklyPlanning() {
   const getDayProtein = (day: string): number => {
     const mealProt = TIMES.reduce((total, time) => {
       const slotMeals = getMealsForSlot(day, time);
-      return total + slotMeals.reduce((s, pm) => s + parseProtein(pm.meals?.protein), 0);
+      return total + slotMeals.reduce((s, pm) => {
+        const ingProt = computeIngredientProtein(pm.ingredients_override ?? pm.meals?.ingredients);
+        if (ingProt !== null) return s + ingProt;
+        return s + parseProtein(pm.meals?.protein);
+      }, 0);
     }, 0);
     const breakfast = getBreakfastForDay(day);
     const breakfastProt = breakfast ? parseProtein(breakfast.protein) : 0;
