@@ -221,11 +221,18 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
                   </span>
                 ) : null;
               })()}
-              {meal.protein && (
-                <span className="text-xs text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold">
-                  🍗 {meal.protein}
-                </span>
-              )}
+              {(() => {
+                const ingProt = computeIngredientProtein(meal.ingredients);
+                const displayProt = ingProt !== null ? String(ingProt) : meal.protein;
+                const isComputedProt = ingProt !== null;
+                return displayProt ? (
+                  <span className={`text-xs text-white/70 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${
+                    isComputedProt ? 'bg-orange-500/50' : 'bg-blue-500/30'
+                  }`}>
+                    🍗 {displayProt}
+                  </span>
+                ) : null;
+              })()}
               {hasCuisson && (
                 <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <Thermometer className="h-3 w-3" />
