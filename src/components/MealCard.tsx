@@ -74,12 +74,12 @@ export const MealCard = forwardRef<HTMLDivElement, MealCardProps>(function MealC
     setEditingIngredients(false);
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "prot", value: string) => {
     setIngLines(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
       if (field === "name" && idx === next.length - 1 && value.trim()) {
-        next.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
+        next.push({ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false });
       }
       return next;
     });
