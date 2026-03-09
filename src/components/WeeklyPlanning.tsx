@@ -199,9 +199,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                   <Flame className="h-3 w-3" />
                 </button>
               )}
-              {meal.protein && (
-                <span className="text-[10px] font-bold text-white bg-black/30 px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center">
-                  🍗 {meal.protein}
+              {displayProt && (
+                <span className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedProt ? 'bg-orange-500/60' : 'bg-black/30'}`}>
+                  🍗 {displayProt}
                 </span>
               )}
               {counterDays !== null && (
