@@ -338,7 +338,7 @@ function renderIngredientDisplay(
     alts.forEach((alt, ai) => {
       const cleanAlt = alt.startsWith("?") ? alt.slice(1).trim() : alt;
       // Strip {cal} suffix from display
-      const displayAlt = cleanAlt.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
+      const displayAlt = cleanAlt.replace(/\[\d+(?:[.,]\d+)?\]\s*$/, "").replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
       const parsed = parseIngredientLineDisplay(cleanAlt);
       const normalizedName = normalizeKey(parsed.name);
       const isExpired = expiredIngredientNames?.has(normalizedName);

@@ -394,7 +394,7 @@ export function PossibleMealCard({ pm, onRemove, onReturnWithoutDeduction, onRet
           {displayIngredients.split(/[,\n]+/).filter(Boolean).map((ing, i, arr) => {
             const isOpt = ing.trim().startsWith("?");
             const raw = isOpt ? ing.trim().slice(1).trim() : ing.trim();
-            const display = raw.replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim();
+            const display = raw.replace(/\[\d+(?:[.,]\d+)?\]\s*$/g, "").replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim();
             return (
               <span key={i} className={isOpt ? 'italic text-white/40' : ''}>
                 {isOpt ? '?' : ''}{display}{i < arr.length - 1 ? ' •' : ''}

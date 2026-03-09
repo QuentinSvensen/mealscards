@@ -617,9 +617,12 @@ export function WeeklyPlanning() {
     const counterDays = getAdaptedCounterDays(pm.counter_start_date, pm.day_of_week);
     const counterUrgent = counterDays !== null && counterDays >= 3;
     const overrideCal = calOverrides[pm.id];
-    const ingCal = computeIngredientCalories(meal.ingredients);
+    const ingCal = computeIngredientCalories(pm.ingredients_override ?? meal.ingredients);
     const isComputedCal = !overrideCal && ingCal !== null;
     const displayCal = overrideCal || (ingCal !== null ? String(ingCal) : meal.calories);
+    const ingProt = computeIngredientProtein(pm.ingredients_override ?? meal.ingredients);
+    const displayProt = ingProt !== null ? String(ingProt) : meal.protein;
+    const isComputedProt = ingProt !== null;
 
     return (
       <PlanningMiniCard
@@ -631,6 +634,8 @@ export function WeeklyPlanning() {
         counterUrgent={counterUrgent}
         displayCal={displayCal}
         isComputedCal={isComputedCal}
+        displayProt={displayProt}
+        isComputedProt={isComputedProt}
         compact={compact}
         isTouchDevice={isTouchDevice}
         touchDragActive={touchDragActive}

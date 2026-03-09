@@ -310,3 +310,30 @@ export function computeIngredientCalories(ingredientStr: string | null): number 
   }
   return hasCal ? Math.round(total) : null;
 }
+
+/**
+ * Compute total protein from ingredient string.
+ * For each ingredient with [prot]: if qty (grams) present → prot * qty / 100. If count present → prot * count.
+ * Returns null if no ingredient has protein data.
+ */
+export function computeIngredientProtein(ingredientStr: string | null): number | null {
+  if (!ingredientStr?.trim()) return null;
+  const lines = parseIngredientsToLines(ingredientStr);
+  let total = 0;
+  let hasProt = false;
+  for (const line of lines) {
+    const protVal = parseFloat(line.prot.replace(",", "."));
+    if (!protVal || isNaN(protVal)) continue;
+    hasProt = true;
+    const qty = parseFloat(line.qty.replace(",", "."));
+    const count = parseFloat(line.count.replace(",", "."));
+    if (qty > 0) {
+      total += protVal * qty / 100;
+    } else if (count > 0) {
+      total += protVal * count;
+    } else {
+      total += protVal;
+    }
+  }
+  return hasProt ? Math.round(total) : null;
+}
