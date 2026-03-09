@@ -204,34 +204,39 @@ export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
 
 // ─── Ingredient Editing (String-based — for UI) ─────────────────────────────
 
-export interface IngLine { qty: string; count: string; name: string; cal: string; isOr: boolean; isOptional: boolean; }
+export interface IngLine { qty: string; count: string; name: string; cal: string; prot: string; isOr: boolean; isOptional: boolean; }
 
-/** Extract {cal} suffix from a raw ingredient token */
-function extractCal(raw: string): { text: string; cal: string } {
-  const m = raw.match(/\{(\d+(?:[.,]\d+)?)\}\s*$/);
-  if (m) return { text: raw.slice(0, m.index!).trim(), cal: m[1].replace(",", ".") };
-  return { text: raw, cal: "" };
+/** Extract {cal} and [prot] suffixes from a raw ingredient token */
+function extractMarkers(raw: string): { text: string; cal: string; prot: string } {
+  let text = raw;
+  let prot = "";
+  const protMatch = text.match(/\[(\d+(?:[.,]\d+)?)\]\s*$/);
+  if (protMatch) { prot = protMatch[1].replace(",", "."); text = text.slice(0, protMatch.index!).trim(); }
+  let cal = "";
+  const calMatch = text.match(/\{(\d+(?:[.,]\d+)?)\}\s*$/);
+  if (calMatch) { cal = calMatch[1].replace(",", "."); text = text.slice(0, calMatch.index!).trim(); }
+  return { text, cal, prot };
 }
 
 export function parseIngredientLineDisplay(raw: string): IngLine {
   let trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false };
+  if (!trimmed) return { qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false };
   const isOptional = trimmed.startsWith("?");
   if (isOptional) trimmed = trimmed.slice(1).trim();
-  const { text: withoutCal, cal } = extractCal(trimmed);
-  trimmed = withoutCal;
+  const { text: withoutMarkers, cal, prot } = extractMarkers(trimmed);
+  trimmed = withoutMarkers;
   const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, isOr: false, isOptional };
+  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, prot, isOr: false, isOptional };
 
   const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, isOr: false, isOptional };
+  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, prot, isOr: false, isOptional };
 
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, isOr: false, isOptional };
+  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, prot, isOr: false, isOptional };
 
-  return { qty: "", count: "", name: trimmed, cal, isOr: false, isOptional };
+  return { qty: "", count: "", name: trimmed, cal, prot, isOr: false, isOptional };
 }
 
 export function formatQtyDisplay(qty: string): string {
