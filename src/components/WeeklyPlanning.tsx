@@ -216,7 +216,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
             </div>
           )}
         </div>
-        {!compact && (pm.expiration_date || meal.grams || meal.ingredients) && (
+        {!compact && (pm.expiration_date || meal.grams || (pm.ingredients_override ?? meal.ingredients)) && (
           <div className="mt-auto pt-0.5">
             {meal.grams && (
               <div className="flex items-center gap-1">
@@ -226,7 +226,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                 </span>
               </div>
             )}
-            {(meal.ingredients || pm.expiration_date) && (
+            {((pm.ingredients_override ?? meal.ingredients) || pm.expiration_date) && (
               <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
                 {pm.expiration_date && (
                   <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
@@ -234,10 +234,10 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterUrgent, displ
                     {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   </span>
                 )}
-                {meal.ingredients && meal.ingredients
+                {(pm.ingredients_override ?? meal.ingredients) && (pm.ingredients_override ?? meal.ingredients)!
                   .split(/[,\n]+/)
                   .filter(Boolean)
-                  .map((s: string) => s.trim().replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
+                  .map((s: string) => s.trim().replace(/\[\d+(?:[.,]\d+)?\]\s*$/g, "").replace(/\{\d+(?:[.,]\d+)?\}\s*$/g, "").trim())
                   .join(" • ")}
               </div>
             )}
