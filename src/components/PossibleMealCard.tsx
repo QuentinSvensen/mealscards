@@ -14,6 +14,7 @@ import { format, parseISO } from "date-fns";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
+  computeIngredientProtein,
 } from "@/lib/ingredientUtils";
 import { scaleIngredientStringExact } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
