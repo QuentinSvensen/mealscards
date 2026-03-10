@@ -416,7 +416,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       <div key={meal.id} className="relative">
         <MealCard meal={displayMeal}
           onMoveToPossible={() => {
-            const cr = customRatios[meal.id];
+            const cr = customRatios[meal.id] ?? autoRatio;
             if (cr && cr !== 1) {
               onMovePartialToPossible(meal, cr);
             } else {
