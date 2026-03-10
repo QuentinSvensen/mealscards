@@ -45,6 +45,7 @@ interface AvailableListProps {
   onToggleFavorite: (id: string) => void;
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
+  remainingCalories: number;
 }
 
 export function AvailableList({ category, meals, foodItems, allMeals, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
