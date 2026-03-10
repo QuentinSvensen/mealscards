@@ -401,7 +401,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     const { meal, multiple } = item;
     const maxRatio = multiple === Infinity ? 99 : (multiple ?? 1);
     const customRatio = customRatios[meal.id];
-    const effectiveRatio = customRatio ?? 1;
+    // Auto-ratio from calorie filter
+    const autoRatio = calorieFilterEnabled ? getAutoRatioForFilter({ type: 'av', item, key: '' }) : null;
+    const effectiveRatio = customRatio ?? autoRatio ?? 1;
     const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio) : meal;
     const expDate = getEarliestIngredientExpiration(meal, foodItems);
     const expLabel = formatExpirationLabel(expDate);
