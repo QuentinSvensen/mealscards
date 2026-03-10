@@ -763,7 +763,8 @@ const Index = () => {
                     if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
                   }}
                   onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
-                  onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })} />
+                  onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
+                  remainingCalories={remainingCaloriesToday} />
 
                   </div>
                   <div className="order-3 md:order-2">
