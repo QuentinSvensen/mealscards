@@ -642,8 +642,23 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
         )}
       </div>
 
+      {!collapsed && (
+        <div className="flex items-center gap-2 mt-2 px-1">
+          <Checkbox
+            id={`cal-filter-${category.value}`}
+            checked={calorieFilterEnabled}
+            onCheckedChange={(checked) => setCalorieFilterEnabled(!!checked)}
+            className="h-3.5 w-3.5"
+          />
+          <label htmlFor={`cal-filter-${category.value}`} className="text-[10px] text-muted-foreground cursor-pointer select-none flex items-center gap-1">
+            <Filter className="h-3 w-3" />
+            {calorieFilterEnabled ? `Calories restantes: ${Math.round(remainingCalories)} kcal` : "Carte en fonction des calories restantes"}
+          </label>
+        </div>
+      )}
+
       {!collapsed &&
-        <div className="flex flex-col gap-2 mt-3">
+        <div className="flex flex-col gap-2 mt-2">
           {isPlat && unusedFoodItems.length > 0 && renderUnusedItems(unusedFoodItems)}
 
           {(() => {
