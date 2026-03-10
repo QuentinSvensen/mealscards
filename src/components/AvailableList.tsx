@@ -262,6 +262,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     (sortedIsMealItems as any).__withDate = isMealWithDate;
   }
 
+  // Unified type for DnD + calorie filter (defined early for reuse)
+  type UnifiedAvail =
+    | { type: 'isMeal'; fi: FoodItem; key: string }
+    | { type: 'nm'; nm: NameMatch; nmIdx: number; key: string }
+    | { type: 'av'; item: typeof available[0]; key: string }
+    | { type: 'partial'; item: typeof partialAvailable[0]; key: string };
+
   // ─── Calorie filter logic ───
   const getCardCalories = (u: UnifiedAvail): number | null => {
     if (u.type === 'isMeal') {
