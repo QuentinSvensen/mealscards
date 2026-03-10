@@ -262,6 +262,61 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     (sortedIsMealItems as any).__withDate = isMealWithDate;
   }
 
+  // ─── Calorie filter logic ───
+  const getCardCalories = (u: UnifiedAvail): number | null => {
+    if (u.type === 'isMeal') {
+      const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
+      return getDisplayedCalories(fakeMeal);
+    }
+    if (u.type === 'nm') return getDisplayedCalories(u.nm.meal);
+    if (u.type === 'av') {
+      const ratio = customRatios[u.item.meal.id] ?? 1;
+      const displayMeal = ratio !== 1 ? buildScaledMealForRatio(u.item.meal, ratio) : u.item.meal;
+      return getDisplayedCalories(displayMeal);
+    }
+    if (u.type === 'partial') {
+      const ratio = customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
+      const displayMeal = buildScaledMealForRatio(u.item.meal, ratio);
+      return getDisplayedCalories(displayMeal);
+    }
+    return null;
+  };
+
+  const getBaseCalories = (u: UnifiedAvail): number | null => {
+    if (u.type === 'isMeal') {
+      const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
+      return getDisplayedCalories(fakeMeal);
+    }
+    if (u.type === 'nm') return getDisplayedCalories(u.nm.meal);
+    if (u.type === 'av') return getDisplayedCalories(u.item.meal);
+    if (u.type === 'partial') return getDisplayedCalories(u.item.meal);
+    return null;
+  };
+
+  const shouldShowWithCalorieFilter = (u: UnifiedAvail): boolean => {
+    if (!calorieFilterEnabled) return true;
+    const cal = getCardCalories(u);
+    if (cal === null || cal === 0) return true; // No calorie data = always show
+    if (cal <= remainingCalories) return true;
+    // Check if 50% of base calories would fit
+    const baseCal = getBaseCalories(u);
+    if (baseCal === null || baseCal === 0) return true;
+    const minCal = baseCal * 0.5;
+    return minCal <= remainingCalories;
+  };
+
+  const getAutoRatioForFilter = (u: UnifiedAvail): number | null => {
+    if (!calorieFilterEnabled) return null;
+    const cal = getCardCalories(u);
+    if (cal === null || cal === 0 || cal <= remainingCalories) return null;
+    // Card exceeds remaining: find best ratio ≥ 50%
+    const baseCal = getBaseCalories(u);
+    if (baseCal === null || baseCal <= 0) return null;
+    const bestRatio = remainingCalories / baseCal;
+    if (bestRatio < 0.5) return null;
+    return Math.floor(bestRatio * 100) / 100; // Round down to fit
+  };
+
   const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length + partialAvailable.length;
   const isNumericSort = sortMode === "calories" || sortMode === "protein";
   const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
