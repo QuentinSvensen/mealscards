@@ -505,12 +505,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   };
 
   // Build unified array for DnD reorder
-  type UnifiedAvail =
-    | { type: 'isMeal'; fi: FoodItem; key: string }
-    | { type: 'nm'; nm: NameMatch; nmIdx: number; key: string }
-    | { type: 'av'; item: typeof available[0]; key: string }
-    | { type: 'partial'; item: typeof partialAvailable[0]; key: string };
-
   const buildUnifiedItems = (): UnifiedAvail[] => {
     const items: UnifiedAvail[] = [
       ...sortedIsMealItems.map(fi => ({ type: 'isMeal' as const, fi, key: `fi-${fi.id}` })),
