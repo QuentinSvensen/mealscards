@@ -746,7 +746,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
             }
 
             // manual or calories: use unified items
-            const unifiedItems = buildUnifiedItems();
+            const allUnifiedItems = buildUnifiedItems();
+            const unifiedItems = calorieFilterEnabled
+              ? allUnifiedItems.filter(u => shouldShowWithCalorieFilter(u))
+              : allUnifiedItems;
             const firstIsMealIdx2 = !isPlat ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
             return unifiedItems.map((u, idx) => {
               const sep = (idx === firstIsMealIdx2 && firstIsMealIdx2 > 0) ? (
