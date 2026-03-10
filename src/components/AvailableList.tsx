@@ -14,8 +14,9 @@ import {
   formatExpirationLabel, compareExpirationWithCounter, buildScaledMealForRatio,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories,
+  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein,
 } from "@/lib/ingredientUtils";
+import { Checkbox } from "@/components/ui/checkbox";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
