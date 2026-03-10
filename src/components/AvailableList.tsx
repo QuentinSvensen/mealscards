@@ -445,10 +445,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
             </div>
           ) : (
             <button
-              onClick={() => { setEditingRatioId(meal.id); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
-              className={`absolute top-1 right-2 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${customRatio ? 'bg-orange-500/80' : 'bg-black/60'}`}
+              onClick={() => { setEditingRatioId(meal.id); setRatioInput((customRatio || autoRatio) ? formatRatioBadge(customRatio ?? autoRatio!) : ""); }}
+              className={`absolute top-1 right-2 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${(customRatio || autoRatio) ? 'bg-orange-500/80' : 'bg-black/60'}`}
             >
-              {customRatio ? formatRatioBadge(customRatio) : (
+              {(customRatio || autoRatio) ? formatRatioBadge(customRatio ?? autoRatio!) : (
                 <>x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}</>
               )}
             </button>
