@@ -716,8 +716,20 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
                 return getUnifiedItemName(a).localeCompare(getUnifiedItemName(b));
               });
 
-              const firstIsMealIdx = !isPlat ? unified.findIndex(u => u.type === 'isMeal') : -1;
-              return unified.map((u, idx) => {
+              // Apply calorie filter for expiration sort
+              const toUnifiedAvail = (u: UnifiedItem): UnifiedAvail => {
+                if (u.type === 'isMeal') return { type: 'isMeal', fi: u.fi, key: `fi-${u.fi.id}` };
+                if (u.type === 'nameMatch') return { type: 'nm', nm: u.nm, nmIdx: u.idx, key: `nm-${u.nm.meal.id}` };
+                if (u.type === 'available') return { type: 'av', item: u.item, key: `av-${u.item.meal.id}` };
+                return { type: 'partial', item: u.item, key: `pa-${u.item.meal.id}` };
+              };
+
+              const filtered = calorieFilterEnabled
+                ? unified.filter(u => shouldShowWithCalorieFilter(toUnifiedAvail(u)))
+                : unified;
+
+              const firstIsMealIdx = !isPlat ? filtered.findIndex(u => u.type === 'isMeal') : -1;
+              return filtered.map((u, idx) => {
                 const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
                   <div key={`sep-ismeal`} className="flex items-center gap-2 my-2">
                     <Separator className="flex-1" />
