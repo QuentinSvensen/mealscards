@@ -176,7 +176,8 @@ export function parseIngredientLineRaw(ing: string): ParsedIngredientRaw {
   let trimmed = ing.trim().replace(/\s+/g, " ");
   const optional = trimmed.startsWith("?");
   if (optional) trimmed = trimmed.slice(1).trim();
-  // Strip {cal} suffix
+  // Strip {cal} and [prot] suffixes
+  trimmed = trimmed.replace(/\[\d+(?:[.,]\d+)?\]\s*$/, "").trim();
   trimmed = trimmed.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
   const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
 
