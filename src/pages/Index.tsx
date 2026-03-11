@@ -25,7 +25,7 @@ import { fr } from "date-fns/locale";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
-  getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein,
+  getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories,
 } from "@/lib/ingredientUtils";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
@@ -503,67 +503,6 @@ const Index = () => {
 
   const { deductIngredientsFromStock, restoreIngredientsToStock, adjustStockForIngredientChange, deductNameMatchStock } = useMealTransfers(foodItems);
 
-  // ─── Compute remaining calories for "Au choix" filter ───
-  const JS_DAY_TO_KEY_IDX: Record<number, string> = { 1: "lundi", 2: "mardi", 3: "mercredi", 4: "jeudi", 5: "vendredi", 6: "samedi", 0: "dimanche" };
-  const DAYS_ORDER = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
-  const DAY_KEY_TO_IDX: Record<string, number> = { lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6 };
-  const todayKey = JS_DAY_TO_KEY_IDX[new Date().getDay()];
-  const DAILY_GOAL = getPreference<number>('planning_daily_goal', 2750);
-  const planningBreakfast = getPreference<Record<string, string>>('planning_breakfast', {});
-  const planningManualCal = getPreference<Record<string, number>>('planning_manual_calories', {});
-  const planningExtraCal = getPreference<Record<string, number>>('planning_extra_calories', {});
-  const planningCalOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
-  const planningBreakfastManualCal = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
-  const planningDrinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
-  const DRINK_CAL = 150;
-
-  const getDayCalForFilter = (day: string): number => {
-    const planMeals = possibleMeals.filter(pm => pm.day_of_week === day && pm.meal_time);
-    const TIMES_LIST = ['midi', 'soir'];
-    const mealCals = TIMES_LIST.reduce((total, time) => {
-      const slotMeals = planMeals.filter(pm => pm.meal_time === time).sort((a, b) => a.sort_order - b.sort_order);
-      if (slotMeals.length > 0) {
-        return total + slotMeals.reduce((s, pm) => {
-          const override = planningCalOverrides[pm.id];
-          if (override) { const n = parseFloat(override.replace(/[^0-9.]/g, '')); return s + (isNaN(n) ? 0 : n); }
-          const ingCal = computeIngredientCalories(pm.ingredients_override ?? pm.meals?.ingredients);
-          if (ingCal !== null) return s + ingCal;
-          const raw = pm.meals?.calories;
-          if (!raw) return s;
-          const m = raw.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
-          return s + (m ? parseFloat(m[0]) || 0 : 0);
-        }, 0);
-      }
-      return total + (planningManualCal[`${day}-${time}`] || 0);
-    }, 0);
-    const bfMealId = planningBreakfast[day];
-    const bfMeal = bfMealId ? meals.find(m => m.id === bfMealId) : null;
-    const bfCal = bfMeal ? (parseFloat((bfMeal.calories || '0').replace(/[^0-9.]/g, '')) || 0) : (planningBreakfastManualCal[day] || 0);
-    const extra = planningExtraCal[day] || 0;
-    const drinkCal = TIMES_LIST.reduce((s, t) => s + (planningDrinkChecks[`${day}-${t}`] ? DRINK_CAL : 0), 0);
-    return mealCals + bfCal + extra + drinkCal;
-  };
-
-  const computeRemainingCalories = (): number => {
-    const todayIdx = DAY_KEY_TO_IDX[todayKey] ?? 0;
-    const todayConsumed = getDayCalForFilter(todayKey);
-    // Average delta from previous days this week
-    let totalDelta = 0;
-    let prevDayCount = 0;
-    for (let i = 0; i < todayIdx; i++) {
-      const day = DAYS_ORDER[i];
-      const consumed = getDayCalForFilter(day);
-      if (consumed > 0) { // Only count days with data
-        totalDelta += DAILY_GOAL - consumed;
-        prevDayCount++;
-      }
-    }
-    const avgDelta = prevDayCount > 0 ? totalDelta / prevDayCount : 0;
-    return DAILY_GOAL - todayConsumed + avgDelta;
-  };
-
-  const remainingCaloriesToday = computeRemainingCalories();
-
 
   return (
     <div className="min-h-screen bg-background">
@@ -763,8 +702,7 @@ const Index = () => {
                     if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
                   }}
                   onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
-                  onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
-                  remainingCalories={remainingCaloriesToday} />
+                  onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })} />
 
                   </div>
                   <div className="order-3 md:order-2">

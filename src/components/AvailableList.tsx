@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick, UtensilsCrossed, Filter } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Sparkles, Flame, CalendarDays, ArrowUpDown, Infinity as InfinityIcon, ArrowUp, ArrowDown, Drumstick, UtensilsCrossed } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,9 +14,8 @@ import {
   formatExpirationLabel, compareExpirationWithCounter, buildScaledMealForRatio,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein,
+  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories,
 } from "@/lib/ingredientUtils";
-import { Checkbox } from "@/components/ui/checkbox";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -45,10 +44,9 @@ interface AvailableListProps {
   onToggleFavorite: (id: string) => void;
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
-  remainingCalories: number;
 }
 
-export function AvailableList({ category, meals, foodItems, allMeals, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, remainingCalories }: AvailableListProps) {
+export function AvailableList({ category, meals, foodItems, allMeals, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
   const isPlat = category.value === "plat";
   const stockMap = buildStockMap(foodItems);
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
@@ -57,7 +55,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   const [customRatios, setCustomRatios] = useState<Record<string, number>>({});
   const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
   const [ratioInput, setRatioInput] = useState("");
-  const [calorieFilterEnabled, setCalorieFilterEnabled] = useState(false);
 
   const parseRatioInput = (input: string, maxRatio: number): number | null => {
     const trimmed = input.trim().toLowerCase();
@@ -262,68 +259,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     (sortedIsMealItems as any).__withDate = isMealWithDate;
   }
 
-  // Unified type for DnD + calorie filter (defined early for reuse)
-  type UnifiedAvail =
-    | { type: 'isMeal'; fi: FoodItem; key: string }
-    | { type: 'nm'; nm: NameMatch; nmIdx: number; key: string }
-    | { type: 'av'; item: typeof available[0]; key: string }
-    | { type: 'partial'; item: typeof partialAvailable[0]; key: string };
-
-  // ─── Calorie filter logic ───
-  const getCardCalories = (u: UnifiedAvail): number | null => {
-    if (u.type === 'isMeal') {
-      const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
-      return getDisplayedCalories(fakeMeal);
-    }
-    if (u.type === 'nm') return getDisplayedCalories(u.nm.meal);
-    if (u.type === 'av') {
-      const ratio = customRatios[u.item.meal.id] ?? 1;
-      const displayMeal = ratio !== 1 ? buildScaledMealForRatio(u.item.meal, ratio) : u.item.meal;
-      return getDisplayedCalories(displayMeal);
-    }
-    if (u.type === 'partial') {
-      const ratio = customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-      const displayMeal = buildScaledMealForRatio(u.item.meal, ratio);
-      return getDisplayedCalories(displayMeal);
-    }
-    return null;
-  };
-
-  const getBaseCalories = (u: UnifiedAvail): number | null => {
-    if (u.type === 'isMeal') {
-      const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
-      return getDisplayedCalories(fakeMeal);
-    }
-    if (u.type === 'nm') return getDisplayedCalories(u.nm.meal);
-    if (u.type === 'av') return getDisplayedCalories(u.item.meal);
-    if (u.type === 'partial') return getDisplayedCalories(u.item.meal);
-    return null;
-  };
-
-  const shouldShowWithCalorieFilter = (u: UnifiedAvail): boolean => {
-    if (!calorieFilterEnabled) return true;
-    const cal = getCardCalories(u);
-    if (cal === null || cal === 0) return true; // No calorie data = always show
-    if (cal <= remainingCalories) return true;
-    // Check if 50% of base calories would fit
-    const baseCal = getBaseCalories(u);
-    if (baseCal === null || baseCal === 0) return true;
-    const minCal = baseCal * 0.5;
-    return minCal <= remainingCalories;
-  };
-
-  const getAutoRatioForFilter = (u: UnifiedAvail): number | null => {
-    if (!calorieFilterEnabled) return null;
-    const cal = getCardCalories(u);
-    if (cal === null || cal === 0 || cal <= remainingCalories) return null;
-    // Card exceeds remaining: find best ratio ≥ 50%
-    const baseCal = getBaseCalories(u);
-    if (baseCal === null || baseCal <= 0) return null;
-    const bestRatio = remainingCalories / baseCal;
-    if (bestRatio < 0.5) return null;
-    return Math.floor(bestRatio * 100) / 100; // Round down to fit
-  };
-
   const totalCount = sortedAvailable.length + sortedNameMatches.length + sortedIsMealItems.length + partialAvailable.length;
   const isNumericSort = sortMode === "calories" || sortMode === "protein";
   const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
@@ -401,9 +336,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
     const { meal, multiple } = item;
     const maxRatio = multiple === Infinity ? 99 : (multiple ?? 1);
     const customRatio = customRatios[meal.id];
-    // Auto-ratio from calorie filter
-    const autoRatio = calorieFilterEnabled ? getAutoRatioForFilter({ type: 'av', item, key: '' }) : null;
-    const effectiveRatio = customRatio ?? autoRatio ?? 1;
+    const effectiveRatio = customRatio ?? 1;
     const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio) : meal;
     const expDate = getEarliestIngredientExpiration(meal, foodItems);
     const expLabel = formatExpirationLabel(expDate);
@@ -416,7 +349,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
       <div key={meal.id} className="relative">
         <MealCard meal={displayMeal}
           onMoveToPossible={() => {
-            const cr = customRatios[meal.id] ?? autoRatio;
+            const cr = customRatios[meal.id];
             if (cr && cr !== 1) {
               onMovePartialToPossible(meal, cr);
             } else {
@@ -445,10 +378,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
             </div>
           ) : (
             <button
-              onClick={() => { setEditingRatioId(meal.id); setRatioInput((customRatio || autoRatio) ? formatRatioBadge(customRatio ?? autoRatio!) : ""); }}
-              className={`absolute top-1 right-2 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${(customRatio || autoRatio) ? 'bg-orange-500/80' : 'bg-black/60'}`}
+              onClick={() => { setEditingRatioId(meal.id); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
+              className={`absolute top-1 right-2 z-10 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5 hover:ring-2 hover:ring-white/50 transition-all ${customRatio ? 'bg-orange-500/80' : 'bg-black/60'}`}
             >
-              {(customRatio || autoRatio) ? formatRatioBadge(customRatio ?? autoRatio!) : (
+              {customRatio ? formatRatioBadge(customRatio) : (
                 <>x{multiple === Infinity ? <InfinityIcon className="inline h-[15px] w-[15px]" /> : multiple}</>
               )}
             </button>
@@ -507,6 +440,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
   };
 
   // Build unified array for DnD reorder
+  type UnifiedAvail =
+    | { type: 'isMeal'; fi: FoodItem; key: string }
+    | { type: 'nm'; nm: NameMatch; nmIdx: number; key: string }
+    | { type: 'av'; item: typeof available[0]; key: string }
+    | { type: 'partial'; item: typeof partialAvailable[0]; key: string };
+
   const buildUnifiedItems = (): UnifiedAvail[] => {
     const items: UnifiedAvail[] = [
       ...sortedIsMealItems.map(fi => ({ type: 'isMeal' as const, fi, key: `fi-${fi.id}` })),
@@ -644,23 +583,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
         )}
       </div>
 
-      {!collapsed && (
-        <div className="flex items-center gap-2 mt-2 px-1">
-          <Checkbox
-            id={`cal-filter-${category.value}`}
-            checked={calorieFilterEnabled}
-            onCheckedChange={(checked) => setCalorieFilterEnabled(!!checked)}
-            className="h-3.5 w-3.5"
-          />
-          <label htmlFor={`cal-filter-${category.value}`} className="text-[10px] text-muted-foreground cursor-pointer select-none flex items-center gap-1">
-            <Filter className="h-3 w-3" />
-            {calorieFilterEnabled ? `Calories restantes: ${Math.round(remainingCalories)} kcal` : "Carte en fonction des calories restantes"}
-          </label>
-        </div>
-      )}
-
       {!collapsed &&
-        <div className="flex flex-col gap-2 mt-2">
+        <div className="flex flex-col gap-2 mt-3">
           {isPlat && unusedFoodItems.length > 0 && renderUnusedItems(unusedFoodItems)}
 
           {(() => {
@@ -718,20 +642,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
                 return getUnifiedItemName(a).localeCompare(getUnifiedItemName(b));
               });
 
-              // Apply calorie filter for expiration sort
-              const toUnifiedAvail = (u: UnifiedItem): UnifiedAvail => {
-                if (u.type === 'isMeal') return { type: 'isMeal', fi: u.fi, key: `fi-${u.fi.id}` };
-                if (u.type === 'nameMatch') return { type: 'nm', nm: u.nm, nmIdx: u.idx, key: `nm-${u.nm.meal.id}` };
-                if (u.type === 'available') return { type: 'av', item: u.item, key: `av-${u.item.meal.id}` };
-                return { type: 'partial', item: u.item, key: `pa-${u.item.meal.id}` };
-              };
-
-              const filtered = calorieFilterEnabled
-                ? unified.filter(u => shouldShowWithCalorieFilter(toUnifiedAvail(u)))
-                : unified;
-
-              const firstIsMealIdx = !isPlat ? filtered.findIndex(u => u.type === 'isMeal') : -1;
-              return filtered.map((u, idx) => {
+              const firstIsMealIdx = !isPlat ? unified.findIndex(u => u.type === 'isMeal') : -1;
+              return unified.map((u, idx) => {
                 const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
                   <div key={`sep-ismeal`} className="flex items-center gap-2 my-2">
                     <Separator className="flex-1" />
@@ -748,10 +660,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, sortMode, 
             }
 
             // manual or calories: use unified items
-            const allUnifiedItems = buildUnifiedItems();
-            const unifiedItems = calorieFilterEnabled
-              ? allUnifiedItems.filter(u => shouldShowWithCalorieFilter(u))
-              : allUnifiedItems;
+            const unifiedItems = buildUnifiedItems();
             const firstIsMealIdx2 = !isPlat ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
             return unifiedItems.map((u, idx) => {
               const sep = (idx === firstIsMealIdx2 && firstIsMealIdx2 > 0) ? (

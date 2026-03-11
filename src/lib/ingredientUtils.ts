@@ -154,8 +154,7 @@ export function parseIngredientLine(ing: string): ParsedIngredient {
   let trimmed = ing.trim().replace(/\s+/g, " ");
   const optional = trimmed.startsWith("?");
   if (optional) trimmed = trimmed.slice(1).trim();
-  // Strip {cal} and [prot] suffixes
-  trimmed = trimmed.replace(/\[\d+(?:[.,]\d+)?\]\s*$/, "").trim();
+  // Strip {cal} suffix
   trimmed = trimmed.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
   const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
 
@@ -176,8 +175,7 @@ export function parseIngredientLineRaw(ing: string): ParsedIngredientRaw {
   let trimmed = ing.trim().replace(/\s+/g, " ");
   const optional = trimmed.startsWith("?");
   if (optional) trimmed = trimmed.slice(1).trim();
-  // Strip {cal} and [prot] suffixes
-  trimmed = trimmed.replace(/\[\d+(?:[.,]\d+)?\]\s*$/, "").trim();
+  // Strip {cal} suffix
   trimmed = trimmed.replace(/\{\d+(?:[.,]\d+)?\}\s*$/, "").trim();
   const unitRegex = "(?:g|gr|grammes?|kg|ml|cl|l)";
 
@@ -206,39 +204,34 @@ export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
 
 // ─── Ingredient Editing (String-based — for UI) ─────────────────────────────
 
-export interface IngLine { qty: string; count: string; name: string; cal: string; prot: string; isOr: boolean; isOptional: boolean; }
+export interface IngLine { qty: string; count: string; name: string; cal: string; isOr: boolean; isOptional: boolean; }
 
-/** Extract {cal} and [prot] suffixes from a raw ingredient token */
-function extractMarkers(raw: string): { text: string; cal: string; prot: string } {
-  let text = raw;
-  let prot = "";
-  const protMatch = text.match(/\[(\d+(?:[.,]\d+)?)\]\s*$/);
-  if (protMatch) { prot = protMatch[1].replace(",", "."); text = text.slice(0, protMatch.index!).trim(); }
-  let cal = "";
-  const calMatch = text.match(/\{(\d+(?:[.,]\d+)?)\}\s*$/);
-  if (calMatch) { cal = calMatch[1].replace(",", "."); text = text.slice(0, calMatch.index!).trim(); }
-  return { text, cal, prot };
+/** Extract {cal} suffix from a raw ingredient token */
+function extractCal(raw: string): { text: string; cal: string } {
+  const m = raw.match(/\{(\d+(?:[.,]\d+)?)\}\s*$/);
+  if (m) return { text: raw.slice(0, m.index!).trim(), cal: m[1].replace(",", ".") };
+  return { text: raw, cal: "" };
 }
 
 export function parseIngredientLineDisplay(raw: string): IngLine {
   let trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false };
+  if (!trimmed) return { qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false };
   const isOptional = trimmed.startsWith("?");
   if (isOptional) trimmed = trimmed.slice(1).trim();
-  const { text: withoutMarkers, cal, prot } = extractMarkers(trimmed);
-  trimmed = withoutMarkers;
+  const { text: withoutCal, cal } = extractCal(trimmed);
+  trimmed = withoutCal;
   const unitRegex = "(?:g|gr|gramme?s?|kg|ml|cl|l)";
 
   const matchFull = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i"));
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, prot, isOr: false, isOptional };
+  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, isOr: false, isOptional };
 
   const matchUnit = trimmed.match(new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${unitRegex}\\s+(.+)$`, "i"));
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, prot, isOr: false, isOptional };
+  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, isOr: false, isOptional };
 
   const matchNum = trimmed.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, prot, isOr: false, isOptional };
+  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, isOr: false, isOptional };
 
-  return { qty: "", count: "", name: trimmed, cal, prot, isOr: false, isOptional };
+  return { qty: "", count: "", name: trimmed, cal, isOr: false, isOptional };
 }
 
 export function formatQtyDisplay(qty: string): string {
@@ -249,7 +242,7 @@ export function formatQtyDisplay(qty: string): string {
 }
 
 export function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false }];
+  if (!raw) return [{ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false }];
   const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const lines: IngLine[] = [];
   for (const group of groups) {
@@ -260,7 +253,7 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
       lines.push(parsed);
     });
   }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", prot: "", isOr: false, isOptional: false });
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", isOr: false, isOptional: false });
   return lines;
 }
 
@@ -275,7 +268,6 @@ export function serializeIngredients(lines: IngLine[]): string | null {
     if (!qtyStr && !countStr && !nameStr) continue;
     let token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
     if (l.cal.trim()) token += `{${l.cal.trim()}}`;
-    if (l.prot.trim()) token += `[${l.prot.trim()}]`;
     const finalToken = l.isOptional ? `?${token}` : token;
     if (l.isOr) { currentGroup.push(finalToken); } else { flushGroup(); currentGroup.push(finalToken); }
   }
@@ -311,31 +303,4 @@ export function computeIngredientCalories(ingredientStr: string | null): number 
     }
   }
   return hasCal ? Math.round(total) : null;
-}
-
-/**
- * Compute total protein from ingredient string.
- * For each ingredient with [prot]: if qty (grams) present → prot * qty / 100. If count present → prot * count.
- * Returns null if no ingredient has protein data.
- */
-export function computeIngredientProtein(ingredientStr: string | null): number | null {
-  if (!ingredientStr?.trim()) return null;
-  const lines = parseIngredientsToLines(ingredientStr);
-  let total = 0;
-  let hasProt = false;
-  for (const line of lines) {
-    const protVal = parseFloat(line.prot.replace(",", "."));
-    if (!protVal || isNaN(protVal)) continue;
-    hasProt = true;
-    const qty = parseFloat(line.qty.replace(",", "."));
-    const count = parseFloat(line.count.replace(",", "."));
-    if (qty > 0) {
-      total += protVal * qty / 100;
-    } else if (count > 0) {
-      total += protVal * count;
-    } else {
-      total += protVal;
-    }
-  }
-  return hasProt ? Math.round(total) : null;
 }
