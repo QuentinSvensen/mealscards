@@ -24,7 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories } from "@/hooks/useCalorieBalance";
-import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash } from "lucide-react";
+import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
 import { computeIngredientCalories, computeIngredientProtein, cleanIngredientText, normalizeKey, hasNegativeMetric, getMealColor, getAdaptedCounterDays, getTargetDate, computeCounterHours } from "@/lib/ingredientUtils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -1893,8 +1893,8 @@ export function WeeklyPlanning({
                           </button>
                         </PopoverTrigger>
                         <PopoverContent className="w-80 p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl" align="center">
-                          {/* Formulaire d'ajout en une ligne — EN HAUT */}
-                          <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-orange-200/20">
+                          {/* Formulaire d'ajout en une ligne — STYLE MODERNISÉ */}
+                          <div className="flex items-center gap-1.5 mb-3 pb-3 border-b border-white/5">
                             <input
                               type="text"
                               value={customExtraName}
@@ -1914,24 +1914,28 @@ export function WeeklyPlanning({
                                 }
                               }}
                               placeholder="Nom"
-                              className="flex-1 min-w-0 h-7 text-[11px] bg-muted/60 border border-orange-300/20 rounded-lg px-2 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-orange-400/50"
+                              className="flex-1 min-w-0 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-3 text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm"
                             />
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              value={customExtraCal}
-                              onChange={(e) => setCustomExtraCal(e.target.value)}
-                              placeholder="kcal"
-                              className="w-12 h-7 text-[11px] bg-muted/60 border border-orange-300/20 rounded-lg px-1 text-orange-500 placeholder:text-orange-300/40 focus:outline-none focus:border-orange-400/50 text-center"
-                            />
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              value={customExtraProt}
-                              onChange={(e) => setCustomExtraProt(e.target.value)}
-                              placeholder="prot"
-                              className="w-12 h-7 text-[11px] bg-muted/60 border border-blue-400/20 rounded-lg px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
-                            />
+                            <div className="relative group/cal shrink-0">
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                value={customExtraCal}
+                                onChange={(e) => setCustomExtraCal(e.target.value)}
+                                placeholder="kcal"
+                                className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-orange-500 placeholder:text-orange-300/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 text-center transition-all shadow-sm"
+                              />
+                            </div>
+                            <div className="relative group/prot shrink-0">
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                value={customExtraProt}
+                                onChange={(e) => setCustomExtraProt(e.target.value)}
+                                placeholder="prot"
+                                className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-blue-400 placeholder:text-blue-400/20 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-center transition-all shadow-sm"
+                              />
+                            </div>
                             <button
                               onClick={() => {
                                 const name = customExtraName.trim();
@@ -1947,13 +1951,15 @@ export function WeeklyPlanning({
                                 setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
                               }}
                               disabled={!customExtraName.trim() || !customExtraCal.trim()}
-                              className="h-7 w-7 shrink-0 flex items-center justify-center rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-30 text-white text-sm font-bold transition-colors"
-                              title="Valider (ou Entrée)"
-                            >✓</button>
+                              className="h-8 w-8 shrink-0 flex items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-600 hover:from-orange-500 hover:to-orange-700 disabled:opacity-30 text-white shadow-lg shadow-orange-500/20 transition-all hover:scale-110 active:scale-95"
+                              title="Valider"
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
                           </div>
 
                           <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
-                            {/* Extras personnalisés déjà validés — même UI que les extras normaux, EN HAUT */}
+                            {/* Extras personnalisés déjà validés */}
                             {(() => {
                               const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                               const currentIds = extraSels[iso] || extraSels[key] || [];
@@ -1963,9 +1969,9 @@ export function WeeklyPlanning({
                                 if (!c) return null;
                                 const count = currentIds.filter(cid => cid === id).length;
                                 return (
-                                  <div key={id} className="w-full p-2 rounded-xl border bg-orange-500/20 border-orange-500/40 shadow-inner flex items-center gap-2">
+                                  <div key={id} className="w-full p-2.5 rounded-2xl border bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm flex items-center gap-3 hover:bg-orange-500/20 transition-all">
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-[11px] font-bold text-orange-600 truncate">{c.name}</p>
+                                      <p className="text-[11px] font-black text-orange-600 truncate">{c.name}</p>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       <button
@@ -1979,7 +1985,7 @@ export function WeeklyPlanning({
                                             setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                           }
                                         }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold"
+                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
                                         title="Retirer un"
                                       >−</button>
                                       <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
@@ -1990,15 +1996,15 @@ export function WeeklyPlanning({
                                           if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
                                           setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                         }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
+                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
                                         title="Ajouter un"
                                       >+</button>
                                       {c.prot > 0 && (
-                                        <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
+                                        <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
                                           🍗 {c.prot}
                                         </div>
                                       )}
-                                      <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
+                                      <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
                                         <Flame className="w-2.5 h-2.5" />{c.cal}
                                       </div>
                                     </div>
@@ -2028,11 +2034,11 @@ export function WeeklyPlanning({
                               return [...selected, ...others].map((fi) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
                                 return (
-                                  <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
+                                  <div key={fi.id} className={`w-full p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'}`}>
                                     <div className="flex-1 min-w-0">
-                                      <p className={`text-[11px] font-bold transition-colors truncate ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
+                                      <p className={`text-[11px] font-black transition-colors truncate ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
                                       {(fi.grams || fi.quantity) && (
-                                        <p className="text-[9px] text-muted-foreground/60">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
                                       )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
@@ -2049,7 +2055,7 @@ export function WeeklyPlanning({
                                                 setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                               }
                                             }}
-                                            className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold"
+                                            className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
                                             title="Retirer un"
                                           >−</button>
                                           <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
@@ -2062,16 +2068,16 @@ export function WeeklyPlanning({
                                           if (iso) updated[iso] = [...current, fi.id]; else updated[key] = [...current, fi.id];
                                           setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                         }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
+                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
                                         title="Ajouter un"
                                       >+</button>
                                       {fi.protein && (
-                                        <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
+                                        <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
                                           🍗 {fi.protein}
                                         </div>
                                       )}
                                       {fi.calories && (
-                                        <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
+                                        <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
                                           <Flame className="w-2.5 h-2.5" />{fi.calories}
                                         </div>
                                       )}
