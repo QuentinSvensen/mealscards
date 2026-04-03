@@ -33,6 +33,7 @@ import { usePreferences } from "@/hooks/usePreferences";
 import { useSortModes, FoodSortMode } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
 import { useMeals } from "@/hooks/useMeals";
+import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
 import { BarcodeScanner } from "./BarcodeScanner";
 
 export { colorFromName };
@@ -119,7 +120,18 @@ export function useFoodItems() {
   });
 
   const addItem = useMutation({
-    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date, calories, protein }: { name: string; storage_type: StorageType; quantity?: number | null; grams?: string | null; food_type?: FoodType; expiration_date?: string | null; calories?: string | null; protein?: string | null }) => {
+    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date, calories, protein, is_meal, no_counter }: {
+      name: string;
+      storage_type: StorageType;
+      quantity?: number | null;
+      grams?: string | null;
+      food_type?: FoodType;
+      expiration_date?: string | null;
+      calories?: string | null;
+      protein?: string | null;
+      is_meal?: boolean;
+      no_counter?: boolean;
+    }) => {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { error } = await supabase
         .from("food_items")
@@ -128,9 +140,10 @@ export function useFoodItems() {
           sort_order: maxOrder + 1,
           is_dry: storage_type === 'sec',
           storage_type,
+          is_meal: is_meal ?? false,
+          no_counter: no_counter ?? (storage_type === 'extras' ? true : !grams),
           ...(quantity ? { quantity } : {}),
           ...(grams ? { grams } : {}),
-          no_counter: storage_type === 'extras' ? true : !grams,
           ...(food_type ? { food_type } : {}),
           ...(expiration_date ? { expiration_date } : {}),
           ...(calories ? { calories } : {}),
@@ -308,8 +321,8 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDr
       } else {
         // "Retire le reste": on finit l'unité en cours, donc -1 quantité et on reset le reste
         // On arrête aussi le compteur car l'unité ouverte est terminée.
-        onUpdate({ 
-          quantity: currentQty - 1, 
+        onUpdate({
+          quantity: currentQty - 1,
           grams: gramsData.unit !== null ? formatNumericFR(gramsData.unit) : item.grams,
           counter_start_date: null
         });
@@ -505,11 +518,10 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDr
               const next = item.food_type === null ? 'feculent' : item.food_type === 'feculent' ? 'viande' : null;
               onUpdate({ food_type: next });
             }}
-            className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${
-              item.food_type === 'feculent' ? 'bg-amber-400/30 text-amber-200 border-amber-400/50 font-bold'
+            className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.food_type === 'feculent' ? 'bg-amber-400/30 text-amber-200 border-amber-400/50 font-bold'
               : item.food_type === 'viande' ? 'bg-red-400/30 text-red-200 border-red-400/50 font-bold'
-              : 'bg-white/10 text-white/50 border-white/20'
-            }`}
+                : 'bg-white/10 text-white/50 border-white/20'
+              }`}
             title={item.food_type === 'feculent' ? 'Féculent (cliquer: Viande)' : item.food_type === 'viande' ? 'Viande (cliquer: Aucun)' : 'Aucun type (cliquer: Féculent)'}
           >
             {item.food_type === 'viande' ? <Drumstick className="h-2.5 w-2.5" /> : <Wheat className="h-2.5 w-2.5" />}
@@ -559,9 +571,8 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDr
 
         <Popover open={calOpen} onOpenChange={setCalOpen}>
           <PopoverTrigger asChild>
-            <button className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${
-              expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200 font-bold' : expired ? 'border-red-500/60 bg-red-500/20 text-red-200 font-bold animate-pulse' : 'border-white/20'
-            }`}>
+            <button className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center gap-0.5 hover:bg-white/20 transition-colors ${expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200 font-bold' : expired ? 'border-red-500/60 bg-red-500/20 text-red-200 font-bold animate-pulse' : 'border-white/20'
+              }`}>
               <Calendar className="h-2.5 w-2.5 shrink-0" />
               {item.expiration_date
                 ? (expired ? '⚠️ ' : '') + format(parseISO(item.expiration_date), 'd MMM yy', { locale: fr })
@@ -592,8 +603,8 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDr
         <button
           onClick={() => onUpdate({ counter_start_date: item.counter_start_date ? null : new Date().toISOString() })}
           className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
-          title={item.counter_start_date 
-            ? (isFuture ? formattedProgDate : `Arrêter compteur${counterHours !== null ? ` (${counterHours}h)` : ''}`) 
+          title={item.counter_start_date
+            ? (isFuture ? formattedProgDate : `Arrêter compteur${counterHours !== null ? ` (${counterHours}h)` : ''}`)
             : 'Démarrer compteur'}
         >
           <Timer className="h-2.5 w-2.5" />
@@ -610,16 +621,15 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDr
           // For quantitative-only items, we "enable" (default is off). 
           // For grams items, we "disable" (default is on).
           const isHighlighted = isGrams ? counterEffectivelyDisabled : !counterEffectivelyDisabled;
-          
+
           return (
             <button
               onClick={() => onUpdate({ no_counter: !item.no_counter })}
-              className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${
-                isHighlighted
-                  ? 'bg-cyan-400/30 text-cyan-200 border-cyan-400/50 font-bold'
-                  : 'bg-white/10 text-white/50 border-white/20'
-              }`}
-              title={isGrams 
+              className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${isHighlighted
+                ? 'bg-cyan-400/30 text-cyan-200 border-cyan-400/50 font-bold'
+                : 'bg-white/10 text-white/50 border-white/20'
+                }`}
+              title={isGrams
                 ? (counterEffectivelyDisabled ? 'Compteur auto désactivé (cliquer pour activer)' : 'Désactiver le compteur automatique')
                 : (counterEffectivelyDisabled ? 'Activer le compteur automatique' : 'Compteur auto activé (cliquer pour désactiver)')
               }
@@ -655,6 +665,7 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
 export function FoodItems() {
   const { items, isLoading: itemsLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
   const { meals = [] } = useMeals();
+  const { searchLibrary, upsertEntry } = useFoodLibrary();
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const {
     foodSortModes, sortDirections, toggleFoodSort, toggleSortDirection, resetFoodSortToManual
@@ -675,7 +686,16 @@ export function FoodItems() {
   const [expCalOpen, setExpCalOpen] = useState(false);
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
 
-  // Synchroniser les mutations du hook useFoodItems localement - DELETED REDUNDANT CODE
+  // Bibliothèque d'aliments — autocomplete
+  const [suggestions, setSuggestions] = useState<FoodLibraryEntry[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestedStorageType, setSuggestedStorageType] = useState<string | null>(null);
+  const [suggestedIsMeal, setSuggestedIsMeal] = useState<boolean | null>(null);
+  const [suggestedNoCounter, setSuggestedNoCounter] = useState<boolean | null>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Synchroniser les mutations du hook useFoodItems localement
   const [pendingName, setPendingName] = useState("");
   const [pendingQuantity, setPendingQuantity] = useState("");
   const [pendingGrams, setPendingGrams] = useState("");
@@ -684,6 +704,71 @@ export function FoodItems() {
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Mise à jour des suggestions à chaque frappe
+  const handleNameChange = useCallback((value: string) => {
+    setNewName(value);
+    if (value.trim().length >= 1) {
+      const results = searchLibrary(value.trim());
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [searchLibrary]);
+
+  // Auto-fill au clic sur une suggestion
+  const handleSelectSuggestion = useCallback((entry: FoodLibraryEntry) => {
+    setNewName(entry.name);
+    setNewFoodType(entry.food_type);
+    setSuggestedStorageType(entry.storage_type);
+    setSuggestedIsMeal(entry.is_meal);
+    setSuggestedNoCounter(entry.no_counter);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    // Focus le champ suivant (quantité) pour fluidité
+    setTimeout(() => {
+      const qtyInput = document.querySelector<HTMLInputElement>('input[placeholder*="Quantité"]');
+      qtyInput?.focus();
+    }, 50);
+  }, []);
+
+  const handleUpdate = useCallback((id: string, updates: Partial<FoodItem>) => {
+    // 1. Mise à jour de l'aliment en stock
+    updateItem.mutate({ id, ...updates });
+
+    // 2. Synchronisation avec la bibliothèque (Mémoire globale)
+    const item = items.find(i => i.id === id);
+    if (item && (
+      updates.is_meal !== undefined ||
+      updates.no_counter !== undefined ||
+      updates.food_type !== undefined ||
+      updates.storage_type !== undefined
+    )) {
+      upsertEntry.mutate({
+        name: item.name,
+        food_type: updates.food_type !== undefined ? updates.food_type : item.food_type,
+        storage_type: updates.storage_type !== undefined ? (updates.storage_type as any) : (item.storage_type as any),
+        is_meal: updates.is_meal !== undefined ? updates.is_meal : item.is_meal,
+        no_counter: updates.no_counter !== undefined ? updates.no_counter : item.no_counter
+      });
+    }
+  }, [items, updateItem, upsertEntry]);
+
+  // Fermer les suggestions quand on clique ailleurs
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node) &&
+        nameInputRef.current && !nameInputRef.current.contains(e.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -716,11 +801,34 @@ export function FoodItems() {
     const grams = pendingGrams.trim() || null;
     const calories = pendingCalories.trim() || null;
     const protein = pendingProtein.trim() || null;
-    addItem.mutate({ name: pendingName, storage_type: storageType, quantity: qty, grams, food_type: pendingFoodType, expiration_date: pendingExpiration, calories, protein }, {
-      onSuccess: () => { 
-        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewExpiration(undefined); 
-        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingExpiration(null); 
-        setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 }); 
+    const finalNoCounter = suggestedNoCounter !== null ? suggestedNoCounter : (storageType === 'extras' ? true : !grams);
+    const finalIsMeal = suggestedIsMeal !== null ? suggestedIsMeal : false;
+
+    addItem.mutate({
+      name: pendingName,
+      storage_type: storageType,
+      quantity: qty,
+      grams,
+      food_type: pendingFoodType,
+      expiration_date: pendingExpiration,
+      calories,
+      protein,
+      is_meal: finalIsMeal,
+      no_counter: finalNoCounter
+    }, {
+      onSuccess: () => {
+        // Sauvegarder dans la bibliothèque pour auto-complétion future
+        upsertEntry.mutate({
+          name: pendingName,
+          food_type: pendingFoodType,
+          is_meal: finalIsMeal,
+          no_counter: finalNoCounter,
+          storage_type: storageType,
+        });
+        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewExpiration(undefined);
+        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingExpiration(null);
+        setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null);
+        setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 });
       },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -750,13 +858,77 @@ export function FoodItems() {
     <div className="max-w-6xl mx-auto">
       {/* Add form + search */}
       <div className="flex gap-2 mb-2">
-        <Input
-          placeholder="Nom de l'aliment (ex : Crème fraîche)"
-          value={newName}
-          onChange={e => setNewName(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && handleAdd()}
-          className="flex-1 rounded-xl"
-        />
+        {/* Input Nom avec Autocomplete */}
+        <div className="flex-1 relative">
+          <Input
+            ref={nameInputRef}
+            placeholder="Nom de l'aliment (ex : Crème fraîche)"
+            value={newName}
+            onChange={e => handleNameChange(e.target.value)}
+            onFocus={() => { if (newName.trim().length >= 1) { const r = searchLibrary(newName.trim()); setSuggestions(r); setShowSuggestions(true); } }}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                setShowSuggestions(false);
+                handleAdd();
+              }
+              if (e.key === "Escape") setShowSuggestions(false);
+            }}
+            className="w-full rounded-xl"
+            autoComplete="off"
+          />
+          {/* Dropdown de suggestions */}
+          {showSuggestions && (
+            <div
+              ref={suggestionsRef}
+              className="absolute z-[100] left-0 right-0 top-full mt-1 rounded-xl border border-white/20 bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden"
+            >
+              <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                {suggestions.length === 0 ? (
+                  <div className="px-4 py-3 text-xs text-center text-muted-foreground italic">
+                    Aucun résultat dans la bibliothèque
+                  </div>
+                ) : (
+                  suggestions.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
+                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
+                    >
+                      <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
+                        {entry.name}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {entry.food_type === 'feculent' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
+                            <Wheat className="h-2.5 w-2.5" />Féc
+                          </span>
+                        )}
+                        {entry.food_type === 'viande' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
+                            <Drumstick className="h-2.5 w-2.5" />Via
+                          </span>
+                        )}
+                        {entry.is_meal && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
+                            <UtensilsCrossed className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
+                          {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
+                          {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
+                          {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
+                          {entry.storage_type === 'extras' && '✨'}
+                          {entry.storage_type === 'toujours' && '📌'}
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
         <div className="relative shrink-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <Input
@@ -784,7 +956,7 @@ export function FoodItems() {
       </div>
 
       {isScannerOpen && (
-        <BarcodeScanner 
+        <BarcodeScanner
           onClose={() => setIsScannerOpen(false)}
           onScanSuccess={(data) => {
             setNewName(data.name);
@@ -824,9 +996,8 @@ export function FoodItems() {
         />
         <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>
           <PopoverTrigger asChild>
-            <button className={`h-8 min-w-[120px] border rounded-xl text-sm px-2 flex items-center gap-1 transition-colors ${
-              newExpiration ? 'bg-muted text-foreground border-border font-medium' : 'bg-muted/50 text-muted-foreground border-border'
-            }`}>
+            <button className={`h-8 min-w-[120px] border rounded-xl text-sm px-2 flex items-center gap-1 transition-colors ${newExpiration ? 'bg-muted text-foreground border-border font-medium' : 'bg-muted/50 text-muted-foreground border-border'
+              }`}>
               <Calendar className="h-3.5 w-3.5 shrink-0" />
               {newExpiration ? format(newExpiration, 'd MMM yy', { locale: fr }) : 'Péremption'}
             </button>
@@ -851,17 +1022,15 @@ export function FoodItems() {
         <div className="flex gap-1 shrink-0">
           <button
             onClick={() => setNewFoodType(prev => prev === 'feculent' ? null : 'feculent')}
-            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
-              newFoodType === 'feculent' ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
-            }`}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newFoodType === 'feculent' ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
+              }`}
           >
             <Wheat className="h-3 w-3" />Féc
           </button>
           <button
             onClick={() => setNewFoodType(prev => prev === 'viande' ? null : 'viande')}
-            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
-              newFoodType === 'viande' ? 'bg-red-500/20 text-red-300 border-red-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
-            }`}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newFoodType === 'viande' ? 'bg-red-500/20 text-red-300 border-red-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
+              }`}
           >
             <Drumstick className="h-3 w-3" />Via
           </button>
@@ -879,18 +1048,29 @@ export function FoodItems() {
               {pendingGrams && `Grammes : ${pendingGrams}`}
             </p>
           )}
+          {suggestedStorageType && (
+            <div className="text-xs text-muted-foreground mb-3 flex items-center gap-1">
+              💡 Suggestion :
+              <span className="font-bold text-foreground flex items-center gap-1 ml-1">
+                {suggestedStorageType === 'frigo' && <><Refrigerator className="h-3 w-3 text-blue-400" /> Frigo</>}
+                {suggestedStorageType === 'sec' && <><Package className="h-3 w-3 text-amber-500" /> Sec</>}
+                {suggestedStorageType === 'surgele' && <><Snowflake className="h-3 w-3 text-cyan-400" /> Surgelé</>}
+                {!['frigo', 'sec', 'surgele'].includes(suggestedStorageType) && suggestedStorageType}
+              </span>
+            </div>
+          )}
           <div className="flex gap-2">
-            <Button onClick={() => confirmAdd('frigo')} variant="outline" className="flex-1 gap-1.5">
+            <Button onClick={() => confirmAdd('frigo')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'frigo' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
             </Button>
-            <Button onClick={() => confirmAdd('sec')} variant="outline" className="flex-1 gap-1.5">
+            <Button onClick={() => confirmAdd('sec')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'sec' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Package className="h-4 w-4 text-amber-500" /> Sec
             </Button>
-            <Button onClick={() => confirmAdd('surgele')} variant="outline" className="flex-1 gap-1.5">
+            <Button onClick={() => confirmAdd('surgele')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'surgele' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Snowflake className="h-4 w-4 text-cyan-400" /> Surgelé
             </Button>
           </div>
-          <button onClick={() => setShowStoragePrompt(false)} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">
+          <button onClick={() => { setShowStoragePrompt(false); setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); }} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">
             Annuler
           </button>
         </div>
@@ -905,7 +1085,7 @@ export function FoodItems() {
             title={section.label}
             storageType={section.type}
             items={getSortedItems(section.type)}
-            onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
+            onUpdate={handleUpdate}
             onDelete={(id) => deleteItem.mutate(id)}
             onDuplicate={(id) => duplicateItem.mutate(id)}
             sortMode={foodSortModes[section.type] || "manual"}
@@ -916,7 +1096,7 @@ export function FoodItems() {
             dragIndex={dragIndex}
             setDragIndex={setDragIndex}
             allItems={items}
-            onChangeStorage={(id, st) => updateItem.mutate({ id, storage_type: st, is_dry: st === 'sec' })}
+            onChangeStorage={(id, st) => handleUpdate(id, { storage_type: st, is_dry: st === 'sec' })}
           />
         ))}
       </div>
@@ -929,7 +1109,7 @@ export function FoodItems() {
               title={section.label}
               storageType={section.type}
               items={getSortedItems(section.type)}
-              onUpdate={(id, updates) => updateItem.mutate({ id, ...updates })}
+              onUpdate={handleUpdate}
               onDelete={(id) => deleteItem.mutate(id)}
               onDuplicate={(id) => duplicateItem.mutate(id)}
               sortMode={foodSortModes[section.type] || "manual"}
@@ -940,7 +1120,7 @@ export function FoodItems() {
               dragIndex={dragIndex}
               setDragIndex={setDragIndex}
               allItems={items}
-              onChangeStorage={(id, st) => updateItem.mutate({ id, storage_type: st, is_dry: st === 'sec' })}
+              onChangeStorage={(id, st) => handleUpdate(id, { storage_type: st, is_dry: st === 'sec' })}
             />
           ))}
         </div>

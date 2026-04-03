@@ -77,6 +77,42 @@ export type Database = {
         }
         Relationships: []
       }
+      food_library: {
+        Row: {
+          id: string
+          user_id: string | null
+          name: string
+          food_type: string | null
+          is_meal: boolean
+          no_counter: boolean
+          storage_type: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          name: string
+          food_type?: string | null
+          is_meal?: boolean
+          no_counter?: boolean
+          storage_type?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          name?: string
+          food_type?: string | null
+          is_meal?: boolean
+          no_counter?: boolean
+          storage_type?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       meals: {
         Row: {
           calories: string | null

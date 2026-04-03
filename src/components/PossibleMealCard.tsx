@@ -175,7 +175,7 @@ export function PossibleMealCard({
   // PRIORITÉ : On utilise le compteur stock s'il est présent (plus à jour), 
   // sinon celui sauvegardé sur la carte (indispensable si l'aliment est consommé/supprimé du stock)
   const effectiveCounterStart = realtimeCounterStartDate ?? pm.counter_start_date;
-  
+
   const targetDate = getTargetDate(pm.day_of_week, new Date(), effectiveCounterStart, pm.meal_time);
   const counterDays = getAdaptedCounterDays(effectiveCounterStart, pm.day_of_week, pm.created_at, pm.meal_time);
   const counterHours = computeCounterHours(effectiveCounterStart, targetDate);
@@ -332,8 +332,8 @@ export function PossibleMealCard({
               <SelectContent>
                 <SelectItem value="none">— Nul —</SelectItem>
                 {planningDays.map(d => (
-                  <SelectItem 
-                    key={d.iso} 
+                  <SelectItem
+                    key={d.iso}
                     value={d.iso}
                     className={d.iso === todayISO ? 'bg-primary/15 focus:bg-primary/25 font-bold' : ''}
                   >

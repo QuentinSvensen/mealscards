@@ -145,8 +145,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
               {maxIngredientCounter !== null && maxIngredientCounter !== undefined && !hideCounter && (
                 <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-bold ${maxIngredientCounter >= 3 ? 'bg-red-500/50 text-red-100' :
-                    maxIngredientCounter >= 1 ? 'bg-amber-400/30 text-amber-100' :
-                      'bg-white/25 text-white/80'
+                  maxIngredientCounter >= 1 ? 'bg-amber-400/30 text-amber-100' :
+                    'bg-white/25 text-white/80'
                   }`}
                   title={earliestCounterDate ? `${computeCounterHours(earliestCounterDate)}h écoulées` : undefined}
                 >
@@ -245,10 +245,10 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
             <div className="flex items-center gap-2 mt-1">
               {expirationLabel && (
                 <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${expirationIsToday
-                    ? 'text-red-200 bg-red-500/30 ring-2 ring-red-500'
-                    : expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
-                      ? 'text-red-200 bg-red-500/30'
-                      : 'text-white/70 bg-white/20'
+                  ? 'text-red-200 bg-red-500/30 ring-2 ring-red-500'
+                  : expirationDate && new Date(expirationDate) < new Date(new Date().toDateString())
+                    ? 'text-red-200 bg-red-500/30'
+                    : 'text-white/70 bg-white/20'
                   }`}>
                   📅 {expirationLabel}
                 </span>

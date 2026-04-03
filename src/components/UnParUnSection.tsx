@@ -275,11 +275,11 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
                       <Flame className="w-2.5 h-2.5" />{calDisplay}
                     </span>
                   )}
-                   {proDisplay && (
-                     <span className="text-[10px] font-bold text-white bg-blue-600/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                       🍗{Math.round(parseFloat(String(proDisplay).replace(',', '.').replace(/[^0-9.-]/g, '')) || 0)}
-                     </span>
-                   )}
+                  {proDisplay && (
+                    <span className="text-[10px] font-bold text-white bg-blue-600/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                      🍗{Math.round(parseFloat(String(proDisplay).replace(',', '.').replace(/[^0-9.-]/g, '')) || 0)}
+                    </span>
+                  )}
                 </>
               );
             })()}

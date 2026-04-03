@@ -427,12 +427,12 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
   );
 }
 
-export function WeeklyPlanning({ 
-  masterSourcePmIds = new Set(), 
-  unParUnSourcePmIds = new Set() 
-}: { 
-  masterSourcePmIds?: Set<string>, 
-  unParUnSourcePmIds?: Set<string> 
+export function WeeklyPlanning({
+  masterSourcePmIds = new Set(),
+  unParUnSourcePmIds = new Set()
+}: {
+  masterSourcePmIds?: Set<string>,
+  unParUnSourcePmIds?: Set<string>
 } = {}) {
   const { possibleMeals, meals, updatePlanning, reorderPossibleMeals, getMealsByCategory } = useMeals();
   const qc = useQueryClient();
@@ -1881,9 +1881,9 @@ export function WeeklyPlanning({
                     />
                     <div className="flex items-center gap-1 mt-1">
                       <Popover open={openExtrasDay === (iso || key)} onOpenChange={(open) => {
-                          setOpenExtrasDay(open ? (iso || key) : null);
-                          if (open) { setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt(''); }
-                        }}>
+                        setOpenExtrasDay(open ? (iso || key) : null);
+                        if (open) { setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt(''); }
+                      }}>
                         <PopoverTrigger asChild>
                           <button
                             className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${((getPreference<Record<string, string[]>>('planning_extra_selections', {})[iso || ""]?.length || 0) > 0 || (getPreference<Record<string, string[]>>('planning_extra_selections', {})[key]?.length || 0) > 0) ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
@@ -2086,7 +2086,7 @@ export function WeeklyPlanning({
                                 );
                               });
                             })()}
-                            </div>
+                          </div>
                         </PopoverContent>
                       </Popover>
                       <button
