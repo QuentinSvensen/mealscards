@@ -25,7 +25,34 @@
       setInterval(patch, 1000);
       const silentListener = (e) => {
         const err = e.error || e.reason || e.message || e;
-        if (err && shouldIgnore([err.message || err])) { e.stopImmediatePropagation(); e.preventDefault(); return true; }
+        const msg = (err?.message || err || "").toString();
+        
+        // Detection des erreurs de chargement de module (ChunkLoadError ou MIME type mismatch)
+        const isModuleError = msg.includes("ChunkLoadError") || 
+                             msg.includes("Failed to load module script") ||
+                             msg.includes("Failed to fetch dynamically imported module");
+        
+        if (isModuleError) {
+          const now = Date.now();
+          const lastRetry = parseInt(sessionStorage.getItem("global-reload-timestamp") || "0");
+          // Eviter les boucles infinies de reload (max 1 reload par 10 secondes)
+          if (now - lastRetry > 10000) {
+            sessionStorage.setItem("global-reload-timestamp", now.toString());
+            console.warn("Script load error detected, triggering safety reload...");
+            // Nettoyer les caches si possible
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+            }
+            location.reload();
+            return true;
+          }
+        }
+
+        if (err && shouldIgnore([msg])) { 
+          e.stopImmediatePropagation(); 
+          e.preventDefault(); 
+          return true; 
+        }
       };
       window.addEventListener("error", silentListener, true);
       window.addEventListener("unhandledrejection", silentListener, true);

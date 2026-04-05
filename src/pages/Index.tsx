@@ -48,19 +48,20 @@ const lazyRetry = (importFn: () => Promise<any>, name: string) => {
     try {
       return await importFn();
     } catch (error: any) {
-      console.error(`Error loading chunk for ${name}:`, error);
-
-      // S'il s'agit d'une erreur de chargement de fragment (courant lors des redéploiements), rafraîchir la page
-      // S'il s'agit d'une erreur de chargement de fragment (courant lors des redéploiements), vider le cache et rafraîchir
+      const msg = (error?.message || error || "").toString().toLowerCase();
       const isChunkError = error.name === 'ChunkLoadError' ||
-        error.message?.includes('Failed to fetch dynamically imported module') ||
-        error.message?.includes('Failed to load module script');
+        msg.includes('failed to fetch dynamically imported module') ||
+        msg.includes('failed to load module script') ||
+        msg.includes('chunkloaderror');
 
       if (isChunkError && !sessionStorage.getItem(`retry-${name}`)) {
         sessionStorage.setItem(`retry-${name}`, 'true');
+        console.warn(`Module load error for ${name}, attempting safety reload...`);
+        
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach(r => r.unregister()));
         }
+        
         if (typeof caches !== "undefined") {
           caches.keys().then((keys) => {
             Promise.all(keys.map(k => caches.delete(k))).then(() => {
@@ -205,6 +206,31 @@ const Index = () => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => subscription.unsubscribe();
+  }, []);
+
+  // ─── Gestionnaire d'erreurs global pour les modules ──────────────────────
+  useEffect(() => {
+    const handleGlobalModuleError = (e: ErrorEvent | PromiseRejectionEvent) => {
+      const err = (e as any).error || (e as any).reason || (e as any).message || e;
+      const msg = (err?.message || err || "").toString();
+
+      if (msg.includes("ChunkLoadError") || msg.includes("Failed to load module script")) {
+        const now = Date.now();
+        const last = parseInt(sessionStorage.getItem("global-module-retry") || "0");
+        if (now - last > 10000) {
+          sessionStorage.setItem("global-module-retry", now.toString());
+          console.error("Global module error detected, triggering safety reload...");
+          location.reload();
+        }
+      }
+    };
+
+    window.addEventListener("error", handleGlobalModuleError, true);
+    window.addEventListener("unhandledrejection", handleGlobalModuleError, true);
+    return () => {
+      window.removeEventListener("error", handleGlobalModuleError, true);
+      window.removeEventListener("unhandledrejection", handleGlobalModuleError, true);
+    };
   }, []);
 
   useEffect(() => {
