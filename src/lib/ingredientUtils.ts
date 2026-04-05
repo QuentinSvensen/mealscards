@@ -92,7 +92,7 @@ export function getDateForDayKey(dayKey: string, ref: Date = new Date()): Date {
  */
 export function getTargetDate(dayKey: string | null | undefined, refDate: Date, startDate?: string | null, mealTime?: string | null): Date {
   let target: Date;
-  
+
   if (!dayKey) {
     target = new Date(refDate);
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
@@ -112,7 +112,7 @@ export function getTargetDate(dayKey: string | null | undefined, refDate: Date, 
   }
 
   if (!startDate) return target;
-  
+
   // Si le compteur a démarré après la date cible, avancer d'une semaine
   const start = parseISO(startDate);
   if (start > target && !(/^\d{4}-\d{2}-\d{2}$/.test(dayKey || ""))) {
@@ -138,7 +138,7 @@ export function getAdaptedCounterDays(
   fixedNow?: Date
 ): number | null {
   if (!startDate) return null;
-  
+
   const now = fixedNow || new Date();
   const start = parseISO(startDate);
 
@@ -157,7 +157,7 @@ export function getAdaptedCounterDays(
   const target = getTargetDate(dayKey, now, startDate, mealTime);
   const diffMs = target.getTime() - start.getTime();
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  
+
   return days < 0 ? null : days;
 }
 

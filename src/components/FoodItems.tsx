@@ -665,7 +665,7 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
 export function FoodItems() {
   const { items, isLoading: itemsLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
   const { meals = [] } = useMeals();
-  const { searchLibrary, upsertEntry } = useFoodLibrary();
+  const { searchLibrary, upsertEntry, deleteEntry } = useFoodLibrary();
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const {
     foodSortModes, sortDirections, toggleFoodSort, toggleSortDirection, resetFoodSortToManual
@@ -889,40 +889,57 @@ export function FoodItems() {
                   </div>
                 ) : (
                   suggestions.map((entry) => (
-                    <button
+                    <div
                       key={entry.id}
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
-                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
+                      className="w-full px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
                     >
-                      <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
-                        {entry.name}
-                      </span>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {entry.food_type === 'feculent' && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
-                            <Wheat className="h-2.5 w-2.5" />Féc
-                          </span>
-                        )}
-                        {entry.food_type === 'viande' && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
-                            <Drumstick className="h-2.5 w-2.5" />Via
-                          </span>
-                        )}
-                        {entry.is_meal && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
-                            <UtensilsCrossed className="h-2.5 w-2.5" />
-                          </span>
-                        )}
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
-                          {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
-                          {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
-                          {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
-                          {entry.storage_type === 'extras' && '✨'}
-                          {entry.storage_type === 'toujours' && '📌'}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
+                        className="flex-1 text-left flex items-center min-w-0"
+                      >
+                        <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
+                          {entry.name}
                         </span>
-                      </div>
-                    </button>
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          {entry.food_type === 'feculent' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
+                              <Wheat className="h-2.5 w-2.5" />Féc
+                            </span>
+                          )}
+                          {entry.food_type === 'viande' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
+                              <Drumstick className="h-2.5 w-2.5" />Via
+                            </span>
+                          )}
+                          {entry.is_meal && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
+                              <UtensilsCrossed className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
+                            {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
+                            {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
+                            {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
+                            {entry.storage_type === 'extras' && '✨'}
+                            {entry.storage_type === 'toujours' && '📌'}
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          deleteEntry.mutate(entry.id);
+                          setSuggestions(prev => prev.filter(s => s.id !== entry.id));
+                        }}
+                        className="shrink-0 p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+                        title="Supprimer de la base de données"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   ))
                 )}
               </div>

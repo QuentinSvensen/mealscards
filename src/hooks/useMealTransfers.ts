@@ -165,16 +165,17 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           toDeduct -= deduct;
           rememberSnapshot(fi);
 
-          const counterToSet = forcedCounterDate || new Date().toISOString();
+          const counterToSet = forcedCounterDate;
+          const effectiveCounterDate = counterToSet || new Date().toISOString();
           trackOldestCounter(fi, counterToSet);
 
           if (remaining <= 0) {
             updatesById.set(fi.id, { id: fi.id, delete: true });
           } else {
-            updatesById.set(fi.id, { 
-              id: fi.id, 
+            updatesById.set(fi.id, {
+              id: fi.id,
               quantity: Math.ceil(remaining),
-              ...(needsCounterUpdate(fi, counterToSet, forcedCounterDate) ? { counter_start_date: counterToSet } : {})
+              ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) ? { counter_start_date: effectiveCounterDate } : {})
             });
           }
         }
@@ -191,7 +192,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           toDeduct -= deduct;
           rememberSnapshot(fi);
 
-          const counterToSet = forcedCounterDate || new Date().toISOString();
+          const counterToSet = forcedCounterDate;
+          const effectiveCounterDate = counterToSet || new Date().toISOString();
           trackOldestCounter(fi, counterToSet);
 
           if (remaining <= 0) { updatesById.set(fi.id, { id: fi.id, delete: true }); continue; }
@@ -202,11 +204,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
             if (remainder > 0) {
               // Ouverture d'une nouvelle unité (reliquat > 0)
-              updatesById.set(fi.id, { 
-                id: fi.id, 
-                quantity: Math.max(1, fullUnits + 1), 
-                grams: encodeStoredGrams(perUnit, remainder), 
-                ...(needsCounterUpdate(fi, counterToSet, forcedCounterDate) ? { counter_start_date: counterToSet } : {}) 
+              updatesById.set(fi.id, {
+                id: fi.id,
+                quantity: Math.max(1, fullUnits + 1),
+                grams: encodeStoredGrams(perUnit, remainder),
+                ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) ? { counter_start_date: effectiveCounterDate } : {})
               });
             } else if (fullUnits > 0) {
               // Unités complètes restantes → pas d'ouverture, reset du compteur
@@ -215,10 +217,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           } else {
             // Item simple (sans multi-unités)
             const isNewUnit = remaining > 0 && remaining < perUnit;
-            updatesById.set(fi.id, { 
-              id: fi.id, 
-              grams: formatNumeric(remaining), 
-              ...(needsCounterUpdate(fi, counterToSet, forcedCounterDate) && isNewUnit ? { counter_start_date: counterToSet } : {}) 
+            updatesById.set(fi.id, {
+              id: fi.id,
+              grams: formatNumeric(remaining),
+              ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) && isNewUnit ? { counter_start_date: effectiveCounterDate } : {})
             });
           }
         }
@@ -277,7 +279,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
     // Mode 2 : restauration estimée depuis la recette
     if (!meal.ingredients?.trim()) return;
-    
+
     // IMPORTANT : Récupérer les données fraîches de Supabase pour éviter les erreurs dues au cache React périmé
     const { data: freshItems } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
     const currentFoodItems: FoodItem[] = (freshItems ?? []).map((d: any) => ({
@@ -292,7 +294,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       food_type: d.food_type ?? null,
       protein: d.protein ?? null,
     })) as FoodItem[];
-    
+
     const groups = parseIngredientGroups(meal.ingredients);
     for (const group of groups) {
       const liveStockMap = buildStockMap(currentFoodItems);
@@ -366,7 +368,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   const adjustStockForIngredientChange = async (oldIngredients: string | null, newIngredients: string | null, snapshots?: FoodItem[]): Promise<FoodItem[]> => {
     const newSnapshots: FoodItem[] = [];
     const existingSnapshotIds = new Set(snapshots?.map(s => s.id) ?? []);
-    
+
     // Récupérer les données fraîches pour éviter les doubles déductions
     const { data: freshItems } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
     const currentFoodItems: FoodItem[] = (freshItems ?? []).map((d: any) => ({
@@ -385,7 +387,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     // Construire les maps d'utilisation ancien vs nouveau
     const oldGroups = oldIngredients ? parseIngredientGroups(oldIngredients) : [];
     const newGroups = newIngredients ? parseIngredientGroups(newIngredients) : [];
-    
+
     /** Construit une map nom → { grams, count } des quantités utilisées */
     const buildUsageMap = (groups: Array<Array<{ qty: number; count: number; name: string; optional?: boolean }>>) => {
       const map = new Map<string, { grams: number; count: number }>();
@@ -399,7 +401,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       }
       return map;
     };
-    
+
     const oldUsage = buildUsageMap(oldGroups);
     const newUsage = buildUsageMap(newGroups);
     const allKeys = new Set([...oldUsage.keys(), ...newUsage.keys()]);
@@ -528,10 +530,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const { created_at, quantity, grams, ...rest } = snapshotFi as Record<string, any>;
           await safeMutate("Ajustement stock (recréation count)", () =>
             supabase.from("food_items").insert({
-               ...rest,
-               quantity: toAdd,
-               grams: grams,
-               counter_start_date: snapshotFi.counter_start_date
+              ...rest,
+              quantity: toAdd,
+              grams: grams,
+              counter_start_date: snapshotFi.counter_start_date
             } as any)
           );
         }
@@ -580,14 +582,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const fullUnits = Math.floor(remaining / perUnit);
         const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
         if (remainder > 0) {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ 
-            quantity: Math.max(1, fullUnits + 1), 
+          await safeMutate("Déduction nom", () => supabase.from("food_items").update({
+            quantity: Math.max(1, fullUnits + 1),
             grams: encodeStoredGrams(perUnit, remainder),
             ...(canStartCounter ? { counter_start_date: counterToSet } : {})
           } as any).eq("id", nameMatch.id));
         } else if (fullUnits > 0) {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ 
-            quantity: fullUnits, 
+          await safeMutate("Déduction nom", () => supabase.from("food_items").update({
+            quantity: fullUnits,
             grams: formatNumeric(perUnit),
             ...(nameMatch.counter_start_date ? { counter_start_date: null } : {})
           } as any).eq("id", nameMatch.id));
@@ -602,7 +604,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
       } else {
         const isNewUnit = remaining > 0 && remaining < current;
-        await safeMutate("Déduction nom", () => supabase.from("food_items").update({ 
+        await safeMutate("Déduction nom", () => supabase.from("food_items").update({
           grams: formatNumeric(remaining),
           ...(canStartCounter && isNewUnit ? { counter_start_date: counterToSet } : {})
         } as any).eq("id", nameMatch.id));
@@ -643,10 +645,12 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       if (!alt) continue;
 
       // Trouver les aliments en stock correspondant à cet ingrédient
+      // On ne met à jour le compteur QUE pour les cartes qui sont DÉJÀ ouvertes (counter_start_date n'est pas nul)
+      // Cela évite de lancer un compteur sur plusieurs emballages d'un même produit (par ex: 3 briques de lait)
       const matchingItems = foodItems.filter(
-        fi => strictNameMatch(fi.name, alt.name) && !fi.is_infinite && shouldStartCounter(fi)
+        fi => strictNameMatch(fi.name, alt.name) && !fi.is_infinite && shouldStartCounter(fi) && fi.counter_start_date !== null
       );
-      
+
       for (const fi of matchingItems) {
         // Trouver la date la plus ancienne parmi TOUS les repas planifiés utilisant cet ingrédient
         let earliestDateStr: string | null = null;
@@ -656,7 +660,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         if (pmId) {
           const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
           const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
-          
+
           // CRITIQUE : Si on a déjà un fallback (date d'ouverture réelle) et qu'il est PLUS ANCIEN
           // que la date planifiée, on garde la date d'ouverture !
           if (fallbackDate && targetDate && new Date(fallbackDate) < new Date(targetDate)) {
@@ -674,20 +678,20 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (pm.id === pmId) continue;
           const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
           if (!pmIngs?.trim()) continue;
-          
+
           // Vérification rapide par nom avant le parsing complet
           if (!pmIngs.toLowerCase().includes(fi.name.toLowerCase())) continue;
-          
+
           const pmG = parseIngredientGroups(pmIngs);
           const hasMatch = pmG.some(g => g.some(a => !a.optional && strictNameMatch(fi.name, a.name)));
           if (!hasMatch) continue;
-          
+
           hasAnyMatchingMeal = true;
           // De même ici : préférer pm.counter_start_date s'il est plus ancien que la date planifiée du repas
           const targetDate = pm.day_of_week ? computePlannedCounterDate(pm.day_of_week, pm.meal_time) : null;
           const fallback = pm.counter_start_date || (pm.created_at || new Date().toISOString());
           let pmDate = targetDate ?? fallback;
-          
+
           if (pm.day_of_week && pm.counter_start_date && new Date(pm.counter_start_date) < new Date(pmDate)) {
             pmDate = pm.counter_start_date;
           }

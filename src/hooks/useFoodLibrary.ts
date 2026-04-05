@@ -123,10 +123,20 @@ export function useFoodLibrary() {
     },
   });
 
+  // ─── Delete : supprimer une entrée ──────────────────────────────────
+  const deleteEntry = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("food_library").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+  });
+
   return {
     library,
     isLoading,
     searchLibrary,
     upsertEntry,
+    deleteEntry,
   };
 }

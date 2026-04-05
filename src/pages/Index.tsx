@@ -480,7 +480,7 @@ const Index = () => {
       setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: restoredBreakfastProt });
       setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
       setPreference.mutate({ key: 'planning_drink_checks', value: {} });
-      
+
       // Promotion des objectifs de la semaine suivante vers la semaine en cours
       const nCal = prefMap['next_week_daily_goal'];
       const nPro = prefMap['next_week_protein_goal'];
@@ -854,7 +854,7 @@ const Index = () => {
           )}
           {mainPage === "planning" && (
             <ErrorBoundary section="Planning">
-              <LazyWeeklyPlanning 
+              <LazyWeeklyPlanning
                 masterSourcePmIds={masterSourcePmIds}
                 unParUnSourcePmIds={unParUnSourcePmIds}
               />
@@ -951,7 +951,7 @@ const Index = () => {
 
                             // 1. Deduct FIRST
                             const { snapshots, oldestCounter } = await deductIngredientsFromStock(partialMeal);
-                            
+
                             let finalCounterDate: string | null = null;
                             if (oldestCounter) finalCounterDate = oldestCounter;
                             else if (anBefore.earliestCounterDate) finalCounterDate = anBefore.earliestCounterDate;
@@ -1076,9 +1076,9 @@ const Index = () => {
                             }
                           }}
                           onSplitQuantity={(id, ratio, baseIng) => splitPossibleMealQuantity.mutate({ id, ratio, baseIngredients: baseIng })}
-                          onDelete={(id) => { 
+                          onDelete={(id) => {
                             const pm = possibleMeals.find(p => p.id === id);
-                            deletePossibleMeal.mutate(id); 
+                            deletePossibleMeal.mutate(id);
 
                             if (pm) {
                               const remainingMeals = possibleMeals.filter(p => p.id !== id);
@@ -1102,17 +1102,17 @@ const Index = () => {
                               duplicatePossibleMeal.mutate(id);
                             }
                           }}
-                           onUpdatePlanning={(id, day, time, counter) => {
-                             const pm = possibleMeals.find(p => p.id === id);
-                             if (pm) {
-                               const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
-                               const effectiveCounter = isOccupied ? null : counter;
-                               updatePlanning.mutate({ id, day_of_week: day, meal_time: time, counter_start_date: effectiveCounter });
-                               const fallbackDate = effectiveCounter || pm.counter_start_date || null;
-                               const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-                               updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
-                             }
-                           }}
+                          onUpdatePlanning={(id, day, time, counter) => {
+                            const pm = possibleMeals.find(p => p.id === id);
+                            if (pm) {
+                              const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
+                              const effectiveCounter = isOccupied ? null : counter;
+                              updatePlanning.mutate({ id, day_of_week: day, meal_time: time, counter_start_date: effectiveCounter });
+                              const fallbackDate = effectiveCounter || pm.counter_start_date || null;
+                              const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+                              updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
+                            }
+                          }}
                           onUpdateCounter={(id, d) => updateCounter.mutate({ id, counter_start_date: d })}
                           onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
                           onUpdateGrams={async (id, g, pmId) => {

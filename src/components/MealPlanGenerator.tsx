@@ -56,7 +56,7 @@ function parseNbValue(nb: string | null, type: string | null): { grams: number; 
 }
 
 /** Récupérer la consommation d'ingrédients de la recette. Repas sans ingrédients → utiliser les grammes du repas ou son nom comme ingrédient */
-function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: number; rawName: string }> {
+function getRecipeUsage(recipe: Meal, resolveAlt?: (alts: string[]) => string): Map<string, { grams: number; count: number; rawName: string }> {
   const usage = new Map<string, { grams: number; count: number; rawName: string }>();
   if (!recipe.ingredients) {
     const key = normalizeKey(recipe.name);
@@ -66,10 +66,10 @@ function getRecipeUsage(recipe: Meal): Map<string, { grams: number; count: numbe
   }
   const groups = recipe.ingredients.split(/(?:\n|,(?!\d))/).map((s) => s.trim()).filter(Boolean);
   for (const group of groups) {
-    const alts = group.split(/\|/);
-    const first = alts[0]?.trim();
-    if (!first) continue;
-    const parsed = parseIngredientLineRaw(first);
+    const alts = group.split(/\|/).map((s) => s.trim()).filter(Boolean);
+    if (alts.length === 0) continue;
+    const chosen = resolveAlt ? resolveAlt(alts) : alts[0];
+    const parsed = parseIngredientLineRaw(chosen);
     if (!parsed.name) continue;
     const key = normalizeKey(parsed.name);
     const prev = usage.get(key) || { grams: 0, count: 0, rawName: parsed.rawName };
@@ -143,6 +143,37 @@ export function MealPlanGenerator() {
       foodItems.filter(fi => fi.storage_type === 'toujours').map(fi => normalizeKey(fi.name))
     );
   }, [foodItems]);
+
+  const resolveAlt = (alts: string[]) => {
+    if (alts.length <= 1) return alts[0];
+    
+    // User logic: "Si tu ne trouve pas le 1er ingrédients ... alors regarde dans la list de Courses-Liste si tu ne trouve pas le 2eme ingrédients"
+    const checkAlt = (altStr: string) => {
+      const parsed = parseIngredientLineRaw(altStr);
+      if (!parsed.name) return false;
+      const key = normalizeKey(parsed.name);
+      
+      const toujoursKeys = [...toujoursFoodKeys];
+      if (toujoursFoodKeys.has(key) || toujoursKeys.some((tjKey) => smartFoodContains(parsed.rawName, tjKey))) return true;
+
+      for (const si of shoppingItems) {
+        if (si.group_id && toujoursPresentGroupIds.has(si.group_id)) continue;
+        const siKey = normalizeKey(si.name);
+        if (siKey === key || keyMatch(siKey, key) || smartFoodContains(si.name, parsed.rawName)) {
+           return true;
+        }
+      }
+      return false;
+    };
+
+    if (checkAlt(alts[0])) return alts[0];
+
+    for (let i = 1; i < alts.length; i++) {
+       if (checkAlt(alts[i])) return alts[i];
+    }
+    
+    return alts[0];
+  };
 
   // Construire l'inventaire des courses à partir des articles avec Nb, hors surgelés
   const shoppingInventory = useMemo(() => {
@@ -295,7 +326,7 @@ export function MealPlanGenerator() {
 
       const recipeTouchesOpenKey = (recipe: typeof shuffled[0]) => {
         if (openGramKeys.size === 0) return false;
-        const usage = getRecipeUsage(recipe);
+        const usage = getRecipeUsage(recipe, resolveAlt);
         for (const [ingKey, used] of usage) {
           if (used.grams <= 0) continue;
           const matchKey = findInvKey(ingKey);
@@ -308,7 +339,7 @@ export function MealPlanGenerator() {
         let score = 0;
 
         if (hasInventory) {
-          const usage = getRecipeUsage(recipe);
+          const usage = getRecipeUsage(recipe, resolveAlt);
           let usesConstrainedItem = false;
           let touchesOpen = false;
 
@@ -376,7 +407,7 @@ export function MealPlanGenerator() {
       const pickedId = selectedIds[selectedIds.length - 1];
       const recipe = candidatePlats.find(r => r.id === pickedId);
       if (recipe && hasInventory) {
-        const usage = getRecipeUsage(recipe);
+        const usage = getRecipeUsage(recipe, resolveAlt);
         const multiplier = recipe.name.toLowerCase().includes("pizza pizzeta") ? 2 : 1;
         for (const [ingKey, used] of usage) {
           const matchKey = findInvKey(ingKey);
@@ -397,7 +428,7 @@ export function MealPlanGenerator() {
       for (const id of ids) {
         const recipe = candidatePlats.find(r => r.id === id);
         if (!recipe) continue;
-        for (const [ingKey, used] of getRecipeUsage(recipe)) {
+        for (const [ingKey, used] of getRecipeUsage(recipe, resolveAlt)) {
           if (used.grams <= 0) continue;
           const matchKey = findInvKey(ingKey);
           if (!matchKey) continue;
@@ -433,7 +464,7 @@ export function MealPlanGenerator() {
           const cur = candidatePlats.find(r => r.id === selectedIds[idx]);
           if (!cur) continue;
           let usesIt = false;
-          for (const [ingKey, used] of getRecipeUsage(cur)) {
+          for (const [ingKey, used] of getRecipeUsage(cur, resolveAlt)) {
             if (used.grams > 0 && findInvKey(ingKey) === mis.key) { usesIt = true; break; }
           }
           if (!usesIt) continue;
@@ -465,7 +496,7 @@ export function MealPlanGenerator() {
     for (const id of selectedIds) {
       const recipe = allPlats.find(r => r.id === id);
       if (!recipe) continue;
-      const usage = getRecipeUsage(recipe);
+      const usage = getRecipeUsage(recipe, resolveAlt);
       for (const [key, used] of usage) {
         const prev = needsMap.get(key) || { grams: 0, count: 0, rawName: used.rawName };
         needsMap.set(key, { grams: prev.grams + used.grams, count: prev.count + used.count, rawName: prev.rawName });
@@ -490,7 +521,7 @@ export function MealPlanGenerator() {
     const map = new Map<string, { grams: number; count: number; displayName: string; matched: boolean; ambiguous: boolean }>();
 
     for (const meal of selectedMeals) {
-      const usage = getRecipeUsage(meal);
+      const usage = getRecipeUsage(meal, resolveAlt);
       for (const [key, used] of usage) {
         const existing = map.get(key) || { grams: 0, count: 0, displayName: used.rawName, matched: false, ambiguous: false };
         map.set(key, {
