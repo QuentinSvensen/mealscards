@@ -575,24 +575,33 @@ const Index = () => {
     const meal = meals.find(m => m.id === mealId);
     if (!meal) return;
 
-    // 1. Analyser le stock avant déduction pour l'expiration
+    // 1. Analyser le stock avant déduction pour l'expiration (sans déduire)
     const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
 
-    // 2. IMPORTANT : Déduire les ingrédients du stock D'ABORD pour obtenir le compteur le plus ancien EXACT en fonction des alternatives choisies
-    const { snapshots, oldestCounter } = await deductIngredientsFromStock(meal, undefined);
-    const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
-    if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
+    let snapshots: FoodItem[] = [];
+    let oldestCounter: string | null = null;
+    let nameMatch: FoodItem | undefined;
 
-    // 3. Créer la carte avec le compteur le plus ancien provenant des ingrédients (ou de l'analyse s'il n'y a pas d'ingrédients)
-    let hasCounterable = anBefore.hasCounterableIngredient;
-    if (!meal.ingredients?.trim() && nameMatch) {
-      hasCounterable = nameMatch.storage_type !== 'surgele' && !nameMatch.no_counter;
+    // 2. Déduire les ingrédients du stock UNIQUEMENT si ça ne vient pas de "Tous" (master)
+    if (source !== "master") {
+      const deductionResult = await deductIngredientsFromStock(meal, undefined);
+      snapshots = deductionResult.snapshots;
+      oldestCounter = deductionResult.oldestCounter;
+      nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
+      if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
     }
 
+    // 3. Créer la carte avec le compteur le plus ancien
     let finalCounterDate: string | null = null;
+    
     // Les cartes issues de "Tous" ne doivent jamais avoir de compteur d'ouverture
     // car elles ne représentent pas une consommation réelle planifiée
     if (source !== "master") {
+      let hasCounterable = anBefore.hasCounterableIngredient;
+      if (!meal.ingredients?.trim() && nameMatch) {
+        hasCounterable = nameMatch.storage_type !== 'surgele' && !nameMatch.no_counter;
+      }
+
       const existingDates = [oldestCounter, anBefore.earliestCounterDate, nameMatch?.counter_start_date].filter(Boolean) as string[];
       if (existingDates.length > 0) {
         existingDates.sort();
