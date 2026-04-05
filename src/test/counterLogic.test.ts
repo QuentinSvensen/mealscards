@@ -1,6 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { computeCounterDays } from "@/lib/ingredientUtils";
+import { computeCounterDays, getAdaptedCounterDays } from "@/lib/ingredientUtils";
 import { computePlannedCounterDate } from "@/hooks/useMealTransfers";
+
+// ─── getAdaptedCounterDays (carte Possible) ─────────────────────────────────
+
+describe("getAdaptedCounterDays", () => {
+  it("returns null when counter start is still in the future (planned meal, not yet opened)", () => {
+    const fixedNow = new Date("2026-04-05T14:00:00.000Z");
+    const futureStart = "2026-04-08T12:00:00.000Z";
+    expect(
+      getAdaptedCounterDays(futureStart, "mercredi", "2026-04-05T10:00:00.000Z", "midi", fixedNow)
+    ).toBeNull();
+  });
+
+  it("returns null when counter start is in the future even without planning (unplanned)", () => {
+    const fixedNow = new Date("2026-04-05T14:00:00.000Z");
+    const futureStart = "2026-04-10T12:00:00.000Z";
+    expect(getAdaptedCounterDays(futureStart, null, undefined, null, fixedNow)).toBeNull();
+  });
+});
 
 // ─── computeCounterDays ─────────────────────────────────────────────────────
 

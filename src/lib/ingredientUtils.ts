@@ -150,9 +150,9 @@ export function getTargetDate(dayKey: string | null | undefined, refDate: Date, 
  * Calcule le nombre de jours du compteur d'ouverture pour une carte "Possible".
  * 
  * Logique :
- * - counter_start_date dans le futur → null (carte programmée, affiche 📅)
- * - counter_start_date dans le passé → jours écoulés
+ * - Tant que counter_start_date est dans le futur → null (Prog. / aliment pas encore entamé)
  * - Sans jour planifié + avec created_at → compteur figé au moment de création
+ * - Repas planifié + compteur déjà démarré → écart entre début de compteur et créneau du repas
  */
 export function getAdaptedCounterDays(
   startDate: string | null,
@@ -166,8 +166,9 @@ export function getAdaptedCounterDays(
   const now = fixedNow || new Date();
   const start = parseISO(startDate);
 
-  // Compteur dans le futur : on ne l'affiche que si un jour est planifié (prédiction)
-  if (!dayKey && start.getTime() > now.getTime()) return null;
+  // Aucun badge « X j » tant que le début du compteur n'est pas encore atteint (repas planifié inclus :
+  // l'aliment n'est pas encore entamé tant que cette date est future).
+  if (start.getTime() > now.getTime()) return null;
 
   // Sans jour planifié : figer le compteur au moment de la création
   if (!dayKey && createdAt) {

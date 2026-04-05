@@ -297,20 +297,19 @@ describe("getMealFractionalRatio", () => {
   });
 
   it("limite correctement à l'ingrédient limitant, pas à l'ingrédient abondant", () => {
+    // Uniquement des lignes en grammes : les unités (1 Galette, 2 Poitrine) feraient échouer
+    // getMealFractionalRatio (snap entier sur les quantités).
     const items = [
-      makeFoodItem({ name: "Viande hachée", quantity: 1, grams: "250" }),  // assez
-      makeFoodItem({ name: "Galette", quantity: 1 }),                // 1/1 = 1.0
-      makeFoodItem({ name: "Sauce", quantity: 1, grams: "25" }),     // 25/25 = 1.0
-      makeFoodItem({ name: "Chorizo", quantity: 1, grams: "10" }),   // 10/15 = 0.666
-      makeFoodItem({ name: "Poitrine", quantity: 2 }),               // 2/2 = 1.0
-      makeFoodItem({ name: "Gruyère", quantity: 1, grams: "30" }),   // 30/30 = 1.0
+      makeFoodItem({ name: "Viande hachée", quantity: 1, grams: "250" }),
+      makeFoodItem({ name: "Sauce", quantity: 1, grams: "25" }),
+      makeFoodItem({ name: "Chorizo", quantity: 1, grams: "10" }),
+      makeFoodItem({ name: "Gruyère", quantity: 1, grams: "30" }),
     ];
     const meal = makeMeal({
       name: "Burrito viande",
-      ingredients: "250g Viande hachée, 1 Galette, 25g Sauce, 15g Chorizo, 2 Poitrine, 30g Gruyère"
+      ingredients: "250g Viande hachée, 25g Sauce, 15g Chorizo, 30g Gruyère",
     });
     const map = buildStockMap(items);
-    // Chorizo limite : 10/15 = 0.666
     const ratio = getMealFractionalRatio(meal, map);
     expect(ratio).toBeCloseTo(10 / 15);
   });
