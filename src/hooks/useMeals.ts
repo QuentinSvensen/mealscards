@@ -478,15 +478,15 @@ export function useMeals(options?: { enabled?: boolean }) {
     mutationFn: async ({ id, day_of_week, meal_time, counter_start_date: forcedCounter }: { id: string; day_of_week: string | null; meal_time: string | null; counter_start_date?: string | null }) => {
       const pm = possibleMeals.find(p => p.id === id);
       const existing = pm?.counter_start_date;
-      
-      // PRIORITÉ : Si on a déjà un compteur en base (le sandwich a sa propre date), on le garde absolument !
-      // On ignore alors le forcedCounter (qui vient du stock restant actuel).
-      let counter_start_date = (existing !== undefined && existing !== null) ? existing : forcedCounter;
+
+      // Planification : priorité au calcul live (forcedCounter / stock), sinon valeur en base.
+      // forcedCounter explicite null avec ?? préserve l'existant (cartes occupées master/un par un).
+      let counter_start_date = day_of_week
+        ? (forcedCounter ?? existing)
+        : (existing !== undefined && existing !== null ? existing : forcedCounter);
       
       if (day_of_week) {
-        // Le compteur n'est réglé QUE s'il existe déjà (héritage)
-        // ou s'il est explicitement passé (stock ouvert).
-        // On ne force plus la création d'un compteur "0j" par défaut.
+        // counter_start_date déjà défini ci-dessus
       } else {
         // Dé-planification : s'il s'agissait d'un repas prévu dans le futur (pas encore démarré),
         // le démarrer MAINTENANT puisqu'il est de retour dans "Possible"
@@ -506,11 +506,12 @@ export function useMeals(options?: { enabled?: boolean }) {
       const prev = qc.getQueryData<PossibleMeal[]>(["possible_meals"]);
       const pm = prev?.find(p => p.id === id);
       const existing = pm?.counter_start_date;
-      
-      // Aligné avec la logique mutationFn : le compteur existant a priorité absolue
-      let counter_start_date = (existing !== undefined && existing !== null) ? existing : forcedCounter ?? null;
+
+      let counter_start_date = day_of_week
+        ? (forcedCounter ?? existing)
+        : (existing !== undefined && existing !== null ? existing : forcedCounter ?? null);
       if (day_of_week) {
-        // Pas de forçage ici non plus pour l'UI optimiste
+        // aligné mutationFn
       } else {
         if (existing && new Date(existing) > new Date()) {
           counter_start_date = new Date().toISOString();

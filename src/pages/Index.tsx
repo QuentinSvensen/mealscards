@@ -597,18 +597,13 @@ const Index = () => {
     // Les cartes issues de "Tous" ne doivent jamais avoir de compteur d'ouverture
     // car elles ne représentent pas une consommation réelle planifiée
     if (source !== "master") {
-      let hasCounterable = anBefore.hasCounterableIngredient;
-      if (!meal.ingredients?.trim() && nameMatch) {
-        hasCounterable = nameMatch.storage_type !== 'surgele' && !nameMatch.no_counter;
-      }
-
       const existingDates = [oldestCounter, anBefore.earliestCounterDate, nameMatch?.counter_start_date].filter(Boolean) as string[];
       if (existingDates.length > 0) {
         existingDates.sort();
         finalCounterDate = existingDates[0];
-      } else if (hasCounterable && snapshots.length > 0) {
-        finalCounterDate = new Date().toISOString();
       }
+      // Pas de compteur sur la carte si seuls des aliments non entamés sont consommés :
+      // la copie en Possible n'a pas de date de référence (les compteurs sont sur le stock).
     }
 
     const result = await moveToPossible.mutateAsync({
@@ -990,7 +985,6 @@ const Index = () => {
                             let finalCounterDate: string | null = null;
                             if (oldestCounter) finalCounterDate = oldestCounter;
                             else if (anBefore.earliestCounterDate) finalCounterDate = anBefore.earliestCounterDate;
-                            else if (anBefore.hasCounterableIngredient && snapshots.length > 0) finalCounterDate = new Date().toISOString();
 
                             const result = await addMealToPossibleDirectly.mutateAsync({
                               name: meal.name, category: cat.value,

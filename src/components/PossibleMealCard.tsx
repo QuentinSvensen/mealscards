@@ -31,7 +31,7 @@ import {
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
   computeIngredientProtein, cleanIngredientText, normalizeKey,
   hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey, getTargetDate,
-  extractMetrics, parseIngredientLineRaw, computeCounterHours
+  extractMetrics, parseIngredientLineRaw, computeCounterHours, formatIsoInFrance,
 } from "@/lib/ingredientUtils";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -438,7 +438,7 @@ export function PossibleMealCard({
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
                 : 'bg-white/25 text-white'
                 }`}
-              title={`Arrêter le compteur${counterHours !== null ? ` (${counterHours}h écoulées)` : ''}\n(Debug Start: ${effectiveCounterStart})`}
+              title={`Arrêter le compteur${counterHours !== null ? ` (${counterHours}h écoulées)` : ''}\n(Debug Start — heure France : ${formatIsoInFrance(effectiveCounterStart)})`}
             >
               <Timer className="h-3 w-3" /> {counterDays}j
             </button>

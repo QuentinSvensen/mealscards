@@ -36,6 +36,30 @@ export const DAY_KEY_TO_INDEX: Record<string, number> = {
 };
 
 /**
+ * Formate une date ISO stockée (UTC) pour l’affichage debug en heure de Paris (fuseau français).
+ */
+export function formatIsoInFrance(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  try {
+    const d = parseISO(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(d);
+  } catch {
+    return String(iso);
+  }
+}
+
+/**
  * Calcule le nombre de jours écoulés depuis counter_start_date.
  * Retourne null si pas de compteur ou si le compteur est dans le futur (programmé).
  */

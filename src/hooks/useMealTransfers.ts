@@ -20,7 +20,7 @@ import { format, parseISO } from "date-fns";
 import {
   normalizeForMatch, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
-  getFoodItemTotalGrams, parseIngredientGroups,
+  getFoodItemTotalGrams, parseIngredientGroups, parsePartialQty,
 } from "@/lib/ingredientUtils";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
@@ -32,15 +32,23 @@ const DAY_KEY_TO_INDEX: Record<string, number> = {
   lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
 };
 
+/** Aligné sur getTargetDate (ingredientUtils) : matin 8h, midi 12h, soir 19h */
+function setMealTimeHours(d: Date, mealTime: string | null) {
+  const low = (mealTime || "").toLowerCase();
+  if (low === "soir") d.setHours(19, 0, 0, 0);
+  else if (low === "matin") d.setHours(8, 0, 0, 0);
+  else d.setHours(12, 0, 0, 0);
+}
+
 /**
  * Calcule la date ISO du compteur d'ouverture pour un repas planifié.
- * Midi = 12h, Soir = 19h. Accepte les jours nommés ("lundi") ou les dates ISO.
+ * Matin = 8h, midi = 12h, soir = 19h. Accepte les jours nommés ("lundi") ou les dates ISO.
  */
 export function computePlannedCounterDate(dayOfWeek: string, mealTime: string | null): string {
   // Si c'est déjà une date ISO (YYYY-MM-DD), l'utiliser directement
   if (/^\d{4}-\d{2}-\d{2}$/.test(dayOfWeek)) {
     const d = parseISO(dayOfWeek);
-    d.setHours(mealTime === "soir" ? 19 : 12, 0, 0, 0);
+    setMealTimeHours(d, mealTime);
     return d.toISOString();
   }
 
@@ -52,8 +60,19 @@ export function computePlannedCounterDate(dayOfWeek: string, mealTime: string | 
 
   const d = new Date(today);
   d.setDate(d.getDate() + diff);
-  d.setHours(mealTime === "soir" ? 19 : 12, 0, 0, 0);
+  setMealTimeHours(d, mealTime);
   return d.toISOString();
+}
+
+/** True si l'aliment est entièrement scellé (aucune unité entamée). */
+function isFoodFullySealed(fi: FoodItem): boolean {
+  const perUnit = parseQty(fi.grams);
+  if (perUnit <= 0) return true;
+  const partial = parsePartialQty(fi.grams);
+  if (partial > 0 && partial < perUnit) return false;
+  const q = fi.quantity ?? 1;
+  const total = getFoodItemTotalGrams(fi);
+  return Math.abs(total - q * perUnit) < 0.01;
 }
 
 /**
@@ -204,11 +223,20 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
             if (remainder > 0) {
               // Ouverture d'une nouvelle unité (reliquat > 0)
+              const partialBefore = parsePartialQty(fi.grams);
+              const hadOpenPartial = partialBefore > 0 && partialBefore < perUnit;
+              const consumedPastFirstPartial = hadOpenPartial && deduct > partialBefore;
+              const restartForNewPack =
+                consumedPastFirstPartial && shouldStartCounter(fi);
+              const counterUpdate =
+                restartForNewPack || needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate)
+                  ? { counter_start_date: effectiveCounterDate }
+                  : {};
               updatesById.set(fi.id, {
                 id: fi.id,
                 quantity: Math.max(1, fullUnits + 1),
                 grams: encodeStoredGrams(perUnit, remainder),
-                ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) ? { counter_start_date: effectiveCounterDate } : {})
+                ...counterUpdate,
               });
             } else if (fullUnits > 0) {
               // Unités complètes restantes → pas d'ouverture, reset du compteur
@@ -262,16 +290,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     // Mode 1 : restauration depuis les snapshots (état exact)
     if (snapshots && snapshots.length > 0) {
       await safeMutate("Restauration du stock", () =>
-        Promise.all(snapshots.map((fi) =>
-          (supabase as any).from("food_items").upsert({
+        Promise.all(snapshots.map((fi) => {
+          const sealed = isFoodFullySealed(fi);
+          return (supabase as any).from("food_items").upsert({
             id: fi.id, name: fi.name, grams: fi.grams, calories: fi.calories,
             protein: fi.protein, is_indivisible: fi.is_indivisible,
-            expiration_date: fi.expiration_date, counter_start_date: fi.counter_start_date,
+            expiration_date: fi.expiration_date,
+            counter_start_date: sealed ? null : fi.counter_start_date,
             sort_order: fi.sort_order, created_at: fi.created_at, is_meal: fi.is_meal,
             is_infinite: fi.is_infinite, is_dry: fi.is_dry, storage_type: fi.storage_type,
             quantity: fi.quantity, food_type: fi.food_type,
-          })
-        ))
+          });
+        }))
       );
       invalidateStock();
       return;
@@ -316,13 +346,27 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const newTotal = currentTotal + neededGrams;
           const fullUnits = Math.floor(newTotal / fiGrams);
           const remainder = Math.round((newTotal - fullUnits * fiGrams) * 10) / 10;
+          const newQty = remainder > 0 ? fullUnits + 1 : fullUnits;
+          const newGramsStr = encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null);
+          const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
+          const clearCtr = isFoodFullySealed(synthetic);
           await safeMutate("Restauration stock (grams)", () =>
-            supabase.from("food_items").update({ quantity: remainder > 0 ? fullUnits + 1 : fullUnits, grams: encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null) } as any).eq("id", fi.id)
+            supabase.from("food_items").update({
+              quantity: newQty,
+              grams: newGramsStr,
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            } as any).eq("id", fi.id)
           );
         } else {
           const currentTotal = fiGrams;
+          const newG = formatNumeric(currentTotal + neededGrams);
+          const synthetic = { ...fi, grams: newG } as FoodItem;
+          const clearCtr = isFoodFullySealed(synthetic);
           await safeMutate("Restauration stock (simple)", () =>
-            supabase.from("food_items").update({ grams: formatNumeric(currentTotal + neededGrams) } as any).eq("id", fi.id)
+            supabase.from("food_items").update({
+              grams: newG,
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            } as any).eq("id", fi.id)
           );
         }
       }
@@ -338,12 +382,26 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const newTotal = currentTotal + mealGrams;
           const fullUnits = Math.floor(newTotal / unit);
           const remainder = Math.round((newTotal - fullUnits * unit) * 10) / 10;
+          const newQty = remainder > 0 ? fullUnits + 1 : fullUnits;
+          const newGramsStr = encodeStoredGrams(unit, remainder > 0 ? remainder : null);
+          const synthetic = { ...nameMatch, quantity: newQty, grams: newGramsStr } as FoodItem;
+          const clearCtr = isFoodFullySealed(synthetic);
           await safeMutate("Restauration nom", () =>
-            supabase.from("food_items").update({ quantity: remainder > 0 ? fullUnits + 1 : fullUnits, grams: encodeStoredGrams(unit, remainder > 0 ? remainder : null) } as any).eq("id", nameMatch.id)
+            supabase.from("food_items").update({
+              quantity: newQty,
+              grams: newGramsStr,
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            } as any).eq("id", nameMatch.id)
           );
         } else {
+          const newG = formatNumeric(unit + mealGrams);
+          const synthetic = { ...nameMatch, grams: newG } as FoodItem;
+          const clearCtr = isFoodFullySealed(synthetic);
           await safeMutate("Restauration nom (simple)", () =>
-            supabase.from("food_items").update({ grams: formatNumeric(unit + mealGrams) } as any).eq("id", nameMatch.id)
+            supabase.from("food_items").update({
+              grams: newG,
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            } as any).eq("id", nameMatch.id)
           );
         }
       }
@@ -658,13 +716,23 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
         // Inclure le repas en cours de mise à jour
         if (pmId) {
+          const pmRow = allPossibleMeals.find((p: { id: string }) => p.id === pmId);
           const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
           const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
 
-          // CRITIQUE : Si on a déjà un fallback (date d'ouverture réelle) et qu'il est PLUS ANCIEN
-          // que la date planifiée, on garde la date d'ouverture !
-          if (fallbackDate && targetDate && new Date(fallbackDate) < new Date(targetDate)) {
-            earliestDateStr = fallbackDate;
+          if (targetDate && dayOfWeek) {
+            // Carte sans date de référence stockée = ingrédients entamés seulement par ce passage :
+            // le compteur suit la date/heure du repas planifié (mode Prog. côté stock).
+            // Si la carte a une date (ingrédient déjà ouvert avant), on garde l'ouverture la plus ancienne.
+            if (
+              fallbackDate &&
+              pmRow?.counter_start_date != null &&
+              new Date(fallbackDate) < new Date(targetDate)
+            ) {
+              earliestDateStr = fallbackDate;
+            } else {
+              earliestDateStr = targetDate;
+            }
           } else {
             earliestDateStr = candidateDate;
           }
