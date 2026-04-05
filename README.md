@@ -11,6 +11,7 @@ Organise tes repas selon ce que tu as dans le frigo. Gère ton stock, planifie t
 - [Tailwind CSS](https://tailwindcss.com/)
 - [Supabase](https://supabase.com/)
 
+
 ## Démarrage
 
 ```sh
