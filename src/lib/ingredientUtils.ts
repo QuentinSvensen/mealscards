@@ -126,7 +126,7 @@ export function getTargetDate(dayKey: string | null | undefined, refDate: Date, 
   }
 
   // Appliquer l'heure du repas (Midi=12h, Soir=19h, Matin=8h)
-  const lowTime = (mealTime || "").toLowerCase();
+  const lowTime = (mealTime || "").trim().toLowerCase();
   if (lowTime === "soir") {
     target.setHours(19, 0, 0, 0);
   } else if (lowTime === "midi") {

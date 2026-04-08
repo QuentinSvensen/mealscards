@@ -95,10 +95,17 @@ describe("computePlannedCounterDate", () => {
     expect(d.getMinutes()).toBe(0);
   });
 
-  it("defaults to 12:00 when mealTime is null", () => {
+  it("does not force midi (12:00) when mealTime is null — hour stays from reference date", () => {
     const result = computePlannedCounterDate("mercredi", null);
     const d = new Date(result);
-    expect(d.getHours()).toBe(12);
+    expect(d.getDay()).toBe(3);
+    const ref = new Date();
+    const todayIdx = ref.getDay() === 0 ? 6 : ref.getDay() - 1;
+    const diff = 2 - todayIdx; // mercredi = index 2
+    const expected = new Date(ref);
+    expected.setDate(expected.getDate() + diff);
+    expect(d.getHours()).toBe(expected.getHours());
+    expect(d.getMinutes()).toBe(expected.getMinutes());
   });
 
   it("returns a date on the correct day of the week for lundi", () => {

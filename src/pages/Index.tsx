@@ -419,8 +419,14 @@ const Index = () => {
       const prefMap: Record<string, any> = {};
       for (const row of (prefRows || [])) { prefMap[row.key] = row.value; }
 
+      // Repas possibles : recharger depuis le serveur pour éviter une sauvegarde périmée (ex. autre appareil déjà à jour)
+      await qc.refetchQueries({ queryKey: ["possible_meals"] });
+      const freshPossible =
+        (qc.getQueryData<typeof possibleMeals>(["possible_meals"]) as typeof possibleMeals | undefined) ?? possibleMeals;
+
       // Sauvegarder possible_meals + toutes les valeurs de saisie avant suppression
-      const backup = possibleMeals.map(pm => ({
+      const backup = freshPossible.map(pm => ({
+        id: pm.id,
         meal_id: pm.meal_id,
         quantity: pm.quantity,
         expiration_date: pm.expiration_date,
@@ -436,11 +442,14 @@ const Index = () => {
         manualProteins: prefMap['planning_manual_proteins'] || {},
         extraCalories: prefMap['planning_extra_calories'] || {},
         extraProteins: prefMap['planning_extra_proteins'] || {},
+        extraSelections: prefMap['planning_extra_selections'] || {},
         breakfastManualCalories: prefMap['planning_breakfast_manual_calories'] || {},
         breakfastManualProteins: prefMap['planning_breakfast_manual_proteins'] || {},
         breakfastSelections: prefMap['planning_breakfast'] || {},
         drinkChecks: prefMap['planning_drink_checks'] || {},
         calOverrides: prefMap['planning_cal_overrides'] || {},
+        daily_goal: prefMap['planning_daily_goal'] ?? null,
+        protein_goal: prefMap['planning_protein_goal'] ?? null,
       };
       await supabase
         .from('user_preferences')
@@ -448,7 +457,7 @@ const Index = () => {
 
       // Filtrer les repas à supprimer : on garde ceux dont la date ISO est > mostRecentSunday (Semaine suivante)
       const cutoffISO = mostRecentSunday.toISOString().split('T')[0];
-      const mealsToDelete = possibleMeals.filter(pm => {
+      const mealsToDelete = freshPossible.filter(pm => {
         if (!pm.day_of_week) return true; // On vide le plateau (shelf)
         if (/^\d{4}-\d{2}-\d{2}$/.test(pm.day_of_week)) {
           return pm.day_of_week <= cutoffISO; // On supprime si c'est le passé ou la semaine qui vient de se finir
@@ -460,63 +469,61 @@ const Index = () => {
         (supabase as any).from("possible_meals").delete().eq("id", pm.id)
       ));
 
-      // Restaurer les calories et protéines manuelles depuis les captures
-      const restoredManualCal: Record<string, number> = {};
-      const restoredManualProt: Record<string, number> = {};
+      // Reprise : état réel en base puis surcharge par les captures 💾 lorsqu’elles existent
+      const liveMC = { ...(prefMap['planning_manual_calories'] || {}) };
+      const liveMP = { ...(prefMap['planning_manual_proteins'] || {}) };
+      const liveEC = { ...(prefMap['planning_extra_calories'] || {}) };
+      const liveEP = { ...(prefMap['planning_extra_proteins'] || {}) };
+      const liveES = { ...(prefMap['planning_extra_selections'] || {}) };
+      const liveBC = { ...(prefMap['planning_breakfast_manual_calories'] || {}) };
+      const liveBP = { ...(prefMap['planning_breakfast_manual_proteins'] || {}) };
+      const liveBF = { ...(prefMap['planning_breakfast'] || {}) };
+      const liveDr = { ...(prefMap['planning_drink_checks'] || {}) };
+
       for (const [key, snap] of Object.entries(snapshots)) {
         if (key.startsWith('manual-')) {
           const slotKey = key.replace('manual-', '');
-          if (snap.cal) restoredManualCal[slotKey] = snap.cal;
-          if (snap.prot) restoredManualProt[slotKey] = snap.prot;
-        }
-      }
-      setPreference.mutate({ key: 'planning_manual_calories', value: restoredManualCal });
-      setPreference.mutate({ key: 'planning_manual_proteins', value: restoredManualProt });
-
-      // Restaurer les calories et protéines extra depuis les captures
-      const restoredExtraCal: Record<string, number> = {};
-      const restoredExtraProt: Record<string, number> = {};
-      const restoredExtraSels: Record<string, string[]> = {};
-      for (const [key, snap] of Object.entries(snapshots)) {
-        if (key.startsWith('extra-')) {
+          const s = snap as any;
+          if (s.cal != null) liveMC[slotKey] = s.cal;
+          if (s.prot != null) liveMP[slotKey] = s.prot;
+        } else if (key.startsWith('extra-')) {
           const dayKey = key.replace('extra-', '');
           const s = snap as any;
-          if (s.cal) restoredExtraCal[dayKey] = s.cal;
-          if (s.prot) restoredExtraProt[dayKey] = s.prot;
-          if (s.itemIds) restoredExtraSels[dayKey] = s.itemIds;
-        }
-      }
-      setPreference.mutate({ key: 'planning_extra_calories', value: restoredExtraCal });
-      setPreference.mutate({ key: 'planning_extra_proteins', value: restoredExtraProt });
-      setPreference.mutate({ key: 'planning_extra_selections', value: restoredExtraSels });
-
-      // Restaurer le petit déjeuner depuis les captures
-      const restoredBreakfastCal: Record<string, number> = {};
-      const restoredBreakfastProt: Record<string, number> = {};
-      const keptBreakfast: Record<string, string> = {};
-      for (const [key, snap] of Object.entries(snapshots)) {
-        if (key.startsWith('breakfast-')) {
+          if (s.cal != null) liveEC[dayKey] = s.cal;
+          if (s.prot != null) liveEP[dayKey] = s.prot;
+          if (s.itemIds) liveES[dayKey] = s.itemIds;
+        } else if (key.startsWith('breakfast-')) {
           const dayKey = key.replace('breakfast-', '');
-          if (snap.cal) restoredBreakfastCal[dayKey] = snap.cal;
-          if (snap.prot) restoredBreakfastProt[dayKey] = snap.prot;
-          if ((snap as any).mealId) keptBreakfast[dayKey] = (snap as any).mealId;
+          const s = snap as any;
+          if (s.cal != null) liveBC[dayKey] = s.cal;
+          if (s.prot != null) liveBP[dayKey] = s.prot;
+          if (s.mealId) liveBF[dayKey] = s.mealId;
         }
       }
-      setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: restoredBreakfastCal });
-      setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: restoredBreakfastProt });
-      setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
-      setPreference.mutate({ key: 'planning_drink_checks', value: {} });
+      setPreference.mutate({ key: 'planning_manual_calories', value: liveMC });
+      setPreference.mutate({ key: 'planning_manual_proteins', value: liveMP });
+      setPreference.mutate({ key: 'planning_extra_calories', value: liveEC });
+      setPreference.mutate({ key: 'planning_extra_proteins', value: liveEP });
+      setPreference.mutate({ key: 'planning_extra_selections', value: liveES });
+      setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: liveBC });
+      setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: liveBP });
+      setPreference.mutate({ key: 'planning_breakfast', value: liveBF });
+      setPreference.mutate({ key: 'planning_drink_checks', value: liveDr });
 
-      // Promotion des objectifs de la semaine suivante vers la semaine en cours
+      // Objectifs : la semaine suivante peut promouvoir la semaine courante ; la prévision suivante reprend toujours le même objectif que la semaine en cours
       const nCal = prefMap['next_week_daily_goal'];
       const nPro = prefMap['next_week_protein_goal'];
-      if (nCal && nCal > 0) {
-        setPreference.mutate({ key: 'planning_daily_goal', value: nCal });
-        setPreference.mutate({ key: 'next_week_daily_goal', value: 0 });
+      let newCal = prefMap['planning_daily_goal'];
+      let newPro = prefMap['planning_protein_goal'];
+      if (nCal && nCal > 0) newCal = nCal;
+      if (nPro && nPro > 0) newPro = nPro;
+      if (newCal && newCal > 0) {
+        setPreference.mutate({ key: 'planning_daily_goal', value: newCal });
+        setPreference.mutate({ key: 'next_week_daily_goal', value: newCal });
       }
-      if (nPro && nPro > 0) {
-        setPreference.mutate({ key: 'planning_protein_goal', value: nPro });
-        setPreference.mutate({ key: 'next_week_protein_goal', value: 0 });
+      if (newPro && newPro > 0) {
+        setPreference.mutate({ key: 'planning_protein_goal', value: newPro });
+        setPreference.mutate({ key: 'next_week_protein_goal', value: newPro });
       }
 
       setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
@@ -579,37 +586,22 @@ const Index = () => {
     const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
 
     let snapshots: FoodItem[] = [];
-    let oldestCounter: string | null = null;
     let nameMatch: FoodItem | undefined;
 
     // 2. Déduire les ingrédients du stock UNIQUEMENT si ça ne vient pas de "Tous" (master)
     if (source !== "master") {
       const deductionResult = await deductIngredientsFromStock(meal, undefined);
       snapshots = deductionResult.snapshots;
-      oldestCounter = deductionResult.oldestCounter;
       nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
     }
 
-    // 3. Créer la carte avec le compteur le plus ancien
-    let finalCounterDate: string | null = null;
-    
-    // Les cartes issues de "Tous" ne doivent jamais avoir de compteur d'ouverture
-    // car elles ne représentent pas une consommation réelle planifiée
-    if (source !== "master") {
-      const existingDates = [oldestCounter, anBefore.earliestCounterDate, nameMatch?.counter_start_date].filter(Boolean) as string[];
-      if (existingDates.length > 0) {
-        existingDates.sort();
-        finalCounterDate = existingDates[0];
-      }
-      // Pas de compteur sur la carte si seuls des aliments non entamés sont consommés :
-      // la copie en Possible n'a pas de date de référence (les compteurs sont sur le stock).
-    }
-
+    // 3. Carte « Possible » = copie logique avant déduction stock : pas de compteur sur la ligne
+    // (les compteurs vivent sur les aliments ; l’affichage « prog » suit le planning).
     const result = await moveToPossible.mutateAsync({
       mealId,
       expiration_date: anBefore.earliestExpiration,
-      counter_start_date: finalCounterDate
+      counter_start_date: null
     });
 
     if (result?.id) {

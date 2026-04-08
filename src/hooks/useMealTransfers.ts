@@ -34,10 +34,11 @@ const DAY_KEY_TO_INDEX: Record<string, number> = {
 
 /** Aligné sur getTargetDate (ingredientUtils) : matin 8h, midi 12h, soir 19h */
 function setMealTimeHours(d: Date, mealTime: string | null) {
-  const low = (mealTime || "").toLowerCase();
+  const low = (mealTime || "").trim().toLowerCase();
   if (low === "soir") d.setHours(19, 0, 0, 0);
   else if (low === "matin") d.setHours(8, 0, 0, 0);
-  else d.setHours(12, 0, 0, 0);
+  else if (low === "midi") d.setHours(12, 0, 0, 0);
+  // Pas de défaut « midi » si absent : évite une fausse heure (12h) quand le créneau n’est pas encore choisi
 }
 
 /**
@@ -695,7 +696,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     allPossibleMeals: any[] = []
   ) => {
     if (!ingredients?.trim()) return;
+    // Jour sans créneau : ne pas synchroniser (sinon setMealTimeHours tombait sur « midi » par défaut → 12h au lieu de soir)
+    if (dayOfWeek && !(mealTime || "").trim()) return;
+
     const groups = parseIngredientGroups(ingredients);
+
+    /** Si le repas qu’on met à jour est planifié dans le futur, on doit pouvoir réaligner le stock en « prog »
+     *  (ex. carte à hier → demain : ne pas traiter le compteur comme « manuel » et le laisser bloqué dans le passé). */
+    const allowOverwriteForFuturePlanning =
+      pmId != null &&
+      dayOfWeek != null &&
+      !!(mealTime || "").trim() &&
+      new Date(computePlannedCounterDate(dayOfWeek, mealTime)).getTime() > Date.now();
 
     for (const group of groups) {
       if (group.every(alt => (alt as any).optional)) continue;
@@ -719,12 +731,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const pmRow = allPossibleMeals.find((p: { id: string }) => p.id === pmId);
           const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
           const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
+          const nowMs = Date.now();
 
           if (targetDate && dayOfWeek) {
-            // Carte sans date de référence stockée = ingrédients entamés seulement par ce passage :
-            // le compteur suit la date/heure du repas planifié (mode Prog. côté stock).
-            // Si la carte a une date (ingrédient déjà ouvert avant), on garde l'ouverture la plus ancienne.
-            if (
+            // Repas dans le futur → aligner le compteur stock sur le créneau (mode « prog »), pas sur
+            // l’ouverture immédiate au passage en Possible (sinon le compteur reste « lancé »).
+            if (new Date(targetDate).getTime() > nowMs) {
+              earliestDateStr = targetDate;
+            } else if (
               fallbackDate &&
               pmRow?.counter_start_date != null &&
               new Date(fallbackDate) < new Date(targetDate)
@@ -755,13 +769,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (!hasMatch) continue;
 
           hasAnyMatchingMeal = true;
-          // De même ici : préférer pm.counter_start_date s'il est plus ancien que la date planifiée du repas
           const targetDate = pm.day_of_week ? computePlannedCounterDate(pm.day_of_week, pm.meal_time) : null;
           const fallback = pm.counter_start_date || (pm.created_at || new Date().toISOString());
-          let pmDate = targetDate ?? fallback;
-
-          if (pm.day_of_week && pm.counter_start_date && new Date(pm.counter_start_date) < new Date(pmDate)) {
-            pmDate = pm.counter_start_date;
+          let pmDate: string;
+          if (!targetDate) {
+            pmDate = fallback;
+          } else if (new Date(targetDate).getTime() > Date.now()) {
+            pmDate = targetDate;
+          } else {
+            pmDate = targetDate;
+            if (pm.counter_start_date && new Date(pm.counter_start_date) < new Date(pmDate)) {
+              pmDate = pm.counter_start_date;
+            }
           }
 
           const pmMs = new Date(pmDate).getTime();
@@ -773,8 +792,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
         // Mettre à jour seulement si on a trouvé une date valide
         if (hasAnyMatchingMeal && earliestDateStr) {
-          // Protéger les compteurs manuels (ouverts avant toute planification)
-          if (fi.counter_start_date) {
+          // Protéger les compteurs manuels (ouverts avant toute planification), sauf report explicite vers un futur créneau
+          if (fi.counter_start_date && !allowOverwriteForFuturePlanning) {
             const fiStart = new Date(fi.counter_start_date).getTime();
             const nowMs = new Date().getTime();
             const isStartedBeforeNow = fiStart <= nowMs;

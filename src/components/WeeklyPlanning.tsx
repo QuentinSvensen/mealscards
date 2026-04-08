@@ -27,6 +27,7 @@ import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCar
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
 import { computeIngredientCalories, computeIngredientProtein, cleanIngredientText, normalizeKey, hasNegativeMetric, getMealColor, getAdaptedCounterDays, getTargetDate, computeCounterHours } from "@/lib/ingredientUtils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays, startOfWeek, addDays as addDaysFns, addWeeks } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -740,9 +741,11 @@ export function WeeklyPlanning({
     const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
     const bCO = isNF ? (backupRaw.calOverrides || {}) : {};
 
-    // Restaurer les objectifs archivés s'ils sont présents, sinon revenir aux objectifs actuels
-    const archivedDailyGoal = isNF && backupRaw.daily_goal ? backupRaw.daily_goal : DAILY_GOAL;
-    const archivedProteinGoal = isNF && backupRaw.protein_goal ? backupRaw.protein_goal : DAILY_PROTEIN_GOAL_PREF;
+    // Objectifs tels qu’au moment de la sauvegarde (ne pas utiliser les objectifs courants / semaine suivante)
+    const archivedDailyGoal =
+      isNF && backupRaw.daily_goal != null && backupRaw.daily_goal > 0 ? backupRaw.daily_goal : DEFAULT_DAILY_GOAL;
+    const archivedProteinGoal =
+      isNF && backupRaw.protein_goal != null && backupRaw.protein_goal > 0 ? backupRaw.protein_goal : DAILY_PROTEIN_GOAL;
 
     let totalCal = 0;
     let totalPro = 0;
@@ -757,9 +760,10 @@ export function WeeklyPlanning({
       cards.filter(c => c.day_of_week === key || c.day_of_week === iso).forEach(c => {
         const m = allMealsById.get(c.meal_id);
         if (m) {
-          const overrideCal = bCO[c.id];
-          dayCal += overrideCal ? (parseFloat(overrideCal) || 0) : getCardDisplayCalories(c, undefined, isAvailableCb);
-          dayPro += getCardDisplayProtein(c, isAvailableCb);
+          const overrideCal = c.id ? bCO[c.id] : undefined;
+          const fullPm = { ...c, meals: m };
+          dayCal += overrideCal ? (parseFloat(overrideCal) || 0) : getCardDisplayCalories(fullPm, undefined, isAvailableCb);
+          dayPro += getCardDisplayProtein(fullPm, isAvailableCb);
         }
       });
 
@@ -793,9 +797,8 @@ export function WeeklyPlanning({
       dayCal += (bBC[iso] || bBC[key] || 0);
       dayPro += (bBP[iso] || bBP[key] || 0);
 
-      // Boissons
-      if (bDC[iso] || bDC[key]) {
-        dayCal += 150;
+      for (const time of TIMES) {
+        if (bDC[`${iso}-${time}`] || bDC[`${key}-${time}`]) dayCal += 150;
       }
 
       totalCal += dayCal;
@@ -803,7 +806,7 @@ export function WeeklyPlanning({
     });
 
     return { totalCal, totalPro, archivedDailyGoal, archivedProteinGoal };
-  }, [getPreference, weekOffset, DAILY_GOAL, DAILY_PROTEIN_GOAL_PREF, allMealsById, meals, foodItems, weekDates]);
+  }, [getPreference, weekOffset, allMealsById, foodItems, weekDates]);
 
   const handleAddExtraItem = (day: string, item: FoodItem, remove = false) => {
     const updated = { ...extraSelections };
@@ -1123,8 +1126,14 @@ export function WeeklyPlanning({
       if (raw.breakfastSelections) setPreference.mutate({ key: 'planning_breakfast', value: raw.breakfastSelections });
       if (raw.drinkChecks) setPreference.mutate({ key: 'planning_drink_checks', value: raw.drinkChecks });
       if (raw.calOverrides) setPreference.mutate({ key: 'planning_cal_overrides', value: raw.calOverrides });
-      if (raw.daily_goal) setPreference.mutate({ key: 'planning_daily_goal', value: raw.daily_goal });
-      if (raw.protein_goal) setPreference.mutate({ key: 'planning_protein_goal', value: raw.protein_goal });
+      if (raw.daily_goal) {
+        setPreference.mutate({ key: 'planning_daily_goal', value: raw.daily_goal });
+        setPreference.mutate({ key: 'next_week_daily_goal', value: raw.daily_goal });
+      }
+      if (raw.protein_goal) {
+        setPreference.mutate({ key: 'planning_protein_goal', value: raw.protein_goal });
+        setPreference.mutate({ key: 'next_week_protein_goal', value: raw.protein_goal });
+      }
     }
 
     qc.invalidateQueries({ queryKey: ["possible_meals"] });
@@ -1132,10 +1141,40 @@ export function WeeklyPlanning({
 
   const handleManualReset = async () => {
     if (!confirm('Réinitialiser le planning ? Les cartes seront supprimées et les valeurs sauvegardées (💾) seront restaurées.')) return;
-    const snaps = savedSnapshots;
+    const userId = (await supabase.auth.getUser()).data.user?.id;
+    if (!userId) return;
 
-    // Sauvegarder possible_meals + toutes les valeurs saisies avant suppression
-    const backup = possibleMeals.map(pm => ({
+    const prefKeys = [
+      'planning_manual_calories', 'planning_manual_proteins',
+      'planning_extra_calories', 'planning_extra_proteins',
+      'planning_breakfast_manual_calories', 'planning_breakfast_manual_proteins',
+      'planning_breakfast', 'planning_drink_checks', 'planning_cal_overrides',
+      'planning_extra_selections',
+      'planning_daily_goal', 'next_week_daily_goal',
+      'planning_protein_goal', 'next_week_protein_goal',
+    ];
+    const { data: snapResult } = await supabase
+      .from('user_preferences')
+      .select('value')
+      .eq('key', 'planning_saved_snapshots')
+      .eq('user_id', userId)
+      .maybeSingle();
+    const snapshots: Record<string, { cal?: number; prot?: number; itemIds?: string[]; mealId?: string }> =
+      (snapResult?.value as any) ?? {};
+
+    const { data: prefRows } = await supabase
+      .from('user_preferences')
+      .select('key, value')
+      .eq('user_id', userId)
+      .in('key', prefKeys);
+    const prefMap: Record<string, any> = {};
+    for (const row of prefRows || []) prefMap[row.key] = row.value;
+
+    await qc.refetchQueries({ queryKey: ['possible_meals'] });
+    const freshPM = (qc.getQueryData<PossibleMeal[]>(['possible_meals']) as PossibleMeal[] | undefined) ?? possibleMeals;
+
+    const backup = freshPM.map(pm => ({
+      id: pm.id,
       meal_id: pm.meal_id,
       quantity: pm.quantity,
       expiration_date: pm.expiration_date,
@@ -1147,64 +1186,55 @@ export function WeeklyPlanning({
     }));
     const fullBackup = {
       cards: backup,
-      manualCalories,
-      manualProteins,
-      extraCalories,
-      extraProteins,
-      extraSelections,
-      breakfastManualCalories,
-      breakfastManualProteins,
-      breakfastSelections,
-      drinkChecks,
-      calOverrides,
-      daily_goal: DAILY_GOAL,
-      protein_goal: DAILY_PROTEIN_GOAL_PREF,
+      manualCalories: prefMap['planning_manual_calories'] || {},
+      manualProteins: prefMap['planning_manual_proteins'] || {},
+      extraCalories: prefMap['planning_extra_calories'] || {},
+      extraProteins: prefMap['planning_extra_proteins'] || {},
+      extraSelections: prefMap['planning_extra_selections'] || {},
+      breakfastManualCalories: prefMap['planning_breakfast_manual_calories'] || {},
+      breakfastManualProteins: prefMap['planning_breakfast_manual_proteins'] || {},
+      breakfastSelections: prefMap['planning_breakfast'] || {},
+      drinkChecks: prefMap['planning_drink_checks'] || {},
+      calOverrides: prefMap['planning_cal_overrides'] || {},
+      daily_goal: prefMap['planning_daily_goal'] ?? null,
+      protein_goal: prefMap['planning_protein_goal'] ?? null,
     };
-    const userId = (await supabase.auth.getUser()).data.user?.id;
     await supabase.from('user_preferences').upsert({ key: 'possible_meals_backup', value: fullBackup, user_id: userId } as any, { onConflict: 'user_id,key' });
 
-    await Promise.all(possibleMeals.map(pm => {
-      // S'il s'agit d'une carte de petit déj, ne la supprimer que si elle était planifiée
+    await Promise.all(freshPM.map(pm => {
       if (pm.meals?.category === 'petit_dejeuner' && !pm.day_of_week) {
         return Promise.resolve();
       }
-      return (supabase as any).from("possible_meals").delete().eq("id", pm.id);
+      return (supabase as any).from('possible_meals').delete().eq('id', pm.id);
     }));
-    const rMC: Record<string, number> = {}, rMP: Record<string, number> = {};
-    const rEC: Record<string, number> = {}, rEP: Record<string, number> = {};
-    const rES: Record<string, string[]> = {};
-    const rBC: Record<string, number> = {}, rBP: Record<string, number> = {};
-    const keptBreakfast: Record<string, string> = {};
-    for (const [key, snap] of Object.entries(snaps)) {
+
+    const rMC = { ...(prefMap['planning_manual_calories'] || {}) };
+    const rMP = { ...(prefMap['planning_manual_proteins'] || {}) };
+    const rEC = { ...(prefMap['planning_extra_calories'] || {}) };
+    const rEP = { ...(prefMap['planning_extra_proteins'] || {}) };
+    const rES = { ...(prefMap['planning_extra_selections'] || {}) };
+    const rBC = { ...(prefMap['planning_breakfast_manual_calories'] || {}) };
+    const rBP = { ...(prefMap['planning_breakfast_manual_proteins'] || {}) };
+    const keptBreakfast = { ...(prefMap['planning_breakfast'] || {}) };
+    for (const [key, snap] of Object.entries(snapshots)) {
       const s = snap as any;
-      if (key.startsWith('manual-')) { const k = key.replace('manual-', ''); if (s.cal) rMC[k] = s.cal; if (s.prot) rMP[k] = s.prot; }
-      else if (key.startsWith('extra-')) {
+      if (key.startsWith('manual-')) {
+        const k = key.replace('manual-', '');
+        if (s.cal != null) rMC[k] = s.cal;
+        if (s.prot != null) rMP[k] = s.prot;
+      } else if (key.startsWith('extra-')) {
         const k = key.replace('extra-', '');
-        if (s.cal) rEC[k] = s.cal;
-        if (s.prot) rEP[k] = s.prot;
+        if (s.cal != null) rEC[k] = s.cal;
+        if (s.prot != null) rEP[k] = s.prot;
         if (s.itemIds) rES[k] = s.itemIds;
+      } else if (key.startsWith('breakfast-')) {
+        const k = key.replace('breakfast-', '');
+        if (s.cal != null) rBC[k] = s.cal;
+        if (s.prot != null) rBP[k] = s.prot;
+        if (s.mealId) keptBreakfast[k] = s.mealId;
       }
-      else if (key.startsWith('breakfast-')) { const k = key.replace('breakfast-', ''); if (s.cal) rBC[k] = s.cal; if (s.prot) rBP[k] = s.prot; if (s.mealId) keptBreakfast[k] = s.mealId; }
     }
-    // Fusionner les valeurs de la semaine suivante pour les jours sans captures (snapshots)
-    for (const day of DAYS) {
-      for (const time of TIMES) {
-        const k = `${day}-${time}`;
-        if (!rMC[k] && nextManualCalories[k]) rMC[k] = nextManualCalories[k];
-        if (!rMP[k] && nextManualProteins[k]) rMP[k] = nextManualProteins[k];
-      }
-      if (!rEC[day] && nextExtraCalories[day]) rEC[day] = nextExtraCalories[day];
-      if (!rEP[day] && nextExtraProteins[day]) rEP[day] = nextExtraProteins[day];
-      if (!rES[day] && nextExtraSelections[day]?.length > 0) rES[day] = nextExtraSelections[day];
-      if (!rBC[day] && nextBreakfastManualCalories[day]) rBC[day] = nextBreakfastManualCalories[day];
-      if (!rBP[day] && nextBreakfastManualProteins[day]) rBP[day] = nextBreakfastManualProteins[day];
-      if (!keptBreakfast[day] && nextBreakfastSelections[day]) keptBreakfast[day] = nextBreakfastSelections[day];
-    }
-    // Fusionner les cases de boisson de la semaine prochaine
-    const mergedDrinks: Record<string, boolean> = {};
-    for (const [k, v] of Object.entries(nextDrinkChecks)) {
-      if (v) mergedDrinks[k] = true;
-    }
+    const mergedDrinks = { ...(prefMap['planning_drink_checks'] || {}) };
 
     setPreference.mutate({ key: 'planning_manual_calories', value: rMC });
     setPreference.mutate({ key: 'planning_manual_proteins', value: rMP });
@@ -1215,9 +1245,9 @@ export function WeeklyPlanning({
     setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: rBP });
     setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
     setPreference.mutate({ key: 'planning_drink_checks', value: mergedDrinks });
+    setPreference.mutate({ key: 'planning_cal_overrides', value: {} });
     setPreference.mutate({ key: 'planning_auto_consumed_days', value: {} });
     setPreference.mutate({ key: 'last_weekly_reset', value: new Date().toISOString() });
-    // Nettoyer les préférences de la semaine prochaine après migration
     setPreference.mutate({ key: 'next_week_breakfast', value: {} });
     setPreference.mutate({ key: 'next_week_manual_calories', value: {} });
     setPreference.mutate({ key: 'next_week_manual_proteins', value: {} });
@@ -1228,18 +1258,22 @@ export function WeeklyPlanning({
     setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: {} });
     setPreference.mutate({ key: 'next_week_drink_checks', value: {} });
 
-    // Migrer les objectifs de la semaine prochaine s'ils ont été configurés
-    const nCal = getPreference<number>('next_week_daily_goal', 0);
-    const nPro = getPreference<number>('next_week_protein_goal', 0);
-    if (nCal > 0) {
-      setPreference.mutate({ key: 'planning_daily_goal', value: nCal });
-      setPreference.mutate({ key: 'next_week_daily_goal', value: 0 });
+    const nCal = prefMap['next_week_daily_goal'];
+    const nPro = prefMap['next_week_protein_goal'];
+    let newCal = prefMap['planning_daily_goal'];
+    let newPro = prefMap['planning_protein_goal'];
+    if (nCal && nCal > 0) newCal = nCal;
+    if (nPro && nPro > 0) newPro = nPro;
+    if (newCal && newCal > 0) {
+      setPreference.mutate({ key: 'planning_daily_goal', value: newCal });
+      setPreference.mutate({ key: 'next_week_daily_goal', value: newCal });
     }
-    if (nPro > 0) {
-      setPreference.mutate({ key: 'planning_protein_goal', value: nPro });
-      setPreference.mutate({ key: 'next_week_protein_goal', value: 0 });
+    if (newPro && newPro > 0) {
+      setPreference.mutate({ key: 'planning_protein_goal', value: newPro });
+      setPreference.mutate({ key: 'next_week_protein_goal', value: newPro });
     }
-    qc.invalidateQueries({ queryKey: ["possible_meals"] });
+    await qc.invalidateQueries({ queryKey: ['possible_meals'] });
+    await qc.invalidateQueries({ queryKey: ['user_preferences'] });
   };
 
   return (
@@ -1263,7 +1297,14 @@ export function WeeklyPlanning({
                 key={`global-cal-${weekOffset === 1 ? NEXT_DAILY_GOAL : DAILY_GOAL}`}
                 onBlur={(e) => {
                   const val = parseInt(e.target.value);
-                  if (val && val > 0) setPreference.mutate({ key: weekOffset === 1 ? 'next_week_daily_goal' : 'planning_daily_goal', value: val });
+                  if (val && val > 0) {
+                    if (weekOffset === 1) {
+                      setPreference.mutate({ key: 'next_week_daily_goal', value: val });
+                    } else {
+                      setPreference.mutate({ key: 'planning_daily_goal', value: val });
+                      setPreference.mutate({ key: 'next_week_daily_goal', value: val });
+                    }
+                  }
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 className="w-16 h-6 text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 focus:outline-none focus:border-orange-400/50 text-center"
@@ -1279,7 +1320,14 @@ export function WeeklyPlanning({
                 key={`global-prot-${weekOffset === 1 ? NEXT_PROTEIN_GOAL : DAILY_PROTEIN_GOAL_PREF}`}
                 onBlur={(e) => {
                   const val = parseInt(e.target.value);
-                  if (val && val > 0) setPreference.mutate({ key: weekOffset === 1 ? 'next_week_protein_goal' : 'planning_protein_goal', value: val });
+                  if (val && val > 0) {
+                    if (weekOffset === 1) {
+                      setPreference.mutate({ key: 'next_week_protein_goal', value: val });
+                    } else {
+                      setPreference.mutate({ key: 'planning_protein_goal', value: val });
+                      setPreference.mutate({ key: 'next_week_protein_goal', value: val });
+                    }
+                  }
                 }}
                 onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                 className="w-14 h-6 text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 focus:outline-none focus:border-blue-400/50 text-center"
@@ -1472,6 +1520,17 @@ export function WeeklyPlanning({
                           if (val > 0) updated[iso] = val;
                           else { delete updated[iso]; delete updated[key]; }
                           setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: updated });
+                          if (weekOffset === 0) {
+                            const curProt = (iso && breakfastManualProteins[iso]) || breakfastManualProteins[key] || 0;
+                            const nxtC = { ...nextBreakfastManualCalories };
+                            const nxtP = { ...nextBreakfastManualProteins };
+                            if (val > 0) { nxtC[iso] = val; nxtC[key] = val; }
+                            else { delete nxtC[iso]; delete nxtC[key]; }
+                            if (curProt > 0) { nxtP[iso] = curProt; nxtP[key] = curProt; }
+                            else { delete nxtP[iso]; delete nxtP[key]; }
+                            setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: nxtC });
+                            setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: nxtP });
+                          }
                         }}
                         placeholder="kcal"
                         className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40"
@@ -1484,6 +1543,17 @@ export function WeeklyPlanning({
                           if (val > 0) updated[iso] = val;
                           else { delete updated[iso]; delete updated[key]; }
                           setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: updated });
+                          if (weekOffset === 0) {
+                            const curCal = (iso && breakfastManualCalories[iso]) || breakfastManualCalories[key] || 0;
+                            const nxtC = { ...nextBreakfastManualCalories };
+                            const nxtP = { ...nextBreakfastManualProteins };
+                            if (curCal > 0) { nxtC[iso] = curCal; nxtC[key] = curCal; }
+                            else { delete nxtC[iso]; delete nxtC[key]; }
+                            if (val > 0) { nxtP[iso] = val; nxtP[key] = val; }
+                            else { delete nxtP[iso]; delete nxtP[key]; }
+                            setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: nxtC });
+                            setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: nxtP });
+                          }
                         }}
                         placeholder="prot"
                         className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40"
@@ -1611,7 +1681,10 @@ export function WeeklyPlanning({
                         onChange={(e) => setGoalInput(e.target.value)}
                         onBlur={() => {
                           const val = parseInt(goalInput);
-                          if (val && val > 0) setPreference.mutate({ key: 'planning_daily_goal', value: val });
+                          if (val && val > 0) {
+                            setPreference.mutate({ key: 'planning_daily_goal', value: val });
+                            setPreference.mutate({ key: 'next_week_daily_goal', value: val });
+                          }
                           setEditingGoal(false);
                         }}
                         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingGoal(false); }}
@@ -1648,7 +1721,10 @@ export function WeeklyPlanning({
                         onChange={(e) => setProteinGoalInput(e.target.value)}
                         onBlur={() => {
                           const val = parseInt(proteinGoalInput);
-                          if (val && val > 0) setPreference.mutate({ key: 'planning_protein_goal', value: val });
+                          if (val && val > 0) {
+                            setPreference.mutate({ key: 'planning_protein_goal', value: val });
+                            setPreference.mutate({ key: 'next_week_protein_goal', value: val });
+                          }
                           setEditingProteinGoal(false);
                         }}
                         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingProteinGoal(false); }}
@@ -1692,6 +1768,15 @@ export function WeeklyPlanning({
                               else if (updated[`${key}-${time}`]) delete updated[`${key}-${time}`];
                               else updated[`${iso}-${time}`] = true;
                               setPreference.mutate({ key: 'planning_drink_checks', value: updated });
+                              if (weekOffset === 0) {
+                                const kKeySlot = `${key}-${time}`;
+                                const kIsoSlot = `${iso}-${time}`;
+                                const nxtDrk = { ...nextDrinkChecks };
+                                const on = updated[`${iso}-${time}`] || updated[`${key}-${time}`];
+                                if (on) { nxtDrk[kKeySlot] = true; nxtDrk[kIsoSlot] = true; }
+                                else { delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot]; }
+                                setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
+                              }
                             }}
                             className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]
                               ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold'
@@ -1731,6 +1816,19 @@ export function WeeklyPlanning({
                                 if (val > 0) updated[`${iso}-${time}`] = val;
                                 else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
                                 setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                                if (weekOffset === 0) {
+                                  const kKeySlot = `${key}-${time}`;
+                                  const kIsoSlot = `${iso}-${time}`;
+                                  const curProt = manualProteins[`${iso}-${time}`] || manualProteins[`${key}-${time}`] || 0;
+                                  const nxtCal = { ...nextManualCalories };
+                                  const nxtPro = { ...nextManualProteins };
+                                  if (val > 0) { nxtCal[kKeySlot] = val; nxtCal[kIsoSlot] = val; }
+                                  else { delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot]; }
+                                  if (curProt > 0) { nxtPro[kKeySlot] = curProt; nxtPro[kIsoSlot] = curProt; }
+                                  else { delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot]; }
+                                  setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
+                                  setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                                }
                               }}
                               placeholder="kcal"
                               className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
@@ -1743,6 +1841,19 @@ export function WeeklyPlanning({
                                 if (val > 0) updated[`${iso}-${time}`] = val;
                                 else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
                                 setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                                if (weekOffset === 0) {
+                                  const kKeySlot = `${key}-${time}`;
+                                  const kIsoSlot = `${iso}-${time}`;
+                                  const curCal = manualCalories[`${iso}-${time}`] || manualCalories[`${key}-${time}`] || 0;
+                                  const nxtCal = { ...nextManualCalories };
+                                  const nxtPro = { ...nextManualProteins };
+                                  if (curCal > 0) { nxtCal[kKeySlot] = curCal; nxtCal[kIsoSlot] = curCal; }
+                                  else { delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot]; }
+                                  if (val > 0) { nxtPro[kKeySlot] = val; nxtPro[kIsoSlot] = val; }
+                                  else { delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot]; }
+                                  setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
+                                  setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                                }
                               }}
                               placeholder="prot"
                               className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
@@ -1845,6 +1956,17 @@ export function WeeklyPlanning({
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
                         setPreference.mutate({ key: 'planning_extra_calories', value: updated });
+                        if (weekOffset === 0) {
+                          const nxtEC = { ...nextExtraCalories };
+                          if (manual > 0) { nxtEC[iso] = manual; nxtEC[key] = manual; }
+                          else { delete nxtEC[iso]; delete nxtEC[key]; }
+                          setPreference.mutate({ key: 'next_week_extra_calories', value: nxtEC });
+                          const protManual = extraProteins[iso] || extraProteins[key] || 0;
+                          const nxtEP = { ...nextExtraProteins };
+                          if (protManual > 0) { nxtEP[iso] = protManual; nxtEP[key] = protManual; }
+                          else { delete nxtEP[iso]; delete nxtEP[key]; }
+                          setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtEP });
+                        }
                       }}
                       placeholder="kcal"
                       className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
@@ -1875,6 +1997,17 @@ export function WeeklyPlanning({
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
                         setPreference.mutate({ key: 'planning_extra_proteins', value: updated });
+                        if (weekOffset === 0) {
+                          const nxtEP = { ...nextExtraProteins };
+                          if (manual > 0) { nxtEP[iso] = manual; nxtEP[key] = manual; }
+                          else { delete nxtEP[iso]; delete nxtEP[key]; }
+                          setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtEP });
+                          const calManual = extraCalories[iso] || extraCalories[key] || 0;
+                          const nxtEC = { ...nextExtraCalories };
+                          if (calManual > 0) { nxtEC[iso] = calManual; nxtEC[key] = calManual; }
+                          else { delete nxtEC[iso]; delete nxtEC[key]; }
+                          setPreference.mutate({ key: 'next_week_extra_calories', value: nxtEC });
+                        }
                       }}
                       placeholder="prot"
                       className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
@@ -2013,7 +2146,7 @@ export function WeeklyPlanning({
                               });
                             })()}
 
-                            {/* Aliments extras normaux */}
+                            {/* Aliments extras normaux — au-dessus du trait : rentrent dans les kcal restantes du jour */}
                             {(() => {
                               const sectionItems = foodItems.filter(fi => fi.storage_type === 'extras');
                               const sortedExtras = getSortedFoodItems(
@@ -2031,7 +2164,12 @@ export function WeeklyPlanning({
                               const currentIds = extraSels[iso] || extraSels[key] || [];
                               const selected = sortedExtras.filter(fi => currentIds.includes(fi.id));
                               const others = sortedExtras.filter(fi => !currentIds.includes(fi.id));
-                              return [...selected, ...others].map((fi) => {
+                              const ordered = [...selected, ...others];
+                              const remainingCal = Math.max(0, DAILY_GOAL - getDayCalories(key, iso));
+                              const calOf = (fi: FoodItem) => parseCalories(fi.calories);
+                              const fitsBudget = ordered.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
+                              const overBudget = ordered.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingCal);
+                              const renderRow = (fi: FoodItem) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
                                 return (
                                   <div key={fi.id} className={`w-full p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'}`}>
@@ -2084,7 +2222,22 @@ export function WeeklyPlanning({
                                     </div>
                                   </div>
                                 );
-                              });
+                              };
+                              return (
+                                <>
+                                  {fitsBudget.length > 0 && (
+                                    <p className="text-[9px] font-semibold text-muted-foreground px-1 pb-1">
+                                      Rentrent dans le budget restant ({Math.round(remainingCal)} kcal / jour)
+                                    </p>
+                                  )}
+                                  {fitsBudget.map(renderRow)}
+                                  {fitsBudget.length > 0 && overBudget.length > 0 && <Separator className="my-2 opacity-50" />}
+                                  {overBudget.length > 0 && fitsBudget.length > 0 && (
+                                    <p className="text-[9px] font-semibold text-muted-foreground px-1 pb-1">Autres extras</p>
+                                  )}
+                                  {overBudget.map(renderRow)}
+                                </>
+                              );
                             })()}
                           </div>
                         </PopoverContent>
@@ -2508,6 +2661,10 @@ export function WeeklyPlanning({
               if (fi) dayTotal += parseCalories(fi.calories);
             }
 
+            const extraSelCalSum = effExtraSel.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0);
+            const dayCalBeforeExtras = dayTotal - effExtraCal - extraSelCalSum;
+            const remainingNextCal = Math.max(0, NEXT_DAILY_GOAL - dayCalBeforeExtras);
+
             let nxtDayPro = nxtBfPro;
             for (const time of TIMES) {
               const kIso = `${iso}-${time}`;
@@ -2688,10 +2845,13 @@ export function WeeklyPlanning({
                                   foodSortModes['extras'] || "manual",
                                   sortDirections['food-extras'] !== false
                                 );
-                                // Trier les éléments sélectionnés en haut
                                 const selected = sortedItems.filter(fi => effExtraSel.includes(fi.id));
                                 const others = sortedItems.filter(fi => !effExtraSel.includes(fi.id));
-                                return [...selected, ...others].map(fi => {
+                                const ordered = [...selected, ...others];
+                                const calOf = (fi: FoodItem) => parseCalories(fi.calories);
+                                const fitsBudget = ordered.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingNextCal);
+                                const overBudget = ordered.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingNextCal);
+                                const renderRow = (fi: FoodItem) => {
                                   const count = effExtraSel.filter(id => id === fi.id).length;
                                   return (
                                     <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
@@ -2721,7 +2881,22 @@ export function WeeklyPlanning({
                                       </div>
                                     </div>
                                   );
-                                });
+                                };
+                                return (
+                                  <>
+                                    {fitsBudget.length > 0 && (
+                                      <p className="text-[9px] font-semibold text-muted-foreground px-1 pb-1">
+                                        Rentrent dans le budget restant ({Math.round(remainingNextCal)} kcal / jour)
+                                      </p>
+                                    )}
+                                    {fitsBudget.map(renderRow)}
+                                    {fitsBudget.length > 0 && overBudget.length > 0 && <Separator className="my-2 opacity-50" />}
+                                    {overBudget.length > 0 && fitsBudget.length > 0 && (
+                                      <p className="text-[9px] font-semibold text-muted-foreground px-1 pb-1">Autres extras</p>
+                                    )}
+                                    {overBudget.map(renderRow)}
+                                  </>
+                                );
                               })()}
                             </div>
                           </PopoverContent>

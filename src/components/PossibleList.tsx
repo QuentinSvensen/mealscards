@@ -234,7 +234,11 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 }}
                 onDoubleClick={() => setPopupPm(pm)}
                 isHighlighted={highlightedId === pm.id}
-                realtimeCounterStartDate={(masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id)) ? undefined : analysis.earliestCounterDate} />
+                realtimeCounterStartDate={
+                  (masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id))
+                    ? undefined
+                    : (pm.counter_start_date != null ? analysis.earliestCounterDate : undefined)
+                } />
               
               {showBottomSeparator && (
                 <div className="py-2 px-2">
