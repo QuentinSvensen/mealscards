@@ -41,8 +41,17 @@ import {
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
+import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
+import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
+import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
+import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
+import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
+import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
+import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 
-// Chargeur en attente (lazy) robuste avec logique de tentative/rafraîchissement
+/**
+ * Enveloppe un import dynamique : en cas d'erreur de chunk, tente un rechargement (cache SW, sessionStorage).
+ */
 const lazyRetry = (importFn: () => Promise<any>, name: string) => {
   return lazy(async () => {
     try {
@@ -77,15 +86,23 @@ const lazyRetry = (importFn: () => Promise<any>, name: string) => {
   });
 };
 
-// Usines de composants lazy (pour le préchargement)
+/** Import dynamique de la liste de courses (préchargement). */
 const importShoppingList = () => import("@/components/ShoppingList").then((m) => ({ default: m.ShoppingList }));
+/** Import dynamique du générateur de plan de repas. */
 const importMealPlanGenerator = () => import("@/components/MealPlanGenerator").then((m) => ({ default: m.MealPlanGenerator }));
+/** Import dynamique de la gestion des aliments. */
 const importFoodItems = () => import("@/components/FoodItems").then((m) => ({ default: m.FoodItems }));
-const importMaxMealGenerator = () => import("@/components/MaxMealGenerator"); // Maintenant export par défaut
+/** Import dynamique du générateur de repas max (export par défaut du module). */
+const importMaxMealGenerator = () => import("@/components/MaxMealGenerator");
+/** Import dynamique du planning hebdomadaire. */
 const importWeeklyPlanning = () => import("@/components/WeeklyPlanning").then((m) => ({ default: m.WeeklyPlanning }));
+/** Import dynamique de la liste maîtresse. */
 const importMasterList = () => import("@/components/MasterList").then((m) => ({ default: m.MasterList }));
+/** Import dynamique de la liste des repas possibles. */
 const importPossibleList = () => import("@/components/PossibleList").then((m) => ({ default: m.PossibleList }));
+/** Import dynamique de la liste des repas disponibles. */
 const importAvailableList = () => import("@/components/AvailableList").then((m) => ({ default: m.AvailableList }));
+/** Import dynamique de la section « un par un ». */
 const importUnParUnSection = () => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection }));
 
 const LazyShoppingList = lazyRetry(importShoppingList, "ShoppingList");
@@ -142,6 +159,7 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL : Index
 // ═══════════════════════════════════════════════════════════════════════════════
+/** Page racine : navigation repas / aliments / planning / courses, session, reset hebdomadaire et vues lazy. */
 const Index = () => {
   const qc = useQueryClient();
   const [session, setSession] = useState<import("@supabase/supabase-js").Session | null | undefined>(undefined);
@@ -341,6 +359,7 @@ const Index = () => {
   // Nettoyage automatique du dimanche — s'exécute UNE FOIS par semaine le dimanche à 23h59 ou lors de la première connexion de la nouvelle semaine
   const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
   const sundayClearDone = useRef(false);
+  const autoSundayResetInFlightRef = useRef(false);
   useEffect(() => {
     if (!unlocked || sundayClearDone.current || isPreferencesLoading || isLoading) return;
     sundayClearDone.current = true;
@@ -377,158 +396,56 @@ const Index = () => {
     }
 
     const clearAll = async () => {
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      if (!userId) return;
+      if (autoSundayResetInFlightRef.current) return;
+      autoSundayResetInFlightRef.current = true;
+      try {
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        if (!userId) return;
 
-      // Vérifier qu'il n'y a pas de double réinitialisation depuis la DB (par utilisateur, évite de prendre la préférence d'un autre utilisateur)
-      const { data: freshResetPref } = await supabase
-        .from('user_preferences')
-        .select('value')
-        .eq('key', 'last_weekly_reset')
-        .eq('user_id', userId)
-        .maybeSingle();
-      if (freshResetPref?.value) {
-        const freshResetDate = new Date(String(freshResetPref.value));
-        if (freshResetDate.getTime() >= mostRecentSunday.getTime()) return;
-      }
-
-      // Charger les captures (snapshots) sauvegardées et les valeurs de saisie actuelles (par utilisateur)
-      const snapResult = await supabase
-        .from('user_preferences')
-        .select('value')
-        .eq('key', 'planning_saved_snapshots')
-        .eq('user_id', userId)
-        .maybeSingle();
-      const snapshots: Record<string, { cal?: number; prot?: number }> = (snapResult.data?.value as any) ?? {};
-
-      // Charger les valeurs de saisie actuelles pour une sauvegarde complète
-      const prefKeys = [
-        'planning_manual_calories', 'planning_manual_proteins',
-        'planning_extra_calories', 'planning_extra_proteins',
-        'planning_breakfast_manual_calories', 'planning_breakfast_manual_proteins',
-        'planning_breakfast', 'planning_drink_checks', 'planning_cal_overrides',
-        'planning_extra_selections',
-        'planning_daily_goal', 'next_week_daily_goal',
-        'planning_protein_goal', 'next_week_protein_goal'
-      ];
-      const { data: prefRows } = await supabase
-        .from('user_preferences')
-        .select('key, value')
-        .eq('user_id', userId)
-        .in('key', prefKeys);
-      const prefMap: Record<string, any> = {};
-      for (const row of (prefRows || [])) { prefMap[row.key] = row.value; }
-
-      // Repas possibles : recharger depuis le serveur pour éviter une sauvegarde périmée (ex. autre appareil déjà à jour)
-      await qc.refetchQueries({ queryKey: ["possible_meals"] });
-      const freshPossible =
-        (qc.getQueryData<typeof possibleMeals>(["possible_meals"]) as typeof possibleMeals | undefined) ?? possibleMeals;
-
-      // Sauvegarder possible_meals + toutes les valeurs de saisie avant suppression
-      const backup = freshPossible.map(pm => ({
-        id: pm.id,
-        meal_id: pm.meal_id,
-        quantity: pm.quantity,
-        expiration_date: pm.expiration_date,
-        day_of_week: pm.day_of_week,
-        meal_time: pm.meal_time,
-        counter_start_date: pm.counter_start_date,
-        sort_order: pm.sort_order,
-        ingredients_override: pm.ingredients_override,
-      }));
-      const fullBackup = {
-        cards: backup,
-        manualCalories: prefMap['planning_manual_calories'] || {},
-        manualProteins: prefMap['planning_manual_proteins'] || {},
-        extraCalories: prefMap['planning_extra_calories'] || {},
-        extraProteins: prefMap['planning_extra_proteins'] || {},
-        extraSelections: prefMap['planning_extra_selections'] || {},
-        breakfastManualCalories: prefMap['planning_breakfast_manual_calories'] || {},
-        breakfastManualProteins: prefMap['planning_breakfast_manual_proteins'] || {},
-        breakfastSelections: prefMap['planning_breakfast'] || {},
-        drinkChecks: prefMap['planning_drink_checks'] || {},
-        calOverrides: prefMap['planning_cal_overrides'] || {},
-        daily_goal: prefMap['planning_daily_goal'] ?? null,
-        protein_goal: prefMap['planning_protein_goal'] ?? null,
-      };
-      await supabase
-        .from('user_preferences')
-        .upsert({ key: 'possible_meals_backup', value: fullBackup, user_id: userId } as any, { onConflict: 'user_id,key' });
-
-      // Filtrer les repas à supprimer : on garde ceux dont la date ISO est > mostRecentSunday (Semaine suivante)
-      const cutoffISO = mostRecentSunday.toISOString().split('T')[0];
-      const mealsToDelete = freshPossible.filter(pm => {
-        if (!pm.day_of_week) return true; // On vide le plateau (shelf)
-        if (/^\d{4}-\d{2}-\d{2}$/.test(pm.day_of_week)) {
-          return pm.day_of_week <= cutoffISO; // On supprime si c'est le passé ou la semaine qui vient de se finir
+        const { data: freshResetPref } = await supabase
+          .from("user_preferences")
+          .select("value")
+          .eq("key", "last_weekly_reset")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (freshResetPref?.value) {
+          const freshResetDate = new Date(String(freshResetPref.value));
+          if (freshResetDate.getTime() >= mostRecentSunday.getTime()) return;
         }
-        return true; // On vide si c'est un jour "nommé" (lundi, etc.) car c'est la semaine courante par défaut
-      });
 
-      await Promise.all(mealsToDelete.map(pm =>
-        (supabase as any).from("possible_meals").delete().eq("id", pm.id)
-      ));
+        const { snapshots, prefMap } = await fetchSnapshotsAndPrefsParallel(userId);
 
-      // Reprise : état réel en base puis surcharge par les captures 💾 lorsqu’elles existent
-      const liveMC = { ...(prefMap['planning_manual_calories'] || {}) };
-      const liveMP = { ...(prefMap['planning_manual_proteins'] || {}) };
-      const liveEC = { ...(prefMap['planning_extra_calories'] || {}) };
-      const liveEP = { ...(prefMap['planning_extra_proteins'] || {}) };
-      const liveES = { ...(prefMap['planning_extra_selections'] || {}) };
-      const liveBC = { ...(prefMap['planning_breakfast_manual_calories'] || {}) };
-      const liveBP = { ...(prefMap['planning_breakfast_manual_proteins'] || {}) };
-      const liveBF = { ...(prefMap['planning_breakfast'] || {}) };
-      const liveDr = { ...(prefMap['planning_drink_checks'] || {}) };
+        await qc.refetchQueries({ queryKey: ["possible_meals"] });
+        const freshPossible =
+          (qc.getQueryData<PossibleMeal[]>(["possible_meals"]) as PossibleMeal[] | undefined) ?? possibleMeals;
 
-      for (const [key, snap] of Object.entries(snapshots)) {
-        if (key.startsWith('manual-')) {
-          const slotKey = key.replace('manual-', '');
-          const s = snap as any;
-          if (s.cal != null) liveMC[slotKey] = s.cal;
-          if (s.prot != null) liveMP[slotKey] = s.prot;
-        } else if (key.startsWith('extra-')) {
-          const dayKey = key.replace('extra-', '');
-          const s = snap as any;
-          if (s.cal != null) liveEC[dayKey] = s.cal;
-          if (s.prot != null) liveEP[dayKey] = s.prot;
-          if (s.itemIds) liveES[dayKey] = s.itemIds;
-        } else if (key.startsWith('breakfast-')) {
-          const dayKey = key.replace('breakfast-', '');
-          const s = snap as any;
-          if (s.cal != null) liveBC[dayKey] = s.cal;
-          if (s.prot != null) liveBP[dayKey] = s.prot;
-          if (s.mealId) liveBF[dayKey] = s.mealId;
-        }
+        const fullBackup = buildFullBackupPayload(freshPossible, prefMap);
+        await upsertPossibleMealsFullBackup(userId, fullBackup);
+
+        const cutoffISO = mostRecentSunday.toISOString().split("T")[0];
+        const mealsToDelete = filterPossibleMealsToDeleteForWeeklyClear(freshPossible, cutoffISO);
+        await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
+
+        const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
+        const goals = resolvePostResetGoals(prefMap);
+        pushWeeklyResetClientPreferences(setPreference, merged, goals, now.toISOString(), "auto_sunday");
+
+        await qc.invalidateQueries({ queryKey: ["possible_meals"] });
+        await qc.invalidateQueries({ queryKey: ["user_preferences"] });
+        toast({
+          title: "🔄 Reset hebdomadaire effectué",
+          description: "Utilisez ↩ Restaurer dans le planning pour récupérer les cartes.",
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        toast({
+          title: "Reset hebdomadaire interrompu",
+          description: msg,
+          variant: "destructive",
+        });
+      } finally {
+        autoSundayResetInFlightRef.current = false;
       }
-      setPreference.mutate({ key: 'planning_manual_calories', value: liveMC });
-      setPreference.mutate({ key: 'planning_manual_proteins', value: liveMP });
-      setPreference.mutate({ key: 'planning_extra_calories', value: liveEC });
-      setPreference.mutate({ key: 'planning_extra_proteins', value: liveEP });
-      setPreference.mutate({ key: 'planning_extra_selections', value: liveES });
-      setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: liveBC });
-      setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: liveBP });
-      setPreference.mutate({ key: 'planning_breakfast', value: liveBF });
-      setPreference.mutate({ key: 'planning_drink_checks', value: liveDr });
-
-      // Objectifs : la semaine suivante peut promouvoir la semaine courante ; la prévision suivante reprend toujours le même objectif que la semaine en cours
-      const nCal = prefMap['next_week_daily_goal'];
-      const nPro = prefMap['next_week_protein_goal'];
-      let newCal = prefMap['planning_daily_goal'];
-      let newPro = prefMap['planning_protein_goal'];
-      if (nCal && nCal > 0) newCal = nCal;
-      if (nPro && nPro > 0) newPro = nPro;
-      if (newCal && newCal > 0) {
-        setPreference.mutate({ key: 'planning_daily_goal', value: newCal });
-        setPreference.mutate({ key: 'next_week_daily_goal', value: newCal });
-      }
-      if (newPro && newPro > 0) {
-        setPreference.mutate({ key: 'planning_protein_goal', value: newPro });
-        setPreference.mutate({ key: 'next_week_protein_goal', value: newPro });
-      }
-
-      setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
-      qc.invalidateQueries({ queryKey: ["possible_meals"] });
-      toast({ title: "🔄 Reset hebdomadaire effectué", description: "Utilisez ↩ Restaurer dans le planning pour récupérer les cartes." });
     };
     clearAll();
   }, [unlocked, possibleMeals, lastWeeklyReset, isPreferencesLoading, isLoading]);

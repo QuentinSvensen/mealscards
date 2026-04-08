@@ -13,6 +13,7 @@ import { useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
+/** Préférences utilisateur (clé JSON) : lecture via React Query et écriture optimiste. */
 export function usePreferences(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
   const qc = useQueryClient();

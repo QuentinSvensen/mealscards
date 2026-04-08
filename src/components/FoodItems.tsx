@@ -53,6 +53,7 @@ function formatNumericFR(n: number): string {
   return String(rounded).replace(/\.0$/, "").replace(".", ",");
 }
 
+/** Décode la chaîne stockée « unité|reste » (aliment entamé) vers des nombres. */
 function parseStoredGrams(raw: string | null | undefined): { unit: number | null; remainder: number | null } {
   if (!raw) return { unit: null, remainder: null };
   const [base, partial] = raw.split("|");
@@ -71,6 +72,7 @@ function parseStoredGrams(raw: string | null | undefined): { unit: number | null
   return { unit, remainder };
 }
 
+/** Encode unité et reste partiel au format français stocké en base (« 500|120 »). */
 function encodeStoredGramsFR(unit: number, remainder: number | null): string {
   const unitText = formatNumericFR(unit);
   if (!remainder || remainder <= 0 || remainder >= unit) return unitText;
@@ -81,6 +83,7 @@ function encodeStoredGramsFR(unit: number, remainder: number | null): string {
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
+/** Hook React Query : chargement et mutations CRUD sur les aliments (table food_items). */
 export function useFoodItems() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
@@ -229,6 +232,7 @@ interface FoodItemCardProps {
   draggableEnabled?: boolean;
 }
 
+/** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
 function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "quantity" | "partial" | null>(null);
@@ -662,6 +666,7 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
   { type: 'toujours', label: 'Toujours présent', emoji: <span className="text-base">📌</span> },
 ];
 
+/** Écran principal des aliments : sections de stockage, ajout, tri et recherche. */
 export function FoodItems() {
   const { items, isLoading: itemsLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
   const { meals = [] } = useMeals();
@@ -1169,6 +1174,7 @@ interface FoodSectionProps {
   onChangeStorage: (id: string, storageType: StorageType) => void;
 }
 
+/** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
 function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, onChangeStorage }: FoodSectionProps) {
   const SortIcon = sortMode === "expiration" ? CalendarDays : sortMode === "name" ? ArrowUpDown : sortMode === "calories" ? Flame : sortMode === "protein" ? UtensilsCrossed : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : sortMode === "name" ? "Nom" : sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : "Manuel";

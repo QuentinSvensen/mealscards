@@ -1,7 +1,13 @@
 import type { PossibleMeal } from "@/hooks/useMeals";
 import type { PossibleMealBackupCard, PossibleMealsFullBackup, PlanningPrefMap } from "./types";
-import { asNumberRecord } from "./jsonCoerce";
+import {
+  asBoolRecord,
+  asNumberRecord,
+  asStringArrayRecord,
+  asStringRecord,
+} from "./jsonCoerce";
 
+/** Sérialise les repas possibles pour la clé `possible_meals_backup` (sans jointure `meals`). */
 export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): PossibleMealBackupCard[] {
   return freshPossible.map(pm => ({
     id: pm.id,
@@ -16,23 +22,26 @@ export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): 
   }));
 }
 
+/** Construit l’objet complet de sauvegarde (cartes + saisies + objectifs) avant reset. */
 export function buildFullBackupPayload(
   freshPossible: PossibleMeal[],
   prefMap: PlanningPrefMap
 ): PossibleMealsFullBackup {
+  const dg = prefMap["planning_daily_goal"];
+  const pg = prefMap["planning_protein_goal"];
   return {
     cards: serializePossibleMealsForBackup(freshPossible),
     manualCalories: asNumberRecord(prefMap["planning_manual_calories"]),
     manualProteins: asNumberRecord(prefMap["planning_manual_proteins"]),
     extraCalories: asNumberRecord(prefMap["planning_extra_calories"]),
     extraProteins: asNumberRecord(prefMap["planning_extra_proteins"]),
-    extraSelections: (prefMap["planning_extra_selections"] as Record<string, string[]> | undefined) ?? {},
+    extraSelections: asStringArrayRecord(prefMap["planning_extra_selections"]),
     breakfastManualCalories: asNumberRecord(prefMap["planning_breakfast_manual_calories"]),
     breakfastManualProteins: asNumberRecord(prefMap["planning_breakfast_manual_proteins"]),
-    breakfastSelections: (prefMap["planning_breakfast"] as Record<string, string> | undefined) ?? {},
-    drinkChecks: (prefMap["planning_drink_checks"] as Record<string, boolean> | undefined) ?? {},
+    breakfastSelections: asStringRecord(prefMap["planning_breakfast"]),
+    drinkChecks: asBoolRecord(prefMap["planning_drink_checks"]),
     calOverrides: asNumberRecord(prefMap["planning_cal_overrides"]),
-    daily_goal: (prefMap["planning_daily_goal"] as number | null | undefined) ?? null,
-    protein_goal: (prefMap["planning_protein_goal"] as number | null | undefined) ?? null,
+    daily_goal: typeof dg === "number" ? dg : null,
+    protein_goal: typeof pg === "number" ? pg : null,
   };
 }

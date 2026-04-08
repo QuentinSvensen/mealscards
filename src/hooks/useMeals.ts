@@ -58,10 +58,12 @@ export const TIMES = ['midi', 'soir'] as const;
 const DAY_INDEX: Record<string, number> = {};
 DAYS.forEach((d, i) => { DAY_INDEX[d] = i; });
 
+/** Affiche un toast d’échec commun aux mutations du hook repas. */
 const onMutationError = (error: Error) => {
   toast({ title: "Erreur", description: error.message, variant: "destructive" });
 };
 
+/** Données et mutations pour `meals` et `possible_meals` (voir doc en tête de fichier). */
 export function useMeals(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
   const qc = useQueryClient();

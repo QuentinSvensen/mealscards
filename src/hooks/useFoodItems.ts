@@ -36,10 +36,12 @@ export interface FoodItem {
   food_type: FoodType;
 }
 
+/** Affiche un toast d’erreur pour les mutations sur les aliments. */
 const onMutationError = (error: Error) => {
   toast({ title: "Erreur", description: error.message, variant: "destructive" });
 };
 
+/** Lecture des aliments et suppression seule (voir doc en tête de fichier). */
 export function useFoodItems(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
   const qc = useQueryClient();

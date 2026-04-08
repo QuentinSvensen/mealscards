@@ -29,7 +29,7 @@ import { computeIngredientCalories, computeIngredientProtein, cleanIngredientTex
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { format, parseISO, differenceInCalendarDays, startOfWeek, addDays as addDaysFns, addWeeks } from "date-fns";
+import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
@@ -37,8 +37,23 @@ import { useSortModes } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
 import { analyzeMealIngredients, buildStockMap, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
+import { toast } from "@/hooks/use-toast";
+import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
+import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
+import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
+import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
+import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
+import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
+import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
+import { getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
+import { usePlanningWeek } from "@/hooks/usePlanningWeek";
+import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
+import { PlanningHeader } from "@/components/planning/PlanningHeader";
 
-/** Entrée de planification additive : cliquez sur "+" pour saisir une valeur qui s'ajoute à l'actuelle */
+/**
+ * Champ numérique du planning avec mode « + » pour ajouter une valeur à la saisie courante
+ * (manuel midi/soir, extras, etc.).
+ */
 function PlanningInput({ storageKey, currentValue, onSave, placeholder, className }: {
   storageKey: string;
   currentValue: number;
@@ -128,28 +143,13 @@ const JS_DAY_TO_KEY: Record<number, string> = {
   0: "dimanche",
 };
 
-const DAY_KEY_TO_INDEX: Record<string, number> = {
-  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
-};
-
-/** Récupérer la date pour une clé de jour donnée dans la semaine courante (Lun-Dim) */
-function getDateForDayKey(dayKey: string, refDate: Date = new Date()): Date {
-  const todayDow = refDate.getDay(); // 0=Sun
-  const todayIdx = todayDow === 0 ? 6 : todayDow - 1; // 0=Mon
-  const targetIdx = DAY_KEY_TO_INDEX[dayKey] ?? 0;
-  const diff = targetIdx - todayIdx;
-  const d = new Date(refDate);
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 const DEFAULT_DAILY_GOAL = 2750;
 const DEFAULT_WEEKLY_MULTIPLIER = 7;
 
-// Clé de surcharge des calories pour les cartes du planning
+/** Clé de préférence utilisée pour mémoriser une surcharge calorique par carte (hors usage direct actuel). */
 function calOverrideKey(pmId: string) { return `planning_cal_override_${pmId}`; }
 
+/** Emoji de catégorie de repas pour l’affichage compact des cartes. */
 function getCategoryEmoji(cat?: string) {
   switch (cat) {
     case "entree":
@@ -165,12 +165,13 @@ function getCategoryEmoji(cat?: string) {
   }
 }
 
+/** Indique si une date de péremption (jour calendaire) est strictement avant aujourd’hui. */
 function isExpiredDate(d: string | null) {
   if (!d) return false;
   return new Date(d) < new Date(new Date().toDateString());
 }
 
-/** Vérifier si périmé par rapport au jour cible */
+/** Indique si la péremption est dépassée par rapport au jour du planning (ou au calendrier si pas de jour). */
 function isExpiredOnDay(d: string | null, dayKey: string | null) {
   if (!d) return false;
   if (!dayKey) return isExpiredDate(d);
@@ -178,18 +179,21 @@ function isExpiredOnDay(d: string | null, dayKey: string | null) {
   return new Date(d) < targetDate;
 }
 
+/** Lit les kcal affichées sur une fiche repas (chaîne potentiellement avec unités). */
 function parseCalories(cal: string | null | undefined): number {
   if (!cal) return 0;
   const n = parseFloat(cal.replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
+/** Lit les protéines affichées sur une fiche repas. */
 function parseProtein(prot: string | null | undefined): number {
   if (!prot) return 0;
   const n = parseFloat(prot.replace(",", ".").replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
+/** Décode un extra « personnalisé » encodé dans un id de sélection (`custom::…`). */
 function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
   if (!id.startsWith('custom::')) return null;
   const parts = id.slice(8).split('::');
@@ -212,6 +216,9 @@ interface TouchDragState {
 }
 
 // ─── PlanningMiniCard ────────────────────────────────────────────────────────
+/**
+ * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
+ */
 function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
   pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterHours: number | null; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; compact: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
@@ -428,6 +435,10 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
   );
 }
 
+/**
+ * Vue principale du planning hebdomadaire : semaine courante / sauvegarde / suivante,
+ * drag-and-drop, extras, reset et restauration.
+ */
 export function WeeklyPlanning({
   masterSourcePmIds = new Set(),
   unParUnSourcePmIds = new Set()
@@ -441,22 +452,13 @@ export function WeeklyPlanning({
   const { items: foodItems } = useFoodItems();
   const { foodSortModes, sortDirections } = useSortModes({ enabled: true });
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
-  const [weekOffset, setWeekOffset] = useState(0);
+  const { weekOffset, setWeekOffset, weekDates, todayISO } = usePlanningWeek();
+  const manualResetLockRef = useRef(false);
+  const [manualResetBusy, setManualResetBusy] = useState(false);
+  const restoreLockRef = useRef(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
-  const weekDates = useMemo(() => {
-    const now = addWeeks(new Date(), weekOffset);
-    const monday = startOfWeek(now, { weekStartsOn: 1 });
-    return ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'].map((key, i) => {
-      const date = addDaysFns(monday, i);
-      return {
-        key,
-        iso: format(date, 'yyyy-MM-dd'),
-        display: format(date, 'EEEE d/MM', { locale: fr }).toUpperCase()
-      };
-    });
-  }, [weekOffset]);
-
-  const todayISO = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  useSyncPlanningQueriesOnResume(qc);
 
   const isAvailableCb = useCallback((name: string) => {
     const key = findStockKey(stockMap, name);
@@ -1083,295 +1085,169 @@ export function WeeklyPlanning({
   const weekTotal = weekDates.reduce((sum, d) => sum + getDayCalories(d.key, d.iso), 0);
 
   const handleRestoreBackup = async () => {
+    if (restoreLockRef.current) return;
     const userId = (await supabase.auth.getUser()).data.user?.id;
-    if (!userId) { alert('Utilisateur non connecté.'); return; }
-
-    const { data } = await supabase
-      .from('user_preferences')
-      .select('value')
-      .eq('key', 'possible_meals_backup')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    const raw = data?.value as any;
-    // Prise en charge de l'ancien format (tableau de cartes) et du nouveau format (objet avec cartes + saisies)
-    const isNewFormat = raw && !Array.isArray(raw) && raw.cards;
-    const backup: any[] = isNewFormat ? raw.cards : (Array.isArray(raw) ? raw : []);
-    if (backup.length === 0) { alert('Aucune sauvegarde trouvée.'); return; }
-    if (!confirm(`Restaurer ${backup.length} carte(s) possible(s) ?`)) return;
-
-    // Restaurer les cartes
-    await Promise.all(backup.map((pm: any) =>
-      (supabase as any).from("possible_meals").insert({
-        meal_id: pm.meal_id,
-        quantity: pm.quantity,
-        expiration_date: pm.expiration_date,
-        day_of_week: pm.day_of_week,
-        meal_time: pm.meal_time,
-        counter_start_date: pm.counter_start_date,
-        sort_order: pm.sort_order,
-        ingredients_override: pm.ingredients_override,
-      })
-    ));
-
-    // Restaurer les valeurs saisies si disponibles
-    if (isNewFormat) {
-      if (raw.manualCalories) setPreference.mutate({ key: 'planning_manual_calories', value: raw.manualCalories });
-      if (raw.manualProteins) setPreference.mutate({ key: 'planning_manual_proteins', value: raw.manualProteins });
-      if (raw.extraCalories) setPreference.mutate({ key: 'planning_extra_calories', value: raw.extraCalories });
-      if (raw.extraProteins) setPreference.mutate({ key: 'planning_extra_proteins', value: raw.extraProteins });
-      if (raw.extraSelections) setPreference.mutate({ key: 'planning_extra_selections', value: raw.extraSelections });
-      if (raw.breakfastManualCalories) setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: raw.breakfastManualCalories });
-      if (raw.breakfastManualProteins) setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: raw.breakfastManualProteins });
-      if (raw.breakfastSelections) setPreference.mutate({ key: 'planning_breakfast', value: raw.breakfastSelections });
-      if (raw.drinkChecks) setPreference.mutate({ key: 'planning_drink_checks', value: raw.drinkChecks });
-      if (raw.calOverrides) setPreference.mutate({ key: 'planning_cal_overrides', value: raw.calOverrides });
-      if (raw.daily_goal) {
-        setPreference.mutate({ key: 'planning_daily_goal', value: raw.daily_goal });
-        setPreference.mutate({ key: 'next_week_daily_goal', value: raw.daily_goal });
-      }
-      if (raw.protein_goal) {
-        setPreference.mutate({ key: 'planning_protein_goal', value: raw.protein_goal });
-        setPreference.mutate({ key: 'next_week_protein_goal', value: raw.protein_goal });
-      }
+    if (!userId) {
+      toast({ title: "Non connecté", description: "Utilisateur non connecté.", variant: "destructive" });
+      return;
     }
 
-    qc.invalidateQueries({ queryKey: ["possible_meals"] });
+    let raw: any;
+    try {
+      const { data, error } = await supabase
+        .from("user_preferences")
+        .select("value")
+        .eq("key", "possible_meals_backup")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      raw = data?.value;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({ title: "Lecture sauvegarde impossible", description: msg, variant: "destructive" });
+      return;
+    }
+
+    const isNewFormat = raw && !Array.isArray(raw) && raw.cards;
+    const backup: any[] = isNewFormat ? raw.cards : (Array.isArray(raw) ? raw : []);
+    if (backup.length === 0) {
+      toast({ title: "Aucune sauvegarde", description: "Aucune donnée à restaurer.", variant: "destructive" });
+      return;
+    }
+    if (!confirm(`Restaurer ${backup.length} carte(s) possible(s) ?`)) return;
+
+    restoreLockRef.current = true;
+    setRestoreBusy(true);
+    try {
+      const inserts = backup.map((pm: any) =>
+        (supabase as any).from("possible_meals").insert({
+          meal_id: pm.meal_id,
+          quantity: pm.quantity,
+          expiration_date: pm.expiration_date,
+          day_of_week: pm.day_of_week,
+          meal_time: pm.meal_time,
+          counter_start_date: pm.counter_start_date,
+          sort_order: pm.sort_order,
+          ingredients_override: pm.ingredients_override,
+        })
+      );
+      const results = await Promise.all(inserts);
+      for (const r of results) {
+        if (r.error) throw new Error(r.error.message);
+      }
+
+      if (isNewFormat) {
+        if (raw.manualCalories) setPreference.mutate({ key: "planning_manual_calories", value: raw.manualCalories });
+        if (raw.manualProteins) setPreference.mutate({ key: "planning_manual_proteins", value: raw.manualProteins });
+        if (raw.extraCalories) setPreference.mutate({ key: "planning_extra_calories", value: raw.extraCalories });
+        if (raw.extraProteins) setPreference.mutate({ key: "planning_extra_proteins", value: raw.extraProteins });
+        if (raw.extraSelections) setPreference.mutate({ key: "planning_extra_selections", value: raw.extraSelections });
+        if (raw.breakfastManualCalories) setPreference.mutate({ key: "planning_breakfast_manual_calories", value: raw.breakfastManualCalories });
+        if (raw.breakfastManualProteins) setPreference.mutate({ key: "planning_breakfast_manual_proteins", value: raw.breakfastManualProteins });
+        if (raw.breakfastSelections) setPreference.mutate({ key: "planning_breakfast", value: raw.breakfastSelections });
+        if (raw.drinkChecks) setPreference.mutate({ key: "planning_drink_checks", value: raw.drinkChecks });
+        if (raw.calOverrides) setPreference.mutate({ key: "planning_cal_overrides", value: raw.calOverrides });
+        if (raw.daily_goal) {
+          setPreference.mutate({ key: "planning_daily_goal", value: raw.daily_goal });
+          setPreference.mutate({ key: "next_week_daily_goal", value: raw.daily_goal });
+        }
+        if (raw.protein_goal) {
+          setPreference.mutate({ key: "planning_protein_goal", value: raw.protein_goal });
+          setPreference.mutate({ key: "next_week_protein_goal", value: raw.protein_goal });
+        }
+      }
+
+      await qc.invalidateQueries({ queryKey: ["possible_meals"] });
+      await qc.invalidateQueries({ queryKey: ["user_preferences"] });
+      toast({ title: "Sauvegarde restaurée", description: `${backup.length} carte(s) réimportée(s).` });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({ title: "Restauration échouée", description: msg, variant: "destructive" });
+    } finally {
+      restoreLockRef.current = false;
+      setRestoreBusy(false);
+    }
+  };
+
+  const handleGlobalCalBlur = (val: number) => {
+    if (weekOffset === 1) setPreference.mutate({ key: "next_week_daily_goal", value: val });
+    else {
+      setPreference.mutate({ key: "planning_daily_goal", value: val });
+      setPreference.mutate({ key: "next_week_daily_goal", value: val });
+    }
+  };
+
+  const handleGlobalProtBlur = (val: number) => {
+    if (weekOffset === 1) setPreference.mutate({ key: "next_week_protein_goal", value: val });
+    else {
+      setPreference.mutate({ key: "planning_protein_goal", value: val });
+      setPreference.mutate({ key: "next_week_protein_goal", value: val });
+    }
   };
 
   const handleManualReset = async () => {
     if (!confirm('Réinitialiser le planning ? Les cartes seront supprimées et les valeurs sauvegardées (💾) seront restaurées.')) return;
-    const userId = (await supabase.auth.getUser()).data.user?.id;
-    if (!userId) return;
-
-    const prefKeys = [
-      'planning_manual_calories', 'planning_manual_proteins',
-      'planning_extra_calories', 'planning_extra_proteins',
-      'planning_breakfast_manual_calories', 'planning_breakfast_manual_proteins',
-      'planning_breakfast', 'planning_drink_checks', 'planning_cal_overrides',
-      'planning_extra_selections',
-      'planning_daily_goal', 'next_week_daily_goal',
-      'planning_protein_goal', 'next_week_protein_goal',
-    ];
-    const { data: snapResult } = await supabase
-      .from('user_preferences')
-      .select('value')
-      .eq('key', 'planning_saved_snapshots')
-      .eq('user_id', userId)
-      .maybeSingle();
-    const snapshots: Record<string, { cal?: number; prot?: number; itemIds?: string[]; mealId?: string }> =
-      (snapResult?.value as any) ?? {};
-
-    const { data: prefRows } = await supabase
-      .from('user_preferences')
-      .select('key, value')
-      .eq('user_id', userId)
-      .in('key', prefKeys);
-    const prefMap: Record<string, any> = {};
-    for (const row of prefRows || []) prefMap[row.key] = row.value;
-
-    await qc.refetchQueries({ queryKey: ['possible_meals'] });
-    const freshPM = (qc.getQueryData<PossibleMeal[]>(['possible_meals']) as PossibleMeal[] | undefined) ?? possibleMeals;
-
-    const backup = freshPM.map(pm => ({
-      id: pm.id,
-      meal_id: pm.meal_id,
-      quantity: pm.quantity,
-      expiration_date: pm.expiration_date,
-      day_of_week: pm.day_of_week,
-      meal_time: pm.meal_time,
-      counter_start_date: pm.counter_start_date,
-      sort_order: pm.sort_order,
-      ingredients_override: pm.ingredients_override,
-    }));
-    const fullBackup = {
-      cards: backup,
-      manualCalories: prefMap['planning_manual_calories'] || {},
-      manualProteins: prefMap['planning_manual_proteins'] || {},
-      extraCalories: prefMap['planning_extra_calories'] || {},
-      extraProteins: prefMap['planning_extra_proteins'] || {},
-      extraSelections: prefMap['planning_extra_selections'] || {},
-      breakfastManualCalories: prefMap['planning_breakfast_manual_calories'] || {},
-      breakfastManualProteins: prefMap['planning_breakfast_manual_proteins'] || {},
-      breakfastSelections: prefMap['planning_breakfast'] || {},
-      drinkChecks: prefMap['planning_drink_checks'] || {},
-      calOverrides: prefMap['planning_cal_overrides'] || {},
-      daily_goal: prefMap['planning_daily_goal'] ?? null,
-      protein_goal: prefMap['planning_protein_goal'] ?? null,
-    };
-    await supabase.from('user_preferences').upsert({ key: 'possible_meals_backup', value: fullBackup, user_id: userId } as any, { onConflict: 'user_id,key' });
-
-    await Promise.all(freshPM.map(pm => {
-      if (pm.meals?.category === 'petit_dejeuner' && !pm.day_of_week) {
-        return Promise.resolve();
+    if (manualResetLockRef.current) return;
+    manualResetLockRef.current = true;
+    setManualResetBusy(true);
+    try {
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      if (!userId) {
+        toast({ title: "Non connecté", description: "Session invalide.", variant: "destructive" });
+        return;
       }
-      return (supabase as any).from('possible_meals').delete().eq('id', pm.id);
-    }));
 
-    const rMC = { ...(prefMap['planning_manual_calories'] || {}) };
-    const rMP = { ...(prefMap['planning_manual_proteins'] || {}) };
-    const rEC = { ...(prefMap['planning_extra_calories'] || {}) };
-    const rEP = { ...(prefMap['planning_extra_proteins'] || {}) };
-    const rES = { ...(prefMap['planning_extra_selections'] || {}) };
-    const rBC = { ...(prefMap['planning_breakfast_manual_calories'] || {}) };
-    const rBP = { ...(prefMap['planning_breakfast_manual_proteins'] || {}) };
-    const keptBreakfast = { ...(prefMap['planning_breakfast'] || {}) };
-    for (const [key, snap] of Object.entries(snapshots)) {
-      const s = snap as any;
-      if (key.startsWith('manual-')) {
-        const k = key.replace('manual-', '');
-        if (s.cal != null) rMC[k] = s.cal;
-        if (s.prot != null) rMP[k] = s.prot;
-      } else if (key.startsWith('extra-')) {
-        const k = key.replace('extra-', '');
-        if (s.cal != null) rEC[k] = s.cal;
-        if (s.prot != null) rEP[k] = s.prot;
-        if (s.itemIds) rES[k] = s.itemIds;
-      } else if (key.startsWith('breakfast-')) {
-        const k = key.replace('breakfast-', '');
-        if (s.cal != null) rBC[k] = s.cal;
-        if (s.prot != null) rBP[k] = s.prot;
-        if (s.mealId) keptBreakfast[k] = s.mealId;
-      }
-    }
-    const mergedDrinks = { ...(prefMap['planning_drink_checks'] || {}) };
+      const { snapshots, prefMap } = await fetchSnapshotsAndPrefsParallel(userId);
 
-    setPreference.mutate({ key: 'planning_manual_calories', value: rMC });
-    setPreference.mutate({ key: 'planning_manual_proteins', value: rMP });
-    setPreference.mutate({ key: 'planning_extra_calories', value: rEC });
-    setPreference.mutate({ key: 'planning_extra_proteins', value: rEP });
-    setPreference.mutate({ key: 'planning_extra_selections', value: rES });
-    setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: rBC });
-    setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: rBP });
-    setPreference.mutate({ key: 'planning_breakfast', value: keptBreakfast });
-    setPreference.mutate({ key: 'planning_drink_checks', value: mergedDrinks });
-    setPreference.mutate({ key: 'planning_cal_overrides', value: {} });
-    setPreference.mutate({ key: 'planning_auto_consumed_days', value: {} });
-    setPreference.mutate({ key: 'last_weekly_reset', value: new Date().toISOString() });
-    setPreference.mutate({ key: 'next_week_breakfast', value: {} });
-    setPreference.mutate({ key: 'next_week_manual_calories', value: {} });
-    setPreference.mutate({ key: 'next_week_manual_proteins', value: {} });
-    setPreference.mutate({ key: 'next_week_extra_calories', value: {} });
-    setPreference.mutate({ key: 'next_week_extra_proteins', value: {} });
-    setPreference.mutate({ key: 'next_week_extra_selections', value: {} });
-    setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: {} });
-    setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: {} });
-    setPreference.mutate({ key: 'next_week_drink_checks', value: {} });
+      await qc.refetchQueries({ queryKey: ["possible_meals"] });
+      const freshPM =
+        (qc.getQueryData<PossibleMeal[]>(["possible_meals"]) as PossibleMeal[] | undefined) ?? possibleMeals;
 
-    const nCal = prefMap['next_week_daily_goal'];
-    const nPro = prefMap['next_week_protein_goal'];
-    let newCal = prefMap['planning_daily_goal'];
-    let newPro = prefMap['planning_protein_goal'];
-    if (nCal && nCal > 0) newCal = nCal;
-    if (nPro && nPro > 0) newPro = nPro;
-    if (newCal && newCal > 0) {
-      setPreference.mutate({ key: 'planning_daily_goal', value: newCal });
-      setPreference.mutate({ key: 'next_week_daily_goal', value: newCal });
+      const fullBackup = buildFullBackupPayload(freshPM, prefMap);
+      await upsertPossibleMealsFullBackup(userId, fullBackup);
+
+      const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM);
+      await deletePossibleMealsByIds(ids);
+
+      const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
+      const goals = resolvePostResetGoals(prefMap);
+      pushWeeklyResetClientPreferences(
+        setPreference,
+        merged,
+        goals,
+        new Date().toISOString(),
+        "manual_button"
+      );
+
+      await qc.invalidateQueries({ queryKey: ["possible_meals"] });
+      await qc.invalidateQueries({ queryKey: ["user_preferences"] });
+      toast({ title: "Planning réinitialisé", description: "Les cartes ont été supprimées ; l’état 💾 a été réappliqué." });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({ title: "Échec du reset", description: msg, variant: "destructive" });
+    } finally {
+      manualResetLockRef.current = false;
+      setManualResetBusy(false);
     }
-    if (newPro && newPro > 0) {
-      setPreference.mutate({ key: 'planning_protein_goal', value: newPro });
-      setPreference.mutate({ key: 'next_week_protein_goal', value: newPro });
-    }
-    await qc.invalidateQueries({ queryKey: ['possible_meals'] });
-    await qc.invalidateQueries({ queryKey: ['user_preferences'] });
   };
 
   return (
     <div className={`max-w-4xl mx-auto space-y-3 overflow-x-hidden planning-responsive ${touchDragActive ? "touch-none" : ""}`}>
-      {/* En-tête global du planning */}
-      <div className="rounded-2xl bg-card/80 backdrop-blur-sm p-3 flex items-center gap-3 flex-wrap">
-        {weekOffset === 0 && (
-          <>
-            <button onClick={handleManualReset} className="text-xs font-semibold bg-destructive/10 hover:bg-destructive/20 text-destructive rounded-lg px-3 py-1.5 transition-colors">🔄 Reset</button>
-            <button onClick={handleRestoreBackup} className="text-xs font-semibold bg-primary/10 hover:bg-primary/20 text-primary rounded-lg px-3 py-1.5 transition-colors">↩ Restaurer</button>
-          </>
-        )}
-        {(weekOffset === 0 || weekOffset === 1) && (
-          <>
-            <div className="flex items-center gap-1">
-              <Flame className="h-3 w-3 text-orange-500" />
-              <input
-                type="number"
-                inputMode="numeric"
-                defaultValue={weekOffset === 1 ? NEXT_DAILY_GOAL : DAILY_GOAL}
-                key={`global-cal-${weekOffset === 1 ? NEXT_DAILY_GOAL : DAILY_GOAL}`}
-                onBlur={(e) => {
-                  const val = parseInt(e.target.value);
-                  if (val && val > 0) {
-                    if (weekOffset === 1) {
-                      setPreference.mutate({ key: 'next_week_daily_goal', value: val });
-                    } else {
-                      setPreference.mutate({ key: 'planning_daily_goal', value: val });
-                      setPreference.mutate({ key: 'next_week_daily_goal', value: val });
-                    }
-                  }
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                className="w-16 h-6 text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 focus:outline-none focus:border-orange-400/50 text-center"
-              />
-              <span className="text-[9px] text-muted-foreground">kcal/j</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs">🍗</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                defaultValue={weekOffset === 1 ? NEXT_PROTEIN_GOAL : DAILY_PROTEIN_GOAL_PREF}
-                key={`global-prot-${weekOffset === 1 ? NEXT_PROTEIN_GOAL : DAILY_PROTEIN_GOAL_PREF}`}
-                onBlur={(e) => {
-                  const val = parseInt(e.target.value);
-                  if (val && val > 0) {
-                    if (weekOffset === 1) {
-                      setPreference.mutate({ key: 'next_week_protein_goal', value: val });
-                    } else {
-                      setPreference.mutate({ key: 'planning_protein_goal', value: val });
-                      setPreference.mutate({ key: 'next_week_protein_goal', value: val });
-                    }
-                  }
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                className="w-14 h-6 text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 focus:outline-none focus:border-blue-400/50 text-center"
-              />
-              <span className="text-[9px] text-muted-foreground">prot/j</span>
-            </div>
-          </>
-        )}
-        {weekOffset === -1 && backupTotals && (
-          <>
-            <div className="flex items-center gap-1">
-              <Flame className="h-3 w-3 text-orange-500" />
-              <div className="w-16 h-6 text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 flex items-center justify-center font-bold">
-                {Math.round(backupTotals.archivedDailyGoal)}
-              </div>
-              <span className="text-[9px] text-muted-foreground">kcal/j</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs">🍗</span>
-              <div className="w-14 h-6 text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 flex items-center justify-center font-bold">
-                {Math.round(backupTotals.archivedProteinGoal)}
-              </div>
-              <span className="text-[9px] text-muted-foreground">prot/j</span>
-            </div>
-          </>
-        )}
-        {/* Espaceur pour pousser la navigation à droite */}
-        <div className="flex-1" />
-        {/* Navigation par semaine — alignée à droite, pilule segmentée */}
-        <div className="flex items-center bg-muted/50 rounded-full p-0.5 gap-0.5">
-          <button
-            onClick={() => setWeekOffset(-1)}
-            className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekOffset === -1 ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/80'}`}
-          >◀ Préc.</button>
-          <button
-            onClick={() => setWeekOffset(0)}
-            className={`h-7 px-3 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekOffset === 0 ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/80'}`}
-          >Actuelle</button>
-          <button
-            onClick={() => setWeekOffset(1)}
-            className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekOffset === 1 ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted/80'}`}
-          >Suiv. ▶</button>
-        </div>
-      </div>
+      <PlanningHeader
+        weekOffset={weekOffset}
+        onWeekOffsetChange={setWeekOffset}
+        manualResetBusy={manualResetBusy}
+        onManualReset={handleManualReset}
+        restoreBusy={restoreBusy}
+        onRestoreBackup={handleRestoreBackup}
+        dailyGoal={DAILY_GOAL}
+        nextDailyGoal={NEXT_DAILY_GOAL}
+        dailyProteinGoal={DAILY_PROTEIN_GOAL_PREF}
+        nextProteinGoal={NEXT_PROTEIN_GOAL}
+        onGlobalCalBlur={handleGlobalCalBlur}
+        onGlobalProtBlur={handleGlobalProtBlur}
+        backupTotals={backupTotals}
+      />
 
       {weekOffset === 0 ? (<>
         {weekDates.map(({ key, iso, display }) => {

@@ -255,6 +255,7 @@ export function accentSafeKeyMatch(a: string, b: string): boolean {
 /** Prépositions/articles français signalant un nom composé */
 const FOOD_PREPOSITIONS = new Set(['de', 'du', 'au', 'aux', 'a', 'la', 'le', 'les', 'des']);
 
+/** Assouplit la fin d’un mot pour rapprocher singulier / pluriel dans la correspondance fuzzy. */
 const fuzzyWord = (s: string) => s.replace(/[es]+$/i, '');
 
 /**
@@ -623,6 +624,7 @@ const _calCache = new Map<string, number | null>();
 const _proCache = new Map<string, number | null>();
 const MACRO_CACHE_MAX = 500;
 
+/** Calcule calories ou protéines agrégées sur une chaîne d’ingrédients (avec cache LRU). */
 function _computeMacro(
   ingredientStr: string | null,
   field: 'cal' | 'pro',

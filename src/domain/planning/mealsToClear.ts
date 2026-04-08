@@ -18,3 +18,13 @@ export function filterPossibleMealsToDeleteForWeeklyClear(
     return true;
   });
 }
+
+/** Reset manuel : supprime toutes les cartes sauf le petit-déj « plateau » sans jour. */
+export function getPossibleMealIdsToDeleteOnManualReset(fresh: PossibleMeal[]): string[] {
+  return fresh
+    .filter(pm => {
+      if (pm.meals?.category === "petit_dejeuner" && !pm.day_of_week) return false;
+      return true;
+    })
+    .map(pm => pm.id);
+}

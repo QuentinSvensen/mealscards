@@ -36,6 +36,7 @@ const TIME_LABELS: Record<string, string> = {
   matin: 'Petit déj', midi: 'Midi', soir: 'Soir',
 };
 
+/** Retourne l'emoji représentant une catégorie de repas (en-têtes, popups). */
 function getCategoryEmoji(cat?: string) {
   if (cat === "petit_dejeuner") return "🥐";
   if (cat === "plat") return "🍲";
@@ -44,6 +45,7 @@ function getCategoryEmoji(cat?: string) {
   return "🍴";
 }
 
+/** Affiche les ingrédients sous forme de nœuds React (alternatives, optionnel, disponibilité stock). */
 function renderIngredientDisplayPossible(
   ingredients: string,
   stockMap?: Map<string, StockInfo>,
@@ -149,6 +151,7 @@ interface PossibleListProps {
   unParUnSourcePmIds: Set<string>;
 }
 
+/** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
 export function PossibleList({ category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds }: PossibleListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);

@@ -72,6 +72,7 @@ const DAY_LABELS: Record<string, string> = {
 
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
 
+/** Carte d’un repas « possible » : dates, macros, édition, drag & drop (voir en-tête de module). */
 export function PossibleMealCard({
   pm, stockMap, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel,
   onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,

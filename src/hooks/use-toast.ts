@@ -21,6 +21,7 @@ const actionTypes = {
 
 let count = 0;
 
+/** Génère un identifiant texte unique pour chaque toast (compteur cyclique). */
 function genId() {
   count = (count + 1) % Number.MAX_SAFE_INTEGER;
   return count.toString();
@@ -52,6 +53,7 @@ interface State {
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
+/** Programme la suppression définitive d’un toast après le délai configuré. */
 const addToRemoveQueue = (toastId: string) => {
   if (toastTimeouts.has(toastId)) {
     return;
@@ -68,6 +70,7 @@ const addToRemoveQueue = (toastId: string) => {
   toastTimeouts.set(toastId, timeout);
 };
 
+/** Réducteur global : ajoute, met à jour, masque ou retire les toasts. */
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {
     case "ADD_TOAST":
@@ -125,6 +128,7 @@ const listeners: Array<(state: State) => void> = [];
 
 let memoryState: State = { toasts: [] };
 
+/** Applique une action et notifie tous les abonnés (hooks `useToast`). */
 function dispatch(action: Action) {
   memoryState = reducer(memoryState, action);
   listeners.forEach((listener) => {
@@ -134,6 +138,7 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">;
 
+/** Affiche un toast (titre, description, actions) et retourne dismiss/update. */
 function toast({ ...props }: Toast) {
   const id = genId();
 
@@ -163,6 +168,7 @@ function toast({ ...props }: Toast) {
   };
 }
 
+/** S’abonne à l’état des toasts et expose `toast` / `dismiss`. */
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 

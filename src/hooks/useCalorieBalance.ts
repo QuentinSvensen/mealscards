@@ -37,18 +37,21 @@ const DAY_KEY_TO_INDEX: Record<string, number> = {
   lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
 };
 
+/** Extrait un nombre de kcal depuis une chaîne potentiellement bruitée (symboles, virgules). */
 function parseCalories(cal: string | null | undefined): number {
   if (!cal) return 0;
   const n = parseFloat(cal.replace(",", ".").replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
+/** Extrait les grammes de protéines depuis une chaîne affichée ou saisie. */
 function parseProtein(prot: string | null | undefined): number {
   if (!prot) return 0;
   const n = parseFloat(prot.replace(",", ".").replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
+/** Décode un id d’extra personnalisé au format `custom::…` (nom, kcal, prot). */
 function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
   if (!id.startsWith('custom::')) return null;
   const parts = id.slice(8).split('::');
@@ -146,6 +149,10 @@ export function getCardDisplayProtein(pm: PossibleMeal, isAvailable?: (name: str
   return (displayPro || 0) * qty;
 }
 
+/**
+ * Agrège les totaux journaliers du planning (calories, protéines, petit-déj, extras, boissons)
+ * et expose les helpers pour comparer aux objectifs.
+ */
 export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const { meals: allMeals, possibleMeals, getMealsByCategory } = useMeals();
   const { getPreference } = usePreferences();

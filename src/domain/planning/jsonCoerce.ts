@@ -1,5 +1,6 @@
 import type { Json } from "@/integrations/supabase/types";
 
+/** Convertit une valeur JSON (objet) en dictionnaire clé → nombre (ignore les clés non numériques). */
 export function asNumberRecord(value: Json | undefined): Record<string, number> {
   if (value === null || value === undefined) return {};
   if (typeof value !== "object" || Array.isArray(value)) return {};
@@ -11,6 +12,7 @@ export function asNumberRecord(value: Json | undefined): Record<string, number> 
   return out;
 }
 
+/** Convertit une valeur JSON en dictionnaire clé → liste de chaînes (tableaux de strings uniquement). */
 export function asStringArrayRecord(value: Json | undefined): Record<string, string[]> {
   if (value === null || value === undefined) return {};
   if (typeof value !== "object" || Array.isArray(value)) return {};
@@ -22,6 +24,7 @@ export function asStringArrayRecord(value: Json | undefined): Record<string, str
   return out;
 }
 
+/** Convertit une valeur JSON en dictionnaire clé → chaîne (valeurs string uniquement). */
 export function asStringRecord(value: Json | undefined): Record<string, string> {
   if (value === null || value === undefined) return {};
   if (typeof value !== "object" || Array.isArray(value)) return {};
@@ -33,6 +36,7 @@ export function asStringRecord(value: Json | undefined): Record<string, string> 
   return out;
 }
 
+/** Convertit une valeur JSON en dictionnaire clé → booléen. */
 export function asBoolRecord(value: Json | undefined): Record<string, boolean> {
   if (value === null || value === undefined) return {};
   if (typeof value !== "object" || Array.isArray(value)) return {};
@@ -44,6 +48,7 @@ export function asBoolRecord(value: Json | undefined): Record<string, boolean> {
   return out;
 }
 
+/** Lit un entier strictement positif depuis du JSON, sinon `undefined`. */
 export function asPositiveInt(value: Json | undefined): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === "number" && value > 0 && Number.isFinite(value)) return Math.floor(value);
