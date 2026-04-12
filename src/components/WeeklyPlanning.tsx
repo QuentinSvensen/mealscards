@@ -2509,15 +2509,27 @@ export function WeeklyPlanning({
             // Surcharges semaine prochaine > base post-reset
             const effBfSel = nextBreakfastSelections[iso] ?? nextBreakfastSelections[key] ?? baseBfMealId;
             const effBfMeal = effBfSel?.startsWith('meal:') ? allMealsById.get(effBfSel.slice(5)) : null;
+            // Résoudre les sélections pm: (petit déj dans Possible)
+            const effBfPm = effBfSel?.startsWith('pm:') ? possiblePetitDej.find(p => p.id === effBfSel.slice(3)) : null;
             const effBfManualCal = nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? baseBfManualCal;
             const effBfManualPro = nextBreakfastManualProteins[iso] ?? nextBreakfastManualProteins[key] ?? baseBfManualPro;
             const effExtraCal = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal;
             const effExtraPro = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro;
             const effExtraSel = nextExtraSelections[iso] ?? nextExtraSelections[key] ?? baseExtraSel;
 
-            // Macros calculées pour le petit déj (gère les transferts de cartes et l'analyse des ingrédients)
-            const nxtBfCal = effBfMeal ? (effBfManualCal || getMealCal(effBfMeal)) : effBfManualCal;
-            const nxtBfPro = effBfMeal ? (effBfManualPro || getMealPro(effBfMeal)) : effBfManualPro;
+            // Macros calculées pour le petit déj (gère les transferts de cartes, pm: et l'analyse des ingrédients)
+            const nxtBfCal = effBfMeal
+              ? (effBfManualCal || getMealCal(effBfMeal))
+              : effBfPm?.meals
+                ? (effBfManualCal || getMealCal(effBfPm.meals, effBfPm.ingredients_override))
+                : effBfManualCal;
+            const nxtBfPro = effBfMeal
+              ? (effBfManualPro || getMealPro(effBfMeal))
+              : effBfPm?.meals
+                ? (effBfManualPro || getMealPro(effBfPm.meals, effBfPm.ingredients_override))
+                : effBfManualPro;
+            // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm:)
+            const hasNextBf = !!(effBfMeal || effBfPm);
 
             let dayTotal = nxtBfCal;
             for (const time of TIMES) {
@@ -2567,7 +2579,7 @@ export function WeeklyPlanning({
                     <Popover>
                       <PopoverTrigger asChild>
                         <button className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]">
-                          {effBfMeal ? effBfMeal.name : '🥐 Petit déj'}
+                          {effBfMeal ? effBfMeal.name : effBfPm?.meals?.name ? effBfPm.meals.name : '🥐 Petit déj'}
                         </button>
                       </PopoverTrigger>
                       <PopoverContent className="w-52 p-2" align="start">
@@ -2577,6 +2589,39 @@ export function WeeklyPlanning({
                             const updated = { ...nextBreakfastSelections }; delete updated[iso]; delete updated[key];
                             setPreference.mutate({ key: 'next_week_breakfast', value: updated });
                           }} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">— Aucun</button>
+                          {possiblePetitDej.length > 0 && (
+                            <>
+                              <p className="text-[9px] text-muted-foreground/60 px-2 font-semibold uppercase tracking-wide">Possible</p>
+                              {possiblePetitDej.map(pm => {
+                                const pmSelId = `pm:${pm.id}`;
+                                const isSelected = nextBreakfastSelections[iso] === pmSelId || nextBreakfastSelections[key] === pmSelId;
+                                const calDisplay = getMealCal(pm.meals || {}, pm.ingredients_override);
+                                const proDisplay = getMealPro(pm.meals || {}, pm.ingredients_override);
+                                return (
+                                  <button key={pm.id} onClick={() => {
+                                    const updated = { ...nextBreakfastSelections };
+                                    if (isSelected) { delete updated[iso]; delete updated[key]; } else { updated[iso] = pmSelId; }
+                                    setPreference.mutate({ key: 'next_week_breakfast', value: updated });
+                                  }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : ''} flex items-center justify-between`}>
+                                    <span className="truncate">{pm.meals?.name} {pm.ingredients_override ? '✏️' : ''}</span>
+                                    <span className="inline-flex items-center gap-1.5 ml-1 text-muted-foreground shrink-0 text-[10px]">
+                                      <span className="flex items-center gap-0.5">
+                                        <Flame className="w-2.5 h-2.5 text-orange-500" />
+                                        {calDisplay}
+                                      </span>
+                                      <span>•</span>
+                                      <span className="flex items-center gap-0.5">
+                                        <span className="grayscale brightness-125 saturate-50 leading-none">🍗</span>
+                                        {proDisplay}
+                                      </span>
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                              <div className="border-t border-border/40 my-1" />
+                            </>
+                          )}
+                          <p className="text-[9px] text-muted-foreground/60 px-2 font-semibold uppercase tracking-wide">Tous</p>
                           {petitDejMeals.map(m => {
                             const mealSelId = `meal:${m.id}`;
                             const isSelected = nextBreakfastSelections[iso] === mealSelId || nextBreakfastSelections[key] === mealSelId;
@@ -2605,7 +2650,7 @@ export function WeeklyPlanning({
                       </PopoverContent>
                     </Popover>
 
-                    {effBfMeal && (
+                    {hasNextBf && (
                       <div className="flex items-center gap-1.5 bg-black/20 dark:bg-black/40 rounded-full px-1.5 py-0.5 border border-white/5 shadow-inner shrink-0 leading-none">
                         <span className="flex items-center gap-0.5 text-[9px] font-black text-white/90">
                           <Flame className="w-2 h-2 text-orange-400" />
@@ -2618,7 +2663,7 @@ export function WeeklyPlanning({
                         </span>
                       </div>
                     )}
-                    {!effBfMeal && (
+                    {!hasNextBf && (
                       <>
                         <PlanningInput storageKey={`next-bf-cal-${iso}`} currentValue={nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? baseBfManualCal}
                           onSave={(val) => { const u = { ...nextBreakfastManualCalories }; if (val > 0) u[iso] = val; else { delete u[iso]; delete u[key]; } setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: u }); }}

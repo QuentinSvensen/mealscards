@@ -467,13 +467,13 @@ export function getDisplayedProtein(meal: { protein?: string | null; ingredients
 }
 
 /** Calories affichées pour une instance PossibleMeal (utilise ingredients_override si présent) */
-export function getDisplayedPMCalories(pm: { ingredients_override?: string | null; meals?: { calories?: string | null; ingredients?: string | null } | null }, ratio?: number): number | null {
-  return getDisplayedCalories(pm.meals || {}, pm.ingredients_override, ratio);
+export function getDisplayedPMCalories(pm: { ingredients_override?: string | null; meals?: { calories?: string | null; ingredients?: string | null } | null }, ratio?: number, isAvailable?: (name: string) => boolean): number | null {
+  return getDisplayedCalories(pm.meals || {}, pm.ingredients_override, ratio, isAvailable);
 }
 
 /** Protéines affichées pour une instance PossibleMeal (utilise ingredients_override si présent) */
-export function getDisplayedPMProtein(pm: { ingredients_override?: string | null; meals?: { protein?: string | null; ingredients?: string | null } | null }, ratio?: number): number | null {
-  return getDisplayedProtein(pm.meals || {}, pm.ingredients_override, ratio);
+export function getDisplayedPMProtein(pm: { ingredients_override?: string | null; meals?: { protein?: string | null; ingredients?: string | null } | null }, ratio?: number, isAvailable?: (name: string) => boolean): number | null {
+  return getDisplayedProtein(pm.meals || {}, pm.ingredients_override, ratio, isAvailable);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

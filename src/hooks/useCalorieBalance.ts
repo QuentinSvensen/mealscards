@@ -132,7 +132,7 @@ export function getCardDisplayCalories(
   if (calOverride) return parseCalories(calOverride) * qty;
 
   // 2. Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
-  const displayCal = getDisplayedPMCalories(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined);
+  const displayCal = getDisplayedPMCalories(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
   return (displayCal || 0) * qty;
 }
 
@@ -145,7 +145,7 @@ export function getCardDisplayProtein(pm: PossibleMeal, isAvailable?: (name: str
   const qty = pm.quantity ?? 1;
 
   // Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
-  const displayPro = getDisplayedPMProtein(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined);
+  const displayPro = getDisplayedPMProtein(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
   return (displayPro || 0) * qty;
 }
 
