@@ -472,6 +472,7 @@ export function PossibleMealCard({
             const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
             const isComputed = computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
+
             return displayCal ? (
               <button
                 onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}
@@ -607,8 +608,14 @@ function renderIngredientDisplayCompact(
     const normalizedName = normalizeKey(display.replace(/^\d+(?:\.\d+)?(?:g|ml|x| unit)?\s+/i, ""));
     const isExpired = expiredIngredientNames?.has(normalizedName);
     const isSoon = expiringSoonIngredientNames?.has(normalizedName);
+    
+    // Récupérer le stock pour cet ingrédient individuel
+    const stockKey = stockMap ? findStockKey(stockMap, normalizedName) : null;
+    const stock = stockKey ? stockMap?.get(stockKey) : undefined;
+    const isUnavailableAlt = !!stockMap && (!stock || (!stock.infinite && stock.grams <= 0 && stock.count <= 0));
 
-    const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
+    const cls = isUnavailableAlt ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
+      : isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
       : isSoon ? 'ring-1 ring-red-500/60 font-semibold px-0.5 rounded'
         : isOpt ? 'italic text-white/40'
           : '';

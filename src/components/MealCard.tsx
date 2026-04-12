@@ -159,7 +159,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                 </span>
               )}
               {(() => {
-                const displayCal = getDisplayedCalories(meal);
+                const displayCal = getDisplayedCalories(meal, undefined, undefined, isAvailableCb);
                 const isComputed = computeIngredientCalories(meal.ingredients, isAvailableCb) !== null;
                 return displayCal ? (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 ${isComputed ? 'bg-orange-500/50 text-white font-bold' : 'text-white/70 bg-white/20'
@@ -169,7 +169,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                 ) : null;
               })()}
               {(() => {
-                const displayPro = getDisplayedProtein(meal);
+                const displayPro = getDisplayedProtein(meal, undefined, undefined, isAvailableCb);
                 const isComputedPro = computeIngredientProtein(meal.ingredients, isAvailableCb) !== null;
                 return displayPro && displayPro !== 0 ? (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${isComputedPro ? 'bg-blue-600/60 text-white' : 'text-white/70 bg-blue-500/30'
@@ -318,10 +318,10 @@ function renderIngredientDisplay(
       const stock = stockKey ? stockMap?.get(stockKey) : undefined;
       const isUnavailableAlt = !!stockMap && (!stock || (!stock.infinite && stock.grams <= 0 && stock.count <= 0));
 
-      const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
-        : isSoon ? 'ring-1 ring-red-500/60 font-semibold px-0.5 rounded'
-          : hasCounter ? 'underline decoration-2 underline-offset-2 decoration-white/60 font-semibold'
-            : (isMissing || isUnavailableAlt) ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
+      const cls = (isMissing || isUnavailableAlt) ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
+        : isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
+          : isSoon ? 'ring-1 ring-red-500/60 font-semibold px-0.5 rounded'
+            : hasCounter ? 'underline decoration-2 underline-offset-2 decoration-white/60 font-semibold'
               : groupIsOptional ? 'italic text-white/40'
                 : '';
 

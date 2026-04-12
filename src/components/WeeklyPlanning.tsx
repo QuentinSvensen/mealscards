@@ -2664,16 +2664,22 @@ export function WeeklyPlanning({
                     </Popover>
 
                     {hasNextBf && (
-                      <div className="flex items-center gap-1.5 bg-black/20 dark:bg-black/40 rounded-full px-1.5 py-0.5 border border-white/5 shadow-inner shrink-0 leading-none">
-                        <span className="flex items-center gap-0.5 text-[9px] font-black text-white/90">
-                          <Flame className="w-2 h-2 text-orange-400" />
-                          {nxtBfCal}
-                        </span>
-                        <span className="text-white/20 text-[8px]">•</span>
-                        <span className="flex items-center gap-0.5 text-[9px] font-black text-white/90">
-                          <span className="text-[10px] grayscale brightness-125 saturate-50 leading-none">🍗</span>
-                          {nxtBfPro}
-                        </span>
+                      <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
+                        {(nxtBfCal + matinCals) > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Flame className="w-2 h-2 text-orange-500/60" />
+                            {Math.round(nxtBfCal + matinCals)}
+                          </span>
+                        )}
+                        {(nxtBfCal + matinCals) > 0 && (nxtBfPro + matinPro) > 0 && (
+                          <span className="opacity-30">•</span>
+                        )}
+                        {(nxtBfPro + matinPro) > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <span className="text-[9px] opacity-60">🍗</span>
+                            {Math.round(nxtBfPro + matinPro)}
+                          </span>
+                        )}
                       </div>
                     )}
                     {!hasNextBf && (
