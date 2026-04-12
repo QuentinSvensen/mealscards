@@ -629,10 +629,11 @@ function _computeMacro(
   ingredientStr: string | null,
   field: 'cal' | 'pro',
   cache: Map<string, number | null>,
-  isAvailable?: (name: string) => boolean
+  isAvailable?: (name: string) => boolean,
+  ratio: number = 1
 ): number | null {
   if (!ingredientStr?.trim()) return null;
-  if (!isAvailable) {
+  if (!isAvailable && ratio === 1) {
     const cached = cache.get(ingredientStr);
     if (cached !== undefined) return cached;
   }
@@ -668,8 +669,8 @@ function _computeMacro(
     else if (count > 0) total += val * count;
     else total += val;
   }
-  const result = hasValue ? Math.round(total) : null;
-  if (!isAvailable) {
+  const result = hasValue ? Math.round(total * ratio) : null;
+  if (!isAvailable && ratio === 1) {
     if (cache.size > MACRO_CACHE_MAX) cache.clear();
     cache.set(ingredientStr!, result);
   }
@@ -677,13 +678,13 @@ function _computeMacro(
 }
 
 /** Calcule les calories totales depuis une chaîne d'ingrédients */
-export function computeIngredientCalories(ingredientStr: string | null, isAvailable?: (name: string) => boolean): number | null {
-  return _computeMacro(ingredientStr, 'cal', _calCache, isAvailable);
+export function computeIngredientCalories(ingredientStr: string | null, isAvailable?: (name: string) => boolean, ratio: number = 1): number | null {
+  return _computeMacro(ingredientStr, 'cal', _calCache, isAvailable, ratio);
 }
 
 /** Calcule les protéines totales depuis une chaîne d'ingrédients */
-export function computeIngredientProtein(ingredientStr: string | null, isAvailable?: (name: string) => boolean): number | null {
-  return _computeMacro(ingredientStr, 'pro', _proCache, isAvailable);
+export function computeIngredientProtein(ingredientStr: string | null, isAvailable?: (name: string) => boolean, ratio: number = 1): number | null {
+  return _computeMacro(ingredientStr, 'pro', _proCache, isAvailable, ratio);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

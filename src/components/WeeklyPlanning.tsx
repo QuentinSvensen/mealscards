@@ -2528,10 +2528,15 @@ export function WeeklyPlanning({
               : effBfPm?.meals
                 ? (effBfManualPro || getMealPro(effBfPm.meals, effBfPm.ingredients_override))
                 : effBfManualPro;
-            // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm:)
-            const hasNextBf = !!(effBfMeal || effBfPm);
 
-            let dayTotal = nxtBfCal;
+            const matinMeals = getMealsForSlot(key, 'matin', iso);
+            const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
+            const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, isAvailableCb), 0);
+
+            // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm: ou programmed matin)
+            const hasNextBf = !!(effBfMeal || effBfPm || matinMeals.length > 0);
+
+            let dayTotal = nxtBfCal + matinCals;
             for (const time of TIMES) {
               const kIso = `${iso}-${time}`;
               const kKey = `${key}-${time}`;
@@ -2553,7 +2558,7 @@ export function WeeklyPlanning({
             const dayCalBeforeExtras = dayTotal - effExtraCal - extraSelCalSum;
             const remainingNextCal = Math.max(0, NEXT_DAILY_GOAL - dayCalBeforeExtras);
 
-            let nxtDayPro = nxtBfPro;
+            let nxtDayPro = nxtBfPro + matinPro;
             for (const time of TIMES) {
               const kIso = `${iso}-${time}`;
               const kKey = `${key}-${time}`;
@@ -2579,7 +2584,15 @@ export function WeeklyPlanning({
                     <Popover>
                       <PopoverTrigger asChild>
                         <button className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]">
-                          {effBfMeal ? effBfMeal.name : effBfPm?.meals?.name ? effBfPm.meals.name : '🥐 Petit déj'}
+                          {(() => {
+                            const count = matinMeals.length + (hasNextBf && !matinMeals.length ? 1 : 0);
+                            if (count > 1) return 'Plusieurs petits déj';
+                            if (count === 1) {
+                              if (matinMeals.length === 1) return matinMeals[0].meals?.name || '🥐 Petit déj';
+                              return effBfMeal ? effBfMeal.name : effBfPm?.meals?.name ? effBfPm.meals.name : '🥐 Petit déj';
+                            }
+                            return '🥐 Petit déj';
+                          })()}
                         </button>
                       </PopoverTrigger>
                       <PopoverContent className="w-52 p-2" align="start">
