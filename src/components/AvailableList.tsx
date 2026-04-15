@@ -427,7 +427,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const getVal = (u: UnifiedAvail): number => {
         if (sortMode === "calories") {
           if (u.type === 'isMeal') {
-            const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
+            let displayCal = u.fi.calories;
+            if (u.fi.grams) {
+              const totalG = getFoodItemTotalGrams(u.fi);
+              if (totalG > 0 && displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * totalG / 100));
+            } else if (u.fi.quantity && u.fi.quantity > 1 && displayCal) {
+              displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * u.fi.quantity));
+            }
+            const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: displayCal, ingredients: null };
             return getDisplayedCalories(fakeMeal) ?? 0;
           }
           if (u.type === 'nm') return getDisplayedCalories(u.nm.meal) ?? 0;
@@ -446,7 +453,16 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           return 0;
         }
 
-        if (u.type === 'isMeal') return parseMacroValue(u.fi.protein);
+        if (u.type === 'isMeal') {
+            let displayPro = u.fi.protein;
+            if (u.fi.grams) {
+              const totalG = getFoodItemTotalGrams(u.fi);
+              if (totalG > 0 && displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * totalG / 100));
+            } else if (u.fi.quantity && u.fi.quantity > 1 && displayPro) {
+              displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * u.fi.quantity));
+            }
+            return parseMacroValue(displayPro);
+        }
         if (u.type === 'nm') return getDisplayedProtein(u.nm.meal) ?? 0;
         if (u.type === 'av') {
           const dynRatio = (u.item as any).calculatedRatio;
@@ -571,10 +587,24 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
       ? `${parseQty(fi.grams) * fi.quantity}g`
       : (fi.is_infinite ? "∞" : fi.grams ?? null);
+    
+    let displayCal = fi.calories;
+    let displayPro = fi.protein ?? null;
+    if (fi.grams) {
+      const totalG = getFoodItemTotalGrams(fi);
+      if (totalG > 0) {
+        if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * totalG / 100));
+        if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * totalG / 100));
+      }
+    } else if (fi.quantity && fi.quantity > 1) {
+      if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * fi.quantity));
+      if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * fi.quantity));
+    }
+
     const counterDays = computeCounterDays(fi.counter_start_date);
     const fakeMeal: Meal = {
-      id: `fi-${fi.id}`, name: fi.name, category: "plat", calories: fi.calories,
-      protein: fi.protein ?? null,
+      id: `fi-${fi.id}`, name: fi.name, category: "plat", calories: displayCal,
+      protein: displayPro,
       grams: displayGrams, ingredients: null,
       sort_order: 0, created_at: fi.created_at, is_available: true, is_favorite: false,
       oven_temp: null, oven_minutes: null,

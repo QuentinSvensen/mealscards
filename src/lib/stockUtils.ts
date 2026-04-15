@@ -43,6 +43,7 @@ export type FoodItemIndex = Map<string, FoodItem[]>;
 export function buildFoodItemIndex(foodItems: FoodItem[]): FoodItemIndex {
   const index = new Map<string, FoodItem[]>();
   for (const fi of foodItems) {
+    if (fi.storage_type === "extras") continue;
     const key = normalizeKey(fi.name);
     const arr = index.get(key);
     if (arr) arr.push(fi);
@@ -68,7 +69,7 @@ function lookupFoodItems(name: string, foodItems: FoodItem[], index?: FoodItemIn
     }
     return results;
   }
-  return foodItems.filter(fi => strictNameMatch(fi.name, name));
+  return foodItems.filter(fi => fi.storage_type !== "extras" && strictNameMatch(fi.name, name));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -85,6 +86,7 @@ export interface StockInfo { grams: number; count: number; infinite: boolean; in
 export function buildStockMap(foodItems: FoodItem[]): Map<string, StockInfo> {
   const map = new Map<string, StockInfo>();
   for (const fi of foodItems) {
+    if (fi.storage_type === "extras") continue;
     const key = normalizeKey(fi.name);
     const prev = map.get(key) ?? { grams: 0, count: 0, infinite: false, indivisibleUnit: 0 };
     if (fi.is_infinite) {

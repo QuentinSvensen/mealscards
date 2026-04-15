@@ -730,6 +730,8 @@ export function FoodItems() {
     setSuggestedStorageType(entry.storage_type);
     setSuggestedIsMeal(entry.is_meal);
     setSuggestedNoCounter(entry.no_counter);
+    if (entry.calories) setNewCalories(entry.calories);
+    if (entry.protein) setNewProtein(entry.protein);
     setSuggestions([]);
     setShowSuggestions(false);
     // Focus le champ suivant (quantité) pour fluidité
@@ -749,14 +751,18 @@ export function FoodItems() {
       updates.is_meal !== undefined ||
       updates.no_counter !== undefined ||
       updates.food_type !== undefined ||
-      updates.storage_type !== undefined
+      updates.storage_type !== undefined ||
+      updates.calories !== undefined ||
+      updates.protein !== undefined
     )) {
       upsertEntry.mutate({
         name: item.name,
         food_type: updates.food_type !== undefined ? updates.food_type : item.food_type,
         storage_type: updates.storage_type !== undefined ? (updates.storage_type as any) : (item.storage_type as any),
         is_meal: updates.is_meal !== undefined ? updates.is_meal : item.is_meal,
-        no_counter: updates.no_counter !== undefined ? updates.no_counter : item.no_counter
+        no_counter: updates.no_counter !== undefined ? updates.no_counter : item.no_counter,
+        calories: updates.calories !== undefined ? updates.calories : item.calories,
+        protein: updates.protein !== undefined ? updates.protein : item.protein,
       });
     }
   }, [items, updateItem, upsertEntry]);
@@ -829,6 +835,8 @@ export function FoodItems() {
           is_meal: finalIsMeal,
           no_counter: finalNoCounter,
           storage_type: storageType,
+          calories,
+          protein,
         });
         setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewExpiration(undefined);
         setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingExpiration(null);
@@ -862,9 +870,9 @@ export function FoodItems() {
   return (
     <div className="max-w-6xl mx-auto">
       {/* Add form + search */}
-      <div className="flex gap-2 mb-2">
+      <div className="flex gap-2 mb-2 relative">
         {/* Input Nom avec Autocomplete */}
-        <div className="flex-1 relative">
+        <div className="flex-1">
           <Input
             ref={nameInputRef}
             placeholder="Nom de l'aliment (ex : Crème fraîche)"
@@ -881,75 +889,6 @@ export function FoodItems() {
             className="w-full rounded-xl"
             autoComplete="off"
           />
-          {/* Dropdown de suggestions */}
-          {showSuggestions && (
-            <div
-              ref={suggestionsRef}
-              className="absolute z-[100] left-0 right-0 top-full mt-1 rounded-xl border border-white/20 bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden"
-            >
-              <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                {suggestions.length === 0 ? (
-                  <div className="px-4 py-3 text-xs text-center text-muted-foreground italic">
-                    Aucun résultat dans la bibliothèque
-                  </div>
-                ) : (
-                  suggestions.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="w-full px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
-                    >
-                      <button
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
-                        className="flex-1 text-left flex items-center min-w-0"
-                      >
-                        <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
-                          {entry.name}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0 ml-2">
-                          {entry.food_type === 'feculent' && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
-                              <Wheat className="h-2.5 w-2.5" />Féc
-                            </span>
-                          )}
-                          {entry.food_type === 'viande' && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
-                              <Drumstick className="h-2.5 w-2.5" />Via
-                            </span>
-                          )}
-                          {entry.is_meal && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
-                              <UtensilsCrossed className="h-2.5 w-2.5" />
-                            </span>
-                          )}
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
-                            {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
-                            {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
-                            {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
-                            {entry.storage_type === 'extras' && '✨'}
-                            {entry.storage_type === 'toujours' && '📌'}
-                          </span>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          deleteEntry.mutate(entry.id);
-                          setSuggestions(prev => prev.filter(s => s.id !== entry.id));
-                        }}
-                        className="shrink-0 p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
-                        title="Supprimer de la base de données"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
         </div>
         <div className="relative shrink-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
@@ -975,7 +914,77 @@ export function FoodItems() {
             <span className="hidden sm:inline">Ajouter</span>
           </Button>
         </div>
-      </div>
+
+        {/* Dropdown de suggestions (déplacé ici pour être plus large sur mobile) */}
+        {showSuggestions && (
+          <div
+            ref={suggestionsRef}
+            className="absolute z-[100] left-0 right-0 top-full mt-1 rounded-xl border border-white/20 bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden"
+          >
+            <div className="max-h-64 overflow-y-auto custom-scrollbar">
+              {suggestions.length === 0 ? (
+                <div className="px-4 py-3 text-xs text-center text-muted-foreground italic">
+                  Aucun résultat dans la bibliothèque
+                </div>
+              ) : (
+                suggestions.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="w-full px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
+                  >
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
+                      className="flex-1 text-left flex items-center min-w-0"
+                    >
+                      <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
+                        {entry.name}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        {entry.food_type === 'feculent' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
+                            <Wheat className="h-2.5 w-2.5" />Féc
+                          </span>
+                        )}
+                        {entry.food_type === 'viande' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
+                            <Drumstick className="h-2.5 w-2.5" />Via
+                          </span>
+                        )}
+                        {entry.is_meal && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
+                            <UtensilsCrossed className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
+                          {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
+                          {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
+                          {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
+                          {entry.storage_type === 'extras' && '✨'}
+                          {entry.storage_type === 'toujours' && '📌'}
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        deleteEntry.mutate(entry.id);
+                        setSuggestions(prev => prev.filter(s => s.id !== entry.id));
+                      }}
+                      className="shrink-0 p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+                      title="Supprimer de la base de données"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
       {isScannerOpen && (
         <BarcodeScanner

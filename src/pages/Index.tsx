@@ -37,7 +37,7 @@ import {
   getMissingIngredients, isFoodUsedInMeals,
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
-  getDisplayedCalories, propagateIngredientMacros,
+  getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
@@ -66,11 +66,11 @@ const lazyRetry = (importFn: () => Promise<any>, name: string) => {
       if (isChunkError && !sessionStorage.getItem(`retry-${name}`)) {
         sessionStorage.setItem(`retry-${name}`, 'true');
         console.warn(`Module load error for ${name}, attempting safety reload...`);
-        
+
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach(r => r.unregister()));
         }
-        
+
         if (typeof caches !== "undefined") {
           caches.keys().then((keys) => {
             Promise.all(keys.map(k => caches.delete(k))).then(() => {
@@ -513,17 +513,34 @@ const Index = () => {
       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
     }
 
-    // 3. Carte « Possible » = copie logique avant déduction stock : pas de compteur sur la ligne
-    // (les compteurs vivent sur les aliments ; l’affichage « prog » suit le planning).
+    // 3. Calculer les calories/protéines AVANT déduction pour les « figer » sur la nouvelle carte
+    const isAvailBefore = (name: string) => {
+      const fi = foodItems.find(f => strictNameMatch(f.name, name));
+      return !!fi && (fi.is_infinite || (fi.quantity ?? 0) > 0 || parseQty(fi.grams) > 0);
+    };
+    const preCal = getDisplayedCalories(meal, undefined, undefined, isAvailBefore);
+    const prePro = getDisplayedProtein(meal, undefined, undefined, isAvailBefore);
+
+    // 4. Carte « Possible » = copie logique avant déduction stock
     const result = await moveToPossible.mutateAsync({
       mealId,
       expiration_date: anBefore.earliestExpiration,
-      counter_start_date: null
+      counter_start_date: anBefore.earliestCounterDate || null
     });
 
     if (result?.id) {
       if (snapshots.length > 0) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
       if (source === "master") setMasterSourcePmIds(prev => new Set([...prev, result.id]));
+
+      // 5. Sauvegarder les macros "figées" dans les préférences pour cette carte
+      if (preCal !== null) {
+        const currentCals = getPreference<Record<string, string>>('planning_cal_overrides', {});
+        setPreference.mutate({ key: 'planning_cal_overrides', value: { ...currentCals, [result.id]: String(preCal) } });
+      }
+      if (prePro !== null) {
+        const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
+        setPreference.mutate({ key: 'planning_pro_overrides', value: { ...currentPros, [result.id]: String(prePro) } });
+      }
     }
   };
 
@@ -944,8 +961,20 @@ const Index = () => {
                             }
                             const fiKey = normalizeKey(fi.name);
                             const fiMacro = macroLookup.get(fiKey);
-                            const calories = fi.calories || fiMacro?.cal || null;
-                            const protein = fi.protein || fiMacro?.pro || null;
+                            let calories = fi.calories || fiMacro?.cal || null;
+                            let protein = fi.protein || fiMacro?.pro || null;
+
+                            if (fi.grams) {
+                              const totalG = getFoodItemTotalGrams(fi);
+                              if (totalG > 0) {
+                                if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * totalG / 100));
+                                if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * totalG / 100));
+                              }
+                            } else if (fi.quantity && fi.quantity > 1) {
+                              if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * fi.quantity));
+                              if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * fi.quantity));
+                            }
+
                             const shouldStart = fi.storage_type !== 'surgele' && !fi.no_counter;
                             const finalCd = fi.counter_start_date || (shouldStart ? new Date().toISOString() : null);
                             const pmResult = await addMealToPossibleDirectly.mutateAsync({
@@ -1254,13 +1283,26 @@ const Index = () => {
                               const baseCal = parseFloat(String(baseCalStr).replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
                               const basePro = parseFloat(String(baseProStr).replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
 
-                              // fi.calories = per-unit → scale by ratio; fiMacro.cal = per-100g → scale by grams/100
-                              const calories = baseCal > 0
-                                ? formatNumeric(calFromFi ? baseCal * ratio : (baseCal / 100) * actualMovedG)
-                                : null;
-                              const protein = basePro > 0
-                                ? formatNumeric(proFromFi ? basePro * ratio : (basePro / 100) * actualMovedG)
-                                : null;
+                              // If fi.grams is present, fi.calories is per-100g. Otherwise it's per unit.
+                              let finalCal: number | null = null;
+                              let finalPro: number | null = null;
+                              if (baseCal > 0) {
+                                if (fi.grams || !calFromFi) {
+                                  finalCal = (baseCal / 100) * actualMovedG;
+                                } else {
+                                  finalCal = baseCal * ratio;
+                                }
+                              }
+                              if (basePro > 0) {
+                                if (fi.grams || !proFromFi) {
+                                  finalPro = (basePro / 100) * actualMovedG;
+                                } else {
+                                  finalPro = basePro * ratio;
+                                }
+                              }
+
+                              const calories = finalCal !== null ? formatNumeric(Math.round(finalCal)) : null;
+                              const protein = finalPro !== null ? formatNumeric(Math.round(finalPro)) : null;
                               const pmResult = await addMealToPossibleDirectly.mutateAsync({
                                 name: fi.name, category: cat.value, calories, protein, grams: displayGrams,
                                 expiration_date: fi.expiration_date, possible_quantity: displayQty,

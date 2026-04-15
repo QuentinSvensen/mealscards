@@ -190,7 +190,12 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           trackOldestCounter(fi, counterToSet);
 
           if (remaining <= 0) {
-            updatesById.set(fi.id, { id: fi.id, delete: true });
+            // Si l'aliment a un compteur actif, on le garde à 0 au lieu de le supprimer
+            if (fi.counter_start_date) {
+              updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
+            } else {
+              updatesById.set(fi.id, { id: fi.id, delete: true });
+            }
           } else {
             updatesById.set(fi.id, {
               id: fi.id,
@@ -216,7 +221,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const effectiveCounterDate = counterToSet || new Date().toISOString();
           trackOldestCounter(fi, counterToSet);
 
-          if (remaining <= 0) { updatesById.set(fi.id, { id: fi.id, delete: true }); continue; }
+          if (remaining <= 0) {
+            if (fi.counter_start_date) {
+              updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
+            } else {
+              updatesById.set(fi.id, { id: fi.id, delete: true });
+            }
+            continue;
+          }
 
           if (fi.quantity && fi.quantity >= 1) {
             // Item multi-unités : recalculer unités complètes + reliquat
@@ -242,7 +254,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             } else if (fullUnits > 0) {
               // Unités complètes restantes → pas d'ouverture, reset du compteur
               updatesById.set(fi.id, { id: fi.id, quantity: fullUnits, grams: formatNumeric(perUnit), ...(fi.counter_start_date ? { counter_start_date: null } : {}) });
-            } else { updatesById.set(fi.id, { id: fi.id, delete: true }); }
+            } else {
+              if (fi.counter_start_date) {
+                updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
+              } else {
+                updatesById.set(fi.id, { id: fi.id, delete: true });
+              }
+            }
           } else {
             // Item simple (sans multi-unités)
             const isNewUnit = remaining > 0 && remaining < perUnit;
@@ -622,7 +640,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       // Pas de grammes spécifiés → déduire 1 unité
       const currentQty = nameMatch.quantity ?? 1;
       if (currentQty <= 1) {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        if (nameMatch.counter_start_date) {
+          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
+        } else {
+          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        }
       } else {
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: currentQty - 1, ...(canStartCounter && (!nameMatch.counter_start_date || forcedCounterDate) ? { counter_start_date: counterToSet } : {}) } as any).eq("id", nameMatch.id));
       }
@@ -636,7 +658,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       const totalAvailable = getFoodItemTotalGrams(nameMatch);
       const remaining = totalAvailable - mealGrams;
       if (remaining <= 0) {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        if (nameMatch.counter_start_date) {
+          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
+        } else {
+          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        }
       } else {
         const fullUnits = Math.floor(remaining / perUnit);
         const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
@@ -653,14 +679,22 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             ...(nameMatch.counter_start_date ? { counter_start_date: null } : {})
           } as any).eq("id", nameMatch.id));
         } else {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+          if (nameMatch.counter_start_date) {
+            await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
+          } else {
+            await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+          }
         }
       }
     } else {
       const current = parseQty(nameMatch.grams);
       const remaining = Math.max(0, current - mealGrams);
       if (remaining <= 0) {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        if (nameMatch.counter_start_date) {
+          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
+        } else {
+          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        }
       } else {
         const isNewUnit = remaining > 0 && remaining < current;
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({

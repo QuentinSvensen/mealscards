@@ -21,6 +21,8 @@ export interface FoodLibraryEntry {
   is_meal: boolean;
   no_counter: boolean;
   storage_type: StorageType;
+  calories: string | null;
+  protein: string | null;
 }
 
 /** Normalise un texte pour la recherche : minuscule, sans accents */
@@ -54,6 +56,8 @@ export function useFoodLibrary() {
         is_meal: d.is_meal ?? false,
         no_counter: d.no_counter ?? false,
         storage_type: (d.storage_type as StorageType) ?? "frigo",
+        calories: d.calories ?? null,
+        protein: d.protein ?? null,
       })) as FoodLibraryEntry[];
     },
     staleTime: 0, // Désactivé temporairement pour le debug
@@ -90,12 +94,16 @@ export function useFoodLibrary() {
       is_meal,
       no_counter,
       storage_type,
+      calories,
+      protein,
     }: {
       name: string;
       food_type: FoodType;
       is_meal: boolean;
       no_counter: boolean;
       storage_type: StorageType;
+      calories?: string | null;
+      protein?: string | null;
     }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Utilisateur non connecté");
@@ -110,6 +118,8 @@ export function useFoodLibrary() {
             is_meal,
             no_counter,
             storage_type,
+            calories: calories || null,
+            protein: protein || null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "user_id,name" }

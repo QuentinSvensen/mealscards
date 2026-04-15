@@ -182,7 +182,7 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
       {(() => {
         let hasTodayLine = false;
         const todayISO = format(new Date(), 'yyyy-MM-dd');
-        
+
         return displayItemsWithAnalysis.map(({ pm, analysis }, index) => {
           const meal = pm.meals;
           if (!meal || !analysis) return null;
@@ -242,7 +242,7 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                     ? undefined
                     : (pm.counter_start_date != null ? analysis.earliestCounterDate : undefined)
                 } />
-              
+
               {showBottomSeparator && (
                 <div className="py-2 px-2">
                   <Separator className="bg-primary/20" />

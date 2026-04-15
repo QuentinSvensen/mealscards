@@ -139,10 +139,12 @@ export function getCardDisplayCalories(
 /**
  * Calcule les protéines affichées pour une seule carte de planification.
  */
-export function getCardDisplayProtein(pm: PossibleMeal, isAvailable?: (name: string) => boolean): number {
+export function getCardDisplayProtein(pm: PossibleMeal, proOverride?: string | null, isAvailable?: (name: string) => boolean): number {
   const meal = pm.meals;
   if (!meal) return 0;
   const qty = pm.quantity ?? 1;
+
+  if (proOverride) return parseProtein(proOverride) * qty;
 
   // Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
   const displayPro = getDisplayedPMProtein(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
@@ -165,6 +167,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
+  const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
   const DAILY_GOAL = getPreference<number>('planning_daily_goal', DEFAULT_DAILY_GOAL);
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
@@ -270,7 +273,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const mealPro = (['matin', ...TIMES] as string[]).reduce((total, time) => {
       const slotMeals = getMealsForSlot(dayKey, time, isoDate);
       if (slotMeals.length > 0) {
-        return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, isAvailable), 0);
+        return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable), 0);
       }
       const manualKey = (isoDate && manualProteins[`${isoDate}-${time}`] !== undefined) ? `${isoDate}-${time}` : `${dayKey}-${time}`;
       return total + (manualProteins[manualKey] || 0);
@@ -287,7 +290,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
           // Déjà compté dans mealPro via les calculs du créneau 'matin' !
           breakfastPro = 0;
         } else {
-          breakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, isAvailable) : parseProtein(breakfast.protein);
+          breakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, undefined, isAvailable) : parseProtein(breakfast.protein);
         }
       } else {
         // Utilise les protéines calculées à partir des ingrédients

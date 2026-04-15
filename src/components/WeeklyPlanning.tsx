@@ -219,12 +219,12 @@ interface TouchDragState {
 /**
  * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
  */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
   pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterHours: number | null; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; compact: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
-  onRemove: () => void; onCalorieChange: (val: string | null) => void;
+  onRemove: () => void; onCalorieChange: (val: string | null) => void; onProteinChange: (val: string | null) => void;
   expiredIngredientNames?: Set<string>;
   expiringSoonIngredientNames?: Set<string>;
   onDoubleClick?: () => void;
@@ -232,6 +232,8 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
 }) {
   const [editingCal, setEditingCal] = useState(false);
   const [calValue, setCalValue] = useState("");
+  const [editingPro, setEditingPro] = useState(false);
+  const [proValue, setProValue] = useState("");
 
   return (
     <div
@@ -300,10 +302,38 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
                   <Flame className="h-3 w-3" />
                 </button>
               )}
-              {displayPro && (
-                <span className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedPro ? 'bg-blue-600/70' : 'bg-black/30'}`}>
+              {editingPro ? (
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="numeric"
+                  value={proValue}
+                  onChange={(e) => setProValue(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = proValue.trim();
+                    onProteinChange(trimmed || null);
+                    setEditingPro(false);
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none mt-0.5"
+                  placeholder="prot"
+                />
+              ) : displayPro ? (
+                <button
+                  onClick={() => { setProValue(displayPro); setEditingPro(true); }}
+                  className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+                  title="Modifier les protéines (temporaire)"
+                >
                   🍗 {displayPro}
-                </span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setProValue(""); setEditingPro(true); }}
+                  className="text-[10px] text-white/40 hover:text-white/60 mt-0.5"
+                  title="Ajouter des protéines"
+                >
+                  🍗
+                </button>
               )}
               {counterDays !== null ? (
                 <span
@@ -413,10 +443,38 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
                 <Flame className="h-3 w-3" />
               </button>
             )}
-            {displayPro && (
-              <span className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedPro ? 'bg-blue-600/70' : 'bg-black/30'}`}>
+            {editingPro ? (
+              <input
+                autoFocus
+                type="text"
+                inputMode="numeric"
+                value={proValue}
+                onChange={(e) => setProValue(e.target.value)}
+                onBlur={() => {
+                  const trimmed = proValue.trim();
+                  onProteinChange(trimmed || null);
+                  setEditingPro(false);
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none mt-0.5"
+                placeholder="prot"
+              />
+            ) : displayPro ? (
+              <button
+                onClick={() => { setProValue(displayPro); setEditingPro(true); }}
+                className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+                title="Modifier les protéines (temporaire)"
+              >
                 🍗 {displayPro}
-              </span>
+              </button>
+            ) : (
+              <button
+                onClick={() => { setProValue(""); setEditingPro(true); }}
+                className="text-[10px] text-white/40 hover:text-white/60 mt-0.5"
+                title="Ajouter des protéines"
+              >
+                🍗
+              </button>
             )}
             {counterDays !== null ? (
               <span
@@ -686,6 +744,7 @@ export function WeeklyPlanning({
   const unplanned = planningMeals.filter((pm) => !pm.day_of_week || !pm.meal_time);
 
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
+  const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
@@ -763,9 +822,10 @@ export function WeeklyPlanning({
         const m = allMealsById.get(c.meal_id);
         if (m) {
           const overrideCal = c.id ? bCO[c.id] : undefined;
+          const overridePro = c.id ? bPO[c.id] : undefined;
           const fullPm = { ...c, meals: m };
-          dayCal += overrideCal ? (parseFloat(overrideCal) || 0) : getCardDisplayCalories(fullPm, undefined, isAvailableCb);
-          dayPro += getCardDisplayProtein(fullPm, isAvailableCb);
+          dayCal += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
+          dayPro += getCardDisplayProtein(fullPm, overridePro, isAvailableCb);
         }
       });
 
@@ -786,7 +846,7 @@ export function WeeklyPlanning({
           const pm = cards.find(p => p.id === bfSel.slice(3));
           if (pm) {
             dayCal += getCardDisplayCalories(pm, bCO[pm.id], isAvailableCb);
-            dayPro += getCardDisplayProtein(pm, isAvailableCb);
+            dayPro += getCardDisplayProtein(pm, bPO[pm.id], isAvailableCb);
           }
         } else {
           const m = allMealsById.get(bfSel);
@@ -1020,11 +1080,12 @@ export function WeeklyPlanning({
     // Utiliser la logique de macros centralisée — toujours arrondir aux entiers (pas de décimales)
     const rawCalNum = overrideCal ? (parseFloat(overrideCal) || 0) : getCardDisplayCalories(pm, undefined, isAvailableCb);
     const displayCal = rawCalNum ? String(Math.round(rawCalNum)) : null;
-    const rawProNum = getCardDisplayProtein(pm, isAvailableCb);
+    const overridePro = proOverrides[pm.id];
+    const rawProNum = overridePro ? (parseFloat(overridePro) || 0) : getCardDisplayProtein(pm, undefined, isAvailableCb);
     const displayPro = rawProNum ? String(Math.round(rawProNum)) : null;
 
     const isComputedCal = !overrideCal && computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
-    const isComputedPro = computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
+    const isComputedPro = !overridePro && computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
 
     return (
       <PlanningMiniCard
@@ -1075,6 +1136,12 @@ export function WeeklyPlanning({
           if (val) updated[pm.id] = val;
           else delete updated[pm.id];
           setPreference.mutate({ key: 'planning_cal_overrides', value: updated });
+        }}
+        onProteinChange={(val) => {
+          const updated = { ...proOverrides };
+          if (val) updated[pm.id] = val;
+          else delete updated[pm.id];
+          setPreference.mutate({ key: 'planning_pro_overrides', value: updated });
         }}
         onDoubleClick={() => setPopupPm(pm)}
         stockMap={stockMap}
@@ -1147,6 +1214,7 @@ export function WeeklyPlanning({
         if (raw.breakfastSelections) setPreference.mutate({ key: "planning_breakfast", value: raw.breakfastSelections });
         if (raw.drinkChecks) setPreference.mutate({ key: "planning_drink_checks", value: raw.drinkChecks });
         if (raw.calOverrides) setPreference.mutate({ key: "planning_cal_overrides", value: raw.calOverrides });
+        if (raw.proOverrides) setPreference.mutate({ key: "planning_pro_overrides", value: raw.proOverrides });
         if (raw.daily_goal) {
           setPreference.mutate({ key: "planning_daily_goal", value: raw.daily_goal });
           setPreference.mutate({ key: "next_week_daily_goal", value: raw.daily_goal });
@@ -1255,7 +1323,7 @@ export function WeeklyPlanning({
           const dayCalories = getDayCalories(key, iso);
           const matinMeals = getMealsForSlot(key, 'matin', iso);
           const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-          const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, isAvailableCb), 0);
+          const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
 
           const breakfast = getBreakfastForDay(key, iso);
           let baseBreakfastCals = 0;
@@ -1270,8 +1338,8 @@ export function WeeklyPlanning({
                 baseBreakfastCals = 0;
                 baseBreakfastPro = 0;
               } else {
-                baseBreakfastCals = possiblePdj ? getCardDisplayCalories(possiblePdj, undefined, isAvailableCb) : parseCalories(breakfast.calories);
-                baseBreakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, isAvailableCb) : parseProtein(breakfast.protein);
+                baseBreakfastCals = possiblePdj ? getCardDisplayCalories(possiblePdj, calOverrides[possiblePdj.id], isAvailableCb) : parseCalories(breakfast.calories);
+                baseBreakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, proOverrides[possiblePdj.id], isAvailableCb) : parseProtein(breakfast.protein);
               }
             } else {
               baseBreakfastCals = getMealCal(breakfast);
@@ -1617,7 +1685,7 @@ export function WeeklyPlanning({
                   const slotMeals = getMealsForSlot(key, time, iso);
                   const isOver = dragOverSlot === slotKey || touchHighlight === slotKey || dragOverSlot === `${key}-${time}` || touchHighlight === `${key}-${time}`;
                   const slotCals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
-                  const slotPro = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, isAvailableCb), 0);
+                  const slotPro = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb), 0);
                   return (
                     <div
                       key={time}
@@ -2250,6 +2318,7 @@ export function WeeklyPlanning({
           const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
           const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
           const bCO = isNF ? (backupRaw.calOverrides || {}) : {};
+          const bPO = isNF ? (backupRaw.proOverrides || {}) : {};
 
           const renderBackupCards = (slotCards: any[]) => slotCards.map((c: any, i: number) => {
             const m = allMealsById.get(c.meal_id);
@@ -2258,6 +2327,7 @@ export function WeeklyPlanning({
               <div key={i} className="rounded-xl px-2 py-1 text-white text-[10px] font-semibold" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
                 {getCategoryEmoji(m.category)} {m.name}
                 {bCO[c.id] && <span className="ml-1 opacity-80">🔥{bCO[c.id]}</span>}
+                {bPO[c.id] && <span className="ml-1 opacity-80">🍗{bPO[c.id]}</span>}
               </div>
             );
           });
@@ -2292,8 +2362,8 @@ export function WeeklyPlanning({
                   if (pm) {
                     const m = allMealsById.get(pm.meal_id);
                     const fullPm = m ? { ...pm, meals: m } : pm;
-                    bfSlotCal += getCardDisplayCalories(fullPm, undefined, isAvailableCb);
-                    bfSlotPro += getCardDisplayProtein(fullPm, isAvailableCb);
+                    bfSlotCal += getCardDisplayCalories(fullPm, bCO[pm.id], isAvailableCb);
+                    bfSlotPro += getCardDisplayProtein(fullPm, bPO[pm.id], isAvailableCb);
                   }
                 } else {
                   bfSlotCal += (bBC[iso] || bBC[key] || 0);
@@ -2307,10 +2377,11 @@ export function WeeklyPlanning({
                   for (const c of slotCards) {
                     const m = allMealsById.get(c.meal_id);
                     if (!m) continue;
-                    const override = bCO[c.id];
+                    const overrideCal = bCO[c.id];
+                    const overridePro = bPO[c.id];
                     const fullPm = { ...c, meals: m };
-                    cals += getCardDisplayCalories(fullPm, override, isAvailableCb);
-                    pros += getCardDisplayProtein(fullPm, isAvailableCb);
+                    cals += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
+                    pros += getCardDisplayProtein(fullPm, overridePro, isAvailableCb);
                   }
                   return { cals, pros };
                 };
@@ -2531,7 +2602,7 @@ export function WeeklyPlanning({
 
             const matinMeals = getMealsForSlot(key, 'matin', iso);
             const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-            const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, isAvailableCb), 0);
+            const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
 
             // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm: ou programmed matin)
             const hasNextBf = !!(effBfMeal || effBfPm || matinMeals.length > 0);
@@ -2567,7 +2638,7 @@ export function WeeklyPlanning({
               nxtDayPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? baseManualPro;
               // Inclure les cartes programmées
               const slotMeals = getMealsForSlot(key, time, iso);
-              nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, isAvailableCb), 0);
+              nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
             }
             nxtDayPro += effExtraPro;
             for (const id of effExtraSel) {
@@ -2900,8 +2971,8 @@ export function WeeklyPlanning({
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
             const effectiveStart = analysis.earliestCounterDate || popupPm.counter_start_date;
             const targetDate = getTargetDate(popupPm.day_of_week, new Date(), effectiveStart, popupPm.meal_time);
-            const displayCal = String(getCardDisplayCalories(popupPm, undefined, isAvailableCb));
-            const displayPro = String(getCardDisplayProtein(popupPm, isAvailableCb));
+            const displayCal = String(getCardDisplayCalories(popupPm, calOverrides[popupPm.id], isAvailableCb));
+            const displayPro = String(getCardDisplayProtein(popupPm, proOverrides[popupPm.id], isAvailableCb));
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
             const counterHours = computeCounterHours(effectiveStart, targetDate);
             const expired = isExpiredOnDay(popupPm.expiration_date, popupPm.day_of_week);

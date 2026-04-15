@@ -266,18 +266,32 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
             {fi.is_infinite && <span className="text-xs text-white/80 font-bold">∞</span>}
             {(() => {
               const fiMacro = macroLookup.get(normalizeKey(fi.name));
-              const calDisplay = fi.calories || fiMacro?.cal || null;
-              const proDisplay = fi.protein || fiMacro?.pro || null;
+              const rawCal = fi.calories || fiMacro?.cal || null;
+              const rawPro = fi.protein || fiMacro?.pro || null;
+              let calDisplay: number | null = rawCal ? parseFloat(rawCal.replace(',', '.')) : null;
+              let proDisplay: number | null = rawPro ? parseFloat(rawPro.replace(',', '.')) : null;
+
+              if (fi.grams) {
+                const totalG = getFoodItemTotalGrams(fi);
+                if (totalG > 0) {
+                  calDisplay = calDisplay !== null ? (calDisplay * totalG) / 100 : null;
+                  proDisplay = proDisplay !== null ? (proDisplay * totalG) / 100 : null;
+                }
+              } else if (fi.quantity && fi.quantity > 1) {
+                calDisplay = calDisplay !== null ? calDisplay * fi.quantity : null;
+                proDisplay = proDisplay !== null ? proDisplay * fi.quantity : null;
+              }
+
               return (
                 <>
-                  {calDisplay && (
+                  {calDisplay !== null && (
                     <span className="text-[10px] font-bold text-white bg-orange-500/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                      <Flame className="w-2.5 h-2.5" />{calDisplay}
+                      <Flame className="w-2.5 h-2.5" />{Math.round(calDisplay)}
                     </span>
                   )}
-                  {proDisplay && (
+                  {proDisplay !== null && (
                     <span className="text-[10px] font-bold text-white bg-blue-600/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                      🍗{Math.round(parseFloat(String(proDisplay).replace(',', '.').replace(/[^0-9.-]/g, '')) || 0)}
+                      🍗{Math.round(proDisplay)}
                     </span>
                   )}
                 </>

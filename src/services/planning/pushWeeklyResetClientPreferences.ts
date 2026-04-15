@@ -40,6 +40,7 @@ export function pushWeeklyResetClientPreferences(
 
   if (variant === "manual_button") {
     mutate({ key: "planning_cal_overrides", value: {} });
+    mutate({ key: "planning_pro_overrides", value: {} });
     mutate({ key: "planning_auto_consumed_days", value: {} });
     mutate({ key: "next_week_breakfast", value: {} });
     mutate({ key: "next_week_manual_calories", value: {} });

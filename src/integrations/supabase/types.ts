@@ -88,6 +88,8 @@ export type Database = {
           storage_type: string
           created_at: string
           updated_at: string
+          calories: string | null
+          protein: string | null
         }
         Insert: {
           id?: string
@@ -99,6 +101,8 @@ export type Database = {
           storage_type?: string
           created_at?: string
           updated_at?: string
+          calories?: string | null
+          protein?: string | null
         }
         Update: {
           id?: string
@@ -110,6 +114,8 @@ export type Database = {
           storage_type?: string
           created_at?: string
           updated_at?: string
+          calories?: string | null
+          protein?: string | null
         }
         Relationships: []
       }

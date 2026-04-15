@@ -38,6 +38,7 @@ export interface PossibleMealsFullBackup {
   breakfastSelections: Record<string, string>;
   drinkChecks: Record<string, boolean>;
   calOverrides: Record<string, number>;
+  proOverrides: Record<string, number>;
   daily_goal: number | null;
   protein_goal: number | null;
 }
@@ -53,6 +54,7 @@ export const PLANNING_RESET_PREF_KEYS = [
   "planning_breakfast",
   "planning_drink_checks",
   "planning_cal_overrides",
+  "planning_pro_overrides",
   "planning_extra_selections",
   "planning_daily_goal",
   "next_week_daily_goal",

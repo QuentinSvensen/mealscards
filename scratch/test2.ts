@@ -1,0 +1,1 @@
+import { parseIngredientLineDisplay } from '../src/lib/ingredientUtils'; const alt = '2 Saucisses'; console.log('strippedAlt:', alt.replace(/^\d+(?:[.,]\d+)?(?:g|ml|kg|cl|l|x| unit)?\s+/i, '').trim()); console.log('parse name:', parseIngredientLineDisplay(alt).name);

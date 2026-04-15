@@ -41,6 +41,7 @@ export function buildFullBackupPayload(
     breakfastSelections: asStringRecord(prefMap["planning_breakfast"]),
     drinkChecks: asBoolRecord(prefMap["planning_drink_checks"]),
     calOverrides: asNumberRecord(prefMap["planning_cal_overrides"]),
+    proOverrides: asNumberRecord(prefMap["planning_pro_overrides"]),
     daily_goal: typeof dg === "number" ? dg : null,
     protein_goal: typeof pg === "number" ? pg : null,
   };
