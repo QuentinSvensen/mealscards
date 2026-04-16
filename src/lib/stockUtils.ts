@@ -116,20 +116,24 @@ export function findStockKey(stockMap: Map<string, StockInfo>, name: string): st
 
 /**
  * Choisit la meilleure alternative parmi un groupe d'ingrédients OR.
- * Priorise l'alternative qui est en stock suffisant.
+ * Chaque alternative est un "bundle" (ParsedIngredient[]).
+ * Priorise l'alternative dont TOUS les éléments du bundle sont en stock suffisant.
  */
 export function pickBestAlternative(
-  alts: ParsedIngredient[],
+  alts: ParsedIngredient[][],
   stockMap: Map<string, StockInfo>
-): ParsedIngredient | null {
+): ParsedIngredient[] | null {
   for (const alt of alts) {
-    const key = findStockKey(stockMap, alt.name);
-    if (!key) continue;
-    const stock = stockMap.get(key)!;
-    if (stock.infinite) return alt;
-    if (alt.count > 0 && stock.count >= alt.count) return alt;
-    if (alt.qty > 0 && stock.grams >= alt.qty) return alt;
-    if (alt.count === 0 && alt.qty === 0) return alt;
+    let allPartsAvailable = true;
+    for (const item of alt) {
+      const key = findStockKey(stockMap, item.name);
+      if (!key) { allPartsAvailable = false; break; }
+      const stock = stockMap.get(key)!;
+      if (stock.infinite) continue;
+      if (item.count > 0 && stock.count < item.count) { allPartsAvailable = false; break; }
+      if (item.qty > 0 && stock.grams < item.qty) { allPartsAvailable = false; break; }
+    }
+    if (allPartsAvailable) return alt;
   }
   return null;
 }
@@ -149,24 +153,44 @@ export function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): n
   let multiple = Infinity;
 
   for (const group of groups) {
-    if (group[0]?.optional) continue;
-    let bestGroupMultiple = 0;
-    let anyMatch = false;
+    if (group[0]?.[0]?.optional) continue;
+    let bestAltMultiple = 0;
+    let anyAltAvailable = false;
+
     for (const alt of group) {
-      const key = findStockKey(stockMap, alt.name);
-      if (key === null) continue;
-      const stock = stockMap.get(key)!;
-      if (stock.infinite) { bestGroupMultiple = Infinity; anyMatch = true; break; }
-      let altMultiple = 0;
-      if (alt.count > 0) { if (stock.count >= alt.count) { altMultiple = Math.floor(stock.count / alt.count); anyMatch = true; } }
-      else if (alt.qty > 0) { if (stock.grams >= alt.qty) { altMultiple = Math.floor(stock.grams / alt.qty); anyMatch = true; } }
-      else { altMultiple = Infinity; anyMatch = true; }
-      bestGroupMultiple = Math.max(bestGroupMultiple, altMultiple);
+      let bundleMultiple = Infinity;
+      let allPartsFound = true;
+
+      for (const item of alt) {
+        const key = findStockKey(stockMap, item.name);
+        if (key === null) { allPartsFound = false; break; }
+        const stock = stockMap.get(key)!;
+        if (stock.infinite) continue;
+
+        let itemMultiple = 0;
+        if (item.count > 0) {
+          if (stock.count >= item.count) { itemMultiple = Math.floor(stock.count / item.count); }
+          else { allPartsFound = false; break; }
+        } else if (item.qty > 0) {
+          if (stock.grams >= item.qty) { itemMultiple = Math.floor(stock.grams / item.qty); }
+          else { allPartsFound = false; break; }
+        } else {
+          itemMultiple = Infinity;
+        }
+        bundleMultiple = Math.min(bundleMultiple, itemMultiple);
+      }
+
+      if (allPartsFound) {
+        anyAltAvailable = true;
+        bestAltMultiple = Math.max(bestAltMultiple, bundleMultiple);
+      }
     }
-    if (!anyMatch) return null;
-    multiple = Math.min(multiple, bestGroupMultiple);
+
+    if (!anyAltAvailable) return null;
+    multiple = Math.min(multiple, bestAltMultiple);
   }
-  const hasRequired = groups.some(g => !g[0]?.optional);
+
+  const hasRequired = groups.some(g => !g[0]?.[0]?.optional);
   if (!hasRequired) return null;
   return multiple === Infinity ? Infinity : multiple;
 }
@@ -180,61 +204,91 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
   if (!meal.ingredients?.trim()) return null;
   const groups = parseIngredientGroups(meal.ingredients);
   if (groups.length === 0) return null;
-  let minRatio = Infinity;
+  let minGlobalRatio = Infinity;
 
+  // 1. Déterminer le ratio théorique maximal possible (en tenant compte des alternatives)
   for (const group of groups) {
-    if (group[0]?.optional) continue;
-    let bestGroupRatio = 0;
-    let anyMatch = false;
+    if (group[0]?.[0]?.optional) continue;
+    let bestAltRatio = 0;
+    let anyAltPartiallyMatched = false;
+
     for (const alt of group) {
-      const key = findStockKey(stockMap, alt.name);
-      if (key === null) continue;
-      const stock = stockMap.get(key)!;
-      if (stock.infinite) { bestGroupRatio = Infinity; anyMatch = true; break; }
-      let altRatio = 0;
-      if (alt.count > 0) { altRatio = stock.count / alt.count; if (altRatio > 0) anyMatch = true; }
-      else if (alt.qty > 0) { altRatio = stock.grams / alt.qty; if (altRatio > 0) anyMatch = true; }
-      else { altRatio = Infinity; anyMatch = true; }
-      bestGroupRatio = Math.max(bestGroupRatio, altRatio);
+      let bundleRatio = Infinity;
+      let allPartsHaveSomeStock = true;
+
+      for (const item of alt) {
+        const key = findStockKey(stockMap, item.name);
+        if (key === null) { allPartsHaveSomeStock = false; break; }
+        const stock = stockMap.get(key)!;
+        if (stock.infinite) continue;
+
+        let itemRatio = 0;
+        if (item.count > 0) { itemRatio = stock.count / item.count; }
+        else if (item.qty > 0) { itemRatio = stock.grams / item.qty; }
+        else { itemRatio = Infinity; }
+
+        if (itemRatio <= 0) { allPartsHaveSomeStock = false; break; }
+        bundleRatio = Math.min(bundleRatio, itemRatio);
+      }
+
+      if (allPartsHaveSomeStock) {
+        anyAltPartiallyMatched = true;
+        bestAltRatio = Math.max(bestAltRatio, bundleRatio);
+      }
     }
-    if (!anyMatch) return null;
-    minRatio = Math.min(minRatio, bestGroupRatio);
+
+    if (!anyAltPartiallyMatched) return null;
+    minGlobalRatio = Math.min(minGlobalRatio, bestAltRatio);
   }
 
-  const hasRequired = groups.some(g => !g[0]?.optional);
+  const hasRequired = groups.some(g => !g[0]?.[0]?.optional);
   if (!hasRequired) return null;
 
-  // Arrondir le ratio pour les ingrédients indivisibles
+  // 2. Affiner le ratio global avec les contraintes d'indivisibilité
+  // On doit choisir une alternative pour chaque groupe pour appliquer les arrondis.
+  // On choisit l'alternative qui offre déjà le meilleur ratio (bestAltRatio).
   for (const group of groups) {
-    if (group[0]?.optional) continue;
+    if (group[0]?.[0]?.optional) continue;
+    
+    // Trouver quelle alternative correspond au ratio actuel pour ce groupe
+    // (on simplifie en prenant la première qui permet au moins minGlobalRatio)
+    let selectedAlt = group[0];
     for (const alt of group) {
-      const key = findStockKey(stockMap, alt.name);
+      let altCanSupport = true;
+      for (const item of alt) {
+        const key = findStockKey(stockMap, item.name);
+        if (!key) { altCanSupport = false; break; }
+        const stock = stockMap.get(key)!;
+        if (stock.infinite) continue;
+        const availableRatio = item.count > 0 ? stock.count / item.count : (item.qty > 0 ? stock.grams / item.qty : Infinity);
+        if (availableRatio < minGlobalRatio - 0.001) { altCanSupport = false; break; }
+      }
+      if (altCanSupport) { selectedAlt = alt; break; }
+    }
+
+    // Appliquer les arrondis sur l'alternative sélectionnée
+    for (const item of selectedAlt) {
+      const key = findStockKey(stockMap, item.name);
       if (!key) continue;
       const stock = stockMap.get(key)!;
 
-      // Cas 1 : Ingrédients pesés marqués comme indivisibles (ex: steaks 150g)
-      if (stock.indivisibleUnit > 0 && alt.qty > 0) {
-        const neededAtRatio = alt.qty * minRatio;
-        const snapped = Math.floor(neededAtRatio / stock.indivisibleUnit + 0.01) * stock.indivisibleUnit;
+      if (stock.indivisibleUnit > 0 && item.qty > 0) {
+        const needed = item.qty * minGlobalRatio;
+        const snapped = Math.floor(needed / stock.indivisibleUnit + 0.01) * stock.indivisibleUnit;
         if (snapped <= 0) return null;
-        const snappedRatio = snapped / alt.qty;
-        minRatio = Math.min(minRatio, snappedRatio);
+        minGlobalRatio = Math.min(minGlobalRatio, snapped / item.qty);
       }
-
-      // Cas 2 : Ingrédients comptés par unité (ex: œufs)
-      if (alt.count > 0 && alt.qty === 0) {
-        const neededAtRatio = alt.count * minRatio;
-        // On exige que le résultat soit un entier (ex: pas de 0.5 oeuf)
-        const snappedCount = Math.floor(neededAtRatio + 0.01);
-        if (snappedCount <= 0) return null;
-        const snappedRatio = snappedCount / alt.count;
-        minRatio = Math.min(minRatio, snappedRatio);
+      if (item.count > 0 && item.qty === 0) {
+        const needed = item.count * minGlobalRatio;
+        const snapped = Math.floor(needed + 0.01);
+        if (snapped <= 0) return null;
+        minGlobalRatio = Math.min(minGlobalRatio, snapped / item.count);
       }
     }
   }
 
-  if (minRatio === Infinity || minRatio >= 1 || minRatio < 0.5) return null;
-  return minRatio;
+  if (minGlobalRatio === Infinity || minGlobalRatio >= 1 || minGlobalRatio < 0.5) return null;
+  return minGlobalRatio;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -305,46 +359,48 @@ export function analyzeMealIngredients(
 
   for (const group of groups) {
     for (const alt of group) {
-      for (const fi of lookupFoodItems(alt.name, foodItems, index)) {
-        if (skipIds?.has(fi.id)) continue;
+      for (const item of alt) {
+        for (const fi of lookupFoodItems(item.name, foodItems, index)) {
+          if (skipIds?.has(fi.id)) continue;
 
-        // --- Analyse de péremption ---
-        if (fi.expiration_date) {
-          if (!result.earliestExpiration || fi.expiration_date < result.earliestExpiration) {
-            result.earliestExpiration = fi.expiration_date;
-            result.expiringIngredientName = alt.name;
-          }
-          const parts = fi.expiration_date.split('-');
-          const expMs = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime();
-          if (expMs <= todayMs) {
-            result.expiredIngredientNames.add(normalizeKey(alt.name));
-          } else if (expMs <= soonMs) {
-            if (!earliestSoonDate || fi.expiration_date < earliestSoonDate) {
-              earliestSoonDate = fi.expiration_date;
-              earliestSoonName = normalizeKey(alt.name);
+          // --- Analyse de péremption ---
+          if (fi.expiration_date) {
+            if (!result.earliestExpiration || fi.expiration_date < result.earliestExpiration) {
+              result.earliestExpiration = fi.expiration_date;
+              result.expiringIngredientName = item.name;
+            }
+            const parts = fi.expiration_date.split('-');
+            const expMs = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime();
+            if (expMs <= todayMs) {
+              result.expiredIngredientNames.add(normalizeKey(item.name));
+            } else if (expMs <= soonMs) {
+              if (!earliestSoonDate || fi.expiration_date < earliestSoonDate) {
+                earliestSoonDate = fi.expiration_date;
+                earliestSoonName = normalizeKey(item.name);
+              }
             }
           }
-        }
 
-        // --- Analyse du compteur d'ouverture ---
-        if (fi.counter_start_date) {
-          const days = computeCounterDays(fi.counter_start_date);
-          if (days !== null) {
-            if (result.maxIngredientCounter === null || days > result.maxIngredientCounter) {
-              result.maxIngredientCounter = days;
-              result.maxCounterName = fi.name;
+          // --- Analyse du compteur d'ouverture ---
+          if (fi.counter_start_date) {
+            const days = computeCounterDays(fi.counter_start_date);
+            if (days !== null) {
+              if (result.maxIngredientCounter === null || days > result.maxIngredientCounter) {
+                result.maxIngredientCounter = days;
+                result.maxCounterName = fi.name;
+              }
+              result.counterIngredientNames.add(normalizeKey(item.name));
             }
-            result.counterIngredientNames.add(normalizeKey(alt.name));
+            // Toujours collecter la date la plus ancienne pour le calcul d'offset dans le planning
+            if (!result.earliestCounterDate || fi.counter_start_date < result.earliestCounterDate) {
+              result.earliestCounterDate = fi.counter_start_date;
+            }
           }
-          // Toujours collecter la date la plus ancienne pour le calcul d'offset dans le planning
-          if (!result.earliestCounterDate || fi.counter_start_date < result.earliestCounterDate) {
-            result.earliestCounterDate = fi.counter_start_date;
-          }
-        }
 
-        // --- Vérifier si l'aliment peut avoir un compteur ---
-        if (fi.storage_type !== 'surgele' && !fi.no_counter) {
-          result.hasCounterableIngredient = true;
+          // --- Vérifier si l'aliment peut avoir un compteur ---
+          if (fi.storage_type !== 'surgele' && !fi.no_counter) {
+            result.hasCounterableIngredient = true;
+          }
         }
       }
     }
@@ -364,18 +420,23 @@ export function getMissingIngredients(meal: Meal, stockMap: Map<string, StockInf
   if (!meal.ingredients?.trim()) return missing;
   const groups = parseIngredientGroups(meal.ingredients);
   for (const group of groups) {
-    if (group[0]?.optional) continue;
+    if (group[0]?.[0]?.optional) continue;
     let groupSatisfied = false;
     for (const alt of group) {
-      const key = findStockKey(stockMap, alt.name);
-      if (key) {
+      let bundleSatisfied = true;
+      for (const item of alt) {
+        const key = findStockKey(stockMap, item.name);
+        if (!key) { bundleSatisfied = false; break; }
         const stock = stockMap.get(key)!;
-        if (stock.infinite || (alt.count > 0 && stock.count >= alt.count) || (alt.qty > 0 && stock.grams >= alt.qty) || (alt.count === 0 && alt.qty === 0)) {
-          groupSatisfied = true; break;
-        }
+        if (!stock.infinite && stock.grams <= 0 && stock.count <= 0) { bundleSatisfied = false; break; }
       }
+      if (bundleSatisfied) { groupSatisfied = true; break; }
     }
-    if (!groupSatisfied) for (const alt of group) missing.add(normalizeKey(alt.name));
+    if (!groupSatisfied) {
+      // Si aucune alternative n'est satisfaite, on marque le PREMIER ingrédient du premier bundle 
+      // comme manquant (plus simple pour l'UI)
+      if (group[0]?.[0]) missing.add(normalizeKey(group[0][0].name));
+    }
   }
   return missing;
 }
@@ -385,7 +446,9 @@ export function isFoodUsedInMeals(fi: FoodItem, mealsToCheck: Meal[]): boolean {
   const fiKey = normalizeForMatch(fi.name);
   return mealsToCheck.some(meal => {
     if (!meal.ingredients) return false;
-    return parseIngredientGroups(meal.ingredients).some(group => group.some(alt => strictNameMatch(fiKey, alt.name)));
+    return parseIngredientGroups(meal.ingredients).some(group => 
+      group.some(alt => alt.some(item => strictNameMatch(fiKey, item.name)))
+    );
   });
 }
 
@@ -403,10 +466,12 @@ export function buildIngredientMealIndex(meals: Meal[]): IngredientMealIndex {
     const groups = parseIngredientGroups(meal.ingredients);
     for (const group of groups) {
       for (const alt of group) {
-        const key = normalizeKey(alt.name);
-        let set = idx.get(key);
-        if (!set) { set = new Set(); idx.set(key, set); }
-        set.add(meal.id);
+        for (const item of alt) {
+          const key = normalizeKey(item.name);
+          let set = idx.get(key);
+          if (!set) { set = new Set(); idx.set(key, set); }
+          set.add(meal.id);
+        }
       }
     }
   }

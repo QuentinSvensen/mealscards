@@ -12,7 +12,7 @@
  * detectScaleRatio() : détecte si les ingrédients ont été mis à l'échelle
  * renderIngredientDisplayCompact() : affichage compact des ingrédients avec highlighting
  */
-import { useState } from "react";
+import React, { useState } from "react";
 import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -554,78 +554,111 @@ export function PossibleMealCard({
       {/* Ligne 3 : ingrédients (cliquer pour éditer) — afficher si la base ou l'override a des ingrédients */}
       {!editing && !editingIngredients && displayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
-          {renderIngredientDisplayCompact(displayIngredients, expiredIngredientNames, expiringSoonIngredientNames, stockMap)}
+          {renderIngredientDisplay(
+            displayIngredients, 
+            expiredIngredientNames, 
+            undefined, // missing
+            undefined, // counter
+            expiringSoonIngredientNames, 
+            stockMap
+          )}
         </button>
       )}
     </div>
   );
 }
 
-/** Rendu de l'affichage des ingrédients avec mise en évidence des expirés/prochains (version compacte pour Possible) */
-function renderIngredientDisplayCompact(
+/** Rendu de l'affichage des ingrédients avec groupes OU et bundles ET (+), mise en évidence des périmés/manquants */
+function renderIngredientDisplay(
   ingredients: string,
   expiredIngredientNames?: Set<string>,
+  missingIngredientNames?: Set<string>,
+  counterIngredientNames?: Set<string>,
   expiringSoonIngredientNames?: Set<string>,
   stockMap?: Map<string, StockInfo>,
 ) {
-  // Diviser d'abord les ingrédients bruts, filtrer les groupes de métriques négatives, puis nettoyer pour l'affichage
-  const rawGroups = ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  const filteredRaw = rawGroups.filter(g => !g.split(/\|/).some(alt => hasNegativeMetric(alt.trim())));
-  const cleaned = cleanIngredientText(filteredRaw.join(", "));
-  const groups = cleaned.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  const elements: React.ReactNode[] = [];
+  if (!ingredients?.trim()) return null;
+  const lines = parseIngredientsToLines(ingredients);
+  if (lines.length === 0 || (lines.length === 1 && !lines[0].name.trim())) return null;
 
-  groups.forEach((group, gi) => {
-    const isOpt = group.startsWith("?");
-    const display = isOpt ? group.slice(1).trim() : group;
+  // Regrouper les lignes en structure 3D : Groupes (AND) -> Alternatives (OR) -> Bundles (AND/+)
+  const resGroups: IngLine[][][] = [];
+  let currentGroup: IngLine[][] = [];
+  let currentAlt: IngLine[] = [];
 
-    // Gérer les alternatives OU (|) : barrer les alternatives indisponibles
-    const alternatives = display.split(/\s*\|\s*/).map(s => s.trim()).filter(Boolean);
-    if (alternatives.length > 1) {
-      const altElements = alternatives.map((alt, ai) => {
-        const strippedAlt = alt.replace(/^\d+(?:[.,]\d+)?(?:g|ml|kg|cl|l|x| unit)?\s+/i, "").trim();
-        const stockKey = stockMap ? findStockKey(stockMap, strippedAlt) : null;
-        const stock = stockKey ? stockMap?.get(stockKey) : undefined;
-        const available = !!stock && (stock.infinite || stock.grams > 0 || stock.count > 0);
+  for (const line of lines) {
+    const hasContent = line.qty || line.count || line.name;
+    if (!hasContent) continue;
 
-        return (
-          <span key={ai} className={available ? '' : 'line-through opacity-40'}>
-            {alt}
-            {ai < alternatives.length - 1 ? <span className="opacity-70"> ou </span> : null}
-          </span>
-        );
-      });
-
-      elements.push(
-        <span key={gi} className={isOpt ? 'italic text-white/40' : ''}>
-          {isOpt ? '?' : ''}{altElements}{gi < groups.length - 1 ? ' •' : ''}
-        </span>
-      );
-      return;
+    if (line.isAnd) {
+      currentAlt.push(line);
+    } else if (line.isOr) {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      currentAlt = [line];
+    } else {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      if (currentGroup.length > 0) resGroups.push(currentGroup);
+      currentGroup = [];
+      currentAlt = [line];
     }
+  }
+  if (currentAlt.length > 0) currentGroup.push(currentAlt);
+  if (currentGroup.length > 0) resGroups.push(currentGroup);
 
-    // Normaliser le nom pour la correspondance (supprimer la quantité de tête)
-    const normalizedName = normalizeKey(display.replace(/^\d+(?:\.\d+)?(?:g|ml|x| unit)?\s+/i, ""));
-    const isExpired = expiredIngredientNames?.has(normalizedName);
-    const isSoon = expiringSoonIngredientNames?.has(normalizedName);
-    
-    // Récupérer le stock pour cet ingrédient individuel
-    const stockKey = stockMap ? findStockKey(stockMap, normalizedName) : null;
-    const stock = stockKey ? stockMap?.get(stockKey) : undefined;
-    const isUnavailableAlt = !!stockMap && (!stock || (!stock.infinite && stock.grams <= 0 && stock.count <= 0));
+  return (
+    <span className="flex flex-wrap gap-x-2 gap-y-1 items-center">
+      {resGroups.map((group, gi) => (
+        <span key={gi} className="flex items-center gap-1 flex-wrap">
+          {group.map((alt, ai) => {
+            const isBundle = alt.length > 1;
+            // Un bundle est disponible si TOUS ses éléments le sont
+            const altIsAvailable = !stockMap ? true : alt.every(item => {
+              const k = findStockKey(stockMap, item.name);
+              const s = k ? stockMap.get(k) : null;
+              return s && (s.infinite || s.grams > 0 || s.count > 0);
+            });
 
-    const cls = isUnavailableAlt ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
-      : isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
-      : isSoon ? 'ring-1 ring-red-500/60 font-semibold px-0.5 rounded'
-        : isOpt ? 'italic text-white/40'
-          : '';
+            return (
+              <React.Fragment key={ai}>
+                {ai > 0 && <span className="text-yellow-300/70 text-[9px] font-bold">ou</span>}
+                <span className={`relative flex flex-col ${isBundle ? 'pr-2' : ''}`}>
+                  {alt.map((item, ii) => {
+                    const norm = normalizeKey(item.name);
+                    const isExpired = expiredIngredientNames?.has(norm);
+                    const isSoon = expiringSoonIngredientNames?.has(norm);
+                    const isMissing = missingIngredientNames?.has(norm);
+                    const isOpt = item.isOptional;
 
-    elements.push(
-      <span key={gi} className={cls}>
-        {isOpt ? '?' : ''}{display}{gi < groups.length - 1 ? ' •' : ''}
-      </span>
-    );
-  });
+                    let cls = "";
+                    if (isMissing) cls = "bg-white/10 text-white/40 line-through px-0.5 rounded";
+                    else if (isExpired) cls = "bg-red-500/40 text-red-100 px-0.5 rounded font-semibold italic ring-1 ring-red-500/50";
+                    else if (isSoon) cls = "ring-1 ring-red-500/60 font-semibold px-0.5 rounded";
+                    else if (isOpt) cls = "italic text-white/40";
+                    else if (stockMap && !altIsAvailable) cls = "opacity-50 line-through";
 
-  return elements;
+                    const qtyDisp = [formatQtyDisplay(item.qty), item.count].filter(Boolean).join(" ");
+                    const textDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
+
+                    return (
+                      <span key={ii} className={`${cls} leading-tight whitespace-nowrap`}>
+                        {isOpt ? '?' : ''}{textDisplay}
+                      </span>
+                    );
+                  })}
+                  {/* Trait de liaison (Bracket) pour les bundles */}
+                  {isBundle && (
+                    <span 
+                      className="absolute right-0 top-[2px] bottom-[2px] w-[5px] border-r border-t border-b border-white/40 rounded-r-[3px]" 
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  )}
+                </span>
+              </React.Fragment>
+            );
+          })}
+          {gi < resGroups.length - 1 && <span className="text-white/30 ml-1">•</span>}
+        </span>
+      ))}
+    </span>
+  );
 }

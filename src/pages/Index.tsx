@@ -927,14 +927,50 @@ const Index = () => {
                             }
                           }}
                           onMoveNameMatchToPossible={async (meal, fi, ratio) => {
-                            if (fi.is_infinite && ratio && ratio !== 1) {
-                              // Infinite card with multiplier - create with ORIGINAL values, set override for scaling
-                              const baseGrams = parseQty(meal.grams);
-                              const baseIng = meal.ingredients ? meal.ingredients : (baseGrams > 0 ? `${baseGrams}g ${meal.name}` : null);
-                              const scaledIng = baseIng ? scaleIngredientStringExact(baseIng, ratio) : null;
+                            const r = ratio ?? 1;
+                            
+                            // Calcul des macros de base (soit depuis le repas, soit depuis l'aliment)
+                            const hasCal = meal.calories && meal.calories !== "0";
+                            const hasPro = meal.protein && meal.protein !== "0" && meal.protein !== "0%";
+                            let baseCal = hasCal ? parseFloat(meal.calories!.replace(",", ".")) : 0;
+                            let basePro = hasPro ? parseFloat(meal.protein!.replace(",", ".")) : 0;
+
+                            if (!hasCal || !hasPro) {
+                              if (!hasCal && fi.calories) {
+                                const fiCal = parseFloat(fi.calories.replace(",", "."));
+                                if (fi.grams) {
+                                  const totalG = getFoodItemTotalGrams(fi);
+                                  baseCal = (fiCal * totalG) / 100;
+                                } else {
+                                  baseCal = fiCal * (fi.quantity ?? 1);
+                                }
+                              }
+                              if (!hasPro && fi.protein) {
+                                const fiPro = parseFloat(fi.protein.replace(",", "."));
+                                if (fi.grams) {
+                                  const totalG = getFoodItemTotalGrams(fi);
+                                  basePro = (fiPro * totalG) / 100;
+                                } else {
+                                  basePro = fiPro * (fi.quantity ?? 1);
+                                }
+                              }
+                            }
+
+                            // Valeurs finales à envoyer en DB
+                            const baseGStr = fi.quantity && fi.quantity > 1 && fi.grams
+                              ? `${parseQty(fi.grams) * fi.quantity}g`
+                              : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
+                            const finalGrams = baseGStr ? (r !== 1 && baseGStr !== "∞" ? `${Math.round(parseQty(baseGStr) * r)}g` : baseGStr) : null;
+                            const finalCal = baseCal > 0 ? String(Math.round(baseCal * r)) : meal.calories;
+                            const finalPro = basePro > 0 ? String(Math.round(basePro * r)) : meal.protein;
+
+                            if (fi.is_infinite) {
+                              const baseIng = meal.ingredients ? meal.ingredients : (parseQty(meal.grams) > 0 ? `${meal.grams} ${meal.name}` : null);
+                              const scaledIng = baseIng && r !== 1 ? scaleIngredientStringExact(baseIng, r) : null;
+                              
                               const result = await addMealToPossibleDirectly.mutateAsync({
                                 name: meal.name, category: cat.value,
-                                calories: meal.calories, protein: meal.protein, grams: meal.grams,
+                                calories: finalCal, protein: finalPro, grams: finalGrams,
                                 ingredients: baseIng,
                                 expiration_date: fi.expiration_date,
                                 counter_start_date: fi.counter_start_date,
@@ -942,14 +978,28 @@ const Index = () => {
                               if (result?.id && scaledIng) {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: scaledIng });
                               }
-                              return;
+                            } else {
+                              const snapshot = [{ ...fi }];
+                              await deductNameMatchStock(meal, undefined, r);
+                              
+                              const shouldStartOnMove = fi.storage_type !== 'surgele' && !fi.no_counter;
+                              const finalCd = fi.counter_start_date || (shouldStartOnMove ? new Date().toISOString() : null);
+
+                              // Si ratio != 1 ou macros calculées, on crée un repas "indépendant" au lieu de juste lier au master
+                              if (r !== 1 || !hasCal || !hasPro) {
+                                const result = await addMealToPossibleDirectly.mutateAsync({
+                                  name: meal.name, category: cat.value,
+                                  calories: finalCal, protein: finalPro, grams: finalGrams,
+                                  ingredients: meal.ingredients || (parseQty(finalGrams) > 0 ? `${finalGrams} ${meal.name}` : null),
+                                  expiration_date: fi.expiration_date,
+                                  counter_start_date: finalCd,
+                                });
+                                if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                              } else {
+                                const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date, counter_start_date: finalCd });
+                                if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                              }
                             }
-                            const snapshot = [{ ...fi }];
-                            if (!fi.is_infinite) await deductNameMatchStock(meal);
-                            const shouldStartOnMove = fi.storage_type !== 'surgele' && !fi.no_counter;
-                            const finalCd = fi.counter_start_date || (shouldStartOnMove ? new Date().toISOString() : null);
-                            const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date, counter_start_date: finalCd });
-                            if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
                           }}
                           onMoveFoodItemToPossible={async (fi) => {
                             const snapshot = [{ ...fi }];
@@ -1056,14 +1106,35 @@ const Index = () => {
                           onDuplicate={async (id) => {
                             const pm = possibleMeals.find(p => p.id === id);
                             if (pm?.meals) {
-                              // Use the overridden ingredients if present, deduct from stock
                               const ingredientsToDeduce = pm.ingredients_override ?? pm.meals.ingredients;
                               const mealForDeduction = { ...pm.meals, ingredients: ingredientsToDeduce };
                               const { snapshots } = await deductIngredientsFromStock(mealForDeduction);
-                              // Create the duplicate and store snapshots under its new ID
+                              
                               const newId = await duplicatePossibleMeal.mutateAsync(id);
-                              if (newId && snapshots.length > 0) {
-                                updateSnapshots(prev => ({ ...prev, [newId]: snapshots }));
+                              if (newId) {
+                                if (snapshots.length > 0) {
+                                  updateSnapshots(prev => ({ ...prev, [newId]: snapshots }));
+                                }
+
+                                // 1. Copier les overrides de macros (calories/protéines)
+                                const currentCals = getPreference<Record<string, string>>('planning_cal_overrides', {});
+                                const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
+                                let prefsToUpdate: { key: string; value: any }[] = [];
+                                
+                                if (currentCals[id]) {
+                                  setPreference.mutate({ key: 'planning_cal_overrides', value: { ...currentCals, [newId]: currentCals[id] } });
+                                }
+                                if (currentPros[id]) {
+                                  setPreference.mutate({ key: 'planning_pro_overrides', value: { ...currentPros, [newId]: currentPros[id] } });
+                                }
+
+                                // 2. Copier le statut de source (pour le comportement du compteur automatique)
+                                if (masterSourcePmIds.has(id)) {
+                                  setMasterSourcePmIds(prev => new Set([...prev, newId]));
+                                }
+                                if (unParUnSourcePmIds.has(id)) {
+                                  setUnParUnSourcePmIds(prev => new Set([...prev, newId]));
+                                }
                               }
                             } else {
                               duplicatePossibleMeal.mutate(id);

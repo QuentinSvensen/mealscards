@@ -295,49 +295,90 @@ function renderIngredientDisplay(
   expiringSoonIngredientNames?: Set<string>,
   stockMap?: Map<string, StockInfo>,
 ) {
-  // Diviser d'abord les ingrédients bruts, filtrer les groupes de métriques négatives, puis nettoyer pour l'affichage
-  const rawGroups = ingredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
-  const filteredRaw = rawGroups.filter(g => !g.split(/\|/).some(alt => hasNegativeMetric(alt.trim())));
-  const cleaned = cleanIngredientText(filteredRaw.join(", "));
-  const groups = cleaned.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
-  const elements: React.ReactNode[] = [];
+  if (!ingredients?.trim()) return null;
+  const lines = parseIngredientsToLines(ingredients);
+  if (lines.length === 0 || (lines.length === 1 && !lines[0].name.trim())) return null;
 
-  groups.forEach((group, gi) => {
-    const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
-    const groupIsOptional = alts[0]?.startsWith("?");
-    alts.forEach((alt, ai) => {
-      const displayAlt = alt.startsWith("?") ? alt.slice(1).trim() : alt;
-      const parsed = parseIngredientLineDisplay(displayAlt);
-      const normalizedName = normalizeKey(parsed.name);
-      const isExpired = expiredIngredientNames?.has(normalizedName);
-      const isSoon = expiringSoonIngredientNames?.has(normalizedName);
-      const isMissing = missingIngredientNames?.has(normalizedName);
-      const hasCounter = counterIngredientNames?.has(normalizedName);
+  // Regrouper les lignes en structure 3D : Groupes (AND) -> Alternatives (OR) -> Bundles (AND/+)
+  const resGroups: IngLine[][][] = [];
+  let currentGroup: IngLine[][] = [];
+  let currentAlt: IngLine[] = [];
 
-      const stockKey = stockMap ? findStockKey(stockMap, parsed.name) : null;
-      const stock = stockKey ? stockMap?.get(stockKey) : undefined;
-      const isUnavailableAlt = !!stockMap && (!stock || (!stock.infinite && stock.grams <= 0 && stock.count <= 0));
+  for (const line of lines) {
+    const hasContent = line.qty || line.count || line.name;
+    if (!hasContent) continue;
 
-      const cls = (isMissing || isUnavailableAlt) ? 'bg-white/20 text-white/40 px-0.5 rounded line-through'
-        : isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
-          : isSoon ? 'ring-1 ring-red-500/60 font-semibold px-0.5 rounded'
-            : hasCounter ? 'underline decoration-2 underline-offset-2 decoration-white/60 font-semibold'
-              : groupIsOptional ? 'italic text-white/40'
-                : '';
+    if (line.isAnd) {
+      currentAlt.push(line);
+    } else if (line.isOr) {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      currentAlt = [line];
+    } else {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      if (currentGroup.length > 0) resGroups.push(currentGroup);
+      currentGroup = [];
+      currentAlt = [line];
+    }
+  }
+  if (currentAlt.length > 0) currentGroup.push(currentAlt);
+  if (currentGroup.length > 0) resGroups.push(currentGroup);
 
-      const key = `${gi}-${ai}`;
-      if (ai > 0) {
-        elements.push(
-          <span key={`or-${key}`} className="text-yellow-300/70 text-[9px] font-bold">ou</span>
-        );
-      }
-      elements.push(
-        <span key={key} className={cls}>
-          {groupIsOptional && ai === 0 ? '?' : ''}{displayAlt}{ai === alts.length - 1 && gi < groups.length - 1 ? ' •' : ''}
+  return (
+    <span className="flex flex-wrap gap-x-2 gap-y-1 items-center">
+      {resGroups.map((group, gi) => (
+        <span key={gi} className="flex items-center gap-1 flex-wrap">
+          {group.map((alt, ai) => {
+            const isBundle = alt.length > 1;
+            // Un bundle est disponible si TOUS ses éléments le sont
+            const altIsAvailable = !stockMap ? true : alt.every(item => {
+              const k = findStockKey(stockMap, item.name);
+              const s = k ? stockMap.get(k) : null;
+              return s && (s.infinite || s.grams > 0 || s.count > 0);
+            });
+
+            return (
+              <React.Fragment key={ai}>
+                {ai > 0 && <span className="text-yellow-300/70 text-[9px] font-bold">ou</span>}
+                <span className={`relative flex flex-col ${isBundle ? 'pr-2' : ''}`}>
+                  {alt.map((item, ii) => {
+                    const norm = normalizeKey(item.name);
+                    const isExpired = expiredIngredientNames?.has(norm);
+                    const isSoon = expiringSoonIngredientNames?.has(norm);
+                    const isMissing = missingIngredientNames?.has(norm);
+                    const hasCounter = counterIngredientNames?.has(norm);
+                    const isOpt = item.isOptional;
+
+                    let cls = "";
+                    if (isMissing) cls = "bg-white/10 text-white/40 line-through px-0.5 rounded";
+                    else if (isExpired) cls = "bg-red-500/40 text-red-100 px-0.5 rounded font-semibold italic ring-1 ring-red-500/50";
+                    else if (isSoon) cls = "ring-1 ring-red-500/60 font-semibold px-0.5 rounded";
+                    else if (hasCounter) cls = "underline decoration-2 underline-offset-2 decoration-white/60 font-semibold";
+                    else if (isOpt) cls = "italic text-white/40";
+                    else if (stockMap && !altIsAvailable) cls = "opacity-50 line-through";
+
+                    const qtyDisp = [formatQtyDisplay(item.qty), item.count].filter(Boolean).join(" ");
+                    const textDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
+
+                    return (
+                      <span key={ii} className={`${cls} leading-tight whitespace-nowrap`}>
+                        {isOpt ? '?' : ''}{textDisplay}
+                      </span>
+                    );
+                  })}
+                  {/* Trait de liaison (Bracket) pour les bundles */}
+                  {isBundle && (
+                    <span 
+                      className="absolute right-0 top-[2px] bottom-[2px] w-[5px] border-r border-t border-b border-white/40 rounded-r-[3px]" 
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  )}
+                </span>
+              </React.Fragment>
+            );
+          })}
+          {gi < resGroups.length - 1 && <span className="text-white/30 ml-1">•</span>}
         </span>
-      );
-    });
-  });
-
-  return elements;
+      ))}
+    </span>
+  );
 }

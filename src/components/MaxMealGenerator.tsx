@@ -46,15 +46,18 @@ function deductMealFromVirtualStock(
   if (!meal.ingredients) return;
   const groups = parseIngredientGroups(meal.ingredients);
   for (const group of groups) {
-    for (const alt of group) {
-      const key = findStockKey(virtualStock, alt.name);
+    // On simule en prenant la première alternative (ou on pourrait utiliser pickBestAlternative si dispo)
+    const bundle = group[0];
+    if (!bundle) continue;
+
+    for (const item of bundle) {
+      const key = findStockKey(virtualStock, item.name);
       if (key) {
         const info = virtualStock.get(key)!;
-        if (info.infinite) break;
-        if (alt.qty > 0) info.grams = Math.max(0, info.grams - alt.qty * ratio);
-        else if (alt.count > 0) info.count = Math.max(0, info.count - alt.count * ratio);
+        if (info.infinite) continue;
+        if (item.qty > 0) info.grams = Math.max(0, info.grams - item.qty * ratio);
+        else if (item.count > 0) info.count = Math.max(0, info.count - item.count * ratio);
         else info.count = Math.max(0, info.count - ratio);
-        break;
       }
     }
   }

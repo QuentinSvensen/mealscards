@@ -469,30 +469,37 @@ export function parseIngredientLineRaw(ing: string): ParsedIngredientRaw {
 }
 
 /**
- * Parse une chaîne d'ingrédients en groupes d'alternatives (OR).
+ * Parse une chaîne d'ingrédients en groupes d'alternatives (OR) contenant des bundles (AND).
  * 
- * Exemple : "100g poulet | 80g dinde, 50g salade"
- * Résultat : [[{poulet}, {dinde}], [{salade}]]
+ * Exemple : "A | B + C, D"
+ * Résultat : [
+ *   [ [{A}], [{B}, {C}] ], // Groupe 1 : (A OR (B AND C))
+ *   [ [{D}] ]              // Groupe 2 : (D)
+ * ]
  * 
- * - Séparateur de groupes : virgule ou saut de ligne
- * - Séparateur d'alternatives : pipe "|"
- * - Préfixe "?" = ingrédient optionnel (non déduit du stock)
- * - Les ingrédients avec des macros négatifs sont filtrés (marqueurs internes)
- * 
- * Résultats mis en cache (LRU 300 entrées) car appelé très fréquemment.
+ * Structure : ParsedIngredient[][][]
+ * Level 1 : Groupes (AND)
+ * Level 2 : Alternatives (OR)
+ * Level 3 : Bundles (AND)
  */
-const _groupsCache = new Map<string, ParsedIngredient[][]>();
+const _groupsCache = new Map<string, ParsedIngredient[][][]>();
 const GROUPS_CACHE_MAX = 300;
 
-export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
+export function parseIngredientGroups(raw: string): ParsedIngredient[][][] {
   if (!raw?.trim()) return [];
   const cached = _groupsCache.get(raw);
   if (cached) return cached;
 
   const rawGroups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const filteredRawGroups = rawGroups.filter(group => !group.split(/\|/).some(alt => hasNegativeMetric(alt.trim())));
-  const result = filteredRawGroups
-    .map(group => group.split(/\|/).map(s => s.trim()).filter(Boolean).map(parseIngredientLine));
+  
+  const result = filteredRawGroups.map(groupStr => {
+    const alts = groupStr.split(/\|/).map(s => s.trim()).filter(Boolean);
+    return alts.map(altStr => {
+      const bundle = altStr.split(/\+/).map(s => s.trim()).filter(Boolean);
+      return bundle.map(parseIngredientLine);
+    });
+  });
 
   if (_groupsCache.size > GROUPS_CACHE_MAX) _groupsCache.clear();
   _groupsCache.set(raw, result);
@@ -504,7 +511,16 @@ export function parseIngredientGroups(raw: string): ParsedIngredient[][] {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Ligne d'ingrédient pour l'éditeur UI (toutes les valeurs en string) */
-export interface IngLine { qty: string; count: string; name: string; cal: string; pro: string; isOr: boolean; isOptional: boolean; }
+export interface IngLine { 
+  qty: string; 
+  count: string; 
+  name: string; 
+  cal: string; 
+  pro: string; 
+  isOr: boolean; 
+  isAnd: boolean; // Nouveau : lié au précédent par un ET
+  isOptional: boolean; 
+}
 
 /** Extrait les suffixes {cal} et [pro] d'un token d'ingrédient brut */
 export function extractMetrics(raw: string): { text: string; cal: string; pro: string } {
@@ -540,22 +556,22 @@ const _RE_DISP_NUM = /^(\d+(?:[.,]\d+)?)\s+(.+)$/;
 /** Parse une ligne d'ingrédient pour l'affichage dans l'éditeur (conserve les strings) */
 export function parseIngredientLineDisplay(raw: string): IngLine {
   let trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isOptional: false };
+  if (!trimmed) return { qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false };
   const isOptional = trimmed.startsWith("?");
   if (isOptional) trimmed = trimmed.slice(1).trim();
   const { text: withoutMetrics, cal, pro } = extractMetrics(trimmed);
   trimmed = withoutMetrics;
 
   const matchFull = trimmed.match(_RE_DISP_FULL);
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, pro, isOr: false, isOptional };
+  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, pro, isOr: false, isAnd: false, isOptional };
 
   const matchUnit = trimmed.match(_RE_DISP_UNIT);
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, pro, isOr: false, isOptional };
+  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, pro, isOr: false, isAnd: false, isOptional };
 
   const matchNum = trimmed.match(_RE_DISP_NUM);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, pro, isOr: false, isOptional };
+  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, pro, isOr: false, isAnd: false, isOptional };
 
-  return { qty: "", count: "", name: trimmed, cal, pro, isOr: false, isOptional };
+  return { qty: "", count: "", name: trimmed, cal, pro, isOr: false, isAnd: false, isOptional };
 }
 
 /** Formate une quantité pour l'affichage : ajoute "g" si c'est juste un nombre */
@@ -568,36 +584,51 @@ export function formatQtyDisplay(qty: string): string {
 
 /** Convertit une chaîne d'ingrédients brute en tableau de IngLine pour l'éditeur */
 export function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isOptional: false }];
+  if (!raw) return [{ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false }];
   const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const lines: IngLine[] = [];
-  for (const group of groups) {
-    const alts = group.split(/\|/).map(s => s.trim()).filter(Boolean);
-    alts.forEach((alt, i) => {
-      const parsed = parseIngredientLineDisplay(alt);
-      parsed.isOr = i > 0;
-      lines.push(parsed);
+  for (const groupStr of groups) {
+    const alts = groupStr.split(/\|/).map(s => s.trim()).filter(Boolean);
+    alts.forEach((altStr, ai) => {
+      const bundle = altStr.split(/\+/).map(s => s.trim()).filter(Boolean);
+      bundle.forEach((itemStr, bi) => {
+        const parsed = parseIngredientLineDisplay(itemStr);
+        parsed.isOr = (ai > 0 && bi === 0);
+        parsed.isAnd = (bi > 0);
+        lines.push(parsed);
+      });
     });
   }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isOptional: false });
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
   return lines;
 }
 
 /** Sérialise un tableau de IngLine en chaîne d'ingrédients pour le stockage */
 export function serializeIngredients(lines: IngLine[]): string | null {
   const result: string[] = [];
-  let currentGroup: string[] = [];
-  const flushGroup = () => { if (currentGroup.length > 0) { result.push(currentGroup.join(" | ")); currentGroup = []; } };
+  let currentGroupText = "";
+  
+  const flushGroup = () => { if (currentGroupText) { result.push(currentGroupText); currentGroupText = ""; } };
+  
   for (const l of lines) {
     const qtyStr = formatQtyDisplay(l.qty);
     const countStr = l.count.trim();
     const nameStr = l.name.trim();
     if (!qtyStr && !countStr && !nameStr) continue;
+    
     let token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
     if (l.cal?.trim()) token += `{${l.cal.trim()}}`;
     if (l.pro?.trim()) token += ` [${l.pro.trim()}]`;
     const finalToken = l.isOptional ? `?${token}` : token;
-    if (l.isOr) { currentGroup.push(finalToken); } else { flushGroup(); currentGroup.push(finalToken); }
+    
+    if (l.isAnd) {
+      currentGroupText += ` + ${finalToken}`;
+    } else if (l.isOr) {
+      currentGroupText += ` | ${finalToken}`;
+    } else {
+      flushGroup();
+      currentGroupText = finalToken;
+    }
   }
   flushGroup();
   return result.length ? result.join(", ") : null;
@@ -641,33 +672,51 @@ function _computeMacro(
   let total = 0;
   let hasValue = false;
 
-  // Regrouper les lignes en groupes (séparées par isOr)
-  const groups: IngLine[][] = [];
-  let currentGroup: IngLine[] = [];
+  // Regrouper les lignes en groupes d'alternatives de bundles
+  const groups: IngLine[][][] = [];
+  let currentGroup: IngLine[][] = [];
+  let currentAlt: IngLine[] = [];
+  
   for (const line of lines) {
     if (line.isOptional) continue;
-    if (!line.isOr && currentGroup.length > 0) { groups.push(currentGroup); currentGroup = []; }
-    currentGroup.push(line);
+    
+    if (line.isAnd) {
+      currentAlt.push(line);
+    } else if (line.isOr) {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      currentAlt = [line];
+    } else {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      if (currentGroup.length > 0) groups.push(currentGroup);
+      currentGroup = [];
+      currentAlt = [line];
+    }
   }
+  if (currentAlt.length > 0) currentGroup.push(currentAlt);
   if (currentGroup.length > 0) groups.push(currentGroup);
 
-  for (const group of groups) {
-    // Choisir l'alternative disponible en stock, sinon la première
-    let chosenLine = group[0];
+  for (const alternativeList of groups) {
+    // Choisir l'alternative dont le PREMIER ingrédient est dispo (simplification pour le choix)
+    // OU si isAvailable n'est pas fourni, prendre la première alternative.
+    let chosenAlt = alternativeList[0];
     if (isAvailable) {
-      for (const alt of group) {
-        if (isAvailable(alt.name)) { chosenLine = alt; break; }
+      for (const alt of alternativeList) {
+        if (isAvailable(alt[0].name)) { chosenAlt = alt; break; }
       }
     }
-    const rawVal = field === 'cal' ? chosenLine.cal : chosenLine.pro;
-    const val = parseFloat(rawVal.replace(",", "."));
-    if (!val || isNaN(val)) continue;
-    hasValue = true;
-    const qty = parseFloat(chosenLine.qty.replace(",", "."));
-    const count = parseFloat(chosenLine.count.replace(",", "."));
-    if (qty > 0) total += val * qty / 100;
-    else if (count > 0) total += val * count;
-    else total += val;
+    
+    // Sommer les composants du bundle choisi
+    for (const item of chosenAlt) {
+      const rawVal = field === 'cal' ? item.cal : item.pro;
+      const val = parseFloat(rawVal.replace(",", "."));
+      if (!val || isNaN(val)) continue;
+      hasValue = true;
+      const qty = parseFloat(item.qty.replace(",", "."));
+      const count = parseFloat(item.count.replace(",", "."));
+      if (qty > 0) total += val * qty / 100;
+      else if (count > 0) total += val * count;
+      else total += val;
+    }
   }
   const result = hasValue ? Math.round(total * ratio) : null;
   if (!isAvailable && ratio === 1) {

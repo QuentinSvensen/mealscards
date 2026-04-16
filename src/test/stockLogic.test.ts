@@ -86,22 +86,32 @@ describe("parseIngredientGroups", () => {
     const groups = parseIngredientGroups("200g Poulet, 100g Riz");
     expect(groups).toHaveLength(2);
     expect(groups[0]).toHaveLength(1);
-    expect(groups[0][0]).toEqual({ qty: 200, count: 0, name: "poulet", optional: false });
-    expect(groups[1][0]).toEqual({ qty: 100, count: 0, name: "riz", optional: false });
+    expect(groups[0][0]).toHaveLength(1);
+    expect(groups[0][0][0]).toEqual({ qty: 200, count: 0, name: "poulet", optional: false });
+    expect(groups[1][0][0]).toEqual({ qty: 100, count: 0, name: "riz", optional: false });
   });
 
   it("analyse les alternatives OU (|) avec le pipe", () => {
     const groups = parseIngredientGroups("100g Pain | 100g Baguette");
     expect(groups).toHaveLength(1);
     expect(groups[0]).toHaveLength(2);
-    expect(groups[0][0].name).toBe("pain");
-    expect(groups[0][1].name).toBe("baguette");
+    expect(groups[0][0][0].name).toBe("pain");
+    expect(groups[0][1][0].name).toBe("baguette");
   });
 
   it("gère les groupes mixtes avec alternatives", () => {
     const groups = parseIngredientGroups("200g Viande hachée, 1 Galette, 100g Pain | 100g Baguette");
     expect(groups).toHaveLength(3);
     expect(groups[2]).toHaveLength(2); // Pain | Baguette
+    expect(groups[2][0]).toHaveLength(1);
+  });
+
+  it("gère les bundles ET (+) avec le plus", () => {
+    const groups = parseIngredientGroups("100g Riz + 100g Poulet");
+    expect(groups).toHaveLength(1);
+    expect(groups[0][0]).toHaveLength(2);
+    expect(groups[0][0][0].name).toBe("riz");
+    expect(groups[0][0][1].name).toBe("poulet");
   });
 });
 
@@ -455,9 +465,9 @@ describe("validation max des cartes en pourcentage", () => {
     const groups = parseIngredientGroups(scaled.ingredients!);
     
     // Poulet mis à l'échelle : 200 * 0.8 = 160g → le stock a 160g ✓
-    expect(groups[0][0].qty).toBeLessThanOrEqual(160);
+    expect(groups[0][0][0].qty).toBeLessThanOrEqual(160);
     // Riz mis à l'échelle : 100 * 0.8 = 80g → le stock a 80g ✓
-    expect(groups[1][0].qty).toBeLessThanOrEqual(80);
+    expect(groups[1][0][0].qty).toBeLessThanOrEqual(80);
   });
 
   it("garantit que le pourcentage reflète l'ingrédient le plus limitant", () => {
@@ -484,7 +494,7 @@ describe("validation max des cartes en pourcentage", () => {
 
     const scaled = buildScaledMealForRatio(meal, ratio!);
     const groups = parseIngredientGroups(scaled.ingredients!);
-    expect(groups[1][0].qty).toBeLessThanOrEqual(140);
-    expect(groups[0][0].qty).toBeLessThanOrEqual(90);
+    expect(groups[1][0][0].qty).toBeLessThanOrEqual(140);
+    expect(groups[0][0][0].qty).toBeLessThanOrEqual(90);
   });
 });

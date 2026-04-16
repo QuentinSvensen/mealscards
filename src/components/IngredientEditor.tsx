@@ -38,7 +38,7 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
     const next = [...lines];
     next[idx] = { ...next[idx], [field]: value };
     if (field === "name" && idx === next.length - 1 && value.trim()) {
-      next.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isOptional: false });
+      next.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
     }
     onUpdate(next);
   };
@@ -46,7 +46,16 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
   const toggleOr = (idx: number) => {
     if (idx === 0) return;
     const next = [...lines];
-    next[idx] = { ...next[idx], isOr: !next[idx].isOr };
+    const newIsOr = !next[idx].isOr;
+    next[idx] = { ...next[idx], isOr: newIsOr, isAnd: newIsOr ? false : next[idx].isAnd };
+    onUpdate(next);
+  };
+
+  const toggleAnd = (idx: number) => {
+    if (idx === 0) return;
+    const next = [...lines];
+    const newIsAnd = !next[idx].isAnd;
+    next[idx] = { ...next[idx], isAnd: newIsAnd, isOr: newIsAnd ? false : next[idx].isOr };
     onUpdate(next);
   };
 
@@ -106,9 +115,10 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
       }}
       className="flex flex-col gap-1"
     >
-      <div className="grid grid-cols-[0.8rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 mb-0.5 pl-0 pr-0">
+      <div className="grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 mb-0.5 pl-0 pr-0">
         <span className="text-[8px] text-white/50 text-center"></span>
         <span className="text-[8px] text-white/50 text-center">Ou</span>
+        <span className="text-[8px] text-white/50 text-center">Et</span>
         <span className="text-[8px] text-white/50 text-center">?</span>
         <span className="text-[8px] text-white/50 text-center">g</span>
         <span className="text-[8px] text-white/50 text-center">#</span>
@@ -124,7 +134,7 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
           onDragOver={(e) => handleDragOver(e, idx)}
           onDrop={(e) => handleDrop(e, idx)}
           onDragEnd={handleDragEnd}
-          className={`grid grid-cols-[0.8rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0 transition-opacity ${
+          className={`grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0 transition-opacity ${
             dragIdx === idx ? 'opacity-30' : ''
           } ${dragOverIdx === idx && dragIdx !== idx ? 'border-t-2 border-yellow-300/60' : ''}`}
         >
@@ -151,7 +161,22 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
             disabled={idx === 0}
             title={idx === 0 ? "" : line.isOr ? "Cet ingrédient est un OU du précédent" : "Marquer comme alternative (OU)"}
           >
-            {line.isOr ? "ou" : idx > 0 ? "+" : ""}
+            {line.isOr ? "ou" : "|"}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleAnd(idx)}
+            className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
+              idx === 0
+                ? 'text-white/15 cursor-default'
+                : line.isAnd
+                  ? 'bg-blue-400/30 text-blue-200 border border-blue-400/50'
+                  : 'text-white/30 hover:text-white/60 hover:bg-white/10'
+            }`}
+            disabled={idx === 0}
+            title={idx === 0 ? "" : line.isAnd ? "Lié au précédent (ET)" : "Lier au précédent (ET)"}
+          >
+            {line.isAnd ? "et" : "+"}
           </button>
           <button
             type="button"

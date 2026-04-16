@@ -58,8 +58,10 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
     const groups = parseIngredientGroups(meal.ingredients!);
     for (const group of groups) {
       for (const alt of group) {
-        const key = findStockKey(stockMap, alt.name);
-        if (key) usedIngredientKeys.add(key);
+        for (const item of alt) {
+          const key = findStockKey(stockMap, item.name);
+          if (key) usedIngredientKeys.add(key);
+        }
       }
     }
   }

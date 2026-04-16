@@ -247,11 +247,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const groups = parseIngredientGroups(meal.ingredients!);
       for (const group of groups) {
         for (const alt of group) {
-          const key = findStockKey(stockMap, alt.name);
-          if (key !== null) {
-            const stock = stockMap.get(key)!;
-            if (stock.infinite || stock.grams > 0 || stock.count > 0) {
-              usedIngredientKeys.add(key);
+          for (const item of alt) {
+            const key = findStockKey(stockMap, item.name);
+            if (key !== null) {
+              const stock = stockMap.get(key)!;
+              if (stock.infinite || stock.grams > 0 || stock.count > 0) {
+                usedIngredientKeys.add(key);
+              }
             }
           }
         }
@@ -295,9 +297,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           const groups = parseIngredientGroups(meal.ingredients);
           for (const group of groups) {
             for (const alt of group) {
-              const altKey = findStockKey(stockMap, alt.name);
-              if (altKey && strictNameMatch(fiKey, altKey)) {
-                belongsToCategories.add(meal.category);
+              for (const item of alt) {
+                const altKey = findStockKey(stockMap, item.name);
+                if (altKey && strictNameMatch(fiKey, altKey)) {
+                  belongsToCategories.add(meal.category);
+                }
               }
             }
           }
@@ -638,27 +642,76 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const baseGrams = fi.quantity && fi.quantity > 1 && fi.grams
       ? `${parseQty(fi.grams) * fi.quantity}g`
       : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
-    // Mise à l'échelle des grammes et calories si le ratio != 1
+    const baseG = parseQty(baseGrams);
+    const hasCal = meal.calories && meal.calories !== "0";
+    const hasPro = meal.protein && meal.protein !== "0" && meal.protein !== "0%";
+    
+    let baseCal = hasCal ? parseFloat(meal.calories!.replace(",", ".")) : 0;
+    let basePro = hasPro ? parseFloat(meal.protein!.replace(",", ".")) : 0;
+
+    // Si le repas maître n'a pas de macros, on prend celles de l'aliment
+    if (!hasCal || !hasPro) {
+      if (!hasCal && fi.calories) {
+        const fiCal = parseFloat(fi.calories.replace(",", "."));
+        if (fi.grams) {
+          const totalG = getFoodItemTotalGrams(fi);
+          baseCal = (fiCal * totalG) / 100;
+        } else {
+          baseCal = fiCal * (fi.quantity ?? 1);
+        }
+      }
+      if (!hasPro && fi.protein) {
+        const fiPro = parseFloat(fi.protein.replace(",", "."));
+        if (fi.grams) {
+          const totalG = getFoodItemTotalGrams(fi);
+          basePro = (fiPro * totalG) / 100;
+        } else {
+          basePro = fiPro * (fi.quantity ?? 1);
+        }
+      }
+    }
+
+    // Mise à l'échelle des grammes et macros si le ratio != 1
     let displayGrams = baseGrams;
     let displayMeal = meal;
-    if (effectiveRatio !== 1 && fi.is_infinite) {
-      const baseG = parseQty(meal.grams);
+
+    if (effectiveRatio !== 1) {
       const scaledG = baseG > 0 ? Math.round(baseG * effectiveRatio) : 0;
-      const baseCal = parseFloat((meal.calories || "0").replace(/[^0-9.]/g, "").replace(",", ".")) || 0;
       const scaledCal = baseCal > 0 ? Math.round(baseCal * effectiveRatio) : 0;
-      const basePro = parseFloat((meal.protein || "0").replace(/[^0-9.]/g, "").replace(",", ".")) || 0;
       const scaledPro = basePro > 0 ? Math.round(basePro * effectiveRatio) : 0;
       displayGrams = scaledG > 0 ? `${scaledG}g` : baseGrams;
-      displayMeal = { ...meal, grams: displayGrams, calories: scaledCal > 0 ? String(scaledCal) : meal.calories, protein: scaledPro > 0 ? String(scaledPro) : meal.protein };
+      displayMeal = { 
+        ...meal, 
+        grams: displayGrams,
+        // On passe les ingrédients pour que getDisplayedCalories calcule tout seul depuis le stock
+        ingredients: meal.ingredients || (scaledG > 0 ? `${scaledG}g ${meal.name}` : null),
+        calories: scaledCal > 0 ? String(scaledCal) : (baseCal > 0 ? String(Math.round(baseCal)) : meal.calories), 
+        protein: scaledPro > 0 ? String(scaledPro) : (basePro > 0 ? String(Math.round(basePro)) : meal.protein) 
+      };
+    } else if (!hasCal || !hasPro) {
+      // Même sans changement de ratio, on assure l'affichage des macros calculées
+      displayMeal = {
+        ...meal,
+        ingredients: meal.ingredients || (baseG > 0 ? `${baseG}g ${meal.name}` : null),
+        calories: baseCal > 0 ? String(Math.round(baseCal)) : meal.calories,
+        protein: basePro > 0 ? String(Math.round(basePro)) : meal.protein
+      };
     }
+
     const expIsTodayNm = isToday(fi.expiration_date);
     const fakeMeal: Meal = { ...displayMeal, id: nmKey, grams: displayGrams };
     return (
       <div key={`nm-${idx}`} className="relative">
         <MealCard meal={fakeMeal} stockMap={stockMap}
-          onMoveToPossible={() => {
+          onMoveToPossible={async () => {
             const cr = customRatios[nmKey];
-            onMoveNameMatchToPossible(meal, fi, cr && cr !== 1 ? cr : undefined);
+            // On réinitialise AVANT pour un effet immédiat
+            setCustomRatios(prev => {
+              const next = { ...prev };
+              delete next[nmKey];
+              return next;
+            });
+            await onMoveNameMatchToPossible(meal, fi, cr && cr !== 1 ? cr : undefined);
           }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
@@ -668,38 +721,41 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           hideDelete expirationLabel={expLabel} expirationDate={fi.expiration_date} expirationIsToday={expIsTodayNm} 
           maxIngredientCounter={counterDays} earliestCounterDate={fi.counter_start_date} />
-        {fi.is_infinite ? (
-          editingRatioId === nmKey ? (
-            <div className="absolute top-1 right-2 z-20">
-              <Input autoFocus value={ratioInput}
-                onChange={(e) => setRatioInput(e.target.value)}
-                onBlur={() => commitRatio(nmKey, 99)}
-                onKeyDown={(e) => { if (e.key === "Enter") commitRatio(nmKey, 99); if (e.key === "Escape") setEditingRatioId(null); }}
-                placeholder="x2, x3..."
-                className="w-20 h-6 text-[10px] bg-black/80 text-white border-white/30 placeholder:text-white/40 px-1.5 rounded-full shadow-lg focus-visible:ring-1 focus-visible:ring-white/50"
-              />
-            </div>
-          ) : (
-            <div className="absolute top-1 right-2 z-10 flex items-center shadow flex-row-reverse">
+        {editingRatioId === nmKey ? (
+          <div className="absolute top-1 right-2 z-20">
+            <Input autoFocus value={ratioInput}
+              onChange={(e) => setRatioInput(e.target.value)}
+              onBlur={() => commitRatio(nmKey, 99)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitRatio(nmKey, 99); if (e.key === "Escape") setEditingRatioId(null); }}
+              placeholder="x2, x3..."
+              className="w-20 h-6 text-[10px] bg-black/80 text-white border-white/30 placeholder:text-white/40 px-1.5 rounded-full shadow-lg focus-visible:ring-1 focus-visible:ring-white/50"
+            />
+          </div>
+        ) : (
+          <div className={`absolute top-1 right-2 z-10 flex items-center shadow flex-row-reverse`}>
+            {fi.is_infinite ? (
               <button
                 onClick={() => { setEditingRatioId(nmKey); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
                 className={`text-white text-[10px] font-black px-1.5 py-0.5 transition-colors ${!customRatio ? 'bg-black/60 hover:bg-black/80 rounded-full' : 'bg-black/60 hover:bg-black/80 rounded-r-full pl-1'}`}
               >
                 <InfinityIcon className="inline h-[13px] w-[13px]" />
               </button>
-              {customRatio && (
-                <button
-                  onClick={() => { setEditingRatioId(nmKey); setRatioInput(formatRatioBadge(customRatio)); }}
-                  className="bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 hover:bg-orange-500/90 transition-colors rounded-l-full pr-1"
-                >
-                  {formatRatioBadge(customRatio)}
-                </button>
-              )}
-            </div>
-          )
-        ) : (
-          <div className="absolute top-1 right-2 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-            {portionsAvailable !== null ? `x${portionsAvailable}` : `x${fi.quantity ?? 1}`}
+            ) : (
+              <button
+                onClick={() => { setEditingRatioId(nmKey); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
+                className={`text-white text-[10px] font-black px-1.5 py-0.5 transition-colors bg-black/60 hover:bg-black/80 flex items-center gap-0.5 ${!customRatio ? 'rounded-full px-2' : 'rounded-r-full pl-1 pr-2'}`}
+              >
+                {portionsAvailable !== null ? `x${portionsAvailable}` : `x${fi.quantity ?? 1}`}
+              </button>
+            )}
+            {customRatio && (
+              <button
+                onClick={() => { setEditingRatioId(nmKey); setRatioInput(formatRatioBadge(customRatio)); }}
+                className="bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 hover:bg-orange-500/90 transition-colors rounded-l-full pr-1"
+              >
+                {formatRatioBadge(customRatio)}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -724,14 +780,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return (
       <div key={meal.id} className="relative">
         <MealCard meal={displayMeal} stockMap={stockMap}
-          onMoveToPossible={() => {
+          onMoveToPossible={async () => {
             const cr = customRatios[meal.id];
-            if (cr && cr !== 1) {
-              onMovePartialToPossible(meal, cr);
-            } else {
-              onMoveToPossible(meal.id);
-            }
             setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
+            if (cr && cr !== 1) {
+              await onMovePartialToPossible(meal, cr);
+            } else {
+              await onMoveToPossible(meal.id);
+            }
           }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
@@ -800,9 +856,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return (
       <div key={partialKey} className="relative">
         <MealCard meal={partialMeal} stockMap={stockMap}
-          onMoveToPossible={() => {
-            onMovePartialToPossible(meal, effectiveRatio);
+          onMoveToPossible={async () => {
             setCustomRatios(prev => { const next = { ...prev }; delete next[partialKey]; return next; });
+            await onMovePartialToPossible(meal, effectiveRatio);
           }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
