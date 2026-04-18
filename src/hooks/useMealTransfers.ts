@@ -251,32 +251,32 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 updatesById.set(fi.id, {
                   id: fi.id,
                   quantity: Math.max(1, fullUnits + 1),
-                grams: encodeStoredGrams(perUnit, remainder),
-                ...counterUpdate,
-              });
-            } else if (fullUnits > 0) {
-              // Unités complètes restantes → pas d'ouverture, reset du compteur
-              updatesById.set(fi.id, { id: fi.id, quantity: fullUnits, grams: formatNumeric(perUnit), ...(fi.counter_start_date ? { counter_start_date: null } : {}) });
-            } else {
-              if (fi.counter_start_date) {
-                updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
+                  grams: encodeStoredGrams(perUnit, remainder),
+                  ...counterUpdate,
+                });
+              } else if (fullUnits > 0) {
+                // Unités complètes restantes → pas d'ouverture, reset du compteur
+                updatesById.set(fi.id, { id: fi.id, quantity: fullUnits, grams: formatNumeric(perUnit), ...(fi.counter_start_date ? { counter_start_date: null } : {}) });
               } else {
-                updatesById.set(fi.id, { id: fi.id, delete: true });
+                if (fi.counter_start_date) {
+                  updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
+                } else {
+                  updatesById.set(fi.id, { id: fi.id, delete: true });
+                }
               }
+            } else {
+              // Item simple (sans multi-unités)
+              const isNewUnit = remaining > 0 && remaining < perUnit;
+              updatesById.set(fi.id, {
+                id: fi.id,
+                grams: formatNumeric(remaining),
+                ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) && isNewUnit ? { counter_start_date: effectiveCounterDate } : {})
+              });
             }
-          } else {
-            // Item simple (sans multi-unités)
-            const isNewUnit = remaining > 0 && remaining < perUnit;
-            updatesById.set(fi.id, {
-              id: fi.id,
-              grams: formatNumeric(remaining),
-              ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) && isNewUnit ? { counter_start_date: effectiveCounterDate } : {})
-            });
           }
         }
       }
     }
-  }
 
     // Appliquer toutes les mises à jour en parallèle
     await safeMutate("Déduction du stock", () =>
@@ -745,103 +745,98 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     allPossibleMeals: any[] = []
   ) => {
     if (!ingredients?.trim()) return;
-    if (dayOfWeek && !(mealTime || "").trim()) return;
-
     const groups = parseIngredientGroups(ingredients);
-    const allowOverwriteForFuturePlanning =
-      pmId != null &&
-      dayOfWeek != null &&
-      !!(mealTime || "").trim() &&
-      new Date(computePlannedCounterDate(dayOfWeek, mealTime)).getTime() > Date.now();
 
     for (const group of groups) {
-      if (group.every(alt => alt.every((item: any) => item.optional))) continue;
-      const bundle = group[0];
-      if (!bundle) continue;
+      if (group.every(alt => (alt as any).optional)) continue;
+      const alt = group[0];
+      if (!alt) continue;
 
-      for (const item of bundle) {
-        // Trouver les aliments en stock correspondant à cet ingrédient
-        const matchingItems = foodItems.filter(
-          fi => strictNameMatch(fi.name, item.name) && !fi.is_infinite && shouldStartCounter(fi) && fi.counter_start_date !== null
-        );
+      // Trouver les aliments en stock correspondant à cet ingrédient
+      // On ne met à jour le compteur QUE pour les cartes qui sont DÉJÀ ouvertes (counter_start_date n'est pas nul)
+      // Cela évite de lancer un compteur sur plusieurs emballages d'un même produit (par ex: 3 briques de lait)
+      const matchingItems = foodItems.filter(
+        fi => strictNameMatch(fi.name, alt.name) && !fi.is_infinite && shouldStartCounter(fi) && fi.counter_start_date !== null
+      );
 
-        for (const fi of matchingItems) {
-          // Trouver la date la plus ancienne parmi TOUS les repas planifiés utilisant cet ingrédient
-          let earliestDateStr: string | null = null;
-          let earliestDateMs = Infinity;
+      for (const fi of matchingItems) {
+        // Trouver la date la plus ancienne parmi TOUS les repas planifiés utilisant cet ingrédient
+        let earliestDateStr: string | null = null;
+        let earliestDateMs = Infinity;
 
-          // Inclure le repas en cours de mise à jour
-          if (pmId) {
-            const pmRow = allPossibleMeals.find((p: { id: string }) => p.id === pmId);
-            const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
-            const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
-            const nowMs = Date.now();
+        // Inclure le repas en cours de mise à jour
+        if (pmId) {
+          const pmRow = allPossibleMeals.find((p: { id: string }) => p.id === pmId);
+          const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
+          const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
 
-            if (targetDate && dayOfWeek) {
-              if (new Date(targetDate).getTime() > nowMs) {
-                earliestDateStr = targetDate;
-              } else if (fallbackDate && pmRow?.counter_start_date != null && new Date(fallbackDate) < new Date(targetDate)) {
-                earliestDateStr = fallbackDate;
-              } else {
-                earliestDateStr = targetDate;
-              }
+          if (targetDate && dayOfWeek) {
+            // Carte sans date de référence stockée = ingrédients entamés seulement par ce passage :
+            // le compteur suit la date/heure du repas planifié (mode Prog. côté stock).
+            // Si la carte a une date (ingrédient déjà ouvert avant), on garde l'ouverture la plus ancienne.
+            if (
+              fallbackDate &&
+              pmRow?.counter_start_date != null &&
+              new Date(fallbackDate) < new Date(targetDate)
+            ) {
+              earliestDateStr = fallbackDate;
             } else {
-              earliestDateStr = candidateDate;
+              earliestDateStr = targetDate;
             }
-            earliestDateMs = new Date(earliestDateStr).getTime();
+          } else {
+            earliestDateStr = candidateDate;
+          }
+          earliestDateMs = new Date(earliestDateStr).getTime();
+        }
+
+        let hasAnyMatchingMeal = pmId !== null;
+
+        // Parcourir tous les autres repas possibles
+        for (const pm of allPossibleMeals) {
+          if (pm.id === pmId) continue;
+          const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
+          if (!pmIngs?.trim()) continue;
+
+          // Vérification rapide par nom avant le parsing complet
+          if (!pmIngs.toLowerCase().includes(fi.name.toLowerCase())) continue;
+
+          const pmG = parseIngredientGroups(pmIngs);
+          const hasMatch = pmG.some(g => g.some(a => !a.optional && strictNameMatch(fi.name, a.name)));
+          if (!hasMatch) continue;
+
+          hasAnyMatchingMeal = true;
+          // De même ici : préférer pm.counter_start_date s'il est plus ancien que la date planifiée du repas
+          const targetDate = pm.day_of_week ? computePlannedCounterDate(pm.day_of_week, pm.meal_time) : null;
+          const fallback = pm.counter_start_date || (pm.created_at || new Date().toISOString());
+          let pmDate = targetDate ?? fallback;
+
+          if (pm.day_of_week && pm.counter_start_date && new Date(pm.counter_start_date) < new Date(pmDate)) {
+            pmDate = pm.counter_start_date;
           }
 
-          let hasAnyMatchingMeal = pmId !== null;
+          const pmMs = new Date(pmDate).getTime();
+          if (pmMs < earliestDateMs) {
+            earliestDateMs = pmMs;
+            earliestDateStr = pmDate;
+          }
+        }
 
-          // Parcourir tous les autres repas possibles
-          for (const pm of allPossibleMeals) {
-            if (pm.id === pmId) continue;
-            const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
-            if (!pmIngs?.trim()) continue;
-            if (!pmIngs.toLowerCase().includes(fi.name.toLowerCase())) continue;
-
-            const pmG = parseIngredientGroups(pmIngs);
-            const hasMatch = pmG.some(g => g.some(alt => alt.some(i => !i.optional && strictNameMatch(fi.name, i.name))));
-            if (!hasMatch) continue;
-
-            hasAnyMatchingMeal = true;
-            const targetDate = pm.day_of_week ? computePlannedCounterDate(pm.day_of_week, pm.meal_time) : null;
-            const fallback = pm.counter_start_date || (pm.created_at || new Date().toISOString());
-            let pmDate: string;
-            if (!targetDate) {
-              pmDate = fallback;
-            } else if (new Date(targetDate).getTime() > Date.now()) {
-              pmDate = targetDate;
-            } else {
-              pmDate = targetDate;
-              if (pm.counter_start_date && new Date(pm.counter_start_date) < new Date(pmDate)) {
-                pmDate = pm.counter_start_date;
-              }
-            }
-
-            const pmMs = new Date(pmDate).getTime();
-            if (pmMs < earliestDateMs) {
-              earliestDateMs = pmMs;
-              earliestDateStr = pmDate;
+        // Mettre à jour seulement si on a trouvé une date valide
+        if (hasAnyMatchingMeal && earliestDateStr) {
+          // Protéger les compteurs manuels (ouverts avant toute planification)
+          if (fi.counter_start_date) {
+            const fiStart = new Date(fi.counter_start_date).getTime();
+            const nowMs = new Date().getTime();
+            const isStartedBeforeNow = fiStart <= nowMs;
+            const isManualOrOld = isStartedBeforeNow && !allPossibleMeals.some(pm => pm.created_at && Math.abs(fiStart - new Date(pm.created_at).getTime()) < 60000);
+            if (isManualOrOld && (!pmId || (createdAt && Math.abs(fiStart - new Date(createdAt).getTime()) >= 60000))) {
+              continue; // Compteur manuel → ne pas écraser
             }
           }
 
-          // Mettre à jour seulement si on a trouvé une date valide
-          if (hasAnyMatchingMeal && earliestDateStr) {
-            if (fi.counter_start_date && !allowOverwriteForFuturePlanning) {
-              const fiStart = new Date(fi.counter_start_date).getTime();
-              const nowMs = new Date().getTime();
-              const isStartedBeforeNow = fiStart <= nowMs;
-              const isManualOrOld = isStartedBeforeNow && !allPossibleMeals.some(pm => pm.created_at && Math.abs(fiStart - new Date(pm.created_at).getTime()) < 60000);
-              if (isManualOrOld && (!pmId || (createdAt && Math.abs(fiStart - new Date(createdAt).getTime()) >= 60000))) {
-                continue; 
-              }
-            }
-
-            await safeMutate("Mise à jour compteur", () =>
-              supabase.from("food_items").update({ counter_start_date: earliestDateStr } as any).eq("id", fi.id)
-            );
-          }
+          await safeMutate("Mise à jour compteur", () =>
+            supabase.from("food_items").update({ counter_start_date: earliestDateStr } as any).eq("id", fi.id)
+          );
         }
       }
     }
@@ -856,3 +851,4 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     updateFoodItemCountersForPlanning,
   };
 }
+
