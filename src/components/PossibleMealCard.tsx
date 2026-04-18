@@ -469,10 +469,9 @@ export function PossibleMealCard({
           )}
           {/* le badge de ratio a été déplacé en haut à droite absolu */}
           {(() => {
-            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
             const isComputed = computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
-
             return displayCal ? (
               <button
                 onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}
@@ -484,7 +483,7 @@ export function PossibleMealCard({
             ) : null;
           })()}
           {(() => {
-            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb);
+            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined);
             const displayPro = rawDisplayPro ? Math.round(rawDisplayPro) : null;
             const isComputedPro = computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
             return displayPro && displayPro !== 0 ? (
@@ -551,15 +550,16 @@ export function PossibleMealCard({
         </div>
       </div>
 
+
       {/* Ligne 3 : ingrédients (cliquer pour éditer) — afficher si la base ou l'override a des ingrédients */}
       {!editing && !editingIngredients && displayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
           {renderIngredientDisplay(
-            displayIngredients, 
-            expiredIngredientNames, 
+            displayIngredients,
+            expiredIngredientNames,
             undefined, // missing
             undefined, // counter
-            expiringSoonIngredientNames, 
+            expiringSoonIngredientNames,
             stockMap
           )}
         </button>
@@ -647,8 +647,8 @@ function renderIngredientDisplay(
                   })}
                   {/* Trait de liaison (Bracket) pour les bundles */}
                   {isBundle && (
-                    <span 
-                      className="absolute right-0 top-[2px] bottom-[2px] w-[5px] border-r border-t border-b border-white/40 rounded-r-[3px]" 
+                    <span
+                      className="absolute right-0 top-[2px] bottom-[2px] w-[5px] border-r border-t border-b border-white/40 rounded-r-[3px]"
                       style={{ pointerEvents: 'none' }}
                     />
                   )}
