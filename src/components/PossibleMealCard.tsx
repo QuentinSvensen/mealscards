@@ -469,9 +469,10 @@ export function PossibleMealCard({
           )}
           {/* le badge de ratio a été déplacé en haut à droite absolu */}
           {(() => {
-            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined);
+            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
             const isComputed = computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
+
             return displayCal ? (
               <button
                 onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}
@@ -483,7 +484,7 @@ export function PossibleMealCard({
             ) : null;
           })()}
           {(() => {
-            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined);
+            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb);
             const displayPro = rawDisplayPro ? Math.round(rawDisplayPro) : null;
             const isComputedPro = computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
             return displayPro && displayPro !== 0 ? (
@@ -549,7 +550,6 @@ export function PossibleMealCard({
           </DropdownMenu>
         </div>
       </div>
-
 
       {/* Ligne 3 : ingrédients (cliquer pour éditer) — afficher si la base ou l'override a des ingrédients */}
       {!editing && !editingIngredients && displayIngredients && (
