@@ -504,11 +504,13 @@ const Index = () => {
 
     let snapshots: FoodItem[] = [];
     let nameMatch: FoodItem | undefined;
+    let oldestCounterFromDeduction: string | null = null;
 
     // 2. Déduire les ingrédients du stock UNIQUEMENT si ça ne vient pas de "Tous" (master)
     if (source !== "master") {
       const deductionResult = await deductIngredientsFromStock(meal, undefined);
       snapshots = deductionResult.snapshots;
+      oldestCounterFromDeduction = deductionResult.oldestCounter || null;
       nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
     }
@@ -522,10 +524,14 @@ const Index = () => {
     const prePro = getDisplayedProtein(meal, undefined, undefined, isAvailBefore);
 
     // 4. Carte « Possible » = copie logique avant déduction stock
+    const finalCounterDate = source === "master" 
+      ? null 
+      : (oldestCounterFromDeduction || anBefore.earliestCounterDate || null);
+
     const result = await moveToPossible.mutateAsync({
       mealId,
       expiration_date: anBefore.earliestExpiration,
-      counter_start_date: anBefore.earliestCounterDate || null
+      counter_start_date: finalCounterDate
     });
 
     if (result?.id) {
@@ -1146,13 +1152,24 @@ const Index = () => {
                               const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
                               const effectiveCounter = isOccupied ? null : counter;
                               updatePlanning.mutate({ id, day_of_week: day, meal_time: time, counter_start_date: effectiveCounter });
-                              const fallbackDate = effectiveCounter || pm.counter_start_date || null;
-                              const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-                              updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
+                              // N'appeler la mise à jour du compteur que si jour ET créneau sont définis.
+                              // Sinon le compteur serait programmé à 00h (sans heure de repas).
+                              // Le 2e appel (choix de l'heure) corrigera avec la bonne heure.
+                              if (day && time) {
+                                const fallbackDate = effectiveCounter || pm.counter_start_date || null;
+                                const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+                                updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
+                              }
                             }
                           }}
                           onUpdateCounter={(id, d) => updateCounter.mutate({ id, counter_start_date: d })}
-                          onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                          onUpdateCalories={(id, cal, pmId) => {
+                            updateCalories.mutate({ id, calories: cal });
+                            if (pmId) {
+                              const currentCals = getPreference<Record<string, string>>('planning_cal_overrides', {});
+                              setPreference.mutate({ key: 'planning_cal_overrides', value: { ...currentCals, [pmId]: cal || "0" } });
+                            }
+                          }}
                           onUpdateGrams={async (id, g, pmId) => {
                             const pm = pmId ? possibleMeals.find(p => p.id === pmId) : possibleMeals.find(p => p.meal_id === id);
                             if (pm && unParUnSourcePmIds.has(pm.id)) {
@@ -1235,6 +1252,14 @@ const Index = () => {
                               finalIngredients = sourceIngredients;
                             }
                             updatePossibleIngredients.mutate({ id: pmId, ingredients_override: finalIngredients });
+                            
+                            // Réinitialiser les surcharges manuelles pour que le planning recalcule les macros automatiquement
+                            const currentCals = getPreference<Record<string, string>>('planning_cal_overrides', {});
+                            const { [pmId]: _, ...newCals } = currentCals;
+                            setPreference.mutate({ key: 'planning_cal_overrides', value: newCals });
+                            const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
+                            const { [pmId]: __, ...newPros } = currentPros;
+                            setPreference.mutate({ key: 'planning_pro_overrides', value: newPros });
                           }}
                           onUpdateQuantity={async (id, qty) => {
                             if (unParUnSourcePmIds.has(id)) {

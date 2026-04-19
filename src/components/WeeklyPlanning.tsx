@@ -801,6 +801,7 @@ export function WeeklyPlanning({
     const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
     const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
     const bCO = isNF ? (backupRaw.calOverrides || {}) : {};
+    const bPO = isNF ? (backupRaw.proOverrides || {}) : {};
 
     // Objectifs tels qu’au moment de la sauvegarde (ne pas utiliser les objectifs courants / semaine suivante)
     const archivedDailyGoal =
@@ -1712,15 +1713,6 @@ export function WeeklyPlanning({
                               else if (updated[`${key}-${time}`]) delete updated[`${key}-${time}`];
                               else updated[`${iso}-${time}`] = true;
                               setPreference.mutate({ key: 'planning_drink_checks', value: updated });
-                              if (weekOffset === 0) {
-                                const kKeySlot = `${key}-${time}`;
-                                const kIsoSlot = `${iso}-${time}`;
-                                const nxtDrk = { ...nextDrinkChecks };
-                                const on = updated[`${iso}-${time}`] || updated[`${key}-${time}`];
-                                if (on) { nxtDrk[kKeySlot] = true; nxtDrk[kIsoSlot] = true; }
-                                else { delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot]; }
-                                setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
-                              }
                             }}
                             className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]
                               ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold'
@@ -2756,10 +2748,10 @@ export function WeeklyPlanning({
                     {!hasNextBf && (
                       <>
                         <PlanningInput storageKey={`next-bf-cal-${iso}`} currentValue={nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? baseBfManualCal}
-                          onSave={(val) => { const u = { ...nextBreakfastManualCalories }; if (val > 0) u[iso] = val; else { delete u[iso]; delete u[key]; } setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: u }); }}
+                          onSave={(val) => { const u = { ...nextBreakfastManualCalories }; u[iso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: u }); }}
                           placeholder="kcal" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40" />
                         <PlanningInput storageKey={`next-bf-prot-${iso}`} currentValue={nextBreakfastManualProteins[iso] ?? nextBreakfastManualProteins[key] ?? baseBfManualPro}
-                          onSave={(val) => { const u = { ...nextBreakfastManualProteins }; if (val > 0) u[iso] = val; else { delete u[iso]; delete u[key]; } setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: u }); }}
+                          onSave={(val) => { const u = { ...nextBreakfastManualProteins }; u[iso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: u }); }}
                           placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40" />
                       </>
                     )}
@@ -2814,10 +2806,10 @@ export function WeeklyPlanning({
                           {getMealsForSlot(key, time, iso).map((pm) => renderMiniCard(pm, false))}
                           <div className="flex flex-col items-start gap-0.5">
                             <PlanningInput storageKey={`next-mc-${iso}-${time}`} currentValue={nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.cal ?? 0}
-                              onSave={(val) => { const u = { ...nextManualCalories }; if (val > 0) u[kIso] = val; else { delete u[kIso]; delete u[kKey]; } setPreference.mutate({ key: 'next_week_manual_calories', value: u }); }}
+                              onSave={(val) => { const u = { ...nextManualCalories }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_calories', value: u }); }}
                               placeholder="kcal" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center" />
                             <PlanningInput storageKey={`next-mp-${iso}-${time}`} currentValue={nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.prot ?? 0}
-                              onSave={(val) => { const u = { ...nextManualProteins }; if (val > 0) u[kIso] = val; else { delete u[kIso]; delete u[kKey]; } setPreference.mutate({ key: 'next_week_manual_proteins', value: u }); }}
+                              onSave={(val) => { const u = { ...nextManualProteins }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_proteins', value: u }); }}
                               placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
                           </div>
                         </div>
@@ -2830,11 +2822,11 @@ export function WeeklyPlanning({
                     <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                       <PlanningInput storageKey={`next-ec-${iso}`}
                         currentValue={(() => { const m = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); })()}
-                        onSave={(val) => { const ids = effExtraSel; const sel = ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; if (m > 0) u[iso] = m; else { delete u[iso]; delete u[key]; } setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
+                        onSave={(val) => { const ids = effExtraSel; const sel = ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; u[iso] = m; setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
                         placeholder="kcal" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center" />
                       <PlanningInput storageKey={`next-ep-${iso}`}
                         currentValue={(() => { const m = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0); })()}
-                        onSave={(val) => { const ids = effExtraSel; const sel = ids.reduce((s, id) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0); const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; if (m > 0) u[iso] = m; else { delete u[iso]; delete u[key]; } setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
+                        onSave={(val) => { const ids = effExtraSel; const sel = ids.reduce((s, id) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0); const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; u[iso] = m; setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
                         placeholder="prot" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
                       <div className="flex items-center gap-1 mt-1">
                         <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => setOpenExtrasDay(open ? `next-${iso}` : null)}>

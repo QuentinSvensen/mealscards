@@ -505,7 +505,7 @@ export function getDisplayedCalories(meal: { calories?: string | null; ingredien
   const scaledBaseCal = (baseCal !== null && ratio) ? baseCal * ratio : baseCal;
 
   const ingredients = ingredientsOverride ?? meal.ingredients;
-  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable, ratio);
+  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable);
 
   // Mode additif : override d'ingrédients + repas de base sans ingrédients mais avec macros
   if (ingredientsOverride && !meal.ingredients && baseCal !== null) {
@@ -522,7 +522,7 @@ export function getDisplayedProtein(meal: { protein?: string | null; ingredients
   const scaledBasePro = (basePro !== null && ratio) ? basePro * ratio : basePro;
 
   const ingredients = ingredientsOverride ?? meal.ingredients;
-  const ingPro = computeIngredientProtein(ingredients ?? null, isAvailable, ratio);
+  const ingPro = computeIngredientProtein(ingredients ?? null, isAvailable);
 
   if (ingredientsOverride && !meal.ingredients && basePro !== null) {
     const total = (scaledBasePro || 0) + (ingPro || 0);

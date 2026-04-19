@@ -605,12 +605,27 @@ function renderIngredientDisplay(
   if (currentAlt.length > 0) currentGroup.push(currentAlt);
   if (currentGroup.length > 0) resGroups.push(currentGroup);
 
+  // Nettoyer les négatifs de la structure pour éviter les puces (•) ou "ou" orphelins
+  const cleanGroups = resGroups
+    .map(group => 
+      group
+        .map(alt => alt.filter(item => {
+          const norm = normalizeKey(item.name);
+          return norm !== 'négatif' && norm !== 'negatif';
+        }))
+        .filter(alt => alt.length > 0)
+    )
+    .filter(group => group.length > 0);
+
+  if (cleanGroups.length === 0) return null;
+
   return (
     <span className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-      {resGroups.map((group, gi) => (
+      {cleanGroups.map((group, gi) => (
         <span key={gi} className="flex items-center gap-1 flex-wrap">
           {group.map((alt, ai) => {
             const isBundle = alt.length > 1;
+
             // Un bundle est disponible si TOUS ses éléments le sont
             const altIsAvailable = !stockMap ? true : alt.every(item => {
               const k = findStockKey(stockMap, item.name);
@@ -621,7 +636,8 @@ function renderIngredientDisplay(
             return (
               <React.Fragment key={ai}>
                 {ai > 0 && <span className="text-yellow-300/70 text-[9px] font-bold">ou</span>}
-                <span className={`relative flex flex-col ${isBundle ? 'pr-2' : ''}`}>
+                <span className="flex items-center flex-wrap gap-1">
+                  {isBundle && <span className="text-white/40 font-light">(</span>}
                   {alt.map((item, ii) => {
                     const norm = normalizeKey(item.name);
                     const isExpired = expiredIngredientNames?.has(norm);
@@ -639,24 +655,25 @@ function renderIngredientDisplay(
                     const qtyDisp = [formatQtyDisplay(item.qty), item.count].filter(Boolean).join(" ");
                     const textDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
 
-                    return (
-                      <span key={ii} className={`${cls} leading-tight whitespace-nowrap`}>
+                    const itemNode = (
+                      <span className={`${cls} leading-tight whitespace-nowrap`}>
                         {isOpt ? '?' : ''}{textDisplay}
                       </span>
                     );
+
+                    return (
+                      <React.Fragment key={`bundle-${ii}`}>
+                        {ii > 0 && <span className="text-white/40 font-light">+</span>}
+                        {itemNode}
+                      </React.Fragment>
+                    );
                   })}
-                  {/* Trait de liaison (Bracket) pour les bundles */}
-                  {isBundle && (
-                    <span
-                      className="absolute right-0 top-[2px] bottom-[2px] w-[5px] border-r border-t border-b border-white/40 rounded-r-[3px]"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  )}
+                  {isBundle && <span className="text-white/40 font-light">)</span>}
                 </span>
               </React.Fragment>
             );
           })}
-          {gi < resGroups.length - 1 && <span className="text-white/30 ml-1">•</span>}
+          {gi < cleanGroups.length - 1 && <span className="text-white/30 ml-1">•</span>}
         </span>
       ))}
     </span>

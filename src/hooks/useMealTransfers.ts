@@ -748,9 +748,16 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const groups = parseIngredientGroups(ingredients);
 
     for (const group of groups) {
-      if (group.every(alt => (alt as any).optional)) continue;
-      const alt = group[0];
-      if (!alt) continue;
+      // group est ParsedIngredient[][][] : group[i] = alternative (bundle), group[i][j] = item
+      // Ignorer si la première alternative est entièrement optionnelle
+      if (group.every(altBundle => altBundle.every(item => item.optional))) continue;
+      // On prend la première alternative puis on itère sur ses items de bundle
+      const firstAltBundle = group[0];
+      if (!firstAltBundle || firstAltBundle.length === 0) continue;
+
+      // Itérer sur chaque item du bundle pour trouver les aliments correspondants
+      for (const alt of firstAltBundle) {
+        if (alt.optional || !alt.name) continue;
 
       // Trouver les aliments en stock correspondant à cet ingrédient
       // On ne met à jour le compteur QUE pour les cartes qui sont DÉJÀ ouvertes (counter_start_date n'est pas nul)
@@ -771,16 +778,20 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
 
           if (targetDate && dayOfWeek) {
-            // Carte sans date de référence stockée = ingrédients entamés seulement par ce passage :
-            // le compteur suit la date/heure du repas planifié (mode Prog. côté stock).
-            // Si la carte a une date (ingrédient déjà ouvert avant), on garde l'ouverture la plus ancienne.
-            if (
+            // N'utiliser fallbackDate que si l'ingrédient était RÉELLEMENT ouvert avant le déplacement
+            // de la carte (i.e. > 60s avant created_at de la carte).
+            // Si la carte vient juste d'être créée (contador set par le déplacement = "maintenant"),
+            // on utilise la date planifiée → mode Prog.
+            const wasOpenedBeforeMove =
               fallbackDate &&
-              pmRow?.counter_start_date != null &&
-              new Date(fallbackDate) < new Date(targetDate)
-            ) {
-              earliestDateStr = fallbackDate;
+              pmRow?.created_at &&
+              new Date(fallbackDate).getTime() < new Date(pmRow.created_at).getTime() - 60000;
+
+            if (wasOpenedBeforeMove) {
+              // L'aliment était ouvert avant ce repas → garder la date réelle d'ouverture
+              earliestDateStr = fallbackDate!;
             } else {
+              // Aliment pas encore entamé ou entamé par ce déplacement → date planifiée (Prog.)
               earliestDateStr = targetDate;
             }
           } else {
@@ -801,7 +812,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (!pmIngs.toLowerCase().includes(fi.name.toLowerCase())) continue;
 
           const pmG = parseIngredientGroups(pmIngs);
-          const hasMatch = pmG.some(g => g.some(a => !a.optional && strictNameMatch(fi.name, a.name)));
+          // Structure 3D : g = alternative (ParsedIngredient[]), a = bundle item (ParsedIngredient)
+          const hasMatch = pmG.some(g => g.some(altBundle => altBundle.some(item => !item.optional && strictNameMatch(fi.name, item.name))));
           if (!hasMatch) continue;
 
           hasAnyMatchingMeal = true;
@@ -823,8 +835,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
         // Mettre à jour seulement si on a trouvé une date valide
         if (hasAnyMatchingMeal && earliestDateStr) {
+          // Si la date cible est dans le FUTUR (repas planifié à venir), on met toujours à jour le compteur.
+          // Un aliment planifié pour demain ne peut pas être "déjà ouvert" → on écrase l'ancien compteur stale.
+          const isSettingFutureDate = new Date(earliestDateStr).getTime() > new Date().getTime();
+
           // Protéger les compteurs manuels (ouverts avant toute planification)
-          if (fi.counter_start_date) {
+          // SAUF si on programme explicitement pour le futur (dans ce cas le compteur stale doit être écrasé)
+          if (!isSettingFutureDate && fi.counter_start_date) {
             const fiStart = new Date(fi.counter_start_date).getTime();
             const nowMs = new Date().getTime();
             const isStartedBeforeNow = fiStart <= nowMs;
@@ -839,6 +856,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           );
         }
       }
+      } // fin boucle bundle items
     }
     invalidateStock();
   };

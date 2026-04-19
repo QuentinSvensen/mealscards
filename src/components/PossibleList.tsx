@@ -136,7 +136,7 @@ interface PossibleListProps {
   onUpdateExpiration: (id: string, d: string | null) => void;
   onUpdatePlanning: (id: string, day: string | null, time: string | null, counter_start_date?: string | null) => void;
   onUpdateCounter: (id: string, d: string | null) => void;
-  onUpdateCalories: (id: string, cal: string | null) => void;
+  onUpdateCalories: (id: string, cal: string | null, pmId?: string) => void;
   onUpdateGrams: (id: string, g: string | null, pmId?: string) => void;
   onUpdateIngredients: (id: string, ing: string | null) => void;
   onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;
@@ -219,7 +219,7 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
                 onUpdatePlanning={(day, time) => onUpdatePlanning(pm.id, day, time, analysis.earliestCounterDate)}
                 onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
-                onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal)}
+                onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal, pm.id)}
                 onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g, pm.id)}
                 onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
                 onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
@@ -240,7 +240,11 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 realtimeCounterStartDate={
                   (masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id))
                     ? undefined
-                    : (pm.counter_start_date != null ? analysis.earliestCounterDate : undefined)
+                    // Priorité absolue à la date du stock (mise à jour par updateFoodItemCountersForPlanning).
+                    // Si analysis.earliestCounterDate est dans le futur (après planification), cela retournera
+                    // null dans getAdaptedCounterDays → affiche "Prog." correctement.
+                    // On passe la valeur dès qu'on a une date stock OU une date carte.
+                    : (analysis.earliestCounterDate ?? pm.counter_start_date ?? undefined)
                 } />
 
               {showBottomSeparator && (
