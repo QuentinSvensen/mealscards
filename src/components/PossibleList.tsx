@@ -9,7 +9,7 @@
  *
  * Le popup de détails (double-clic) affiche les macros, ingrédients, cuisson, compteur.
  *
- * renderIngredientDisplayPossible() : affiche les ingrédients avec barré pour les indisponibles
+ * Popup détails : mêmes ingrédients structurés que partout ailleurs (StructuredIngredientInline).
  */
 import React, { useMemo, useState } from "react";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, CalendarClock, Flame, Weight, Timer, Thermometer } from "lucide-react";
@@ -18,13 +18,14 @@ import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
-import { computeIngredientCalories, computeIngredientProtein, cleanIngredientText, getMealColor, normalizeKey, hasNegativeMetric } from "@/lib/ingredientUtils";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, findStockKey, buildFoodItemIndex } from "@/lib/stockUtils";
+import { computeIngredientCalories, computeIngredientProtein, getMealColor } from "@/lib/ingredientUtils";
+import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
-import { getAdaptedCounterDays } from "@/lib/ingredientUtils";
+import { getAdaptedCounterDays, getCounterDaysBadgeTooltip } from "@/lib/ingredientUtils";
 import { fr } from "date-fns/locale";
 
 const DAY_LABELS_FULL: Record<string, string> = {
@@ -45,68 +46,12 @@ function getCategoryEmoji(cat?: string) {
   return "🍴";
 }
 
-/** Affiche les ingrédients sous forme de nœuds React (alternatives, optionnel, disponibilité stock). */
-function renderIngredientDisplayPossible(
-  ingredients: string,
-  stockMap?: Map<string, StockInfo>,
-  noStrikeThrough?: boolean,
-) {
-  const rawGroups = ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  const filteredRaw = rawGroups.filter(g => !g.split(/\|/).some(alt => hasNegativeMetric(alt.trim())));
-  const cleaned = cleanIngredientText(filteredRaw.join(", "));
-  const groups = cleaned.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  const elements: React.ReactNode[] = [];
-
-  const isAvailable = (name: string) => {
-    if (!stockMap) return false;
-    const stripped = name.replace(/^\d+(?:[.,]\d+)?(?:g|ml|kg|cl|l|x| unit)?\s+/i, "").trim();
-    if (!stripped) return false;
-    const stockKey = findStockKey(stockMap, stripped);
-    if (!stockKey) return false;
-    const stock = stockMap.get(stockKey);
-    if (!stock) return false;
-    return stock.infinite || stock.grams > 0 || stock.count > 0;
-  };
-
-  groups.forEach((group, gi) => {
-    const isOpt = group.startsWith("?");
-    const display = isOpt ? group.slice(1).trim() : group;
-
-    const alternatives = display.split(/\s*\|\s*/);
-    if (alternatives.length > 1 && stockMap) {
-      const altElements = alternatives.map((alt, ai) => {
-        const available = isAvailable(alt);
-        return (
-          <span key={ai} className={available ? '' : (noStrikeThrough ? 'opacity-40' : 'line-through opacity-40')}>
-            {alt}{ai < alternatives.length - 1 ? <span className="opacity-60"> ou </span> : ''}
-          </span>
-        );
-      });
-      elements.push(
-        <span key={gi}>
-          {isOpt ? '?' : ''}{altElements}{gi < groups.length - 1 ? ' •' : ''}
-        </span>
-      );
-      return;
-    }
-
-    const cls = isOpt ? 'italic text-white/40' : '';
-
-    elements.push(
-      <span key={gi} className={cls}>
-        {isOpt ? '?' : ''}{display}{gi < groups.length - 1 ? ' •' : ''}
-      </span>
-    );
-  });
-
-  return elements;
-}
-
 const MemoizedPossibleMealCard = React.memo(
   PossibleMealCard,
   (prevProps: any, nextProps: any) => {
     return (
       prevProps.pm === nextProps.pm &&
+      prevProps.realtimeCounterStartDate === nextProps.realtimeCounterStartDate &&
       prevProps.isHighlighted === nextProps.isHighlighted &&
       prevProps.stockMap === nextProps.stockMap &&
       prevProps.onReturnWithoutDeductionLabel === nextProps.onReturnWithoutDeductionLabel &&
@@ -149,10 +94,14 @@ interface PossibleListProps {
   onAddDirectly: () => void;
   masterSourcePmIds: Set<string>;
   unParUnSourcePmIds: Set<string>;
+  /** Toutes les cartes possibles, toutes catégories (utilisé pour la priorité du badge compteur). */
+  allPossibleMeals?: PossibleMeal[];
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
-export function PossibleList({ category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds }: PossibleListProps) {
+export function PossibleList({ category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals }: PossibleListProps) {
+  /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
+  const badgeSiblings = allPossibleMeals ?? items;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
 
@@ -188,6 +137,17 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
           if (!meal || !analysis) return null;
           const expiredIngs = analysis.expiredIngredientNames;
           const soonIngs = analysis.expiringSoonIngredientNames;
+          const resolvedCounterStart =
+            masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id)
+              ? null
+              : resolveCounterStartForPossibleBadge(
+                  pm,
+                  badgeSiblings,
+                  analysis.earliestCounterDate,
+                  pm.counter_start_date ?? undefined,
+                  foodItems,
+                  foodItemIndex,
+                );
 
           const isTodayPM = pm.day_of_week === todayISO;
           const isPrevToday = index > 0 && displayItemsWithAnalysis[index - 1].pm.day_of_week === todayISO;
@@ -217,7 +177,14 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 onDelete={() => onDelete(pm.id)}
                 onDuplicate={() => onDuplicate(pm.id)}
                 onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
-                onUpdatePlanning={(day, time) => onUpdatePlanning(pm.id, day, time, analysis.earliestCounterDate)}
+                onUpdatePlanning={(day, time) =>
+                  // Propager la date déjà résolue pour la carte afin d'éviter de réinjecter l'ancien compteur stock.
+                  onUpdatePlanning(
+                    pm.id,
+                    day,
+                    time,
+                    resolvedCounterStart ?? pm.counter_start_date ?? analysis.earliestCounterDate,
+                  )}
                 onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
                 onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal, pm.id)}
                 onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g, pm.id)}
@@ -238,13 +205,9 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 onDoubleClick={() => setPopupPm(pm)}
                 isHighlighted={highlightedId === pm.id}
                 realtimeCounterStartDate={
-                  (masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id))
+                  resolvedCounterStart === null
                     ? undefined
-                    // Priorité absolue à la date du stock (mise à jour par updateFoodItemCountersForPlanning).
-                    // Si analysis.earliestCounterDate est dans le futur (après planification), cela retournera
-                    // null dans getAdaptedCounterDays → affiche "Prog." correctement.
-                    // On passe la valeur dès qu'on a une date stock OU une date carte.
-                    : (analysis.earliestCounterDate ?? pm.counter_start_date ?? undefined)
+                    : (resolvedCounterStart ?? analysis.earliestCounterDate ?? pm.counter_start_date ?? undefined)
                 } />
 
               {showBottomSeparator && (
@@ -268,8 +231,23 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
             const displayPro = ingPro !== null ? String(ingPro) : meal.protein;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
-            const effectiveStart = analysis.earliestCounterDate || popupPm.counter_start_date;
+            const effectiveStart =
+              resolveCounterStartForPossibleBadge(
+                popupPm,
+                badgeSiblings,
+                analysis.earliestCounterDate,
+                popupPm.counter_start_date ?? undefined,
+                foodItems,
+                foodItemIndex,
+              ) ??
+              analysis.earliestCounterDate ??
+              popupPm.counter_start_date ??
+              null;
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
+            const counterBadgeTitle =
+              counterDays !== null && effectiveStart
+                ? getCounterDaysBadgeTooltip(effectiveStart, popupPm.day_of_week, popupPm.meal_time, counterDays)
+                : undefined;
 
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
 
@@ -293,7 +271,7 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                     </span>
                   )}
                   {counterDays !== null && (
-                    <span className={`text-sm font-bold px-2.5 py-1 rounded-full flex items-center gap-1 ${counterDays >= 3 ? 'bg-red-600' : 'bg-black/40'}`} title="Jours depuis ouverture/achat">
+                    <span className={`text-sm font-bold px-2.5 py-1 rounded-full flex items-center gap-1 ${counterDays >= 3 ? 'bg-red-600' : 'bg-black/40'}`} title={counterBadgeTitle}>
                       <Timer className="h-3.5 w-3.5" /> {counterDays}j
                     </span>
                   )}
@@ -306,10 +284,12 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 {displayIngredients && (
                   <div className="bg-black/20 rounded-xl p-3 mt-1">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide">Ingrédients</p>
-                    <div className="text-sm text-white/90 space-y-0.5">
-                      {renderIngredientDisplayPossible(displayIngredients, stockMap, true).map((el, i) => (
-                        <p key={i}>{el}</p>
-                      ))}
+                    <div className="text-sm text-white/90">
+                      <StructuredIngredientInline
+                        ingredients={displayIngredients}
+                        stockMap={stockMap}
+                        softUnavailableStyle
+                      />
                     </div>
                   </div>
                 )}

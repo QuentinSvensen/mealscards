@@ -481,10 +481,15 @@ export function useMeals(options?: { enabled?: boolean }) {
       const pm = possibleMeals.find(p => p.id === id);
       const existing = pm?.counter_start_date;
 
-      // Planification : priorité au calcul live (forcedCounter / stock), sinon valeur en base.
-      // forcedCounter explicite null avec ?? préserve l'existant (cartes occupées master/un par un).
+      // Créneau complet (jour + matin/midi/soir) : `forcedCounter === undefined` signifie « ne pas
+      // recopier l’earliest du stock sur la ligne possible_meals » — la date est portée par food_items
+      // et recalculée via updateFoodItemCountersForPlanning (min de tous les repas utilisant l’ingrédient).
+      // `forcedCounter === null` conserve l’ancien comportement (cartes occupées : null ?? existing).
+      const fullPlanningSlot = Boolean(day_of_week && meal_time);
+      const omitCardCounterStart = fullPlanningSlot && forcedCounter === undefined;
+
       let counter_start_date = day_of_week
-        ? (forcedCounter ?? existing)
+        ? (omitCardCounterStart ? null : (forcedCounter ?? existing))
         : (existing !== undefined && existing !== null ? existing : forcedCounter);
       
       if (day_of_week) {
@@ -509,8 +514,11 @@ export function useMeals(options?: { enabled?: boolean }) {
       const pm = prev?.find(p => p.id === id);
       const existing = pm?.counter_start_date;
 
+      const fullPlanningSlot = Boolean(day_of_week && meal_time);
+      const omitCardCounterStart = fullPlanningSlot && forcedCounter === undefined;
+
       let counter_start_date = day_of_week
-        ? (forcedCounter ?? existing)
+        ? (omitCardCounterStart ? null : (forcedCounter ?? existing))
         : (existing !== undefined && existing !== null ? existing : forcedCounter ?? null);
       if (day_of_week) {
         // aligné mutationFn
@@ -643,10 +651,8 @@ export function useMeals(options?: { enabled?: boolean }) {
       const getStableCounter = (pm: PossibleMeal) => {
         if (!pm.counter_start_date) return null;
         const start = parseISO(pm.counter_start_date);
-        
-        // Correspond à la logique dans ingredientUtils.getAdaptedCounterDays
+        // Tri : inchangé — pas d’estimation « X j » pour une ouverture future (réservé à l’affichage carte).
         if (start.getTime() > fixedNow.getTime()) return null;
-        
         const target = getTargetDate(pm.day_of_week, fixedNow, pm.counter_start_date, pm.meal_time);
         const diffMs = target.getTime() - start.getTime();
         const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));

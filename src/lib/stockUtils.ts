@@ -21,6 +21,7 @@ import {
   extractMetrics, computeIngredientCalories, computeIngredientProtein,
   extractIngredientMacros, applyIngredientMacros,
   computeCounterDays,
+  getTargetDate,
   type ParsedIngredient,
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
@@ -408,6 +409,184 @@ export function analyzeMealIngredients(
 
   if (earliestSoonName) result.expiringSoonIngredientNames.add(earliestSoonName);
   return result;
+}
+
+/**
+ * Extrait les clés normalisées des ingrédients du repas qui matchent du stock pouvant porter un compteur.
+ * Sert à détecter le partage d’un même lot entre plusieurs cartes « possibles ».
+ */
+/**
+ * Extrait les clés normalisées des ingrédients non optionnels d’une recette qui ont un équivalent
+ * en food_items (peu importe `no_counter`/`surgele`). Sert à détecter le partage de lot entre deux repas.
+ */
+function counterableIngredientKeysFromRecipe(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+): Set<string> {
+  const keys = new Set<string>();
+  if (!ingredients?.trim()) return keys;
+  const groups = parseIngredientGroups(ingredients);
+  for (const group of groups) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const bundle = group[0];
+    if (!bundle) continue;
+    for (const item of bundle) {
+      if (item.optional || !item.name) continue;
+      if (lookupFoodItems(item.name, foodItems, index).length > 0) {
+        keys.add(normalizeKey(item.name));
+      }
+    }
+  }
+  return keys;
+}
+
+/**
+ * Type allégé d’un repas possible utilisé par la résolution du badge compteur (toutes catégories confondues).
+ */
+type PossibleMealForBadge = {
+  id: string;
+  day_of_week: string | null;
+  meal_time: string | null;
+  ingredients_override?: string | null;
+  counter_start_date?: string | null;
+  created_at?: string | null;
+  meals?: { ingredients?: string | null } | null;
+};
+
+/**
+ * Ajuste la date de départ utilisée pour le badge compteur sur une carte « possible ».
+ *
+ * Règle : une carte est considérée **la première** à ouvrir l’ingrédient compteur partagé tant qu’aucun
+ * autre repas possible (toutes catégories confondues) qui consomme le même lot n’est planifié **avant** elle.
+ * Les siblings non planifiés sont ignorés (ils seront consommés après / ne passent pas devant la planification).
+ *
+ * Si cette carte est « la première » et que la date de départ du stock est antérieure au créneau planifié,
+ * on aligne l’affichage sur le créneau planifié (mode prog.) — évite un badge « Xj » trompeur quand les tenders
+ * portent une date résiduelle d’une opération précédente.
+ */
+export function resolveCounterStartForPossibleBadge(
+  pm: PossibleMealForBadge,
+  siblingPossibleMeals: PossibleMealForBadge[],
+  earliestFromAnalysis: string | null | undefined,
+  cardCounterFallback: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+): string | undefined {
+  const now = fixedNow ?? new Date();
+  const currentIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
+  const mine = counterableIngredientKeysFromRecipe(currentIngredients, foodItems, index);
+
+  let base =
+    (earliestFromAnalysis && earliestFromAnalysis.trim()) ||
+    (cardCounterFallback && cardCounterFallback.trim()) ||
+    undefined;
+
+  // Si on n'a pas de base côté stock/carte, mais qu'un sibling non planifié partage un ingrédient
+  // de la recette, il est en consommation immédiate : on hérite de SA date pour refléter que l'ingrédient
+  // est bel et bien entamé (via le sibling) même si le food_item reste « vierge » en stock.
+  if (!base && mine.size > 0) {
+    for (const o of siblingPossibleMeals) {
+      if (o.id === pm.id) continue;
+      if (o.day_of_week && o.meal_time?.trim()) continue;
+      const oIng = o.ingredients_override ?? o.meals?.ingredients;
+      if (!oIng?.trim()) continue;
+      const theirs = counterableIngredientKeysFromRecipe(oIng, foodItems, index);
+      let shares = false;
+      for (const k of mine) { if (theirs.has(k)) { shares = true; break; } }
+      if (!shares) continue;
+      const inherited = (o.counter_start_date && o.counter_start_date.trim()) || (o.created_at && o.created_at.trim());
+      if (inherited) { base = inherited; break; }
+    }
+  }
+
+  if (!base) return undefined;
+
+  if (!pm.day_of_week || !pm.meal_time?.trim()) return base;
+
+  const plannedSlot = getTargetDate(pm.day_of_week, now, null, pm.meal_time);
+  if (plannedSlot.getTime() <= now.getTime()) return base;
+
+  // Identifier précisément le(s) ingrédient(s) responsable(s) de la date `base`.
+  // Seuls les siblings qui partagent CE(S) ingrédient(s) peuvent « bloquer » la carte en mode compteur.
+  const criticalKeys = findCriticalCounterKeys(currentIngredients, foodItems, base, index);
+  // Si on n'a identifié aucune clé critique (ex. base venant d'un cardCounterFallback orphelin,
+  // ou hérité d'un sibling non planifié), on retombe sur toutes les clés compteurs de la recette.
+  const checkKeys = criticalKeys.size > 0 ? criticalKeys : mine;
+
+  let hasEarlierConsumingSibling = false;
+  for (const o of siblingPossibleMeals) {
+    if (o.id === pm.id) continue;
+    const oIng = o.ingredients_override ?? o.meals?.ingredients;
+    if (!oIng?.trim()) continue;
+    const theirs = counterableIngredientKeysFromRecipe(oIng, foodItems, index);
+    let sharesCriticalIngredient = false;
+    for (const k of checkKeys) {
+      if (theirs.has(k)) { sharesCriticalIngredient = true; break; }
+    }
+    if (!sharesCriticalIngredient) continue;
+
+    // Sibling non planifié qui partage l'ingrédient critique = consommation immédiate
+    // (ex. carte « Mini rosti + Tenders » sans créneau → tenders entamés maintenant).
+    // Il doit bloquer l'alignement vers le créneau futur de la carte courante.
+    if (!o.day_of_week || !o.meal_time?.trim()) {
+      hasEarlierConsumingSibling = true;
+      break;
+    }
+    const otherSlot = getTargetDate(o.day_of_week, now, null, o.meal_time);
+    // Un sibling passé ne doit plus bloquer l'affichage « prog. » de cette carte.
+    if (otherSlot.getTime() > now.getTime() && otherSlot.getTime() < plannedSlot.getTime()) {
+      hasEarlierConsumingSibling = true;
+      break;
+    }
+  }
+
+  if (hasEarlierConsumingSibling) return base;
+
+  const start = parseISO(base);
+  if (Number.isNaN(start.getTime())) return base;
+  if (start.getTime() >= plannedSlot.getTime()) return base;
+
+  return plannedSlot.toISOString();
+}
+
+/**
+ * Identifie les clés normalisées des ingrédients de la recette dont un food_item porte précisément
+ * la date `base` (tolérance : chaîne identique ou à la minute près). Ces ingrédients sont ceux qui
+ * dictent la valeur `earliestCounterDate` retournée par `analyzeMealIngredients`.
+ * Utilisé pour restreindre la détection de siblings « partageant le même lot ouvert » à ce seul critère.
+ */
+function findCriticalCounterKeys(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  base: string,
+  index?: FoodItemIndex,
+): Set<string> {
+  const keys = new Set<string>();
+  if (!ingredients?.trim()) return keys;
+  const baseMs = parseISO(base).getTime();
+  if (Number.isNaN(baseMs)) return keys;
+  const groups = parseIngredientGroups(ingredients);
+  for (const group of groups) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const bundle = group[0];
+    if (!bundle) continue;
+    for (const item of bundle) {
+      if (item.optional || !item.name) continue;
+      for (const fi of lookupFoodItems(item.name, foodItems, index)) {
+        if (!fi.counter_start_date) continue;
+        const csdMs = parseISO(fi.counter_start_date).getTime();
+        if (Number.isNaN(csdMs)) continue;
+        // Tolérance d'une minute pour absorber les écarts de sérialisation ISO.
+        if (Math.abs(csdMs - baseMs) <= 60_000) {
+          keys.add(normalizeKey(item.name));
+          break;
+        }
+      }
+    }
+  }
+  return keys;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

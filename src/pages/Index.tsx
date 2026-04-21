@@ -37,13 +37,14 @@ import {
   getMissingIngredients, isFoodUsedInMeals,
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
-  getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros,
+  getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
+import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
@@ -427,8 +428,9 @@ const Index = () => {
         await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
 
         const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
+        const promoted = applyNextWeekPromotionOnTop(merged, prefMap);
         const goals = resolvePostResetGoals(prefMap);
-        pushWeeklyResetClientPreferences(setPreference, merged, goals, now.toISOString(), "auto_sunday");
+        pushWeeklyResetClientPreferences(setPreference, promoted, goals, now.toISOString(), "auto_sunday");
 
         await qc.invalidateQueries({ queryKey: ["possible_meals"] });
         await qc.invalidateQueries({ queryKey: ["user_preferences"] });
@@ -1058,6 +1060,7 @@ const Index = () => {
                         <LazyPossibleList
                           category={cat}
                           items={getSortedPossible(cat.value)}
+                          allPossibleMeals={possibleMeals}
                           sortMode={sortModes[cat.value] || "manual"}
                           stockMap={stockMap}
                           onToggleSort={() => toggleSort(cat.value)}
@@ -1151,14 +1154,41 @@ const Index = () => {
                             if (pm) {
                               const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
                               const effectiveCounter = isOccupied ? null : counter;
-                              updatePlanning.mutate({ id, day_of_week: day, meal_time: time, counter_start_date: effectiveCounter });
+                              const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+                              const nextPossibleMeals = possibleMeals.map((candidate) =>
+                                candidate.id === id ? { ...candidate, day_of_week: day, meal_time: time } : candidate
+                              );
+                              const nextAnalysis =
+                                pm.meals && ing
+                                  ? analyzeMealIngredients({ ...pm.meals, ingredients: ing }, foodItems, foodItemIndex)
+                                  : null;
+                              const nextResolvedCounter =
+                                !isOccupied && pm.meals
+                                  ? resolveCounterStartForPossibleBadge(
+                                      { ...pm, day_of_week: day, meal_time: time },
+                                      nextPossibleMeals,
+                                      nextAnalysis?.earliestCounterDate,
+                                      pm.counter_start_date ?? undefined,
+                                      foodItems,
+                                      foodItemIndex,
+                                    ) ?? nextAnalysis?.earliestCounterDate ?? pm.counter_start_date ?? null
+                                  : null;
+                              // Ne pas persister analysis.earliestCounterDate sur la carte quand jour+créneau sont
+                              // fixés (sinon « maintenant » après déduction écrase le min jeudi d’un autre repas).
+                              const counterForMutate =
+                                day && time && !isOccupied ? undefined : effectiveCounter;
+                              updatePlanning.mutate({
+                                id,
+                                day_of_week: day,
+                                meal_time: time,
+                                counter_start_date: counterForMutate,
+                              });
                               // N'appeler la mise à jour du compteur que si jour ET créneau sont définis.
                               // Sinon le compteur serait programmé à 00h (sans heure de repas).
                               // Le 2e appel (choix de l'heure) corrigera avec la bonne heure.
                               if (day && time) {
-                                const fallbackDate = effectiveCounter || pm.counter_start_date || null;
-                                const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-                                updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
+                                const fallbackDate = nextResolvedCounter ?? counter ?? pm.counter_start_date ?? null;
+                                updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, nextPossibleMeals);
                               }
                             }
                           }}

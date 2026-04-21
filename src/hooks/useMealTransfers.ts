@@ -145,13 +145,24 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean; counter_start_date?: string | null }>();
     const rememberSnapshot = (fi: FoodItem) => { if (!snapshotsById.has(fi.id)) snapshotsById.set(fi.id, { ...fi }); };
     let oldestCounter: string | null = null;
+    /** Date ISO d’ouverture réellement appliquée sur le stock pendant cette déduction (ex. « maintenant »). */
+    let openedAtDeduction: string | null = null;
+
+    /**
+     * Enregistre la date utilisée pour démarrer ou avancer le compteur lors de cette déduction.
+     * Sert quand aucun lot n’avait encore un compteur « passé » à réutiliser (ex. lot seulement programmé jeudi).
+     */
+    const registerDeductionOpenDate = (iso: string) => {
+      if (!openedAtDeduction || new Date(iso) < new Date(openedAtDeduction)) openedAtDeduction = iso;
+    };
 
     /**
      * Collecte le compteur le plus ancien parmi les items déjà ouverts.
      * Ne prend en compte que les compteurs déjà actifs (pas dans le futur).
+     * `referenceDate` doit être la date effective (souvent « maintenant »), pas `forcedCounter` seul.
      */
-    const trackOldestCounter = (fi: FoodItem, counterToSet: string) => {
-      if (fi.counter_start_date && new Date(fi.counter_start_date) <= new Date(counterToSet)) {
+    const trackOldestCounter = (fi: FoodItem, referenceDate: string) => {
+      if (fi.counter_start_date && new Date(fi.counter_start_date) <= new Date(referenceDate)) {
         if (!oldestCounter || new Date(fi.counter_start_date) < new Date(oldestCounter)) {
           oldestCounter = fi.counter_start_date;
         }
@@ -190,7 +201,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
             const counterToSet = forcedCounterDate;
             const effectiveCounterDate = counterToSet || new Date().toISOString();
-            trackOldestCounter(fi, counterToSet);
+            trackOldestCounter(fi, effectiveCounterDate);
 
             if (remaining <= 0) {
               // Si l'aliment a un compteur actif, on le garde à 0 au lieu de le supprimer
@@ -200,10 +211,12 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 updatesById.set(fi.id, { id: fi.id, delete: true });
               }
             } else {
+              const bumpCounter = needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
+              if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
               updatesById.set(fi.id, {
                 id: fi.id,
                 quantity: Math.ceil(remaining),
-                ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) ? { counter_start_date: effectiveCounterDate } : {})
+                ...(bumpCounter ? { counter_start_date: effectiveCounterDate } : {}),
               });
             }
           }
@@ -222,7 +235,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
             const counterToSet = forcedCounterDate;
             const effectiveCounterDate = counterToSet || new Date().toISOString();
-            trackOldestCounter(fi, counterToSet);
+            trackOldestCounter(fi, effectiveCounterDate);
 
             if (remaining <= 0) {
               if (fi.counter_start_date) {
@@ -244,10 +257,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 const consumedPastFirstPartial = hadOpenPartial && deduct > partialBefore;
                 const restartForNewPack =
                   consumedPastFirstPartial && shouldStartCounter(fi);
-                const counterUpdate =
-                  restartForNewPack || needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate)
-                    ? { counter_start_date: effectiveCounterDate }
-                    : {};
+                const bumpCounter =
+                  restartForNewPack || needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
+                const counterUpdate = bumpCounter ? { counter_start_date: effectiveCounterDate } : {};
+                if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
                 updatesById.set(fi.id, {
                   id: fi.id,
                   quantity: Math.max(1, fullUnits + 1),
@@ -267,10 +280,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             } else {
               // Item simple (sans multi-unités)
               const isNewUnit = remaining > 0 && remaining < perUnit;
+              const bumpCounter =
+                needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) && isNewUnit;
+              if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
               updatesById.set(fi.id, {
                 id: fi.id,
                 grams: formatNumeric(remaining),
-                ...(needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) && isNewUnit ? { counter_start_date: effectiveCounterDate } : {})
+                ...(bumpCounter ? { counter_start_date: effectiveCounterDate } : {}),
               });
             }
           }
@@ -294,7 +310,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     return {
       snapshots: Array.from(snapshotsById.values()),
       consumedIds: Array.from(updatesById.values()).filter(u => u.delete).map(u => u.id),
-      oldestCounter
+      oldestCounter: oldestCounter || openedAtDeduction,
     };
   };
 
@@ -759,12 +775,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       for (const alt of firstAltBundle) {
         if (alt.optional || !alt.name) continue;
 
-      // Trouver les aliments en stock correspondant à cet ingrédient
-      // On ne met à jour le compteur QUE pour les cartes qui sont DÉJÀ ouvertes (counter_start_date n'est pas nul)
-      // Cela évite de lancer un compteur sur plusieurs emballages d'un même produit (par ex: 3 briques de lait)
-      const matchingItems = foodItems.filter(
-        fi => strictNameMatch(fi.name, alt.name) && !fi.is_infinite && shouldStartCounter(fi) && fi.counter_start_date !== null
+      // Aliments en stock correspondant à cet ingrédient (hors infini, compteur autorisé).
+      const nameMatches = foodItems.filter(
+        (fi) => strictNameMatch(fi.name, alt.name) && !fi.is_infinite && shouldStartCounter(fi),
       );
+      // Un seul lot en stock : on peut programmer le compteur depuis le planning même si le paquet n’est pas
+      // encore entamé — sinon le premier repas planifié (ex. burger jeudi) ne fixe jamais « jeudi midi » sur
+      // l’aliment et le repas du vendredi n’a pas d’écart « 1j » à afficher.
+      // Plusieurs lots : on ne met à jour que ceux qui ont déjà un compteur (évite d’en démarrer plusieurs).
+      const matchingItems =
+        nameMatches.length === 1
+          ? nameMatches
+          : nameMatches.filter((fi) => fi.counter_start_date !== null);
 
       for (const fi of matchingItems) {
         // Trouver la date la plus ancienne parmi TOUS les repas planifiés utilisant cet ingrédient
@@ -830,6 +852,15 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (pmMs < earliestDateMs) {
             earliestDateMs = pmMs;
             earliestDateStr = pmDate;
+          }
+        }
+
+        // Paquet déjà entamé : l’ouverture réelle est au plus tard « maintenant » — ne pas laisser un min
+        // de cartes (ex. burger jeudi) réécraser une ouverture immédiate (ex. rosti non planifié).
+        if (earliestDateStr && !isFoodFullySealed(fi)) {
+          const nowMs = Date.now();
+          if (new Date(earliestDateStr).getTime() > nowMs) {
+            earliestDateStr = new Date().toISOString();
           }
         }
 

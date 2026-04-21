@@ -5,6 +5,8 @@ import {
   parseIngredientsToLines, serializeIngredients,
   extractIngredientMacros, applyIngredientMacros,
   normalizeForMatch, normalizeKey,
+  formatPlannedCounterOpenFr,
+  getCounterDaysBadgeTooltip,
 } from "@/lib/ingredientUtils";
 
 // ─── CALORIE COMPUTATION ────────────────────────────────────────────────────
@@ -180,5 +182,28 @@ describe("parseIngredientsToLines / serializeIngredients roundtrip", () => {
     const serialized = serializeIngredients(lines);
     expect(serialized).toContain("{165}");
     expect(serialized).toContain("[31]");
+  });
+});
+
+// ─── Infobulle compteur (ouverture future) ───────────────────────────────────
+
+describe("formatPlannedCounterOpenFr", () => {
+  it("affiche jour, date et heure style « Jeudi 15 12h » (Paris, pile sur l’heure)", () => {
+    expect(formatPlannedCounterOpenFr("2026-01-15T11:00:00.000Z")).toBe("Jeudi 15 12h");
+  });
+
+  it("affiche les minutes quand non nulles", () => {
+    expect(formatPlannedCounterOpenFr("2026-01-15T11:30:00.000Z")).toBe("Jeudi 15 12h30");
+  });
+});
+
+describe("getCounterDaysBadgeTooltip (ouverture future)", () => {
+  it("inclut la date/heure d’ouverture prévue dans le message", () => {
+    const now = new Date("2026-01-14T12:00:00.000Z");
+    const startFuture = "2026-01-15T11:00:00.000Z";
+    const tip = getCounterDaysBadgeTooltip(startFuture, "vendredi", "midi", 1, now);
+    expect(tip).toContain("Jeudi 15 12h");
+    expect(tip).toContain("1 jour(s)");
+    expect(tip).toContain("compteur pas encore démarré");
   });
 });

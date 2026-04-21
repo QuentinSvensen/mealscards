@@ -16,7 +16,7 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import { colorFromName } from "./foodColors";
 export { colorFromName };
 
-import { differenceInDays, parseISO, startOfDay, addDays } from "date-fns";
+import { differenceInDays, differenceInCalendarDays, parseISO, startOfDay, addDays } from "date-fns";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 1 : Dates et compteurs d'ouverture
@@ -72,14 +72,14 @@ export function computeCounterDays(counterStartDate: string | null | undefined):
 }
 
 /**
- * Calcule le nombre d'heures écoulées depuis counter_start_date.
- * Utilisé pour l'affichage fin (ex: "7h") quand le compteur est < 1 jour.
+ * Calcule le nombre d’heures entre counter_start_date et une date de fin (ex. créneau du repas).
+ * Si `end` n’est pas fourni, utilise l’instant présent (heures réellement écoulées depuis l’ouverture).
  */
-export function computeCounterHours(counterStartDate: string | null | undefined, target?: Date): number | null {
+export function computeCounterHours(counterStartDate: string | null | undefined, end?: Date): number | null {
   if (!counterStartDate) return null;
   const start = parseISO(counterStartDate);
-  const now = target || new Date();
-  const diffMs = now.getTime() - start.getTime();
+  const ref = end || new Date();
+  const diffMs = ref.getTime() - start.getTime();
   if (diffMs < 0) return 0;
   return Math.floor(diffMs / (1000 * 60 * 60));
 }
@@ -148,11 +148,17 @@ export function getTargetDate(dayKey: string | null | undefined, refDate: Date, 
 
 /** 
  * Calcule le nombre de jours du compteur d'ouverture pour une carte "Possible".
- * 
- * Logique :
- * - Tant que counter_start_date est dans le futur → null (Prog. / aliment pas encore entamé)
- * - Sans jour planifié + avec created_at → compteur figé au moment de création
- * - Repas planifié + compteur déjà démarré → écart entre début de compteur et créneau du repas
+ *
+ * Comportement historique inchangé tant que le compteur a déjà démarré (start ≤ maintenant) :
+ * même formules qu’avant (créneau planifié, figé sur created_at si pas de jour, etc.).
+ *
+ * Ajout ciblé : si l’ouverture est encore dans le futur (ex. aliment entamé jeudi midi au prochain repas)
+ * et que cette carte a un jour planifié **après** cette ouverture d’au moins 1 jour calendaire
+ * (ex. vendredi midi), on affiche une estimation (ex. 1j) — sans modifier les autres cas (futur sans jour → null).
+ *
+ * Si un autre repas entame le stock maintenant alors que ce repas est planifié plus tard (ex. burger jeudi midi),
+ * le compteur sur la carte reflète le nombre de jours **entre l’ouverture réelle et le créneau du repas**
+ * (ex. ~1–2 j), et non un compteur « figé à zéro ».
  */
 export function getAdaptedCounterDays(
   startDate: string | null,
@@ -166,9 +172,14 @@ export function getAdaptedCounterDays(
   const now = fixedNow || new Date();
   const start = parseISO(startDate);
 
-  // Aucun badge « X j » tant que le début du compteur n'est pas encore atteint (repas planifié inclus :
-  // l'aliment n'est pas encore entamé tant que cette date est future).
-  if (start.getTime() > now.getTime()) return null;
+  // Ajout seulement : ouverture future + repas planifié plus tard (≥ 1 jour calendaire, ex. jeu. midi → ven. midi)
+  if (start.getTime() > now.getTime()) {
+    if (!dayKey) return null;
+    const target = getTargetDate(dayKey, now, null, mealTime);
+    const days = differenceInCalendarDays(target, start);
+    if (days < 1) return null;
+    return days;
+  }
 
   // Sans jour planifié : figer le compteur au moment de la création
   if (!dayKey && createdAt) {
@@ -184,6 +195,71 @@ export function getAdaptedCounterDays(
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   return days < 0 ? null : days;
+}
+
+/**
+ * Indique si la date de début du compteur est strictement postérieure à l’instant de référence
+ * (compteur programmé, aliment pas encore entamé).
+ */
+export function isCounterStartInFuture(startDate: string | null | undefined, fixedNow?: Date): boolean {
+  if (!startDate?.trim()) return false;
+  const t = parseISO(startDate).getTime();
+  if (Number.isNaN(t)) return false;
+  return t > (fixedNow ?? new Date()).getTime();
+}
+
+/**
+ * Formate la date/heure d’ouverture prévue du compteur pour une infobulle (fuseau Europe/Paris).
+ * Sert à afficher clairement « quand » l’ingrédient sera entamé (ex. « Jeudi 23 12h »).
+ */
+export function formatPlannedCounterOpenFr(iso: string): string {
+  const d = parseISO(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  const hour = parts.find((p) => p.type === "hour")?.value ?? "0";
+  const minute = parts.find((p) => p.type === "minute")?.value ?? "00";
+  const cap = (s: string) => (s ? s.charAt(0).toLocaleUpperCase("fr-FR") + s.slice(1) : "");
+  const hh = String(Number.parseInt(hour, 10));
+  const timeLabel = minute === "00" ? `${hh}h` : `${hh}h${minute}`;
+  return `${cap(weekday)} ${day} ${timeLabel}`.trim();
+}
+
+/**
+ * Construit le texte d’infobulle du badge « X j » : estimation quand l’ouverture est future,
+ * sinon durée entre ouverture et créneau du repas (avec rappel debug fuseau France).
+ */
+export function getCounterDaysBadgeTooltip(
+  startDate: string | null,
+  dayKey: string | null | undefined,
+  mealTime: string | null | undefined,
+  counterDays: number,
+  fixedNow?: Date,
+): string {
+  const now = fixedNow ?? new Date();
+  if (!startDate) {
+    return `${counterDays} jour(s) — aucune date de départ enregistrée`;
+  }
+  const start = parseISO(startDate);
+  if (start.getTime() > now.getTime()) {
+    const when = formatPlannedCounterOpenFr(startDate);
+    return `Estimation : ${counterDays} jour(s) entre l'ouverture prévue le ${when} et ce repas (compteur pas encore démarré)`;
+  }
+  const target = getTargetDate(dayKey, now, startDate, mealTime);
+  const h = computeCounterHours(startDate, target);
+  const debug = formatIsoInFrance(startDate);
+  if (h !== null && h > 0) {
+    return `Arrêter le compteur (${h} h entre l'ouverture et ce créneau)\n(Debug départ — heure affichée France : ${debug})`;
+  }
+  return `Arrêter le compteur\n(Debug départ — heure affichée France : ${debug})`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -603,6 +679,73 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
   return lines;
 }
 
+/**
+ * Indique si une ligne d’ingrédient est un marqueur « négatif » ou porte des macros strictement négatives,
+ * auquel cas elle ne doit pas apparaître dans les listes compactes (Tous, planning, possibles, menu).
+ */
+export function isNegativeIngredientLine(l: IngLine): boolean {
+  const normName = normalizeKey(l.name || "");
+  if (normName === "negatif" || normName === "négatif") return true;
+  const cal = l.cal?.trim() ? parseFloat(l.cal.trim().replace(",", ".")) : 0;
+  const pro = l.pro?.trim() ? parseFloat(l.pro.trim().replace(",", ".")) : 0;
+  return (!Number.isNaN(cal) && cal < 0) || (!Number.isNaN(pro) && pro < 0);
+}
+
+/**
+ * Regroupe les lignes déjà parsées en blocs séparés par virgule/saut de ligne, puis alternatives « | »,
+ * puis sous-listes reliées par « + » ; supprime les alternatives vides après filtrage des lignes négatives.
+ * Sert à l’affichage unifié (ou en jaune, bundle entre parenthèses avec des « + » en ligne).
+ */
+export function groupParsedIngredientLinesForDisplay(lines: IngLine[]): IngLine[][][] {
+  const resGroups: IngLine[][][] = [];
+  let currentGroup: IngLine[][] = [];
+  let currentAlt: IngLine[] = [];
+
+  for (const line of lines) {
+    const hasContent = line.qty || line.count || line.name;
+    if (!hasContent) continue;
+    if (isNegativeIngredientLine(line)) continue;
+
+    if (line.isAnd) {
+      currentAlt.push(line);
+    } else if (line.isOr) {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      currentAlt = [line];
+    } else {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      if (currentGroup.length > 0) resGroups.push(currentGroup);
+      currentGroup = [];
+      currentAlt = [line];
+    }
+  }
+  if (currentAlt.length > 0) currentGroup.push(currentAlt);
+  if (currentGroup.length > 0) resGroups.push(currentGroup);
+
+  return resGroups
+    .map((group) =>
+      group
+        .map((alt) => alt.filter((item) => !isNegativeIngredientLine(item)))
+        .filter((alt) => alt.length > 0),
+    )
+    .filter((group) => group.length > 0);
+}
+
+/** Quantité « grammes » purement numérique et <= 0 (ex. 0, 0g) : la ligne ne doit pas être persistée. */
+function isZeroGramQtyField(qtyRaw: string): boolean {
+  const t = qtyRaw.trim().replace(/\s/g, "").replace(/,/g, ".");
+  if (!t) return false;
+  if (!/^\d+(\.\d+)?g?$/i.test(t)) return false;
+  const n = parseFloat(t.replace(/g$/i, ""));
+  return !isNaN(n) && n <= 0;
+}
+
+/** Compteur entier <= 0 : ignoré à la sérialisation. */
+function isZeroOrInvalidCount(countRaw: string): boolean {
+  const t = countRaw.trim();
+  if (!t || !/^\d+$/.test(t)) return false;
+  return parseInt(t, 10) <= 0;
+}
+
 /** Sérialise un tableau de IngLine en chaîne d'ingrédients pour le stockage */
 export function serializeIngredients(lines: IngLine[]): string | null {
   const result: string[] = [];
@@ -611,8 +754,10 @@ export function serializeIngredients(lines: IngLine[]): string | null {
   const flushGroup = () => { if (currentGroupText) { result.push(currentGroupText); currentGroupText = ""; } };
   
   for (const l of lines) {
-    const qtyStr = formatQtyDisplay(l.qty);
-    const countStr = l.count.trim();
+    let qtyStr = formatQtyDisplay(l.qty);
+    if (isZeroGramQtyField(l.qty)) qtyStr = "";
+    let countStr = l.count.trim();
+    if (isZeroOrInvalidCount(l.count)) countStr = "";
     const nameStr = l.name.trim();
     if (!qtyStr && !countStr && !nameStr) continue;
     

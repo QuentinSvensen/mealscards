@@ -62,6 +62,19 @@ export const PLANNING_RESET_PREF_KEYS = [
   "next_week_protein_goal",
 ] as const;
 
+/** Brouillon semaine suivante : chargé en base avant le reset auto pour promotion vers le planning courant. */
+export const NEXT_WEEK_PROMOTION_PREF_KEYS = [
+  "next_week_manual_calories",
+  "next_week_manual_proteins",
+  "next_week_extra_calories",
+  "next_week_extra_proteins",
+  "next_week_extra_selections",
+  "next_week_breakfast",
+  "next_week_breakfast_manual_calories",
+  "next_week_breakfast_manual_proteins",
+  "next_week_drink_checks",
+] as const;
+
 export type PlanningResetPrefKey = (typeof PLANNING_RESET_PREF_KEYS)[number];
 
 /** Map clé → valeur JSON (lignes user_preferences). */

@@ -5,11 +5,27 @@ import { computePlannedCounterDate } from "@/hooks/useMealTransfers";
 // ─── getAdaptedCounterDays (carte Possible) ─────────────────────────────────
 
 describe("getAdaptedCounterDays", () => {
-  it("returns null when counter start is still in the future (planned meal, not yet opened)", () => {
-    const fixedNow = new Date("2026-04-05T14:00:00.000Z");
-    const futureStart = "2026-04-08T12:00:00.000Z";
+  it("estime les jours entre ouverture future et créneau du repas quand le jour est planifié", () => {
+    const fixedNow = new Date("2026-04-06T10:00:00.000Z"); // avant l’ouverture prévue le même jour
+    const futureStart = "2026-04-06T12:00:00.000Z"; // ouverture lundi midi (futur par rapport à fixedNow)
     expect(
-      getAdaptedCounterDays(futureStart, "mercredi", "2026-04-05T10:00:00.000Z", "midi", fixedNow)
+      getAdaptedCounterDays(futureStart, "2026-04-07", "2026-01-01T10:00:00.000Z", "midi", fixedNow)
+    ).toBe(1);
+  });
+
+  it("estime aussi avec une clé jour français (ex. mardi après ouverture lundi)", () => {
+    const fixedNow = new Date("2026-04-06T10:00:00.000Z");
+    const futureStart = "2026-04-06T12:00:00.000Z";
+    expect(
+      getAdaptedCounterDays(futureStart, "mardi", "2026-01-01T10:00:00.000Z", "midi", fixedNow)
+    ).toBe(1);
+  });
+
+  it("n'affiche pas d'estimation si le repas est le même jour calendaire que l'ouverture future", () => {
+    const fixedNow = new Date("2026-04-06T10:00:00.000Z");
+    const futureStart = "2026-04-06T12:00:00.000Z";
+    expect(
+      getAdaptedCounterDays(futureStart, "2026-04-06", "2026-01-01T10:00:00.000Z", "midi", fixedNow)
     ).toBeNull();
   });
 
@@ -17,6 +33,14 @@ describe("getAdaptedCounterDays", () => {
     const fixedNow = new Date("2026-04-05T14:00:00.000Z");
     const futureStart = "2026-04-10T12:00:00.000Z";
     expect(getAdaptedCounterDays(futureStart, null, undefined, null, fixedNow)).toBeNull();
+  });
+
+  it("affiche le décalage entre ouverture réelle passée et repas planifié plus tard (ex. burger après tenders entamés)", () => {
+    const fixedNow = new Date("2026-04-22T14:00:00.000Z");
+    const startPast = "2026-04-21T10:00:00.000Z";
+    const d = getAdaptedCounterDays(startPast, "2026-04-23", "2026-01-01T10:00:00.000Z", "midi", fixedNow);
+    expect(d).not.toBeNull();
+    expect(d!).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -25,7 +25,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, cleanIngredientText, normalizeKey, hasNegativeMetric, getMealColor, getAdaptedCounterDays, getTargetDate, computeCounterHours } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip } from "@/lib/ingredientUtils";
+import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -35,7 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
-import { analyzeMealIngredients, buildStockMap, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, resolveCounterStartForPossibleBadge } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -204,6 +205,26 @@ function parseCustomExtraId(id: string): { name: string; cal: number; prot: numb
   };
 }
 
+/** Somme kcal / prot des extras (aliments stock ou entrées `custom::…`). */
+function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodItem[]): { cal: number; pro: number } {
+  let cal = 0;
+  let pro = 0;
+  for (const id of ids ?? []) {
+    const custom = parseCustomExtraId(id);
+    if (custom) {
+      cal += custom.cal;
+      pro += custom.prot;
+      continue;
+    }
+    const fi = foodItems.find((f) => f.id === id);
+    if (fi) {
+      cal += parseCalories(fi.calories);
+      pro += parseProtein(fi.protein);
+    }
+  }
+  return { cal, pro };
+}
+
 const DAILY_PROTEIN_GOAL = 110;
 
 interface TouchDragState {
@@ -219,8 +240,8 @@ interface TouchDragState {
 /**
  * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
  */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterHours: number | null; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; compact: boolean;
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; compact: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
@@ -339,7 +360,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
                 <span
                   className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
                   ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
-                  title={counterHours !== null ? `${counterHours}h écoulées` : undefined}
+                  title={counterBadgeTitle}
                 >
                   <Timer className="h-2.5 w-2.5" />
                   {counterDays}j
@@ -366,7 +387,15 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
                     {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   </span>
                 )}
-                {(pm.ingredients_override || meal.ingredients) && renderIngredientDisplayPlanning(pm.ingredients_override ?? meal.ingredients, expiredIngredientNames, expiringSoonIngredientNames, stockMap)}
+                {(pm.ingredients_override || meal.ingredients) && (
+                  <StructuredIngredientInline
+                    compact
+                    ingredients={pm.ingredients_override ?? meal.ingredients}
+                    expiredIngredientNames={expiredIngredientNames}
+                    expiringSoonIngredientNames={expiringSoonIngredientNames}
+                    stockMap={stockMap}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -400,7 +429,13 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
               )}
               {(pm.ingredients_override || meal.ingredients) && (
                 <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 flex flex-wrap gap-x-1`}>
-                  {renderIngredientDisplayPlanning(pm.ingredients_override ?? meal.ingredients, expiredIngredientNames, expiringSoonIngredientNames, stockMap)}
+                  <StructuredIngredientInline
+                    compact
+                    ingredients={pm.ingredients_override ?? meal.ingredients}
+                    expiredIngredientNames={expiredIngredientNames}
+                    expiringSoonIngredientNames={expiringSoonIngredientNames}
+                    stockMap={stockMap}
+                  />
                 </div>
               )}
             </div>
@@ -480,7 +515,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterHours, counte
               <span
                 className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
                 ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-                title={counterHours !== null ? `${counterHours}h écoulées` : undefined}
+                title={counterBadgeTitle}
               >
                 <Timer className="h-2.5 w-2.5" />
                 {counterDays}j
@@ -536,7 +571,12 @@ export function WeeklyPlanning({
       earliestCounter = analysis.earliestCounterDate;
     }
 
-    updatePlanning.mutate({ id: pmId, day_of_week: day, meal_time: time, counter_start_date: earliestCounter });
+    updatePlanning.mutate({
+      id: pmId,
+      day_of_week: day,
+      meal_time: time,
+      counter_start_date: day && time ? undefined : earliestCounter,
+    });
     if (pm) {
       const ing = pm.ingredients_override ?? pm.meals?.ingredients;
       const fallbackDate = earliestCounter || pm.counter_start_date || null;
@@ -834,9 +874,10 @@ export function WeeklyPlanning({
       dayCal += (bMC[iso] || bMC[key] || 0);
       dayPro += (bMP[iso] || bMP[key] || 0);
 
-      // Extra
-      const eCal = (bEC[iso] || bEC[key] || 0) + (bES[iso] || bES[key] || []).reduce((s: number, id: string) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0);
-      const ePro = (bEP[iso] || bEP[key] || 0) + (bES[iso] || bES[key] || []).reduce((s: number, id: string) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0);
+      // Extra (manuel + liste : inclut les ids `custom::…` de la sauvegarde)
+      const selExtra = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
+      const eCal = (bEC[iso] || bEC[key] || 0) + selExtra.cal;
+      const ePro = (bEP[iso] || bEP[key] || 0) + selExtra.pro;
       dayCal += eCal;
       dayPro += ePro;
 
@@ -1056,10 +1097,21 @@ export function WeeklyPlanning({
     const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
 
     const isOccupied = masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id);
-    const effectiveStart = isOccupied ? pm.counter_start_date : (analysis.earliestCounterDate ?? pm.counter_start_date);
-    const targetDate = getTargetDate(pm.day_of_week, new Date(), effectiveStart, pm.meal_time);
+    const effectiveStart = isOccupied
+      ? pm.counter_start_date
+      : (resolveCounterStartForPossibleBadge(
+          pm,
+          possibleMeals,
+          analysis.earliestCounterDate,
+          pm.counter_start_date ?? undefined,
+          foodItems,
+          undefined,
+        ) ?? analysis.earliestCounterDate ?? pm.counter_start_date);
     const counterDays = getAdaptedCounterDays(effectiveStart, pm.day_of_week, pm.created_at, pm.meal_time);
-    const counterHours = computeCounterHours(effectiveStart, targetDate);
+    const counterBadgeTitle =
+      counterDays !== null && effectiveStart
+        ? getCounterDaysBadgeTooltip(effectiveStart, pm.day_of_week, pm.meal_time, counterDays)
+        : undefined;
     const counterUrgent = counterDays !== null && counterDays >= 3;
 
     const expiredIngs = analysis.expiredIngredientNames;
@@ -1097,7 +1149,7 @@ export function WeeklyPlanning({
         expiredIngredientNames={expiredIngs}
         expiringSoonIngredientNames={soonIngs}
         counterDays={counterDays}
-        counterHours={counterHours}
+        counterBadgeTitle={counterBadgeTitle}
         counterUrgent={counterUrgent}
         isPast={(() => {
           if (!pm.day_of_week) return false;
@@ -2190,22 +2242,44 @@ export function WeeklyPlanning({
                           setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                           // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
+                          // Même clés que l’aperçu suivant : ISO en priorité (sinon la vue suivante ne lit pas les extras).
                           if (weekOffset === 0) {
-                            if (itemIds.length > 0) {
-                              const nxtSel = { ...nextExtraSelections };
-                              nxtSel[key] = itemIds;
-                              setPreference.mutate({ key: 'next_week_extra_selections', value: nxtSel });
+                            const nxtSel = { ...nextExtraSelections };
+                            if (iso) {
+                              nxtSel[iso] = [...itemIds];
+                              delete nxtSel[key];
+                            } else {
+                              nxtSel[key] = [...itemIds];
                             }
+                            setPreference.mutate({ key: 'next_week_extra_selections', value: nxtSel });
+
+                            const nxtCal = { ...nextExtraCalories };
                             if (cal > 0) {
-                              const nxtCal = { ...nextExtraCalories };
-                              nxtCal[key] = cal;
-                              setPreference.mutate({ key: 'next_week_extra_calories', value: nxtCal });
+                              if (iso) {
+                                nxtCal[iso] = cal;
+                                delete nxtCal[key];
+                              } else {
+                                nxtCal[key] = cal;
+                              }
+                            } else {
+                              delete nxtCal[iso];
+                              delete nxtCal[key];
                             }
+                            setPreference.mutate({ key: 'next_week_extra_calories', value: nxtCal });
+
+                            const nxtPro = { ...nextExtraProteins };
                             if (prot > 0) {
-                              const nxtPro = { ...nextExtraProteins };
-                              nxtPro[key] = prot;
-                              setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtPro });
+                              if (iso) {
+                                nxtPro[iso] = prot;
+                                delete nxtPro[key];
+                              } else {
+                                nxtPro[key] = prot;
+                              }
+                            } else {
+                              delete nxtPro[iso];
+                              delete nxtPro[key];
                             }
+                            setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtPro });
                           }
 
                           setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
@@ -2394,13 +2468,12 @@ export function WeeklyPlanning({
                 let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal;
                 let dayPro = bfSlotPro + midiSlotPro + soirSlotPro;
 
-                // Extras
+                // Extras (sauvegarde : mêmes ids que le planning courant, y compris extras saisis à la main)
                 dayTotal += (bEC[iso] || bEC[key] || 0);
                 dayPro += (bEP[iso] || bEP[key] || 0);
-                for (const id of (bES[iso] || bES[key] || [])) {
-                  const fi = foodItems.find((f: any) => f.id === id);
-                  if (fi) { dayTotal += parseCalories(fi.calories); dayPro += parseProtein(fi.protein); }
-                }
+                const backupExtraSum = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
+                dayTotal += backupExtraSum.cal;
+                dayPro += backupExtraSum.pro;
 
                 // Le calcul des boissons est déjà inclus dans les totaux des créneaux (slots)
 
@@ -2519,8 +2592,15 @@ export function WeeklyPlanning({
                       <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
                         <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
                         <div className="flex flex-col items-center gap-1 mt-1 w-full opacity-60">
-                          <div className="text-[10px] text-orange-400 font-bold">{Math.round((bEC[iso] || bEC[key] || 0) + (bES[iso] || bES[key] || []).reduce((s: number, id: string) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0))}</div>
-                          <div className="text-[10px] text-blue-400 font-bold">{Math.round((bEP[iso] || bEP[key] || 0) + (bES[iso] || bES[key] || []).reduce((s: number, id: string) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0))}</div>
+                          {(() => {
+                            const sel = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
+                            return (
+                              <>
+                                <div className="text-[10px] text-orange-400 font-bold">{Math.round((bEC[iso] || bEC[key] || 0) + sel.cal)}</div>
+                                <div className="text-[10px] text-blue-400 font-bold">{Math.round((bEP[iso] || bEP[key] || 0) + sel.pro)}</div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -2611,13 +2691,10 @@ export function WeeklyPlanning({
               const slotMeals = getMealsForSlot(key, time, iso);
               dayTotal += slotMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
             }
-            dayTotal += effExtraCal;
-            for (const id of effExtraSel) {
-              const fi = foodItems.find(f => f.id === id);
-              if (fi) dayTotal += parseCalories(fi.calories);
-            }
+            const nextExtraSelMacros = sumExtrasFromSelectionIds(effExtraSel, foodItems);
+            dayTotal += effExtraCal + nextExtraSelMacros.cal;
 
-            const extraSelCalSum = effExtraSel.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0);
+            const extraSelCalSum = nextExtraSelMacros.cal;
             const dayCalBeforeExtras = dayTotal - effExtraCal - extraSelCalSum;
             const remainingNextCal = Math.max(0, NEXT_DAILY_GOAL - dayCalBeforeExtras);
 
@@ -2632,11 +2709,7 @@ export function WeeklyPlanning({
               const slotMeals = getMealsForSlot(key, time, iso);
               nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
             }
-            nxtDayPro += effExtraPro;
-            for (const id of effExtraSel) {
-              const fi = foodItems.find(f => f.id === id);
-              if (fi) nxtDayPro += parseProtein(fi.protein);
-            }
+            nxtDayPro += effExtraPro + nextExtraSelMacros.pro;
 
             return (
               <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
@@ -2822,11 +2895,11 @@ export function WeeklyPlanning({
                     <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                       <PlanningInput storageKey={`next-ec-${iso}`}
                         currentValue={(() => { const m = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); })()}
-                        onSave={(val) => { const ids = effExtraSel; const sel = ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; u[iso] = m; setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
+                        onSave={(val) => { const ids = effExtraSel; const sel = sumExtrasFromSelectionIds(ids, foodItems).cal; const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
                         placeholder="kcal" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center" />
                       <PlanningInput storageKey={`next-ep-${iso}`}
                         currentValue={(() => { const m = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0); })()}
-                        onSave={(val) => { const ids = effExtraSel; const sel = ids.reduce((s, id) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0); const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; u[iso] = m; setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
+                        onSave={(val) => { const ids = effExtraSel; const sel = sumExtrasFromSelectionIds(ids, foodItems).pro; const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
                         placeholder="prot" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
                       <div className="flex items-center gap-1 mt-1">
                         <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => setOpenExtrasDay(open ? `next-${iso}` : null)}>
@@ -2961,12 +3034,25 @@ export function WeeklyPlanning({
             const displayIngredients = popupPm.ingredients_override ?? meal.ingredients;
             const mealForAnalysis = { ...meal, ingredients: displayIngredients };
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
-            const effectiveStart = analysis.earliestCounterDate || popupPm.counter_start_date;
-            const targetDate = getTargetDate(popupPm.day_of_week, new Date(), effectiveStart, popupPm.meal_time);
+            const effectiveStart =
+              resolveCounterStartForPossibleBadge(
+                popupPm,
+                possibleMeals,
+                analysis.earliestCounterDate,
+                popupPm.counter_start_date ?? undefined,
+                foodItems,
+                undefined,
+              ) ??
+              analysis.earliestCounterDate ??
+              popupPm.counter_start_date ??
+              null;
             const displayCal = String(getCardDisplayCalories(popupPm, calOverrides[popupPm.id], isAvailableCb));
             const displayPro = String(getCardDisplayProtein(popupPm, proOverrides[popupPm.id], isAvailableCb));
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
-            const counterHours = computeCounterHours(effectiveStart, targetDate);
+            const counterBadgeTitle =
+              counterDays !== null && effectiveStart
+                ? getCounterDaysBadgeTooltip(effectiveStart, popupPm.day_of_week, popupPm.meal_time, counterDays)
+                : undefined;
             const expired = isExpiredOnDay(popupPm.expiration_date, popupPm.day_of_week);
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
@@ -2990,7 +3076,7 @@ export function WeeklyPlanning({
                   {counterDays !== null && (
                     <span
                       className={`text-sm font-bold px-2.5 py-1 rounded-full flex items-center gap-1 ${counterDays >= 3 ? 'bg-red-600' : 'bg-black/40'}`}
-                      title={counterHours !== null ? `${counterHours}h écoulées` : undefined}
+                      title={counterBadgeTitle}
                     >
                       <Timer className="h-3.5 w-3.5" /> {counterDays}j
                     </span>
@@ -3011,10 +3097,12 @@ export function WeeklyPlanning({
                 {displayIngredients && (
                   <div className="bg-black/20 rounded-xl p-3 mt-1">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide">Ingrédients</p>
-                    <div className="text-sm text-white/90 space-y-0.5">
-                      {renderIngredientDisplayPlanning(displayIngredients, undefined, undefined, stockMap, true).map((el, i) => (
-                        <p key={i}>{el}</p>
-                      ))}
+                    <div className="text-sm text-white/90">
+                      <StructuredIngredientInline
+                        ingredients={displayIngredients}
+                        stockMap={stockMap}
+                        softUnavailableStyle
+                      />
                     </div>
                   </div>
                 )}
@@ -3066,10 +3154,12 @@ export function WeeklyPlanning({
                 {meal.ingredients && (
                   <div className="bg-black/20 rounded-xl p-3 mt-1">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide">Ingrédients</p>
-                    <div className="text-sm text-white/90 space-y-0.5">
-                      {meal.ingredients.split(/[,\n]+/).map((g: string, i: number) => (
-                        <p key={i}>{cleanIngredientText(g.trim())}</p>
-                      ))}
+                    <div className="text-sm text-white/90">
+                      <StructuredIngredientInline
+                        ingredients={meal.ingredients}
+                        stockMap={stockMap}
+                        softUnavailableStyle
+                      />
                     </div>
                   </div>
                 )}
@@ -3086,72 +3176,4 @@ export function WeeklyPlanning({
       </Dialog>
     </div>
   );
-}
-
-/** Rendre l'affichage des ingrédients avec mise en évidence des périmés/bientôt (version compacte pour le Planning) */
-function renderIngredientDisplayPlanning(
-  ingredients: string,
-  expiredIngredientNames?: Set<string>,
-  expiringSoonIngredientNames?: Set<string>,
-  stockMap?: Map<string, StockInfo>,
-  noStrikeThrough?: boolean,
-) {
-  // Séparer les ingrédients bruts d'abord, filtrer les groupes à métrique négative, puis nettoyer pour l'affichage
-  const rawGroups = ingredients.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  const filteredRaw = rawGroups.filter(g => !g.split(/\|/).some(alt => hasNegativeMetric(alt.trim())));
-  const cleaned = cleanIngredientText(filteredRaw.join(", "));
-  const groups = cleaned.split(/[,\n]+/).map(s => s.trim()).filter(Boolean);
-  const elements: React.ReactNode[] = [];
-
-  const isAvailable = (name: string) => {
-    if (!stockMap) return false;
-    const stripped = name.replace(/^\d+(?:[.,]\d+)?(?:g|ml|kg|cl|l|x| unit)?\s+/i, "").trim();
-    if (!stripped) return false;
-    const stockKey = findStockKey(stockMap, stripped);
-    if (!stockKey) return false;
-    const stock = stockMap.get(stockKey);
-    if (!stock) return false;
-    return stock.infinite || stock.grams > 0 || stock.count > 0;
-  };
-
-  groups.forEach((group, gi) => {
-    const isOpt = group.startsWith("?");
-    const display = isOpt ? group.slice(1).trim() : group;
-
-    // Gérer les alternatives OU (|)
-    const alternatives = display.split(/\s*\|\s*/);
-    if (alternatives.length > 1 && stockMap) {
-      const altElements = alternatives.map((alt, ai) => {
-        const available = isAvailable(alt);
-        return (
-          <span key={ai} className={available ? '' : (noStrikeThrough ? 'opacity-40' : 'line-through opacity-40')}>
-            {alt}{ai < alternatives.length - 1 ? <span className="opacity-60"> ou </span> : ''}
-          </span>
-        );
-      });
-      elements.push(
-        <span key={gi}>
-          {isOpt ? '?' : ''}{altElements}{gi < groups.length - 1 ? ' •' : ''}
-        </span>
-      );
-      return;
-    }
-
-    const normalizedName = normalizeKey(display.replace(/^\d+(?:\.\d+)?(?:g|ml|x| unit)?\s+/i, ""));
-    const isExpired = expiredIngredientNames?.has(normalizedName);
-    const isSoon = expiringSoonIngredientNames?.has(normalizedName);
-
-    const cls = isExpired ? 'bg-red-500/40 text-red-100 px-0.5 rounded font-semibold'
-      : isSoon ? 'ring-1 ring-red-500/60 font-semibold px-0.5 rounded'
-        : isOpt ? 'italic text-white/40'
-          : '';
-
-    elements.push(
-      <span key={gi} className={cls}>
-        {isOpt ? '?' : ''}{display}{gi < groups.length - 1 ? ' •' : ''}
-      </span>
-    );
-  });
-
-  return elements;
 }

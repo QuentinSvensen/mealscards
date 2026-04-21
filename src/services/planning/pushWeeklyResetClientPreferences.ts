@@ -38,6 +38,19 @@ export function pushWeeklyResetClientPreferences(
 
   mutate({ key: "last_weekly_reset", value: lastResetIso });
 
+  if (variant === "auto_sunday") {
+    // Les brouillons ont été promus dans `merged` avant cet appel : vider pour la nouvelle semaine à planifier.
+    mutate({ key: "next_week_breakfast", value: {} });
+    mutate({ key: "next_week_manual_calories", value: {} });
+    mutate({ key: "next_week_manual_proteins", value: {} });
+    mutate({ key: "next_week_extra_calories", value: {} });
+    mutate({ key: "next_week_extra_proteins", value: {} });
+    mutate({ key: "next_week_extra_selections", value: {} });
+    mutate({ key: "next_week_breakfast_manual_calories", value: {} });
+    mutate({ key: "next_week_breakfast_manual_proteins", value: {} });
+    mutate({ key: "next_week_drink_checks", value: {} });
+  }
+
   if (variant === "manual_button") {
     mutate({ key: "planning_cal_overrides", value: {} });
     mutate({ key: "planning_pro_overrides", value: {} });

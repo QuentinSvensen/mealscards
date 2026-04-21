@@ -10,7 +10,7 @@
  * - Édition des ingrédients via IngredientEditor
  *
  * detectScaleRatio() : détecte si les ingrédients ont été mis à l'échelle
- * renderIngredientDisplayCompact() : affichage compact des ingrédients avec highlighting
+ * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
 import React, { useState } from "react";
 import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin } from "lucide-react";
@@ -30,9 +30,10 @@ import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
   computeIngredientProtein, cleanIngredientText, normalizeKey,
-  hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey, getTargetDate,
-  extractMetrics, parseIngredientLineRaw, computeCounterHours, formatIsoInFrance,
+  hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey,
+  extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
 } from "@/lib/ingredientUtils";
+import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import { fr } from "date-fns/locale";
@@ -93,7 +94,9 @@ export function PossibleMealCard({
   const meal = pm.meals;
   if (!meal) return null;
 
-  const displayIngredients = pm.ingredients_override ?? meal.ingredients;
+  // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
+  const displayIngredients =
+    pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
 
   // Construire le rappel isAvailable à partir de stockMap pour le calcul des macros
   const isAvailableCb = stockMap ? (name: string) => {
@@ -177,9 +180,7 @@ export function PossibleMealCard({
   // sinon celui sauvegardé sur la carte (indispensable si l'aliment est consommé/supprimé du stock)
   const effectiveCounterStart = realtimeCounterStartDate ?? pm.counter_start_date;
 
-  const targetDate = getTargetDate(pm.day_of_week, new Date(), effectiveCounterStart, pm.meal_time);
   const counterDays = getAdaptedCounterDays(effectiveCounterStart, pm.day_of_week, pm.created_at, pm.meal_time);
-  const counterHours = computeCounterHours(effectiveCounterStart, targetDate);
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;
@@ -240,7 +241,9 @@ export function PossibleMealCard({
   const commitIngredients = () => {
     const serialized = serializeIngredients(ingLines);
     if (onUpdatePossibleIngredients) {
-      onUpdatePossibleIngredients(serialized);
+      // `null` serait stocké comme absence d'override → retombée sur la recette maître.
+      // Chaîne vide = « tout retiré » explicite, sans réafficher les quantités d'origine.
+      onUpdatePossibleIngredients(serialized === null ? "" : serialized);
     } else {
       onUpdateIngredients(serialized);
     }
@@ -439,7 +442,7 @@ export function PossibleMealCard({
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
                 : 'bg-white/25 text-white'
                 }`}
-              title={`Arrêter le compteur${counterHours !== null ? ` (${counterHours}h écoulées)` : ''}\n(Debug Start — heure France : ${formatIsoInFrance(effectiveCounterStart)})`}
+              title={getCounterDaysBadgeTooltip(effectiveCounterStart ?? null, pm.day_of_week, pm.meal_time, counterDays)}
             >
               <Timer className="h-3 w-3" /> {counterDays}j
             </button>
@@ -453,9 +456,13 @@ export function PossibleMealCard({
               <Hash className="h-2.5 w-2.5" />{pm.quantity}
             </button>
           )}
-          {meal.grams && (() => {
-            const baseG = parseFloat(meal.grams!.replace(/[^0-9.]/g, '')) || 0;
-            const displayG = detectedRatio !== null && baseG > 0 ? String(Math.round(baseG * detectedRatio)) : meal.grams;
+          {(() => {
+            const explicitEmptyOverride =
+              pm.ingredients_override != null && String(pm.ingredients_override).trim() === "";
+            const baseG = parseFloat((meal.grams || "").replace(/[^0-9.]/g, "")) || 0;
+            if (explicitEmptyOverride || baseG <= 0) return null;
+            const displayG =
+              detectedRatio !== null && baseG > 0 ? String(Math.round(baseG * detectedRatio)) : meal.grams;
             return (
               <button onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }} className="text-[10px] text-white/90 bg-black/30 px-1 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-black/40 shrink-0">
                 <Weight className="h-2.5 w-2.5" />{displayG}
@@ -554,128 +561,14 @@ export function PossibleMealCard({
       {/* Ligne 3 : ingrédients (cliquer pour éditer) — afficher si la base ou l'override a des ingrédients */}
       {!editing && !editingIngredients && displayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
-          {renderIngredientDisplay(
-            displayIngredients,
-            expiredIngredientNames,
-            undefined, // missing
-            undefined, // counter
-            expiringSoonIngredientNames,
-            stockMap
-          )}
+          <StructuredIngredientInline
+            ingredients={displayIngredients}
+            expiredIngredientNames={expiredIngredientNames}
+            expiringSoonIngredientNames={expiringSoonIngredientNames}
+            stockMap={stockMap}
+          />
         </button>
       )}
     </div>
-  );
-}
-
-/** Rendu de l'affichage des ingrédients avec groupes OU et bundles ET (+), mise en évidence des périmés/manquants */
-function renderIngredientDisplay(
-  ingredients: string,
-  expiredIngredientNames?: Set<string>,
-  missingIngredientNames?: Set<string>,
-  counterIngredientNames?: Set<string>,
-  expiringSoonIngredientNames?: Set<string>,
-  stockMap?: Map<string, StockInfo>,
-) {
-  if (!ingredients?.trim()) return null;
-  const lines = parseIngredientsToLines(ingredients);
-  if (lines.length === 0 || (lines.length === 1 && !lines[0].name.trim())) return null;
-
-  // Regrouper les lignes en structure 3D : Groupes (AND) -> Alternatives (OR) -> Bundles (AND/+)
-  const resGroups: IngLine[][][] = [];
-  let currentGroup: IngLine[][] = [];
-  let currentAlt: IngLine[] = [];
-
-  for (const line of lines) {
-    const hasContent = line.qty || line.count || line.name;
-    if (!hasContent) continue;
-
-    if (line.isAnd) {
-      currentAlt.push(line);
-    } else if (line.isOr) {
-      if (currentAlt.length > 0) currentGroup.push(currentAlt);
-      currentAlt = [line];
-    } else {
-      if (currentAlt.length > 0) currentGroup.push(currentAlt);
-      if (currentGroup.length > 0) resGroups.push(currentGroup);
-      currentGroup = [];
-      currentAlt = [line];
-    }
-  }
-  if (currentAlt.length > 0) currentGroup.push(currentAlt);
-  if (currentGroup.length > 0) resGroups.push(currentGroup);
-
-  // Nettoyer les négatifs de la structure pour éviter les puces (•) ou "ou" orphelins
-  const cleanGroups = resGroups
-    .map(group => 
-      group
-        .map(alt => alt.filter(item => {
-          const norm = normalizeKey(item.name);
-          return norm !== 'négatif' && norm !== 'negatif';
-        }))
-        .filter(alt => alt.length > 0)
-    )
-    .filter(group => group.length > 0);
-
-  if (cleanGroups.length === 0) return null;
-
-  return (
-    <span className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-      {cleanGroups.map((group, gi) => (
-        <span key={gi} className="flex items-center gap-1 flex-wrap">
-          {group.map((alt, ai) => {
-            const isBundle = alt.length > 1;
-
-            // Un bundle est disponible si TOUS ses éléments le sont
-            const altIsAvailable = !stockMap ? true : alt.every(item => {
-              const k = findStockKey(stockMap, item.name);
-              const s = k ? stockMap.get(k) : null;
-              return s && (s.infinite || s.grams > 0 || s.count > 0);
-            });
-
-            return (
-              <React.Fragment key={ai}>
-                {ai > 0 && <span className="text-yellow-300/70 text-[9px] font-bold">ou</span>}
-                <span className="flex items-center flex-wrap gap-1">
-                  {isBundle && <span className="text-white/40 font-light">(</span>}
-                  {alt.map((item, ii) => {
-                    const norm = normalizeKey(item.name);
-                    const isExpired = expiredIngredientNames?.has(norm);
-                    const isSoon = expiringSoonIngredientNames?.has(norm);
-                    const isMissing = missingIngredientNames?.has(norm);
-                    const isOpt = item.isOptional;
-
-                    let cls = "";
-                    if (isMissing) cls = "bg-white/10 text-white/40 line-through px-0.5 rounded";
-                    else if (isExpired) cls = "bg-red-500/40 text-red-100 px-0.5 rounded font-semibold italic ring-1 ring-red-500/50";
-                    else if (isSoon) cls = "ring-1 ring-red-500/60 font-semibold px-0.5 rounded";
-                    else if (isOpt) cls = "italic text-white/40";
-                    else if (stockMap && !altIsAvailable) cls = "opacity-50 line-through";
-
-                    const qtyDisp = [formatQtyDisplay(item.qty), item.count].filter(Boolean).join(" ");
-                    const textDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
-
-                    const itemNode = (
-                      <span className={`${cls} leading-tight whitespace-nowrap`}>
-                        {isOpt ? '?' : ''}{textDisplay}
-                      </span>
-                    );
-
-                    return (
-                      <React.Fragment key={`bundle-${ii}`}>
-                        {ii > 0 && <span className="text-white/40 font-light">+</span>}
-                        {itemNode}
-                      </React.Fragment>
-                    );
-                  })}
-                  {isBundle && <span className="text-white/40 font-light">)</span>}
-                </span>
-              </React.Fragment>
-            );
-          })}
-          {gi < cleanGroups.length - 1 && <span className="text-white/30 ml-1">•</span>}
-        </span>
-      ))}
-    </span>
   );
 }

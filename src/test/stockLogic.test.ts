@@ -8,6 +8,7 @@ import {
   buildStockMap, findStockKey, pickBestAlternative,
   getMealMultiple, getMealFractionalRatio,
   getMissingIngredients, buildScaledMealForRatio, scaleIngredientStringExact,
+  resolveCounterStartForPossibleBadge,
   type StockInfo,
 } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -496,5 +497,237 @@ describe("validation max des cartes en pourcentage", () => {
     const groups = parseIngredientGroups(scaled.ingredients!);
     expect(groups[1][0][0].qty).toBeLessThanOrEqual(140);
     expect(groups[0][0][0].qty).toBeLessThanOrEqual(90);
+  });
+});
+
+// ─── Badge compteur : carte seule vs partage d’ingrédient ─────────────────────
+
+describe("resolveCounterStartForPossibleBadge", () => {
+  it("aligne sur le créneau planifié quand aucune autre carte ne partage l’ingrédient compteur", () => {
+    const foodItems = [makeFoodItem({ name: "Tenders", grams: "500" })];
+    const pm = {
+      id: "pm-burger",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders" },
+    };
+    const fixedNow = new Date("2026-04-22T10:00:00.000Z");
+    const base = "2026-04-21T10:00:00.000Z";
+    const out = resolveCounterStartForPossibleBadge(
+      pm,
+      [],
+      base,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBeDefined();
+    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(base).getTime());
+  });
+
+  it("conserve base quand un sibling non planifié partage l’ingrédient critique (consommation immédiate)", () => {
+    // Scénario : « Mini rosti + Tenders » sans créneau → consomme les Tenders maintenant.
+    // Burger tenders (jeu. 23) doit alors afficher un compteur écoulé, pas le mode prog.
+    const baseDate = "2026-04-21T20:35:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: baseDate }),
+    ];
+    const burger = {
+      id: "a",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders" },
+    };
+    const rosti = {
+      id: "b",
+      day_of_week: null,
+      meal_time: null,
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders, 250g Mini rosti" },
+    };
+    const fixedNow = new Date("2026-04-21T20:37:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burger,
+      [rosti],
+      baseDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBe(baseDate);
+  });
+
+  it("aligne sur le créneau même si l’ingrédient est marqué no_counter ou surgelé", () => {
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", no_counter: true, storage_type: "surgele" }),
+    ];
+    const burger = {
+      id: "a",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders" },
+    };
+    const fixedNow = new Date("2026-04-22T10:00:00.000Z");
+    const base = "2026-04-21T10:00:00.000Z";
+    const out = resolveCounterStartForPossibleBadge(
+      burger,
+      [],
+      base,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBeDefined();
+    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(base).getTime());
+  });
+
+  it("conserve la date du stock si un sibling partageant l’ingrédient est planifié plus tôt", () => {
+    const foodItems = [makeFoodItem({ name: "Tenders", grams: "500" })];
+    const burger = {
+      id: "a",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders" },
+    };
+    const rosti = {
+      id: "b",
+      day_of_week: "2026-04-22",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders, 250g Mini rosti" },
+    };
+    const base = "2026-04-21T10:00:00.000Z";
+    const fixedNow = new Date("2026-04-21T08:00:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burger,
+      [rosti],
+      base,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBe(base);
+  });
+
+  it("hérite de la date d'un sibling non planifié quand le stock ne porte pas de counter_start_date", () => {
+    // Scénario : Mini rosti + Tenders non planifié (vient d'être ajouté, counter_start_date = now).
+    // Les Tenders dans food_items n'ont PAS de counter_start_date (déduction non appliquée).
+    // Burger tenders (jeu. 23) doit quand même afficher son compteur écoulé, hérité de Mini rosti.
+    const foodItems = [makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: null })];
+    const nowDate = "2026-04-21T20:35:00.000Z";
+    const burger = {
+      id: "a",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      counter_start_date: null,
+      created_at: "2026-04-20T00:00:00.000Z",
+      meals: { ingredients: "200g Tenders" },
+    };
+    const minirosti = {
+      id: "b",
+      day_of_week: null,
+      meal_time: null,
+      ingredients_override: null as string | null,
+      counter_start_date: nowDate,
+      created_at: nowDate,
+      meals: { ingredients: "200g Tenders, 250g Mini rosti" },
+    };
+    const fixedNow = new Date("2026-04-21T20:37:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burger,
+      [minirosti],
+      null,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBe(nowDate);
+  });
+
+  it("ignore un sibling qui partage un ingrédient compteur non critique (pas celui qui dicte base)", () => {
+    // Scénario réel observé : Burger tenders (jeudi midi) a Tenders déjà entamés (base),
+    // un sandwich (mercredi midi) partage Gruyère/Chorizo mais n'ouvre pas les Tenders.
+    // Le sibling mercredi ne doit PAS bloquer le passage en mode prog. de Burger jeudi.
+    const baseDate = "2026-04-21T20:35:00.000Z";
+    const foodItems = [
+      makeFoodItem({
+        name: "Tenders",
+        grams: "500",
+        counter_start_date: baseDate,
+      }),
+      makeFoodItem({ name: "Gruyere", grams: "200" }),
+      makeFoodItem({ name: "Chorizo", grams: "200" }),
+    ];
+    const burger = {
+      id: "burger",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: {
+        ingredients: "200g Tenders, 35g Gruyere, 20g Chorizo",
+      },
+    };
+    const sandwich = {
+      id: "sandwich",
+      day_of_week: "2026-04-22",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: {
+        ingredients: "4 Pain de mie, 40g Gruyere, 30g Chorizo",
+      },
+    };
+    const fixedNow = new Date("2026-04-21T20:37:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burger,
+      [sandwich],
+      baseDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBeDefined();
+    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(baseDate).getTime());
+  });
+
+  it("ignore un sibling partageant l’ingrédient si son créneau est déjà passé", () => {
+    const foodItems = [makeFoodItem({ name: "Tenders", grams: "500" })];
+    const burger = {
+      id: "a",
+      day_of_week: "2026-04-23",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders" },
+    };
+    const oldSibling = {
+      id: "b",
+      day_of_week: "2026-04-20",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "200g Tenders, 250g Mini rosti" },
+    };
+    const base = "2026-04-21T10:00:00.000Z";
+    const fixedNow = new Date("2026-04-21T20:00:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burger,
+      [oldSibling],
+      base,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBeDefined();
+    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(base).getTime());
   });
 });

@@ -9,7 +9,7 @@
  * - Édition inline du nom, calories, protéines, grammes, cuisson
  * - Édition des ingrédients via IngredientEditor
  * - Mémorisation React.memo avec comparaison personnalisée pour la performance
- * - renderIngredientDisplay() : affiche les ingrédients avec OU, optionnels, manquants
+ * - StructuredIngredientInline : affiche les ingrédients avec OU, optionnels, manquants
  */
 import React, { useState, forwardRef } from "react";
 import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer, Hash, Link2, Timer } from "lucide-react";
@@ -21,12 +21,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Meal } from "@/hooks/useMeals";
 import {
-  type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
-  parseIngredientsToLines, serializeIngredients, normalizeKey,
+  type IngLine,
+  parseIngredientsToLines, serializeIngredients,
   computeIngredientCalories, computeIngredientProtein, cleanIngredientText,
-  hasNegativeMetric, getMealColor, computeCounterHours
+  getMealColor, computeCounterHours
 } from "@/lib/ingredientUtils";
 import { findStockKey, type StockInfo, getDisplayedCalories, getDisplayedProtein } from "@/lib/stockUtils";
+import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 
 interface MealCardProps {
   meal: Meal;
@@ -69,8 +70,6 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   maxIngredientCounter, missingIngredientNames, counterIngredientNames, stockMap,
   earliestCounterDate, hideCounter
 }, _ref) {
-  const parseIngredientLine = parseIngredientLineDisplay;
-  const formatQty = formatQtyDisplay;
   const [editing, setEditing] = useState<"name" | "calories" | "protein" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
@@ -255,7 +254,14 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
               )}
               {meal.ingredients && (
                 <p className="text-[11px] text-white/65 leading-tight flex-1 flex flex-wrap gap-x-1">
-                  {renderIngredientDisplay(meal.ingredients, expiredIngredientNames, missingIngredientNames, counterIngredientNames, expiringSoonIngredientNames, stockMap)}
+                  <StructuredIngredientInline
+                    ingredients={meal.ingredients}
+                    expiredIngredientNames={expiredIngredientNames}
+                    missingIngredientNames={missingIngredientNames}
+                    counterIngredientNames={counterIngredientNames}
+                    expiringSoonIngredientNames={expiringSoonIngredientNames}
+                    stockMap={stockMap}
+                  />
                 </p>
               )}
             </div>
@@ -285,100 +291,3 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     (prevProps.missingIngredientNames?.size ?? 0) === (nextProps.missingIngredientNames?.size ?? 0) &&
     (prevProps.counterIngredientNames?.size ?? 0) === (nextProps.counterIngredientNames?.size ?? 0);
 });
-
-/** Rendu de l'affichage des ingrédients avec groupes OU, mise en évidence des périmés/manquants */
-function renderIngredientDisplay(
-  ingredients: string,
-  expiredIngredientNames?: Set<string>,
-  missingIngredientNames?: Set<string>,
-  counterIngredientNames?: Set<string>,
-  expiringSoonIngredientNames?: Set<string>,
-  stockMap?: Map<string, StockInfo>,
-) {
-  if (!ingredients?.trim()) return null;
-  const lines = parseIngredientsToLines(ingredients);
-  if (lines.length === 0 || (lines.length === 1 && !lines[0].name.trim())) return null;
-
-  // Regrouper les lignes en structure 3D : Groupes (AND) -> Alternatives (OR) -> Bundles (AND/+)
-  const resGroups: IngLine[][][] = [];
-  let currentGroup: IngLine[][] = [];
-  let currentAlt: IngLine[] = [];
-
-  for (const line of lines) {
-    const hasContent = line.qty || line.count || line.name;
-    if (!hasContent) continue;
-
-    if (line.isAnd) {
-      currentAlt.push(line);
-    } else if (line.isOr) {
-      if (currentAlt.length > 0) currentGroup.push(currentAlt);
-      currentAlt = [line];
-    } else {
-      if (currentAlt.length > 0) currentGroup.push(currentAlt);
-      if (currentGroup.length > 0) resGroups.push(currentGroup);
-      currentGroup = [];
-      currentAlt = [line];
-    }
-  }
-  if (currentAlt.length > 0) currentGroup.push(currentAlt);
-  if (currentGroup.length > 0) resGroups.push(currentGroup);
-
-  return (
-    <span className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-      {resGroups.map((group, gi) => (
-        <span key={gi} className="flex items-center gap-1 flex-wrap">
-          {group.map((alt, ai) => {
-            const isBundle = alt.length > 1;
-            // Un bundle est disponible si TOUS ses éléments le sont
-            const altIsAvailable = !stockMap ? true : alt.every(item => {
-              const k = findStockKey(stockMap, item.name);
-              const s = k ? stockMap.get(k) : null;
-              return s && (s.infinite || s.grams > 0 || s.count > 0);
-            });
-
-            return (
-              <React.Fragment key={ai}>
-                {ai > 0 && <span className="text-yellow-300/70 text-[9px] font-bold">ou</span>}
-                <span className={`relative flex flex-col ${isBundle ? 'pr-2' : ''}`}>
-                  {alt.map((item, ii) => {
-                    const norm = normalizeKey(item.name);
-                    const isExpired = expiredIngredientNames?.has(norm);
-                    const isSoon = expiringSoonIngredientNames?.has(norm);
-                    const isMissing = missingIngredientNames?.has(norm);
-                    const hasCounter = counterIngredientNames?.has(norm);
-                    const isOpt = item.isOptional;
-
-                    let cls = "";
-                    if (isMissing) cls = "bg-white/10 text-white/40 line-through px-0.5 rounded";
-                    else if (isExpired) cls = "bg-red-500/40 text-red-100 px-0.5 rounded font-semibold italic ring-1 ring-red-500/50";
-                    else if (isSoon) cls = "ring-1 ring-red-500/60 font-semibold px-0.5 rounded";
-                    else if (hasCounter) cls = "underline decoration-2 underline-offset-2 decoration-white/60 font-semibold";
-                    else if (isOpt) cls = "italic text-white/40";
-                    else if (stockMap && !altIsAvailable) cls = "opacity-50 line-through";
-
-                    const qtyDisp = [formatQtyDisplay(item.qty), item.count].filter(Boolean).join(" ");
-                    const textDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
-
-                    return (
-                      <span key={ii} className={`${cls} leading-tight whitespace-nowrap`}>
-                        {isOpt ? '?' : ''}{textDisplay}
-                      </span>
-                    );
-                  })}
-                  {/* Trait de liaison (Bracket) pour les bundles */}
-                  {isBundle && (
-                    <span 
-                      className="absolute right-0 top-[2px] bottom-[2px] w-[5px] border-r border-t border-b border-white/40 rounded-r-[3px]" 
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  )}
-                </span>
-              </React.Fragment>
-            );
-          })}
-          {gi < resGroups.length - 1 && <span className="text-white/30 ml-1">•</span>}
-        </span>
-      ))}
-    </span>
-  );
-}

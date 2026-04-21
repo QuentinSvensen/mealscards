@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { applyNextWeekPromotionOnTop } from "./applyNextWeekPromotion";
 import { mergeSnapshotsIntoLivePrefMap } from "./mergePlanningSnapshots";
 import { resolvePostResetGoals } from "./postResetGoals";
 import { filterPossibleMealsToDeleteForWeeklyClear, getPossibleMealIdsToDeleteOnManualReset } from "./mealsToClear";
@@ -50,6 +51,41 @@ describe("mergeSnapshotsIntoLivePrefMap", () => {
     };
     const merged = mergeSnapshotsIntoLivePrefMap(prefMap, { foo: { cal: 1 } } as any);
     expect(merged.planning_manual_calories).toEqual({});
+  });
+});
+
+describe("applyNextWeekPromotionOnTop", () => {
+  it("écrase les extras issus des snapshots avec le brouillon semaine suivante", () => {
+    const merged = mergeSnapshotsIntoLivePrefMap(
+      {
+        planning_manual_calories: {},
+        planning_manual_proteins: {},
+        planning_extra_calories: { "2025-04-14": 10 },
+        planning_extra_proteins: {},
+        planning_extra_selections: { "2025-04-14": ["food-a"] },
+        planning_breakfast_manual_calories: {},
+        planning_breakfast_manual_proteins: {},
+        planning_breakfast: {},
+        planning_drink_checks: {},
+      },
+      {
+        "extra-2025-04-14": { cal: 10, prot: 0, itemIds: ["food-a"] },
+      },
+    );
+    const prefMap: PlanningPrefMap = {
+      next_week_extra_calories: { "2025-04-14": 0 },
+      next_week_extra_proteins: {},
+      next_week_extra_selections: { "2025-04-14": ["custom::Collation::100::5"] },
+      next_week_manual_calories: {},
+      next_week_manual_proteins: {},
+      next_week_breakfast: {},
+      next_week_breakfast_manual_calories: {},
+      next_week_breakfast_manual_proteins: {},
+      next_week_drink_checks: {},
+    };
+    const out = applyNextWeekPromotionOnTop(merged, prefMap);
+    expect(out.planning_extra_selections["2025-04-14"]).toEqual(["custom::Collation::100::5"]);
+    expect(out.planning_extra_calories["2025-04-14"]).toBeUndefined();
   });
 });
 

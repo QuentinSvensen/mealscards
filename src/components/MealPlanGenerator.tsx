@@ -26,7 +26,8 @@ import { Dice5, Flame, Weight, HelpCircle, ArrowUpDown, CalendarDays } from "luc
 import { Button } from "@/components/ui/button";
 import { usePreferences } from "@/hooks/usePreferences";
 import { Separator } from "@/components/ui/separator";
-import { normalizeKey, parseIngredientLineRaw, smartFoodContains, computeIngredientCalories, computeIngredientProtein, cleanIngredientText, accentSafeKeyMatch, getMealColor } from "@/lib/ingredientUtils";
+import { normalizeKey, parseIngredientLineRaw, smartFoodContains, computeIngredientCalories, computeIngredientProtein, accentSafeKeyMatch, getMealColor } from "@/lib/ingredientUtils";
+import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 
 const MENU_PREF_KEY = "menu_generator_selected_ids_v1";
 const MENU_NEEDS_KEY = "menu_generator_needs_v1";
@@ -729,7 +730,7 @@ export function MealPlanGenerator() {
                     </div>
                     {meal.ingredients && (
                       <p className="text-[10px] text-white/50 mt-0.5 break-words">
-                        {cleanIngredientText(meal.ingredients).split(/[,\n]+/).filter(Boolean).map((s) => s.trim()).join(" • ")}
+                        <StructuredIngredientInline compact ingredients={meal.ingredients} />
                       </p>
                     )}
                   </div>

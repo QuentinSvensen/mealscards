@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import {
+  NEXT_WEEK_PROMOTION_PREF_KEYS,
   PLANNING_RESET_PREF_KEYS,
   type PlanningPrefMap,
   type PlanningSnapshotEntry,
@@ -26,7 +27,7 @@ export async function fetchPlanningPrefsMapFromDb(userId: string): Promise<Plann
     .from("user_preferences")
     .select("key, value")
     .eq("user_id", userId)
-    .in("key", [...PLANNING_RESET_PREF_KEYS]);
+    .in("key", [...PLANNING_RESET_PREF_KEYS, ...NEXT_WEEK_PROMOTION_PREF_KEYS]);
   if (error) throw error;
   const prefMap: PlanningPrefMap = {};
   for (const row of prefRows ?? []) {
