@@ -240,8 +240,9 @@ interface TouchDragState {
 /**
  * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
  */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, hideIngredients, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
   pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; compact: boolean;
+  hideIngredients?: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
@@ -284,6 +285,16 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             <div className="flex items-center gap-1 min-w-0">
               <span className="text-[9px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
               <span className="font-semibold text-[10px] min-w-0 break-words leading-tight">{meal.name}</span>
+              {counterDays !== null ? (
+                <span
+                  className={`text-[8px] font-black px-1 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
+                  ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
+                  title={counterBadgeTitle}
+                >
+                  <Timer className="h-2 w-2" />
+                  {counterDays}j
+                </span>
+              ) : null}
             </div>
           </div>
           {!compact && (
@@ -356,16 +367,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                   🍗
                 </button>
               )}
-              {counterDays !== null ? (
-                <span
-                  className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
-                  ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
-                  title={counterBadgeTitle}
-                >
-                  <Timer className="h-2.5 w-2.5" />
-                  {counterDays}j
-                </span>
-              ) : null}
             </div>
           )}
         </div>
@@ -387,7 +388,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                     {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   </span>
                 )}
-                {(pm.ingredients_override || meal.ingredients) && (
+                {!hideIngredients && (pm.ingredients_override || meal.ingredients) && (
                   <StructuredIngredientInline
                     compact
                     ingredients={pm.ingredients_override ?? meal.ingredients}
@@ -408,6 +409,16 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
           <div className="flex items-center gap-1 min-w-0">
             <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
             <span className="font-semibold text-xs min-w-0 break-words leading-tight">{meal.name}</span>
+            {counterDays !== null ? (
+              <span
+                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
+                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
+                title={counterBadgeTitle}
+              >
+                <Timer className="h-2.5 w-2.5" />
+                {counterDays}j
+              </span>
+            ) : null}
           </div>
           {!compact && (pm.expiration_date || meal.grams || pm.ingredients_override || meal.ingredients) && (
             <div className="pt-0.5">
@@ -427,7 +438,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                   </span>
                 </div>
               )}
-              {(pm.ingredients_override || meal.ingredients) && (
+              {!hideIngredients && (pm.ingredients_override || meal.ingredients) && (
                 <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 flex flex-wrap gap-x-1`}>
                   <StructuredIngredientInline
                     compact
@@ -511,16 +522,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                 🍗
               </button>
             )}
-            {counterDays !== null ? (
-              <span
-                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border
-                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-                title={counterBadgeTitle}
-              >
-                <Timer className="h-2.5 w-2.5" />
-                {counterDays}j
-              </span>
-            ) : null}
           </div>
         )}
       </div>
@@ -665,6 +666,7 @@ export function WeeklyPlanning({
   const [additiveModes, setAdditiveModes] = useState<Record<string, { active: boolean; value: string }>>({});
   const [openExtrasDay, setOpenExtrasDay] = useState<string | null>(null);
   const [draggedSelectedExtraId, setDraggedSelectedExtraId] = useState<string | null>(null);
+  const [draggedSelectedExtraOrigin, setDraggedSelectedExtraOrigin] = useState<{ iso: string; key: string } | null>(null);
   const [selectedExtrasTopByDay, setSelectedExtrasTopByDay] = useState<Record<string, string[]>>({});
   const [customExtraName, setCustomExtraName] = useState('');
   const [customExtraCal, setCustomExtraCal] = useState('');
@@ -1023,6 +1025,68 @@ export function WeeklyPlanning({
     unassignExtraFromAllDaySlots(extraId, iso, key);
   };
 
+  // Retire une seule occurrence d'un extra dans une sélection de journée.
+  const removeOneExtraOccurrenceForDay = (selection: Record<string, string[]>, dayIso: string, dayKey: string, extraId: string) => {
+    const next = { ...selection };
+    const isoList = [...(next[dayIso] || [])];
+    const keyList = [...(next[dayKey] || [])];
+    const isoIdx = isoList.lastIndexOf(extraId);
+    if (isoIdx >= 0) {
+      isoList.splice(isoIdx, 1);
+      next[dayIso] = isoList;
+      return next;
+    }
+    const keyIdx = keyList.lastIndexOf(extraId);
+    if (keyIdx >= 0) {
+      keyList.splice(keyIdx, 1);
+      next[dayKey] = keyList;
+    }
+    return next;
+  };
+
+  // Déplace un extra entre deux jours en évitant les courses d'écritures (suppression + ajout atomiques).
+  const moveExtraBetweenDaysToSlot = (
+    extraId: string,
+    sourceIso: string,
+    sourceKey: string,
+    targetIso: string,
+    targetKey: string,
+    targetSlot: 'matin' | 'midi' | 'soir' | 'gouter'
+  ) => {
+    if (!extraId || extraId.startsWith('custom::')) return;
+
+    const nextSelections = removeOneExtraOccurrenceForDay(extraSelections, sourceIso, sourceKey, extraId);
+    const targetCurrent = nextSelections[targetIso] || nextSelections[targetKey] || [];
+    if (!targetCurrent.includes(extraId)) {
+      nextSelections[targetIso] = [...targetCurrent, extraId];
+    }
+
+    const nextAssignments = { ...extraSlotAssignments };
+    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
+    for (const s of slots) {
+      const sIso = `${sourceIso}-${s}`;
+      const sKey = `${sourceKey}-${s}`;
+      if (nextAssignments[sIso]?.includes(extraId)) nextAssignments[sIso] = nextAssignments[sIso].filter((x) => x !== extraId);
+      if (nextAssignments[sKey]?.includes(extraId)) nextAssignments[sKey] = nextAssignments[sKey].filter((x) => x !== extraId);
+    }
+
+    for (const s of slots) {
+      if (s === targetSlot) continue;
+      const tIso = `${targetIso}-${s}`;
+      const tKey = `${targetKey}-${s}`;
+      if (nextAssignments[tIso]?.includes(extraId)) nextAssignments[tIso] = nextAssignments[tIso].filter((x) => x !== extraId);
+      if (nextAssignments[tKey]?.includes(extraId)) nextAssignments[tKey] = nextAssignments[tKey].filter((x) => x !== extraId);
+    }
+    const targetAssignKey = `${targetIso}-${targetSlot}`;
+    const targetAssigned = nextAssignments[targetAssignKey] || [];
+    if (!targetAssigned.includes(extraId)) {
+      nextAssignments[targetAssignKey] = [...targetAssigned, extraId];
+    }
+
+    setPreference.mutate({ key: 'planning_extra_selections', value: nextSelections });
+    setPreference.mutate({ key: 'planning_extra_slot_assignments', value: nextAssignments });
+  };
+
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
     setDragOverSlot(null);
@@ -1055,8 +1119,14 @@ export function WeeklyPlanning({
     if (extraId && !extraId.startsWith('custom::')) {
       const iso = day;
       const dayKeyFromIso = weekDates.find(w => w.iso === iso)?.key || '';
-      assignExtraToDaySlot(extraId, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+      const origin = draggedSelectedExtraOrigin;
+      if (origin && origin.iso && origin.iso !== iso) {
+        moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+      } else {
+        assignExtraToDaySlot(extraId, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+      }
       setDraggedSelectedExtraId(null);
+      setDraggedSelectedExtraOrigin(null);
     }
   };
 
@@ -1070,8 +1140,14 @@ export function WeeklyPlanning({
       const targetTime = targetPm.meal_time;
       if (targetDay && (targetTime === 'matin' || targetTime === 'midi' || targetTime === 'soir')) {
         const dayKeyFromIso = weekDates.find(w => w.iso === targetDay)?.key || '';
-        assignExtraToDaySlot(extraId, targetDay, dayKeyFromIso, targetTime);
+        const origin = draggedSelectedExtraOrigin;
+        if (origin && origin.iso && origin.iso !== targetDay) {
+          moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, targetDay, dayKeyFromIso, targetTime);
+        } else {
+          assignExtraToDaySlot(extraId, targetDay, dayKeyFromIso, targetTime);
+        }
         setDraggedSelectedExtraId(null);
+        setDraggedSelectedExtraOrigin(null);
       }
       return;
     }
@@ -1271,7 +1347,7 @@ export function WeeklyPlanning({
     updatePlanningWithCounters(pm.id, null, null);
   };
 
-  const renderMiniCard = (pm: PossibleMeal, compact = false) => {
+  const renderMiniCard = (pm: PossibleMeal, compact = false, hideIngredients = false) => {
     const meal = pm.meals;
     if (!meal) return null;
     const displayIngredients = pm.ingredients_override ?? meal.ingredients;
@@ -1345,6 +1421,7 @@ export function WeeklyPlanning({
         displayPro={displayPro}
         isComputedPro={isComputedPro}
         compact={compact}
+        hideIngredients={hideIngredients}
         isTouchDevice={isTouchDevice}
         touchDragActive={touchDragActive}
         slotDragOver={slotDragOver}
@@ -1627,24 +1704,7 @@ export function WeeklyPlanning({
               ref={isToday_ ? todayRef : undefined}
               className={`rounded-2xl p-2 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
             >
-              <div
-                className={`flex items-center gap-2 mb-2 flex-wrap rounded-xl transition-colors ${isBreakfastDragOver ? 'ring-2 ring-orange-400/60 bg-orange-500/5 p-1' : ''}`}
-                onDragOver={(e) => {
-                  const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
-                  if (!canAccept) return;
-                  e.preventDefault();
-                  setDragOverSlot(breakfastDropKey);
-                }}
-                onDragLeave={() => setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))}
-                onDrop={(e) => {
-                  const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
-                  if (!extraId || extraId.startsWith('custom::')) return;
-                  e.preventDefault();
-                  assignExtraToDaySlot(extraId, iso, key, 'matin');
-                  setDraggedSelectedExtraId(null);
-                  setDragOverSlot(null);
-                }}
-              >
+              <div className="flex items-start gap-2 mb-2 flex-wrap">
                 <h3
                   className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isToday_ ? "text-primary" : "text-foreground"}`}
                 >
@@ -1655,8 +1715,32 @@ export function WeeklyPlanning({
                     </span>
                   )}
                 </h3>
+                <div
+                  className={`rounded-xl border border-dashed px-2 py-2 transition-colors ${isBreakfastDragOver ? 'border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25' : 'border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45'}`}
+                  onDragOver={(e) => {
+                    const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
+                    if (!canAccept) return;
+                    e.preventDefault();
+                    setDragOverSlot(breakfastDropKey);
+                  }}
+                  onDragLeave={() => setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))}
+                  onDrop={(e) => {
+                    const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
+                    if (!extraId || extraId.startsWith('custom::')) return;
+                    e.preventDefault();
+                    const origin = draggedSelectedExtraOrigin;
+                    if (origin && origin.iso && origin.iso !== iso) {
+                      moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, key, 'matin');
+                    } else {
+                      assignExtraToDaySlot(extraId, iso, key, 'matin');
+                    }
+                    setDraggedSelectedExtraId(null);
+                    setDraggedSelectedExtraOrigin(null);
+                    setDragOverSlot(null);
+                  }}
+                >
                 {/* Sélecteur de petit déj */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 flex-wrap">
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
@@ -1872,7 +1956,6 @@ export function WeeklyPlanning({
                       })()}
                     >💾</button>
                   )}
-                </div>
                 {(breakfastTotalCals > 0 || breakfastTotalPro > 0) && (
                   <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full ml-2 border border-border/40 shadow-sm">
                     {breakfastTotalCals > 0 && (
@@ -1890,6 +1973,41 @@ export function WeeklyPlanning({
                     )}
                   </div>
                 )}
+                </div>
+                {breakfastAssignedSlotIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {breakfastAssignedSlotIds.map((extraId) => {
+                      const fi = foodItems.find(f => f.id === extraId);
+                      if (!fi) return null;
+                      return (
+                        <span
+                          key={extraId}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedSelectedExtraId(extraId);
+                            setDraggedSelectedExtraOrigin({ iso, key });
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', extraId);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedSelectedExtraId(null);
+                            setDraggedSelectedExtraOrigin(null);
+                          }}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                          title="Extra assigné au petit déj — glisse pour déplacer"
+                        >
+                          {fi.name}
+                          <button
+                            onClick={() => deselectExtraForDay(extraId, iso, key)}
+                            className="opacity-60 hover:opacity-100 font-bold"
+                            title="Retirer des extras du jour"
+                          >×</button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                </div>
                 <div className="flex-1" />
                 <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
                   <button
@@ -1964,35 +2082,6 @@ export function WeeklyPlanning({
                   )}
                 </div>
               </div>
-              {breakfastAssignedSlotIds.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {breakfastAssignedSlotIds.map((extraId) => {
-                    const fi = foodItems.find(f => f.id === extraId);
-                    if (!fi) return null;
-                    return (
-                      <span
-                        key={extraId}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggedSelectedExtraId(extraId);
-                          e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', extraId);
-                        }}
-                        onDragEnd={() => setDraggedSelectedExtraId(null)}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
-                        title="Extra assigné au petit déj — glisse pour déplacer"
-                      >
-                        {fi.name}
-                        <button
-                          onClick={() => deselectExtraForDay(extraId, iso, key)}
-                          className="opacity-60 hover:opacity-100 font-bold"
-                          title="Retirer des extras du jour"
-                        >×</button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
               <div className="grid grid-cols-[1fr_1fr_auto] gap-1 sm:gap-3">
                 {TIMES.map((time) => {
                   const slotKey = `${iso}-${time}`;
@@ -2026,7 +2115,7 @@ export function WeeklyPlanning({
                       }}
                       onDragLeave={() => setDragOverSlot(null)}
                       onDrop={(e) => handleDrop(e, iso, time)}
-                      className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+                      className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
                     >
                       <div className="flex items-center justify-between mb-0.5">
                         <div className="flex items-center gap-1">
@@ -2183,7 +2272,7 @@ export function WeeklyPlanning({
                             </div>
                           </div>
                         ) : (
-                          slotMeals.map((pm) => renderMiniCard(pm, false))
+                          slotMeals.map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))
                         )}
                         {slotAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-0.5">
@@ -2196,11 +2285,15 @@ export function WeeklyPlanning({
                                   draggable
                                   onDragStart={(e) => {
                                     setDraggedSelectedExtraId(extraId);
+                                    setDraggedSelectedExtraOrigin({ iso, key });
                                     e.dataTransfer.effectAllowed = 'move';
                                     e.dataTransfer.setData('text/plain', extraId);
                                   }}
-                                  onDragEnd={() => setDraggedSelectedExtraId(null)}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                                  onDragEnd={() => {
+                                    setDraggedSelectedExtraId(null);
+                                    setDraggedSelectedExtraOrigin(null);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                                   title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
                                 >
                                   {fi.name}
@@ -2224,7 +2317,7 @@ export function WeeklyPlanning({
                   const isExtraDragOver = dragOverSlot === extraDropKey;
                   return (
                 <div
-                  className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isExtraDragOver ? "border-orange-400/70 bg-orange-500/10 ring-2 ring-orange-400/30" : "border-orange-300/30"}`}
+                  className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isExtraDragOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3"}`}
                   onDragOver={(e) => {
                     const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
                     if (!canAccept) return;
@@ -2239,11 +2332,12 @@ export function WeeklyPlanning({
                     e.preventDefault();
                     unassignExtraFromAllDaySlots(extraId, iso, key);
                     setDraggedSelectedExtraId(null);
+                    setDraggedSelectedExtraOrigin(null);
                     setDragOverSlot(null);
                   }}
                   title="Déposer ici pour remettre l'extra dans la catégorie Extras"
                 >
-                  <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
+                  <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                   <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                     <PlanningInput
                       storageKey={`extra-${iso}`}
@@ -2555,6 +2649,7 @@ export function WeeklyPlanning({
                                     onDragStart={(e) => {
                                       if (!selectedSection) return;
                                       setDraggedSelectedExtraId(fi.id);
+                                      setDraggedSelectedExtraOrigin({ iso, key });
                                       e.dataTransfer.effectAllowed = "move";
                                       e.dataTransfer.setData("text/plain", fi.id);
                                     }}
@@ -2571,8 +2666,12 @@ export function WeeklyPlanning({
                                       if (selectedSection === "top") moveSelectedExtraToTopSection(sourceId);
                                       else moveSelectedExtraToBottomSection(sourceId);
                                       setDraggedSelectedExtraId(null);
+                                      setDraggedSelectedExtraOrigin(null);
                                     }}
-                                    onDragEnd={() => setDraggedSelectedExtraId(null)}
+                                    onDragEnd={() => {
+                                      setDraggedSelectedExtraId(null);
+                                      setDraggedSelectedExtraOrigin(null);
+                                    }}
                                     className={`w-full p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                   >
                                     <div className="flex-1 min-w-0">
@@ -2633,6 +2732,7 @@ export function WeeklyPlanning({
                                           const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
                                           if (sourceId) moveSelectedExtraToTopSection(sourceId);
                                           setDraggedSelectedExtraId(null);
+                                          setDraggedSelectedExtraOrigin(null);
                                         }}
                                         className="relative my-1 h-2"
                                         title="Dépose ici pour placer l'extra au-dessus du trait"
@@ -2756,7 +2856,7 @@ export function WeeklyPlanning({
                 }}
                 onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
                 onDrop={(e) => handleDrop(e, iso, 'gouter')}
-                className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors ${dragOverSlot === `${iso}-gouter` ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+                className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors ${dragOverSlot === `${iso}-gouter` ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
               >
                 <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                   <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
@@ -2809,11 +2909,15 @@ export function WeeklyPlanning({
                             draggable
                             onDragStart={(e) => {
                               setDraggedSelectedExtraId(extraId);
+                              setDraggedSelectedExtraOrigin({ iso, key });
                               e.dataTransfer.effectAllowed = 'move';
                               e.dataTransfer.setData('text/plain', extraId);
                             }}
-                            onDragEnd={() => setDraggedSelectedExtraId(null)}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                            onDragEnd={() => {
+                              setDraggedSelectedExtraId(null);
+                              setDraggedSelectedExtraOrigin(null);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                             title="Extra assigné à Goûter — glisse pour déplacer"
                           >
                             {fi.name}
@@ -3053,7 +3157,7 @@ export function WeeklyPlanning({
                         const kIso = `${iso}-${time}`;
                         const kKey = `${key}-${time}`;
                         return (
-                          <div key={time} className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-border/40 p-1 sm:p-1.5">
+                          <div key={time} className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-border/55 bg-background/10 p-1 sm:p-1.5">
                             <div className="flex items-center justify-between mb-0.5">
                               <div className="flex items-center gap-1">
                                 <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
@@ -3107,8 +3211,8 @@ export function WeeklyPlanning({
                         );
                       })}
                       {/* Extra column */}
-                      <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
-                        <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
+                      <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/45 bg-orange-500/3 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
+                        <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                         <div className="flex flex-col items-center gap-1 mt-1 w-full opacity-60">
                           {(() => {
                             const sel = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
@@ -3380,7 +3484,7 @@ export function WeeklyPlanning({
                         onDragOver={(e) => { e.preventDefault(); setDragOverSlot(slotId); }}
                         onDragLeave={() => setDragOverSlot(null)}
                         onDrop={(e) => { e.preventDefault(); handleDrop(e, iso, time); }}
-                        className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-all ${isOver ? 'bg-primary/20 border-primary scale-[1.02] shadow-lg ring-2 ring-primary/40' : 'border-border/40'}`}
+                        className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-all ${isOver ? 'bg-primary/16 border-primary/70 scale-[1.02] shadow-lg ring-1 ring-primary/25' : 'border-border/55 bg-background/10'}`}
                       >
                         <div className="flex items-center justify-between mb-0.5">
                           <div className="flex items-center gap-1">
@@ -3394,7 +3498,7 @@ export function WeeklyPlanning({
                           </div>
                         </div>
                         <div className="mt-0.5 space-y-1">
-                          {getMealsForSlot(key, time, iso).map((pm) => renderMiniCard(pm, false))}
+                          {getMealsForSlot(key, time, iso).map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))}
                           <div className="flex flex-col items-start gap-0.5">
                             <PlanningInput storageKey={`next-mc-${iso}-${time}`} currentValue={nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.cal ?? 0}
                               onSave={(val) => { const u = { ...nextManualCalories }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_calories', value: u }); }}
@@ -3408,8 +3512,8 @@ export function WeeklyPlanning({
                     );
                   })}
                   {/* Colonne Extra */}
-                  <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
-                    <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
+                  <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/45 bg-orange-500/3 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
+                    <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                     <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                       <PlanningInput storageKey={`next-ec-${iso}`}
                         currentValue={(() => { const m = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); })()}
