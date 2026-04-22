@@ -909,42 +909,97 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const computeUnusedSuggestions = (items: FoodItem[]) => {
     if (!items.length || !allMeals.length) return [];
     const index = buildIngredientMealIndex(allMeals);
-    const unusedKeys = new Set(items.map(fi => normalizeKey(fi.name)));
-    type Source = { unusedName: string; recipeName: string; recipeId: string };
-    const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[] }>();
+    // Normalise un nom ingrédient en version canonique pour rapprocher singulier/pluriel mot à mot.
+    const canonicalize = (name: string) =>
+      normalizeForMatch(name)
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((w) => w.replace(/s$/i, ""))
+        .join(" ");
+    const unusedStockKeys = new Set(
+      items.map((fi) => findStockKey(stockMap, fi.name) ?? normalizeKey(fi.name))
+    );
+    const unusedCanonicalNames = new Set(items.map((fi) => canonicalize(fi.name)));
+    type Source = {
+      unusedName: string;
+      recipeName: string;
+      recipeId: string;
+      unusedRecipeAmountLabel: string;
+      missingAmountLabel: string;
+      debug: { unusedUsed: number; usedWithUnused: number; missingCount: number; cal: number };
+    };
+    const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[]; countedRecipeIds: Set<string> }>();
     for (const fi of items) {
       const unusedKey = normalizeKey(fi.name);
-      const mealIds = index.get(unusedKey);
-      if (!mealIds || mealIds.size === 0) continue;
+      const fiCanonical = canonicalize(fi.name);
+      const mealIds = new Set<string>(index.get(unusedKey) ?? []);
+      // Ajoute aussi les recettes trouvées via correspondance tolérante (ex: "tenders" ~ "filet de tenders").
+      for (const [idxKey, ids] of index.entries()) {
+        const isCanonicalMatch = canonicalize(idxKey) === fiCanonical;
+        if (!strictNameMatch(idxKey, fi.name) && !isCanonicalMatch) continue;
+        for (const id of ids) mealIds.add(id);
+      }
+      if (mealIds.size === 0) continue;
       let bestMeal: Meal | null = null;
-      let bestScore: { unusedUsed: number; missingCount: number; cal: number } | null = null;
+      let bestScore: { unusedUsed: number; usedWithUnused: number; missingCount: number; cal: number } | null = null;
       for (const mealId of mealIds) {
         const meal = allMeals.find(m => m.id === mealId);
         if (!meal?.ingredients?.trim()) continue;
         const groups = parseIngredientGroups(meal.ingredients);
         const usedUnusedKeys = new Set<string>();
+        const usedWithUnusedKeys = new Set<string>();
         for (const group of groups) {
           for (const alt of group) {
             for (const item of alt) {
-              const k = normalizeKey(item.name);
-              if (unusedKeys.has(k)) usedUnusedKeys.add(k);
+              const ingredientStockKey = findStockKey(stockMap, item.name) ?? normalizeKey(item.name);
+              const ingredientCanonical = canonicalize(item.name);
+              if (unusedStockKeys.has(ingredientStockKey) || unusedCanonicalNames.has(ingredientCanonical)) {
+                usedUnusedKeys.add(`${ingredientStockKey}::${ingredientCanonical}`);
+              } else {
+                const inStockKey = findStockKey(stockMap, item.name);
+                if (inStockKey) {
+                  const stock = stockMap.get(inStockKey);
+                  if (stock && (stock.infinite || stock.grams > 0 || stock.count > 0)) {
+                    usedWithUnusedKeys.add(`${inStockKey}::${ingredientCanonical}`);
+                  }
+                }
+              }
             }
           }
         }
         const missing = getMissingIngredients(meal, stockMap);
         const missingCount = missing.size;
-        if (missingCount === 0) continue;
         const cal = parseMacroDisplay(meal.calories) ?? Number.POSITIVE_INFINITY;
-        const score = { unusedUsed: usedUnusedKeys.size, missingCount, cal };
+        const score = { unusedUsed: usedUnusedKeys.size, usedWithUnused: usedWithUnusedKeys.size, missingCount, cal };
         const better = !bestScore
           || score.unusedUsed > bestScore.unusedUsed
-          || (score.unusedUsed === bestScore.unusedUsed && score.missingCount < bestScore.missingCount)
-          || (score.unusedUsed === bestScore.unusedUsed && score.missingCount === bestScore.missingCount && score.cal < bestScore.cal);
+          || (score.unusedUsed === bestScore.unusedUsed && score.usedWithUnused > bestScore.usedWithUnused)
+          || (score.unusedUsed === bestScore.unusedUsed && score.usedWithUnused === bestScore.usedWithUnused && score.missingCount < bestScore.missingCount)
+          || (score.unusedUsed === bestScore.unusedUsed && score.usedWithUnused === bestScore.usedWithUnused && score.missingCount === bestScore.missingCount && score.cal < bestScore.cal);
         if (better) { bestScore = score; bestMeal = meal; }
       }
       if (!bestMeal || !bestScore) continue;
+      // Si la meilleure recette est déjà réalisable (rien à acheter), on ne propose aucun
+      // ingrédient : l'utilisateur peut déjà consommer l'aliment inutilisé via cette recette.
+      if (bestScore.missingCount === 0) continue;
       const missing = getMissingIngredients(bestMeal, stockMap);
       const groups = parseIngredientGroups(bestMeal.ingredients!);
+      let unusedQtyInRecipe = 0;
+      let unusedCountInRecipe = 0;
+      for (const group of groups) {
+        for (const alt of group) {
+          for (const item of alt) {
+            const sameByCanonical = canonicalize(item.name) === fiCanonical;
+            if (!strictNameMatch(item.name, fi.name) && !sameByCanonical) continue;
+            if (item.qty > 0) unusedQtyInRecipe = Math.max(unusedQtyInRecipe, item.qty);
+            if (item.count > 0) unusedCountInRecipe = Math.max(unusedCountInRecipe, item.count);
+          }
+        }
+      }
+      const unusedRecipeAmountLabel =
+        unusedQtyInRecipe > 0
+          ? `${formatNumeric(unusedQtyInRecipe)}g`
+          : (unusedCountInRecipe > 0 ? `x${unusedCountInRecipe}` : "quantité inconnue");
       for (const missingKey of missing) {
         let qty = 0, count = 0, displayName = missingKey;
         for (const group of groups) {
@@ -956,12 +1011,25 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
             break;
           }
         }
-        const entry = byMissing.get(missingKey) || { missingName: displayName, qty, count, sources: [] };
-        entry.sources.push({ unusedName: fi.name, recipeName: bestMeal.name, recipeId: bestMeal.id });
+        const entry = byMissing.get(missingKey) || { missingName: displayName, qty: 0, count: 0, sources: [], countedRecipeIds: new Set<string>() };
+        // Cumule la quantité demandée uniquement une fois par recette pour ce même ingrédient manquant.
+        if (!entry.countedRecipeIds.has(bestMeal.id)) {
+          entry.qty += qty;
+          entry.count += count;
+          entry.countedRecipeIds.add(bestMeal.id);
+        }
+        entry.sources.push({
+          unusedName: fi.name,
+          recipeName: bestMeal.name,
+          recipeId: bestMeal.id,
+          unusedRecipeAmountLabel,
+          missingAmountLabel: qty > 0 ? `${formatNumeric(qty)}g` : (count > 0 ? `x${count}` : "quantité inconnue"),
+          debug: bestScore,
+        });
         byMissing.set(missingKey, entry);
       }
     }
-    return Array.from(byMissing.values());
+    return Array.from(byMissing.values()).map(({ countedRecipeIds: _ignored, ...rest }) => rest);
   };
 
   const renderUnusedItems = (items: FoodItem[], crossCatItems: FoodItem[] = []) => {
@@ -1025,8 +1093,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         <div className="flex flex-wrap gap-1.5 mt-2">
           {suggestions.map((s, i) => {
             const tooltipLines = [
-              `Ingrédient manquant pour débloquer :`,
-              ...s.sources.map(src => `• ${src.unusedName} → « ${src.recipeName} »`),
+              ...s.sources.flatMap((src, idx) => [
+                `Pour utiliser "${src.unusedRecipeAmountLabel} ${src.unusedName}" il faut ajouter :`,
+                `- "${src.missingAmountLabel} ${s.missingName}" pour la recette : "${src.recipeName}"`,
+                ...(idx < s.sources.length - 1 ? [""] : []),
+              ]),
             ];
             return (
               <span
