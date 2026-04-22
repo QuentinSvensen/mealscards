@@ -907,7 +907,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const crossCatIds = new Set(crossCatItems.map(fi => fi.id));
     return (
     <div className={`${isPlat ? 'mb-2' : 'mt-4'} rounded-2xl bg-muted/30 border border-border/20 p-3`}>
-      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({allItems.length})</p>
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">🧊 Aliments inutilisés ({allItems.length})</p>
+      <div className="h-px w-full bg-border/50 mb-2" />
       <div className="flex flex-wrap gap-1.5">
         {[...allItems].sort((a, b) => {
           const today = new Date(new Date().toDateString());
