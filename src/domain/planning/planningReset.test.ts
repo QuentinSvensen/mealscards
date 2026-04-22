@@ -87,6 +87,42 @@ describe("applyNextWeekPromotionOnTop", () => {
     expect(out.planning_extra_selections["2025-04-14"]).toEqual(["custom::Collation::100::5"]);
     expect(out.planning_extra_calories["2025-04-14"]).toBeUndefined();
   });
+
+  it("ne réécrase pas une clé sauvegardée (💾) avec le brouillon next_week", () => {
+    const merged = mergeSnapshotsIntoLivePrefMap(
+      {
+        planning_manual_calories: { "2025-04-14-midi": 420 },
+        planning_manual_proteins: { "2025-04-14-midi": 30 },
+        planning_extra_calories: {},
+        planning_extra_proteins: {},
+        planning_extra_selections: {},
+        planning_breakfast_manual_calories: {},
+        planning_breakfast_manual_proteins: {},
+        planning_breakfast: {},
+        planning_drink_checks: {},
+      },
+      {
+        "manual-2025-04-14-midi": { cal: 420, prot: 30 },
+      },
+    );
+    const prefMap: PlanningPrefMap = {
+      next_week_manual_calories: { "2025-04-14-midi": 999 },
+      next_week_manual_proteins: { "2025-04-14-midi": 99 },
+      next_week_extra_calories: {},
+      next_week_extra_proteins: {},
+      next_week_extra_selections: {},
+      next_week_breakfast: {},
+      next_week_breakfast_manual_calories: {},
+      next_week_breakfast_manual_proteins: {},
+      next_week_drink_checks: {},
+    };
+    const snapshots = {
+      "manual-2025-04-14-midi": { cal: 420, prot: 30 },
+    };
+    const out = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
+    expect(out.planning_manual_calories["2025-04-14-midi"]).toBe(420);
+    expect(out.planning_manual_proteins["2025-04-14-midi"]).toBe(30);
+  });
 });
 
 describe("resolvePostResetGoals", () => {

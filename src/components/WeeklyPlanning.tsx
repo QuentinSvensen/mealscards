@@ -664,6 +664,8 @@ export function WeeklyPlanning({
   const [popupBreakfast, setPopupBreakfast] = useState<{ meal: any; day: string } | null>(null);
   const [additiveModes, setAdditiveModes] = useState<Record<string, { active: boolean; value: string }>>({});
   const [openExtrasDay, setOpenExtrasDay] = useState<string | null>(null);
+  const [draggedSelectedExtraId, setDraggedSelectedExtraId] = useState<string | null>(null);
+  const [selectedExtrasTopByDay, setSelectedExtrasTopByDay] = useState<Record<string, string[]>>({});
   const [customExtraName, setCustomExtraName] = useState('');
   const [customExtraCal, setCustomExtraCal] = useState('');
   const [customExtraProt, setCustomExtraProt] = useState('');
@@ -2013,7 +2015,7 @@ export function WeeklyPlanning({
                             <Plus className="h-3 w-3" />
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80 p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl" align="center">
+                        <PopoverContent className="w-80 p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]" align="center">
                           {/* Formulaire d'ajout en une ligne — STYLE MODERNISÉ */}
                           <div className="flex items-center gap-1.5 mb-3 pb-3 border-b border-white/5">
                             <input
@@ -2079,7 +2081,7 @@ export function WeeklyPlanning({
                             </button>
                           </div>
 
-                          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 custom-scrollbar">
+                          <div className="space-y-1.5 max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
                             {/* Extras personnalisés déjà validés */}
                             {(() => {
                               const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
@@ -2150,17 +2152,98 @@ export function WeeklyPlanning({
                               );
                               const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                               const currentIds = extraSels[iso] || extraSels[key] || [];
-                              const selected = sortedExtras.filter(fi => currentIds.includes(fi.id));
+                              const daySlotKey = iso || key;
+
+                              // Réordonne les extras sélectionnés (IDs non custom) en conservant les quantités.
+                              const reorderSelectedExtras = (sourceId: string, targetId: string) => {
+                                if (!sourceId || !targetId || sourceId === targetId) return;
+                                const idsForDay = [...currentIds];
+                                const order = Array.from(new Set(idsForDay.filter((id) => !id.startsWith("custom::"))));
+                                const from = order.indexOf(sourceId);
+                                const to = order.indexOf(targetId);
+                                if (from < 0 || to < 0) return;
+                                const nextOrder = [...order];
+                                const [moved] = nextOrder.splice(from, 1);
+                                nextOrder.splice(to, 0, moved);
+
+                                const counts = new Map<string, number>();
+                                for (const id of idsForDay) counts.set(id, (counts.get(id) ?? 0) + 1);
+                                const customIds = idsForDay.filter((id) => id.startsWith("custom::"));
+                                const rebuilt: string[] = [];
+                                for (const id of nextOrder) {
+                                  const count = counts.get(id) ?? 0;
+                                  for (let i = 0; i < count; i++) rebuilt.push(id);
+                                }
+                                rebuilt.push(...customIds);
+
+                                const updated = { ...extraSels };
+                                if (iso) updated[iso] = rebuilt;
+                                else updated[key] = rebuilt;
+                                setPreference.mutate({ key: "planning_extra_selections", value: updated });
+                              };
+
+                              // Bascule un extra sélectionné dans le compartiment du dessus (au-dessus du trait).
+                              const moveSelectedExtraToTopSection = (id: string) => {
+                                setSelectedExtrasTopByDay((prev) => {
+                                  const cur = prev[daySlotKey] || [];
+                                  if (cur.includes(id)) return prev;
+                                  return { ...prev, [daySlotKey]: [...cur, id] };
+                                });
+                              };
+
+                              // Retire un extra du compartiment du dessus pour le remettre dessous.
+                              const moveSelectedExtraToBottomSection = (id: string) => {
+                                setSelectedExtrasTopByDay((prev) => {
+                                  const cur = prev[daySlotKey] || [];
+                                  if (!cur.includes(id)) return prev;
+                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
+                                });
+                              };
+
+                              const extrasById = new Map(sortedExtras.map((fi) => [fi.id, fi]));
+                              const selectedOrderedIds = Array.from(
+                                new Set(currentIds.filter((id) => !id.startsWith("custom::")))
+                              );
+                              const topIds = selectedExtrasTopByDay[daySlotKey] || [];
+                              const selectedAll = selectedOrderedIds
+                                .map((id) => extrasById.get(id))
+                                .filter((fi): fi is FoodItem => Boolean(fi));
+                              const selectedTop = selectedAll.filter((fi) => topIds.includes(fi.id));
+                              const selectedBottom = selectedAll.filter((fi) => !topIds.includes(fi.id));
                               const others = sortedExtras.filter(fi => !currentIds.includes(fi.id));
-                              const ordered = [...selected, ...others];
                               const remainingCal = Math.max(0, DAILY_GOAL - getDayCalories(key, iso));
                               const calOf = (fi: FoodItem) => parseCalories(fi.calories);
-                              const fitsBudget = ordered.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
-                              const overBudget = ordered.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingCal);
-                              const renderRow = (fi: FoodItem) => {
+                              const fitsBudget = others.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
+                              const overBudget = others.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingCal);
+                              const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
                                 return (
-                                  <div key={fi.id} className={`w-full p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'}`}>
+                                  <div
+                                    key={fi.id}
+                                    draggable={selectedSection !== null}
+                                    onDragStart={(e) => {
+                                      if (!selectedSection) return;
+                                      setDraggedSelectedExtraId(fi.id);
+                                      e.dataTransfer.effectAllowed = "move";
+                                      e.dataTransfer.setData("text/plain", fi.id);
+                                    }}
+                                    onDragOver={(e) => {
+                                      if (!selectedSection || !draggedSelectedExtraId || draggedSelectedExtraId === fi.id) return;
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = "move";
+                                    }}
+                                    onDrop={(e) => {
+                                      if (!selectedSection) return;
+                                      e.preventDefault();
+                                      const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+                                      reorderSelectedExtras(sourceId, fi.id);
+                                      if (selectedSection === "top") moveSelectedExtraToTopSection(sourceId);
+                                      else moveSelectedExtraToBottomSection(sourceId);
+                                      setDraggedSelectedExtraId(null);
+                                    }}
+                                    onDragEnd={() => setDraggedSelectedExtraId(null)}
+                                    className={`w-full p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                  >
                                     <div className="flex-1 min-w-0">
                                       <p className={`text-[11px] font-black transition-colors truncate ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
                                       {(fi.grams || fi.quantity) && (
@@ -2213,6 +2296,31 @@ export function WeeklyPlanning({
                               };
                               return (
                                 <>
+                                  {selectedAll.length > 0 && (
+                                    <>
+                                      <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Extras sélectionnés</p>
+                                      {selectedTop.map((fi) => renderRow(fi, "top"))}
+                                      <div
+                                        onDragOver={(e) => {
+                                          if (!draggedSelectedExtraId) return;
+                                          e.preventDefault();
+                                          e.dataTransfer.dropEffect = "move";
+                                        }}
+                                        onDrop={(e) => {
+                                          e.preventDefault();
+                                          const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+                                          if (sourceId) moveSelectedExtraToTopSection(sourceId);
+                                          setDraggedSelectedExtraId(null);
+                                        }}
+                                        className="relative my-1 h-2"
+                                        title="Dépose ici pour placer l'extra au-dessus du trait"
+                                      >
+                                        <Separator className="absolute top-1/2 -translate-y-1/2 opacity-35" />
+                                      </div>
+                                      {selectedBottom.map((fi) => renderRow(fi, "bottom"))}
+                                      <Separator className="my-2 opacity-60" />
+                                    </>
+                                  )}
                                   {fitsBudget.length > 0 && (
                                     <p className="text-[9px] font-semibold text-muted-foreground px-1 pb-1">
                                       Rentrent dans le budget restant ({Math.round(remainingCal)} kcal / jour)

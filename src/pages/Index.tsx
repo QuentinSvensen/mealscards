@@ -428,7 +428,7 @@ const Index = () => {
         await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
 
         const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
-        const promoted = applyNextWeekPromotionOnTop(merged, prefMap);
+        const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
         const goals = resolvePostResetGoals(prefMap);
         pushWeeklyResetClientPreferences(setPreference, promoted, goals, now.toISOString(), "auto_sunday");
 

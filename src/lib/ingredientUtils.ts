@@ -185,6 +185,10 @@ export function getAdaptedCounterDays(
   if (!dayKey && createdAt) {
     const createdDate = parseISO(createdAt);
     const diffMs = createdDate.getTime() - start.getTime();
+    // Cette carte est elle-même à l'origine de l'ouverture (start ≈ createdAt) :
+    // on masque le badge — il n'a pas de sens d'afficher « 0j » sur la carte qui vient juste d'entamer.
+    // Tolérance d'une minute pour absorber les écarts d'écriture (deduction vs insert).
+    if (Math.abs(diffMs) <= 60_000) return null;
     const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     return days < 0 ? 0 : days;
   }

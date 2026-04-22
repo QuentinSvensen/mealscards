@@ -35,6 +35,24 @@ describe("getAdaptedCounterDays", () => {
     expect(getAdaptedCounterDays(futureStart, null, undefined, null, fixedNow)).toBeNull();
   });
 
+  it("ne montre pas de badge sur une carte non planifiée qui vient elle-même d'entamer l'aliment (start ≈ createdAt)", () => {
+    const now = "2026-04-22T14:00:00.000Z";
+    const fixedNow = new Date(now);
+    // start et createdAt identiques (à la seconde près) → carte à l'origine de l'ouverture
+    expect(getAdaptedCounterDays(now, null, now, null, fixedNow)).toBeNull();
+    // tolérance ~30s
+    const thirtySecLater = new Date(new Date(now).getTime() + 30_000).toISOString();
+    expect(getAdaptedCounterDays(now, null, thirtySecLater, null, fixedNow)).toBeNull();
+  });
+
+  it("affiche bien le nombre de jours pour une carte non planifiée héritée d'une ouverture plus ancienne", () => {
+    const fixedNow = new Date("2026-04-22T14:00:00.000Z");
+    const start = "2026-04-20T13:00:00.000Z"; // ouvert il y a > 2 jours
+    const createdAt = "2026-04-22T14:00:00.000Z"; // carte créée maintenant
+    const d = getAdaptedCounterDays(start, null, createdAt, null, fixedNow);
+    expect(d).toBe(2);
+  });
+
   it("affiche le décalage entre ouverture réelle passée et repas planifié plus tard (ex. burger après tenders entamés)", () => {
     const fixedNow = new Date("2026-04-22T14:00:00.000Z");
     const startPast = "2026-04-21T10:00:00.000Z";
