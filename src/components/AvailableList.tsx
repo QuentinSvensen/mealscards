@@ -907,7 +907,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   // max d'aliments inutilisés, min d'ingrédients manquants, min de calories), puis renvoie la liste
   // dédupliquée des ingrédients manquants de ces recettes. Sert de suggestions d'achats.
   const computeUnusedSuggestions = (items: FoodItem[]) => {
-    if (!items.length || !allMeals.length) return [];
+    // Ne proposer des compléments que pour les aliments inutilisés avec date de péremption.
+    const expiringItems = items.filter((fi) => !!fi.expiration_date);
+    if (!expiringItems.length || !allMeals.length) return [];
     const index = buildIngredientMealIndex(allMeals);
     // Normalise un nom ingrédient en version canonique pour rapprocher singulier/pluriel mot à mot.
     const canonicalize = (name: string) =>
@@ -917,9 +919,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         .map((w) => w.replace(/s$/i, ""))
         .join(" ");
     const unusedStockKeys = new Set(
-      items.map((fi) => findStockKey(stockMap, fi.name) ?? normalizeKey(fi.name))
+      expiringItems.map((fi) => findStockKey(stockMap, fi.name) ?? normalizeKey(fi.name))
     );
-    const unusedCanonicalNames = new Set(items.map((fi) => canonicalize(fi.name)));
+    const unusedCanonicalNames = new Set(expiringItems.map((fi) => canonicalize(fi.name)));
     type Source = {
       unusedName: string;
       recipeName: string;
@@ -929,7 +931,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       debug: { unusedUsed: number; usedWithUnused: number; missingCount: number; cal: number };
     };
     const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[]; countedRecipeIds: Set<string> }>();
-    for (const fi of items) {
+    for (const fi of expiringItems) {
       const unusedKey = normalizeKey(fi.name);
       const fiCanonical = canonicalize(fi.name);
       const mealIds = new Set<string>(index.get(unusedKey) ?? []);
@@ -1090,28 +1092,32 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       </div>
       <div className="h-px w-full bg-border/50 mt-2" />
       {suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {suggestions.map((s, i) => {
-            const tooltipLines = [
-              ...s.sources.flatMap((src, idx) => [
-                `Pour utiliser "${src.unusedRecipeAmountLabel} ${src.unusedName}" il faut ajouter :`,
-                `- "${src.missingAmountLabel} ${s.missingName}" pour la recette : "${src.recipeName}"`,
-                ...(idx < s.sources.length - 1 ? [""] : []),
-              ]),
-            ];
-            return (
-              <span
-                key={`unused-suggestion-${i}`}
-                className="text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
-                title={tooltipLines.join('\n')}
-              >
-                {s.missingName}
-                {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
-                {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
-              </span>
-            );
-          })}
-        </div>
+        <>
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-2 mb-1.5">🧩 Aliments pour compléter</p>
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((s, i) => {
+              const tooltipLines = [
+                ...s.sources.flatMap((src, idx) => [
+                  `Pour utiliser "${src.unusedRecipeAmountLabel} ${src.unusedName}" il faut ajouter :`,
+                  `- "${src.missingAmountLabel} ${s.missingName}" pour la recette : "${src.recipeName}"`,
+                  ...(idx < s.sources.length - 1 ? [""] : []),
+                ]),
+              ];
+              return (
+                <span
+                  key={`unused-suggestion-${i}`}
+                  className="text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+                  title={tooltipLines.join('\n')}
+                >
+                  {s.missingName}
+                  {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                  {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                </span>
+              );
+            })}
+          </div>
+        </>
+        
       )}
     </div>
     );
