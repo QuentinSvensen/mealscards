@@ -2756,7 +2756,7 @@ export function WeeklyPlanning({
                 }}
                 onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
                 onDrop={(e) => handleDrop(e, iso, 'gouter')}
-                className={`mt-2 min-h-[38px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${dragOverSlot === `${iso}-gouter` ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+                className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors ${dragOverSlot === `${iso}-gouter` ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
               >
                 <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
                   <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>

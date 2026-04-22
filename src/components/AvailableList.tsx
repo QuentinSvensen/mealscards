@@ -19,7 +19,7 @@
  * buildUnifiedItems() : fusionne toutes les sources en liste unifiée triée
  */
 import { useState, Fragment } from "react";
-import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
+import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -770,6 +770,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     // Apply local calculated ratio if any (from filter), otherwise user's custom ratio, otherwise 1
     const dynCalculatedRatio = (item as any).calculatedRatio;
     const customRatio = dynCalculatedRatio ?? customRatios[meal.id];
+    const isCalorieRestrictedRatio = dynCalculatedRatio !== undefined && dynCalculatedRatio < 1;
 
     const effectiveRatio = customRatio ?? 1;
     const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio, stockMap) : meal;
@@ -829,11 +830,23 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               {customRatio && (
                  <button
                    onClick={() => { setEditingRatioId(meal.id); setRatioInput(formatRatioBadge(customRatio)); }}
-                   className={`bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 hover:bg-orange-500/90 transition-colors ${multiple > 1 ? 'rounded-l-full pr-1' : 'rounded-full'}`}
+                   className={`bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 hover:bg-orange-500/90 transition-colors ${multiple > 1 || isCalorieRestrictedRatio ? 'rounded-l-full pr-1' : 'rounded-full'}`}
                    title="Modifier la portion"
                  >
                    {formatRatioBadge(customRatio)}
                  </button>
+              )}
+              {isCalorieRestrictedRatio && (
+                <button
+                  onClick={async () => {
+                    setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
+                    await onMoveToPossible(meal.id);
+                  }}
+                  className="bg-orange-500/80 text-white text-[10px] font-black px-1 py-0.5 hover:bg-orange-500/90 transition-colors rounded-l-full border-l border-orange-300/40"
+                  title="Ajouter directement à 100%"
+                >
+                  <ArrowRight className="h-3 w-3" />
+                </button>
               )}
             </div>
           )
