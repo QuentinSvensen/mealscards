@@ -132,7 +132,7 @@ const DAY_LABELS: Record<string, string> = {
   dimanche: "Dimanche",
 };
 
-const TIME_LABELS: Record<string, string> = { midi: "Midi", soir: "Soir" };
+const TIME_LABELS: Record<string, string> = { midi: "Midi", soir: "Soir", gouter: "Goûter" };
 
 const JS_DAY_TO_KEY: Record<number, string> = {
   1: "lundi",
@@ -766,9 +766,19 @@ export function WeeklyPlanning({
     return !!pm.day_of_week && !!pm.meal_time;
   });
 
+  // Détermine le slot visuel effectif d'une carte (slot planifié ou override temporaire d'affichage).
+  const getVisualSlotForPm = (pm: PossibleMeal) => {
+    const override = planningSlotOverrides[pm.id];
+    if (override?.day && override?.time) return { day: override.day, time: override.time };
+    return { day: pm.day_of_week ?? null, time: pm.meal_time ?? null };
+  };
+
   const getMealsForSlot = (day: string, time: string, iso?: string): PossibleMeal[] =>
     planningMeals
-      .filter((pm) => (pm.day_of_week === day || (iso && pm.day_of_week === iso)) && pm.meal_time === time)
+      .filter((pm) => {
+        const visual = getVisualSlotForPm(pm);
+        return (visual.day === day || (iso && visual.day === iso)) && visual.time === time;
+      })
       .sort((a, b) => a.sort_order - b.sort_order);
 
   const getDisplayDay = (day: string | null | undefined) => {
@@ -788,12 +798,16 @@ export function WeeklyPlanning({
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
   const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
+  const planningSlotOverrides = getPreference<Record<string, { day: string; time: string }>>('planning_slot_overrides', {});
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
+  // Assignation visuelle d’un extra à un créneau (matin/midi/soir) d’un jour donné.
+  // Clé = `${iso}-${slot}`, valeur = liste d’ids d’aliments (pas de customExtra ici).
+  const extraSlotAssignments = getPreference<Record<string, string[]>>('planning_extra_slot_assignments', {});
 
   const savedSnapshots = getPreference<Record<string, { cal?: number; prot?: number; itemIds?: string[] }>>('planning_saved_snapshots', {});
   const [flashedKeys, setFlashedKeys] = useState<Record<string, boolean>>({});
@@ -930,27 +944,165 @@ export function WeeklyPlanning({
     setPreference.mutate({ key: 'planning_extra_selections', value: updated });
   };
 
+  // Garantit qu’un extra est présent dans `planning_extra_selections` pour un jour donné.
+  // Utile quand on drag un extra depuis la popover sur un créneau (Petit déj / Midi / Soir).
+  const ensureExtraSelectedForDay = (extraId: string, iso: string, key: string) => {
+    if (!extraId || extraId.startsWith('custom::')) return;
+    const cur = extraSelections[iso] || extraSelections[key] || [];
+    if (cur.includes(extraId)) return;
+    const updated = { ...extraSelections };
+    if (iso) updated[iso] = [...cur, extraId]; else updated[key] = [...cur, extraId];
+    setPreference.mutate({ key: 'planning_extra_selections', value: updated });
+  };
+
+  // Assigne un extra à un créneau précis du jour et le retire des autres créneaux du même jour.
+  const assignExtraToDaySlot = (extraId: string, iso: string, key: string, slot: 'matin' | 'midi' | 'soir' | 'gouter') => {
+    if (!extraId || extraId.startsWith('custom::')) return;
+    ensureExtraSelectedForDay(extraId, iso, key);
+    const assignments = { ...extraSlotAssignments };
+    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
+    for (const s of slots) {
+      const kIso = `${iso}-${s}`;
+      const kKey = `${key}-${s}`;
+      if (s !== slot) {
+        if (assignments[kIso]?.includes(extraId)) assignments[kIso] = assignments[kIso].filter(x => x !== extraId);
+        if (assignments[kKey]?.includes(extraId)) assignments[kKey] = assignments[kKey].filter(x => x !== extraId);
+      }
+    }
+    const targetKey = iso ? `${iso}-${slot}` : `${key}-${slot}`;
+    const targetCur = assignments[targetKey] || [];
+    if (!targetCur.includes(extraId)) assignments[targetKey] = [...targetCur, extraId];
+    setPreference.mutate({ key: 'planning_extra_slot_assignments', value: assignments });
+  };
+
+  // Retire un extra du créneau ciblé d’un jour (ne le désélectionne pas au niveau jour).
+  const removeExtraFromDaySlot = (extraId: string, iso: string, key: string, slot: 'matin' | 'midi' | 'soir' | 'gouter') => {
+    if (!extraId) return;
+    const kIso = `${iso}-${slot}`;
+    const kKey = `${key}-${slot}`;
+    const updated = { ...extraSlotAssignments };
+    if (updated[kIso]?.includes(extraId)) updated[kIso] = updated[kIso].filter(x => x !== extraId);
+    if (updated[kKey]?.includes(extraId)) updated[kKey] = updated[kKey].filter(x => x !== extraId);
+    setPreference.mutate({ key: 'planning_extra_slot_assignments', value: updated });
+  };
+
+  // Liste les ids d'extras déjà posés dans les slots d'une journée (matin/midi/soir/goûter).
+  const getAssignedExtraIdsForDay = (iso: string, key: string): string[] => {
+    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
+    const out = new Set<string>();
+    for (const s of slots) {
+      for (const id of (extraSlotAssignments[`${iso}-${s}`] ?? [])) out.add(id);
+      for (const id of (extraSlotAssignments[`${key}-${s}`] ?? [])) out.add(id);
+    }
+    return [...out];
+  };
+
+  // Retire un extra de tous les slots de la journée (retour dans la catégorie "Extras").
+  const unassignExtraFromAllDaySlots = (extraId: string, iso: string, key: string) => {
+    if (!extraId) return;
+    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
+    const updated = { ...extraSlotAssignments };
+    for (const s of slots) {
+      const kIso = `${iso}-${s}`;
+      const kKey = `${key}-${s}`;
+      if (updated[kIso]?.includes(extraId)) updated[kIso] = updated[kIso].filter(x => x !== extraId);
+      if (updated[kKey]?.includes(extraId)) updated[kKey] = updated[kKey].filter(x => x !== extraId);
+    }
+    setPreference.mutate({ key: 'planning_extra_slot_assignments', value: updated });
+  };
+
+  // Désélectionne complètement un extra du jour (toutes occurrences) + le retire de tous les slots.
+  const deselectExtraForDay = (extraId: string, iso: string, key: string) => {
+    if (!extraId) return;
+    const updatedSel = { ...extraSelections };
+    const cur = updatedSel[iso] || updatedSel[key] || [];
+    const next = cur.filter((id) => id !== extraId);
+    if (iso) updatedSel[iso] = next;
+    else updatedSel[key] = next;
+    setPreference.mutate({ key: 'planning_extra_selections', value: updatedSel });
+    unassignExtraFromAllDaySlots(extraId, iso, key);
+  };
+
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
     setDragOverSlot(null);
     const pmId = e.dataTransfer.getData("pmId");
-    if (pmId) updatePlanningWithCounters(pmId, day, time);
+    const source = e.dataTransfer.getData("source");
+    if (pmId) {
+      const draggedPm = possibleMeals.find((p) => p.id === pmId);
+      const isPlanningDrag = source === "planning-slot";
+      const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
+      const isSameDay = draggedPm?.day_of_week === day;
+      const targetIsGouter = time === 'gouter';
+      if (isPlanningDrag && isAlreadyPlanned && isSameDay && targetIsGouter) {
+        const updated = { ...planningSlotOverrides };
+        const sameAsPlanned = draggedPm?.day_of_week === day && draggedPm?.meal_time === time;
+        if (sameAsPlanned) delete updated[pmId];
+        else updated[pmId] = { day, time };
+        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+      } else {
+        const updated = { ...planningSlotOverrides };
+        if (updated[pmId]) {
+          delete updated[pmId];
+          setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+        }
+        updatePlanningWithCounters(pmId, day, time);
+      }
+      return;
+    }
+    // Drop d’un extra sélectionné dans ce créneau (midi/soir uniquement côté TIMES).
+    const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+    if (extraId && !extraId.startsWith('custom::')) {
+      const iso = day;
+      const dayKeyFromIso = weekDates.find(w => w.iso === iso)?.key || '';
+      assignExtraToDaySlot(extraId, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+      setDraggedSelectedExtraId(null);
+    }
   };
 
   const handleDropOnCard = (e: React.DragEvent, targetPm: PossibleMeal) => {
     e.preventDefault();
     e.stopPropagation();
     setSlotDragOver(null);
+    const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+    if (extraId && !extraId.startsWith('custom::')) {
+      const targetDay = targetPm.day_of_week;
+      const targetTime = targetPm.meal_time;
+      if (targetDay && (targetTime === 'matin' || targetTime === 'midi' || targetTime === 'soir')) {
+        const dayKeyFromIso = weekDates.find(w => w.iso === targetDay)?.key || '';
+        assignExtraToDaySlot(extraId, targetDay, dayKeyFromIso, targetTime);
+        setDraggedSelectedExtraId(null);
+      }
+      return;
+    }
     const draggedPmId = e.dataTransfer.getData("pmId");
+    const source = e.dataTransfer.getData("source");
     if (!draggedPmId || draggedPmId === targetPm.id) return;
 
-    const targetDay = targetPm.day_of_week!;
-    const targetTime = targetPm.meal_time!;
+    const targetVisual = getVisualSlotForPm(targetPm);
+    const targetDay = targetVisual.day || targetPm.day_of_week!;
+    const targetTime = targetVisual.time || targetPm.meal_time!;
     const draggedPm = possibleMeals.find(p => p.id === draggedPmId);
+    const isPlanningDrag = source === "planning-slot";
+    const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
+    const isSameDay = draggedPm?.day_of_week === targetDay;
+    const targetIsGouter = targetTime === 'gouter';
+    const shouldOnlyOverride = isPlanningDrag && isAlreadyPlanned && isSameDay && targetIsGouter;
 
     // Si la carte vient d'un autre créneau ou est non planifiée, mettre d'abord à jour sa planification
-    if (!draggedPm || draggedPm.day_of_week !== targetDay || draggedPm.meal_time !== targetTime) {
+    if (!shouldOnlyOverride && (!draggedPm || draggedPm.day_of_week !== targetDay || draggedPm.meal_time !== targetTime)) {
+      const updated = { ...planningSlotOverrides };
+      if (updated[draggedPmId]) {
+        delete updated[draggedPmId];
+        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+      }
       updatePlanningWithCounters(draggedPmId, targetDay, targetTime);
+    } else if (shouldOnlyOverride && draggedPm) {
+      const updated = { ...planningSlotOverrides };
+      const sameAsPlanned = draggedPm.day_of_week === targetDay && draggedPm.meal_time === targetTime;
+      if (sameAsPlanned) delete updated[draggedPmId];
+      else updated[draggedPmId] = { day: targetDay, time: targetTime };
+      setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
     }
 
     const slot = getMealsForSlot(targetDay, targetTime);
@@ -965,7 +1117,12 @@ export function WeeklyPlanning({
     e.preventDefault();
     setDragOverUnplanned(false);
     const pmId = e.dataTransfer.getData("pmId");
-    if (pmId) updatePlanningWithCounters(pmId, null, null);
+    if (pmId) {
+      const updated = { ...planningSlotOverrides };
+      delete updated[pmId];
+      setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+      updatePlanningWithCounters(pmId, null, null);
+    }
   };
 
   const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
@@ -1066,8 +1223,28 @@ export function WeeklyPlanning({
     if (slotEl) {
       const day = slotEl.getAttribute("data-day")!;
       const time = slotEl.getAttribute("data-time")!;
-      updatePlanningWithCounters(state.pmId, day, time);
+      const draggedPm = possibleMeals.find((p) => p.id === state.pmId);
+      const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
+      const isSameDay = draggedPm?.day_of_week === day;
+      const targetIsGouter = time === 'gouter';
+      if (isAlreadyPlanned && isSameDay && targetIsGouter) {
+        const updated = { ...planningSlotOverrides };
+        const sameAsPlanned = draggedPm?.day_of_week === day && draggedPm?.meal_time === time;
+        if (sameAsPlanned) delete updated[state.pmId];
+        else updated[state.pmId] = { day, time };
+        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+      } else {
+        const updated = { ...planningSlotOverrides };
+        if (updated[state.pmId]) {
+          delete updated[state.pmId];
+          setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+        }
+        updatePlanningWithCounters(state.pmId, day, time);
+      }
     } else if (el?.closest("[data-unplanned]")) {
+      const updated = { ...planningSlotOverrides };
+      delete updated[state.pmId];
+      setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
       updatePlanningWithCounters(state.pmId, null, null);
     }
   };
@@ -1088,6 +1265,9 @@ export function WeeklyPlanning({
   };
 
   const handleRemoveFromSlot = (pm: PossibleMeal) => {
+    const updated = { ...planningSlotOverrides };
+    delete updated[pm.id];
+    setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
     updatePlanningWithCounters(pm.id, null, null);
   };
 
@@ -1405,16 +1585,66 @@ export function WeeklyPlanning({
             baseBreakfastPro = (iso && breakfastManualProteins[iso]) || breakfastManualProteins[key] || 0;
           }
 
-          const breakfastTotalCals = baseBreakfastCals + matinCals;
-          const breakfastTotalPro = baseBreakfastPro + matinPro;
+          const breakfastAssignedIds =
+            extraSlotAssignments[`${iso}-matin`] ?? extraSlotAssignments[`${key}-matin`] ?? [];
+          const breakfastAssigned = breakfastAssignedIds.reduce(
+            (acc, id) => {
+              const fi = foodItems.find((f) => f.id === id);
+              if (!fi) return acc;
+              acc.cal += parseCalories(fi.calories);
+              acc.pro += parseProtein(fi.protein);
+              return acc;
+            },
+            { cal: 0, pro: 0 }
+          );
+          const breakfastTotalCals = baseBreakfastCals + matinCals + breakfastAssigned.cal;
+          const breakfastTotalPro = baseBreakfastPro + matinPro + breakfastAssigned.pro;
+          const gouterAssignedIds =
+            extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
+          const gouterAssigned = gouterAssignedIds.reduce(
+            (acc, id) => {
+              const fi = foodItems.find((f) => f.id === id);
+              if (!fi) return acc;
+              acc.cal += parseCalories(fi.calories);
+              acc.pro += parseProtein(fi.protein);
+              return acc;
+            },
+            { cal: 0, pro: 0 }
+          );
+          const gouterManualCal = manualCalories[`${iso}-gouter`] || manualCalories[`${key}-gouter`] || 0;
+          const gouterManualPro = manualProteins[`${iso}-gouter`] || manualProteins[`${key}-gouter`] || 0;
+          const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`] || drinkChecks[`${key}-gouter`]);
+          const gouterTotalCals = gouterManualCal + gouterAssigned.cal + (gouterDrink ? 150 : 0);
+          const gouterTotalPro = gouterManualPro + gouterAssigned.pro;
 
+          const breakfastDropKey = `${iso}-matin`;
+          const isBreakfastDragOver = dragOverSlot === breakfastDropKey || dragOverSlot === `${key}-matin`;
+          const breakfastAssignedSlotIds =
+            extraSlotAssignments[breakfastDropKey] ?? extraSlotAssignments[`${key}-matin`] ?? [];
           return (
             <div
               key={iso}
               ref={isToday_ ? todayRef : undefined}
               className={`rounded-2xl p-2 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
             >
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <div
+                className={`flex items-center gap-2 mb-2 flex-wrap rounded-xl transition-colors ${isBreakfastDragOver ? 'ring-2 ring-orange-400/60 bg-orange-500/5 p-1' : ''}`}
+                onDragOver={(e) => {
+                  const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
+                  if (!canAccept) return;
+                  e.preventDefault();
+                  setDragOverSlot(breakfastDropKey);
+                }}
+                onDragLeave={() => setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))}
+                onDrop={(e) => {
+                  const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
+                  if (!extraId || extraId.startsWith('custom::')) return;
+                  e.preventDefault();
+                  assignExtraToDaySlot(extraId, iso, key, 'matin');
+                  setDraggedSelectedExtraId(null);
+                  setDragOverSlot(null);
+                }}
+              >
                 <h3
                   className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isToday_ ? "text-primary" : "text-foreground"}`}
                 >
@@ -1734,13 +1964,56 @@ export function WeeklyPlanning({
                   )}
                 </div>
               </div>
+              {breakfastAssignedSlotIds.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {breakfastAssignedSlotIds.map((extraId) => {
+                    const fi = foodItems.find(f => f.id === extraId);
+                    if (!fi) return null;
+                    return (
+                      <span
+                        key={extraId}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggedSelectedExtraId(extraId);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', extraId);
+                        }}
+                        onDragEnd={() => setDraggedSelectedExtraId(null)}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                        title="Extra assigné au petit déj — glisse pour déplacer"
+                      >
+                        {fi.name}
+                        <button
+                          onClick={() => deselectExtraForDay(extraId, iso, key)}
+                          className="opacity-60 hover:opacity-100 font-bold"
+                          title="Retirer des extras du jour"
+                        >×</button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
               <div className="grid grid-cols-[1fr_1fr_auto] gap-1 sm:gap-3">
                 {TIMES.map((time) => {
                   const slotKey = `${iso}-${time}`;
                   const slotMeals = getMealsForSlot(key, time, iso);
+                  const slotAssignedIds =
+                    extraSlotAssignments[`${iso}-${time}`] ?? extraSlotAssignments[`${key}-${time}`] ?? [];
                   const isOver = dragOverSlot === slotKey || touchHighlight === slotKey || dragOverSlot === `${key}-${time}` || touchHighlight === `${key}-${time}`;
-                  const slotCals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
-                  const slotPro = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb), 0);
+                  const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
+                  const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb), 0);
+                  const slotAssigned = slotAssignedIds.reduce(
+                    (acc, id) => {
+                      const fi = foodItems.find((f) => f.id === id);
+                      if (!fi) return acc;
+                      acc.cal += parseCalories(fi.calories);
+                      acc.pro += parseProtein(fi.protein);
+                      return acc;
+                    },
+                    { cal: 0, pro: 0 }
+                  );
+                  const slotCals = slotCalsMeals + slotAssigned.cal;
+                  const slotPro = slotProMeals + slotAssigned.pro;
                   return (
                     <div
                       key={time}
@@ -1912,12 +2185,64 @@ export function WeeklyPlanning({
                         ) : (
                           slotMeals.map((pm) => renderMiniCard(pm, false))
                         )}
+                        {slotAssignedIds.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {slotAssignedIds.map((extraId) => {
+                              const fi = foodItems.find(f => f.id === extraId);
+                              if (!fi) return null;
+                              return (
+                                <span
+                                  key={extraId}
+                                  draggable
+                                  onDragStart={(e) => {
+                                    setDraggedSelectedExtraId(extraId);
+                                    e.dataTransfer.effectAllowed = 'move';
+                                    e.dataTransfer.setData('text/plain', extraId);
+                                  }}
+                                  onDragEnd={() => setDraggedSelectedExtraId(null)}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                                  title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
+                                >
+                                  {fi.name}
+                                  <button
+                                    onClick={() => deselectExtraForDay(extraId, iso, key)}
+                                    className="opacity-60 hover:opacity-100 font-bold"
+                                    title="Retirer des extras du jour"
+                                  >×</button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 })}
                 {/* Colonne Extra */}
-                <div className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/30 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center">
+                {(() => {
+                  const extraDropKey = `extra-${iso}`;
+                  const isExtraDragOver = dragOverSlot === extraDropKey;
+                  return (
+                <div
+                  className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isExtraDragOver ? "border-orange-400/70 bg-orange-500/10 ring-2 ring-orange-400/30" : "border-orange-300/30"}`}
+                  onDragOver={(e) => {
+                    const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
+                    if (!canAccept) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDragOverSlot(extraDropKey);
+                  }}
+                  onDragLeave={() => setDragOverSlot((cur) => (cur === extraDropKey ? null : cur))}
+                  onDrop={(e) => {
+                    const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
+                    if (!extraId || extraId.startsWith('custom::')) return;
+                    e.preventDefault();
+                    unassignExtraFromAllDaySlots(extraId, iso, key);
+                    setDraggedSelectedExtraId(null);
+                    setDragOverSlot(null);
+                  }}
+                  title="Déposer ici pour remettre l'extra dans la catégorie Extras"
+                >
                   <span className="text-[7px] sm:text-[8px] font-semibold text-orange-400/60 uppercase tracking-wide">Extra</span>
                   <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                     <PlanningInput
@@ -1926,7 +2251,9 @@ export function WeeklyPlanning({
                         const manual = extraCalories[iso] || extraCalories[key] || 0;
                         const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                         const ids = allExtraSels[iso] || allExtraSels[key] || [];
+                        const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
                         const selected = ids.reduce((sum, id) => {
+                          if (assignedSet.has(id)) return sum;
                           const custom = parseCustomExtraId(id);
                           if (custom) return sum + custom.cal;
                           return sum + parseCalories(foodItems.find(fi => fi.id === id)?.calories);
@@ -1967,7 +2294,9 @@ export function WeeklyPlanning({
                         const manual = extraProteins[iso] || extraProteins[key] || 0;
                         const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                         const ids = allExtraSels[iso] || allExtraSels[key] || [];
+                        const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
                         const selected = ids.reduce((sum, id) => {
+                          if (assignedSet.has(id)) return sum;
                           const custom = parseCustomExtraId(id);
                           if (custom) return sum + custom.prot;
                           return sum + parseProtein(foodItems.find(fi => fi.id === id)?.protein);
@@ -2146,12 +2475,13 @@ export function WeeklyPlanning({
                               );
                               if (sortedExtras.length === 0) return (
                                 <div className="text-center py-3 bg-muted/20 rounded-xl">
-                                  <p className="text-[10px] text-muted-foreground italic">Aucun aliment "Extra" 🍕</p>
+                                  <p className="text-[10px] text-muted-foreground italic">Aucun aliment "Extra"</p>
                                   <p className="text-[9px] text-muted-foreground/60 mt-1">Ajoutez-les dans l'onglet Aliments</p>
                                 </div>
                               );
                               const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                               const currentIds = extraSels[iso] || extraSels[key] || [];
+                              const assignedIds = new Set(getAssignedExtraIdsForDay(iso, key));
                               const daySlotKey = iso || key;
 
                               // Réordonne les extras sélectionnés (IDs non custom) en conservant les quantités.
@@ -2207,10 +2537,11 @@ export function WeeklyPlanning({
                               const topIds = selectedExtrasTopByDay[daySlotKey] || [];
                               const selectedAll = selectedOrderedIds
                                 .map((id) => extrasById.get(id))
-                                .filter((fi): fi is FoodItem => Boolean(fi));
+                                .filter((fi): fi is FoodItem => Boolean(fi))
+                                .filter((fi) => !assignedIds.has(fi.id));
                               const selectedTop = selectedAll.filter((fi) => topIds.includes(fi.id));
                               const selectedBottom = selectedAll.filter((fi) => !topIds.includes(fi.id));
-                              const others = sortedExtras.filter(fi => !currentIds.includes(fi.id));
+                              const others = sortedExtras.filter(fi => !currentIds.includes(fi.id) && !assignedIds.has(fi.id));
                               const remainingCal = Math.max(0, DAILY_GOAL - getDayCalories(key, iso));
                               const calOf = (fi: FoodItem) => parseCalories(fi.calories);
                               const fitsBudget = others.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
@@ -2254,18 +2585,9 @@ export function WeeklyPlanning({
                                       {count > 0 && (
                                         <>
                                           <button
-                                            onClick={() => {
-                                              const updated = { ...extraSels };
-                                              const current = updated[iso] || updated[key] || [];
-                                              const idx = current.lastIndexOf(fi.id);
-                                              if (idx >= 0) {
-                                                const next = [...current.slice(0, idx), ...current.slice(idx + 1)];
-                                                if (iso) updated[iso] = next; else updated[key] = next;
-                                                setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                              }
-                                            }}
+                                            onClick={() => deselectExtraForDay(fi.id, iso, key)}
                                             className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
-                                            title="Retirer un"
+                                            title="Désélectionner cet extra"
                                           >−</button>
                                           <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
                                         </>
@@ -2420,6 +2742,94 @@ export function WeeklyPlanning({
                       >💾</button>
                     </div>
                   </div>
+                </div>
+                  );
+                })()}
+              </div>
+              <div
+                data-slot
+                data-day={iso}
+                data-time="gouter"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverSlot(`${iso}-gouter`);
+                }}
+                onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
+                onDrop={(e) => handleDrop(e, iso, 'gouter')}
+                className={`mt-2 min-h-[38px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${dragOverSlot === `${iso}-gouter` ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/40"}`}
+              >
+                <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                  <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
+                  <button
+                    onClick={() => {
+                      const updated = { ...drinkChecks };
+                      if (updated[`${iso}-gouter`]) delete updated[`${iso}-gouter`];
+                      else if (updated[`${key}-gouter`]) delete updated[`${key}-gouter`];
+                      else updated[`${iso}-gouter`] = true;
+                      setPreference.mutate({ key: 'planning_drink_checks', value: updated });
+                    }}
+                    className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${gouterDrink ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}
+                    title="+ Boisson sucrée (+150 cal)"
+                  >
+                    🥤 {gouterDrink ? '+150' : ''}
+                  </button>
+                  <PlanningInput
+                    storageKey={`manual-${iso}-gouter`}
+                    currentValue={gouterManualCal}
+                    onSave={(val) => {
+                      const updated = { ...manualCalories };
+                      if (val > 0) updated[`${iso}-gouter`] = val;
+                      else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                      setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                    }}
+                    placeholder="kcal"
+                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
+                  />
+                  <PlanningInput
+                    storageKey={`manual-prot-${iso}-gouter`}
+                    currentValue={gouterManualPro}
+                    onSave={(val) => {
+                      const updated = { ...manualProteins };
+                      if (val > 0) updated[`${iso}-gouter`] = val;
+                      else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                      setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                    }}
+                    placeholder="prot"
+                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
+                  />
+                  {getMealsForSlot(key, 'gouter', iso).map((pm) => renderMiniCard(pm, true))}
+                  {gouterAssignedIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {gouterAssignedIds.map((extraId) => {
+                        const fi = foodItems.find((f) => f.id === extraId);
+                        if (!fi) return null;
+                        return (
+                          <span
+                            key={extraId}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggedSelectedExtraId(extraId);
+                              e.dataTransfer.effectAllowed = 'move';
+                              e.dataTransfer.setData('text/plain', extraId);
+                            }}
+                            onDragEnd={() => setDraggedSelectedExtraId(null)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                            title="Extra assigné à Goûter — glisse pour déplacer"
+                          >
+                            {fi.name}
+                            <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {(gouterTotalCals > 0 || gouterTotalPro > 0) && (
+                    <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
+                      {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
+                      {gouterTotalCals > 0 && gouterTotalPro > 0 && <span className="opacity-30">•</span>}
+                      {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
