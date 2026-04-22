@@ -341,7 +341,17 @@ const Index = () => {
     if (!unlocked) return;
     const channel = supabase
       .channel('global-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'food_items' }, () => { qc.invalidateQueries({ queryKey: ["food_items"] }); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'food_items' }, () => {
+        // Les updates locaux (déduction, édition, restauration...) appliquent déjà un
+        // optimistic update précis sur le cache via setQueryData. Un invalidateQueries
+        // automatique en provenance du realtime déclenche un refetch qui peut renvoyer
+        // une version répliquée en retard et écraser notre cache, laissant l'UI (ex: badge
+        // xN "Au choix") coincée sur l'ancien stock. On laisse donc la réconciliation
+        // naturelle se faire au prochain refetch "actif" (remontage/focus).
+        const suppressUntil = (window as any).__suppressStockRealtimeUntil as number | undefined;
+        if (typeof suppressUntil === "number" && Date.now() < suppressUntil) return;
+        qc.invalidateQueries({ queryKey: ["food_items"] });
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, () => { qc.invalidateQueries({ queryKey: ["meals"] }); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'possible_meals' }, () => { qc.invalidateQueries({ queryKey: ["possible_meals"] }); })
       .subscribe((status) => {

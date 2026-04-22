@@ -83,8 +83,32 @@ function isFoodFullySealed(fi: FoodItem): boolean {
 export function useMealTransfers(foodItems: FoodItem[]) {
   const qc = useQueryClient();
 
-  /** Invalide le cache des aliments pour forcer un rafraîchissement */
-  const invalidateStock = () => qc.invalidateQueries({ queryKey: ["food_items"] });
+  /**
+   * Retourne la version la plus récente du stock depuis le cache React Query.
+   * Sert à éviter d'utiliser une fermeture stale de `foodItems` pendant les déductions.
+   */
+  const getLiveFoodItems = (): FoodItem[] => {
+    const cached = qc.getQueryData<FoodItem[]>(["food_items"]);
+    if (Array.isArray(cached)) return cached;
+    return foodItems;
+  };
+
+  /** Invalide puis re-fetch le stock pour synchroniser immédiatement l'UI. */
+  const invalidateStock = async () => {
+    await qc.invalidateQueries({ queryKey: ["food_items"] });
+    await qc.refetchQueries({ queryKey: ["food_items"], type: "active" });
+  };
+
+  // Signale à la subscription realtime globale qu'un update optimiste vient d'être appliqué :
+  // elle doit ignorer son invalidation automatique pendant plusieurs secondes pour laisser la
+  // réplique Supabase rattraper son retard et ne pas écraser notre cache local.
+  const suppressStockRealtimeBriefly = () => {
+    try {
+      (window as any).__suppressStockRealtimeUntil = Date.now() + 6000;
+    } catch {
+      // no-op
+    }
+  };
 
   /** Exécute une mutation Supabase avec gestion d'erreur centralisée */
   const safeMutate = async (label: string, fn: () => any): Promise<any> => {
@@ -139,8 +163,9 @@ export function useMealTransfers(foodItems: FoodItem[]) {
    */
   const deductIngredientsFromStock = async (meal: Meal, forcedCounterDate?: string): Promise<{ snapshots: FoodItem[]; consumedIds: string[]; oldestCounter: string | null }> => {
     if (!meal.ingredients?.trim()) return { snapshots: [], consumedIds: [], oldestCounter: null };
+    const liveFoodItems = getLiveFoodItems();
     const groups = parseIngredientGroups(meal.ingredients);
-    const stockMap = buildStockMap(foodItems);
+    const stockMap = buildStockMap(liveFoodItems);
     const snapshotsById = new Map<string, FoodItem>();
     const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean; counter_start_date?: string | null }>();
     const rememberSnapshot = (fi: FoodItem) => { if (!snapshotsById.has(fi.id)) snapshotsById.set(fi.id, { ...fi }); };
@@ -184,7 +209,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         if (!stockInfo || stockInfo.infinite) continue;
 
         // Trier pour consommer en priorité les items déjà ouverts
-        const matchingItems = foodItems
+        const matchingItems = liveFoodItems
           .filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite)
           .sort(sortStockDeductionPriority);
 
@@ -294,8 +319,21 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       }
     }
 
-    // Appliquer toutes les mises à jour en parallèle
-    await safeMutate("Déduction du stock", () =>
+    // Désactiver la subscription realtime AVANT les writes : sinon l'événement Supabase peut
+    // déclencher un refetch avec une version répliquée en retard qui annule notre update.
+    suppressStockRealtimeBriefly();
+
+    // Identifiants des lignes concernées (avant exécution des writes).
+    const updatedIds = Array.from(updatesById.values()).map((u) => u.id);
+    const deletedIds = new Set(
+      Array.from(updatesById.values()).filter((u) => u.delete).map((u) => u.id),
+    );
+
+    // Applique les UPDATE / DELETE en parallèle.
+    // Chaque UPDATE chaîne `.select("*").single()` : on récupère la ligne renvoyée PAR LE PRIMAIRE
+    // après écriture (fortement cohérente). Ça évite qu'une relecture séparée tape une réplique en
+    // retard et réaffiche un stock périmé (bug « badge xN reste à x7 après déplacement »).
+    const results = await safeMutate("Déduction du stock", () =>
       Promise.all(Array.from(updatesById.values()).map((u) =>
         u.delete
           ? supabase.from("food_items").delete().eq("id", u.id)
@@ -303,10 +341,47 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             ...(u.grams !== undefined ? { grams: u.grams } : {}),
             ...(u.quantity !== undefined ? { quantity: u.quantity } : {}),
             ...(u.counter_start_date !== undefined ? { counter_start_date: u.counter_start_date } : {}),
-          } as any).eq("id", u.id)
+          } as any).eq("id", u.id).select("*").single()
       ))
     );
-    invalidateStock();
+
+    // Construit un index id → ligne authoritative renvoyée par l'UPDATE (avant DELETE).
+    const authoritativeById = new Map<string, FoodItem>();
+    if (Array.isArray(results)) {
+      for (const res of results) {
+        if (!res || res.error) continue;
+        const row = (res as { data?: FoodItem | null }).data;
+        if (row && row.id && !deletedIds.has(row.id)) {
+          authoritativeById.set(row.id, row as FoodItem);
+        }
+      }
+    }
+
+    // Mise à jour synchronisée du cache "food_items" :
+    // 1) Optimistic update (instantané) pour que l'UI recalcule tout de suite (badge xN, etc.).
+    // 2) Remplacement par les lignes authoritatives renvoyées par l'UPDATE lui-même.
+    await qc.cancelQueries({ queryKey: ["food_items"] });
+    const applyOptimistic = (old: FoodItem[] | undefined): FoodItem[] | undefined => {
+      if (!Array.isArray(old)) return old;
+      const next: FoodItem[] = [];
+      for (const fi of old) {
+        const u = updatesById.get(fi.id);
+        if (!u) { next.push(fi); continue; }
+        if (u.delete) continue;
+        // Privilégier la ligne authoritative si disponible, sinon appliquer nos deltas.
+        const auth = authoritativeById.get(fi.id);
+        if (auth) { next.push(auth); continue; }
+        next.push({
+          ...fi,
+          ...(u.grams !== undefined ? { grams: u.grams } : {}),
+          ...(u.quantity !== undefined ? { quantity: u.quantity as number | null } : {}),
+          ...(u.counter_start_date !== undefined ? { counter_start_date: u.counter_start_date } : {}),
+        } as FoodItem);
+      }
+      return next;
+    };
+    qc.setQueryData<FoodItem[]>(["food_items"], applyOptimistic);
+    suppressStockRealtimeBriefly();
     return {
       snapshots: Array.from(snapshotsById.values()),
       consumedIds: Array.from(updatesById.values()).filter(u => u.delete).map(u => u.id),
@@ -342,7 +417,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           });
         }))
       );
-      invalidateStock();
+      await invalidateStock();
       return;
     }
 
@@ -448,7 +523,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         }
       }
     }
-    invalidateStock();
+    await invalidateStock();
   };
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -641,7 +716,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         }
       }
     }
-    invalidateStock();
+    await invalidateStock();
     return newSnapshots;
   };
 
@@ -654,7 +729,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
    * Cherche un aliment portant le même nom que le repas et déduit les grammes ou 1 unité.
    */
   const deductNameMatchStock = async (meal: Meal, forcedCounterDate?: string, ratio: number = 1) => {
-    const nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
+    const liveFoodItems = getLiveFoodItems();
+    const nameMatch = liveFoodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
     if (!nameMatch) return;
 
     // Calculer le poids de base à déduire. Si le repas n'a pas de poids, on prend celui de l'aliment.
@@ -679,7 +755,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       } else {
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: currentQty - 1, ...(canStartCounter && (!nameMatch.counter_start_date || forcedCounterDate) ? { counter_start_date: counterToSet } : {}) } as any).eq("id", nameMatch.id));
       }
-      invalidateStock();
+      await invalidateStock();
       return;
     }
 
@@ -734,7 +810,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         } as any).eq("id", nameMatch.id));
       }
     }
-    invalidateStock();
+    await invalidateStock();
   };
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -889,7 +965,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       }
       } // fin boucle bundle items
     }
-    invalidateStock();
+    await invalidateStock();
   };
 
   return {

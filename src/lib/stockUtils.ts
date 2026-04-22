@@ -144,56 +144,121 @@ export function pickBestAlternative(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Calcule le nombre de fois qu'un repas peut être préparé avec le stock actuel.
- * Retourne null si aucun ingrédient requis n'est trouvé, Infinity si tout est infini.
+ * Calcule le nombre de portions faisables d'un repas avec le stock actuel.
+ *
+ * Sémantique des groupes :
+ * - Chaque groupe (séparé par virgule/newline) = un ingrédient REQUIS.
+ * - Les alternatives `A | B` d'un groupe = types interchangeables (OU).
+ * - Les ingrédients additifs d'une alt (`A + B`) = bundle à prendre ensemble.
+ *
+ * Pour un groupe `pain | baguette`, chaque portion peut utiliser pain OU baguette.
+ * On simule donc les portions une à une : à chaque portion, on pioche la
+ * première alternative encore disponible. Ça permet de cumuler correctement
+ * (ex. 400g pain + 780g baguette + besoin 100g → 4+7 = 11 portions) et ça reste
+ * correct quand les alternatives partagent un ingrédient (ex. `A+chorizo | B+chorizo`).
+ *
+ * Retourne null si aucun ingrédient requis n'est disponible, Infinity si tout est infini.
  */
 export function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): number | null {
   if (!meal.ingredients?.trim()) return null;
   const groups = parseIngredientGroups(meal.ingredients);
   if (groups.length === 0) return null;
-  let multiple = Infinity;
-
-  for (const group of groups) {
-    if (group[0]?.[0]?.optional) continue;
-    let bestAltMultiple = 0;
-    let anyAltAvailable = false;
-
-    for (const alt of group) {
-      let bundleMultiple = Infinity;
-      let allPartsFound = true;
-
-      for (const item of alt) {
-        const key = findStockKey(stockMap, item.name);
-        if (key === null) { allPartsFound = false; break; }
-        const stock = stockMap.get(key)!;
-        if (stock.infinite) continue;
-
-        let itemMultiple = 0;
-        if (item.count > 0) {
-          if (stock.count >= item.count) { itemMultiple = Math.floor(stock.count / item.count); }
-          else { allPartsFound = false; break; }
-        } else if (item.qty > 0) {
-          if (stock.grams >= item.qty) { itemMultiple = Math.floor(stock.grams / item.qty); }
-          else { allPartsFound = false; break; }
-        } else {
-          itemMultiple = Infinity;
-        }
-        bundleMultiple = Math.min(bundleMultiple, itemMultiple);
-      }
-
-      if (allPartsFound) {
-        anyAltAvailable = true;
-        bestAltMultiple = Math.max(bestAltMultiple, bundleMultiple);
-      }
-    }
-
-    if (!anyAltAvailable) return null;
-    multiple = Math.min(multiple, bestAltMultiple);
-  }
-
   const hasRequired = groups.some(g => !g[0]?.[0]?.optional);
   if (!hasRequired) return null;
-  return multiple === Infinity ? Infinity : multiple;
+
+  // Pré-calculer les clés normalisées pour chaque nom d'ingrédient (évite les lookups répétés).
+  const keyByName = new Map<string, string | null>();
+  const resolveKey = (name: string): string | null => {
+    if (keyByName.has(name)) return keyByName.get(name)!;
+    const k = findStockKey(stockMap, name);
+    keyByName.set(name, k);
+    return k;
+  };
+
+  // Cas tout-infini : toutes les alts d'au moins un bundle par groupe requis sont infinies → Infinity.
+  let allGroupsAllInfinite = true;
+  for (const group of groups) {
+    if (group[0]?.[0]?.optional) continue;
+    let anyAltFullyInfinite = false;
+    for (const alt of group) {
+      let altAllInfinite = true;
+      for (const item of alt) {
+        if (item.optional) continue;
+        const key = resolveKey(item.name);
+        if (!key) { altAllInfinite = false; break; }
+        const stock = stockMap.get(key)!;
+        if (!stock.infinite) { altAllInfinite = false; break; }
+      }
+      if (altAllInfinite) { anyAltFullyInfinite = true; break; }
+    }
+    if (!anyAltFullyInfinite) { allGroupsAllInfinite = false; break; }
+  }
+  if (allGroupsAllInfinite) return Infinity;
+
+  // Copie mutable du stock pour simuler les déductions portion par portion.
+  const remaining = new Map<string, { grams: number; count: number; infinite: boolean }>();
+  for (const [k, v] of stockMap.entries()) {
+    remaining.set(k, { grams: v.grams, count: v.count, infinite: v.infinite });
+  }
+
+  /**
+   * Tente de réserver une portion pour l'alt donné. Si ok, pousse les déductions
+   * dans `out` sans modifier encore `remaining`. Retourne true si toutes les parts
+   * du bundle sont disponibles.
+   */
+  const tryReserveAlt = (
+    alt: ParsedIngredient[],
+    out: Array<{ key: string; grams: number; count: number }>,
+  ): boolean => {
+    const proposed: Array<{ key: string; grams: number; count: number }> = [];
+    // Cumul des besoins par clé pour gérer les doublons dans un même bundle.
+    const needByKey = new Map<string, { grams: number; count: number }>();
+    for (const item of alt) {
+      if (item.optional) continue;
+      const key = resolveKey(item.name);
+      if (key === null) return false;
+      const stock = remaining.get(key)!;
+      if (stock.infinite) continue;
+      const acc = needByKey.get(key) ?? { grams: 0, count: 0 };
+      if (item.count > 0) acc.count += item.count;
+      else if (item.qty > 0) acc.grams += item.qty;
+      needByKey.set(key, acc);
+    }
+    for (const [key, need] of needByKey) {
+      const stock = remaining.get(key)!;
+      if (stock.infinite) continue;
+      if (need.count > 0 && stock.count < need.count) return false;
+      if (need.grams > 0 && stock.grams < need.grams) return false;
+      proposed.push({ key, grams: need.grams, count: need.count });
+    }
+    out.push(...proposed);
+    return true;
+  };
+
+  let servings = 0;
+  const MAX_SERVINGS = 1000; // garde-fou pour éviter toute boucle infinie.
+  while (servings < MAX_SERVINGS) {
+    const thisServingDeductions: Array<{ key: string; grams: number; count: number }> = [];
+    let allGroupsSatisfied = true;
+    for (const group of groups) {
+      if (group[0]?.[0]?.optional) continue;
+      let altChosen = false;
+      for (const alt of group) {
+        if (tryReserveAlt(alt, thisServingDeductions)) { altChosen = true; break; }
+      }
+      if (!altChosen) { allGroupsSatisfied = false; break; }
+    }
+    if (!allGroupsSatisfied) break;
+    for (const d of thisServingDeductions) {
+      const stock = remaining.get(d.key)!;
+      if (stock.infinite) continue;
+      if (d.grams > 0) stock.grams = Math.max(0, stock.grams - d.grams);
+      if (d.count > 0) stock.count = Math.max(0, stock.count - d.count);
+    }
+    servings++;
+  }
+
+  return servings === 0 ? null : servings;
 }
 
 /**
@@ -417,7 +482,9 @@ export function analyzeMealIngredients(
  */
 /**
  * Extrait les clés normalisées des ingrédients non optionnels d’une recette qui ont un équivalent
- * en food_items (peu importe `no_counter`/`surgele`). Sert à détecter le partage de lot entre deux repas.
+ * en food_items ET qui peuvent réellement porter un compteur (hors `no_counter` / `surgele`).
+ * Sert à détecter le partage de lot entre deux repas uniquement pour les ingrédients concernés
+ * par la logique de badge compteur.
  */
 function counterableIngredientKeysFromRecipe(
   ingredients: string | null | undefined,
@@ -433,7 +500,10 @@ function counterableIngredientKeysFromRecipe(
     if (!bundle) continue;
     for (const item of bundle) {
       if (item.optional || !item.name) continue;
-      if (lookupFoodItems(item.name, foodItems, index).length > 0) {
+      const counterCapableMatches = lookupFoodItems(item.name, foodItems, index).filter(
+        (fi) => fi.storage_type !== "surgele" && !fi.no_counter,
+      );
+      if (counterCapableMatches.length > 0) {
         keys.add(normalizeKey(item.name));
       }
     }
