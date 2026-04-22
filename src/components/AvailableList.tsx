@@ -774,6 +774,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
     const effectiveRatio = customRatio ?? 1;
     const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio, stockMap) : meal;
+    // Calcule le nombre de portions réellement faisables pour la portion affichée (ex: 57%).
+    const displayMultiple = effectiveRatio !== 1 ? getMealMultiple(displayMeal, stockMap) : multiple;
+    const badgeMultiple = displayMultiple ?? multiple;
     // L'analyse en une seule passe remplace 6+ appels de fonctions séparés
     const analysis = analyzeMealIngredients(meal, foodItems);
     const expLabel = formatExpirationLabel(analysis.earliestExpiration);
@@ -815,14 +818,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           ) : (
             <div className="absolute top-1 right-2 z-10 flex items-center shadow flex-row-reverse">
               {/* Quantité max disponible en stock (affiché en premier en flex-row-reverse = le plus à droite) */}
-              {(!customRatio || multiple > 1) && (
+              {(!customRatio || (badgeMultiple !== null && badgeMultiple > 1)) && (
                 <button
                   onClick={() => { setEditingRatioId(meal.id); setRatioInput(customRatio ? formatRatioBadge(customRatio) : ""); }}
                   className={`text-white text-[10px] font-black px-1.5 py-0.5 transition-colors ${!customRatio ? 'bg-black/60 hover:bg-black/80 rounded-full' : 'bg-black/60 hover:bg-black/80 rounded-r-full pl-1'}`}
-                  title={customRatio ? `Stock permet jusqu'à x${multiple}` : "Modifier la portion"}
+                  title={customRatio ? `Stock permet jusqu'à x${badgeMultiple}` : "Modifier la portion"}
                 >
                   <span className={customRatio ? "opacity-70" : ""}>
-                    x{multiple === Infinity ? <InfinityIcon className="inline h-[13px] w-[13px]" /> : multiple}
+                    x{badgeMultiple === Infinity ? <InfinityIcon className="inline h-[13px] w-[13px]" /> : badgeMultiple}
                   </span>
                 </button>
               )}
@@ -830,7 +833,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               {customRatio && (
                  <button
                    onClick={() => { setEditingRatioId(meal.id); setRatioInput(formatRatioBadge(customRatio)); }}
-                   className={`bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 hover:bg-orange-500/90 transition-colors ${multiple > 1 || isCalorieRestrictedRatio ? 'rounded-l-full pr-1' : 'rounded-full'}`}
+                  className={`bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 hover:bg-orange-500/90 transition-colors ${(badgeMultiple !== null && badgeMultiple > 1) || isCalorieRestrictedRatio ? 'rounded-l-full pr-1' : 'rounded-full'}`}
                    title="Modifier la portion"
                  >
                    {formatRatioBadge(customRatio)}
