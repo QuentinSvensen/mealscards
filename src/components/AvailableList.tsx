@@ -32,13 +32,14 @@ import {
   buildStockMap, findStockKey, getMealMultiple, getMealFractionalRatio,
   analyzeMealIngredients,
   getMissingIngredients,
+  buildIngredientMealIndex,
   formatExpirationLabel, compareExpirationWithCounter, buildScaledMealForRatio,
   getIndivisibleConstrainedRatio, getValidDiscreteRatios,
   getDisplayedCalories, getDisplayedProtein, parseMacroDisplay,
   type StockInfo, type FoodItemIndex,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays
+  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -902,13 +903,74 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     setAvailPref.mutate({ key: `available_order_${category.value}`, value: reordered.map(u => u.key) });
   };
 
+  // Pour chaque aliment inutilisé, cherche la meilleure recette qui l'utilise (selon 3 critères :
+  // max d'aliments inutilisés, min d'ingrédients manquants, min de calories), puis renvoie la liste
+  // dédupliquée des ingrédients manquants de ces recettes. Sert de suggestions d'achats.
+  const computeUnusedSuggestions = (items: FoodItem[]) => {
+    if (!items.length || !allMeals.length) return [];
+    const index = buildIngredientMealIndex(allMeals);
+    const unusedKeys = new Set(items.map(fi => normalizeKey(fi.name)));
+    type Source = { unusedName: string; recipeName: string; recipeId: string };
+    const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[] }>();
+    for (const fi of items) {
+      const unusedKey = normalizeKey(fi.name);
+      const mealIds = index.get(unusedKey);
+      if (!mealIds || mealIds.size === 0) continue;
+      let bestMeal: Meal | null = null;
+      let bestScore: { unusedUsed: number; missingCount: number; cal: number } | null = null;
+      for (const mealId of mealIds) {
+        const meal = allMeals.find(m => m.id === mealId);
+        if (!meal?.ingredients?.trim()) continue;
+        const groups = parseIngredientGroups(meal.ingredients);
+        const usedUnusedKeys = new Set<string>();
+        for (const group of groups) {
+          for (const alt of group) {
+            for (const item of alt) {
+              const k = normalizeKey(item.name);
+              if (unusedKeys.has(k)) usedUnusedKeys.add(k);
+            }
+          }
+        }
+        const missing = getMissingIngredients(meal, stockMap);
+        const missingCount = missing.size;
+        if (missingCount === 0) continue;
+        const cal = parseMacroDisplay(meal.calories) ?? Number.POSITIVE_INFINITY;
+        const score = { unusedUsed: usedUnusedKeys.size, missingCount, cal };
+        const better = !bestScore
+          || score.unusedUsed > bestScore.unusedUsed
+          || (score.unusedUsed === bestScore.unusedUsed && score.missingCount < bestScore.missingCount)
+          || (score.unusedUsed === bestScore.unusedUsed && score.missingCount === bestScore.missingCount && score.cal < bestScore.cal);
+        if (better) { bestScore = score; bestMeal = meal; }
+      }
+      if (!bestMeal || !bestScore) continue;
+      const missing = getMissingIngredients(bestMeal, stockMap);
+      const groups = parseIngredientGroups(bestMeal.ingredients!);
+      for (const missingKey of missing) {
+        let qty = 0, count = 0, displayName = missingKey;
+        for (const group of groups) {
+          const first = group[0]?.[0];
+          if (first && normalizeKey(first.name) === missingKey) {
+            qty = first.qty;
+            count = first.count;
+            displayName = first.rawName || first.name;
+            break;
+          }
+        }
+        const entry = byMissing.get(missingKey) || { missingName: displayName, qty, count, sources: [] };
+        entry.sources.push({ unusedName: fi.name, recipeName: bestMeal.name, recipeId: bestMeal.id });
+        byMissing.set(missingKey, entry);
+      }
+    }
+    return Array.from(byMissing.values());
+  };
+
   const renderUnusedItems = (items: FoodItem[], crossCatItems: FoodItem[] = []) => {
     const allItems = [...items, ...crossCatItems];
     const crossCatIds = new Set(crossCatItems.map(fi => fi.id));
+    const suggestions = computeUnusedSuggestions(allItems);
     return (
     <div className={`${isPlat ? 'mb-2' : 'mt-4'} rounded-2xl bg-muted/30 border border-border/20 p-3`}>
-      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">🧊 Aliments inutilisés ({allItems.length})</p>
-      <div className="h-px w-full bg-border/50 mb-2" />
+      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({allItems.length})</p>
       <div className="flex flex-wrap gap-1.5">
         {[...allItems].sort((a, b) => {
           const today = new Date(new Date().toDateString());
@@ -958,6 +1020,28 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           );
         })}
       </div>
+      <div className="h-px w-full bg-border/50 mt-2" />
+      {suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {suggestions.map((s, i) => {
+            const tooltipLines = [
+              `Ingrédient manquant pour débloquer :`,
+              ...s.sources.map(src => `• ${src.unusedName} → « ${src.recipeName} »`),
+            ];
+            return (
+              <span
+                key={`unused-suggestion-${i}`}
+                className="text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+                title={tooltipLines.join('\n')}
+              >
+                {s.missingName}
+                {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
     );
   };
