@@ -400,9 +400,25 @@ export function PossibleMealCard({
           <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20 mt-0.5" data-testid="pm-return-btn">
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
-          <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal pt-[2px]">
-            {meal.name}
-          </span>
+          <div className="flex items-center gap-1 min-w-0 flex-1">
+            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal pt-[2px]">
+              {meal.name}
+            </span>
+            {counterDays !== null ? (
+              <button
+                onClick={() => onUpdateCounter(null)}
+                className={`md:hidden text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${counterUrgent
+                  ? animateUrgent
+                    ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
+                    : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30'
+                  : 'bg-white/25 text-white'
+                  }`}
+                title={getCounterDaysBadgeTooltip(effectiveCounterStart ?? null, pm.day_of_week, pm.meal_time, counterDays)}
+              >
+                <Timer className="h-3 w-3" /> {counterDays}j
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {/* Dates bureau uniquement (en haut à droite) */}
@@ -436,7 +452,7 @@ export function PossibleMealCard({
           {counterDays !== null ? (
             <button
               onClick={() => onUpdateCounter(null)}
-              className={`text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${counterUrgent
+              className={`hidden md:inline-flex text-xs font-bold px-1.5 py-0.5 rounded-full items-center gap-0.5 transition-all shrink-0 ${counterUrgent
                 ? animateUrgent
                   ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
