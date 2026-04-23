@@ -922,8 +922,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     setAvailPref.mutate({ key: `available_order_${category.value}`, value: reordered.map(u => u.key) });
   };
 
-  // Pour chaque aliment inutilisé, cherche la meilleure recette qui l'utilise (selon 3 critères :
-  // max d'aliments inutilisés, min d'ingrédients manquants, min de calories), puis renvoie la liste
+  // Pour chaque aliment inutilisé, cherche la meilleure recette qui l'utilise (priorité :
+  // max d'aliments inutilisés, puis min d'ingrédients manquants, puis calories),
+  // puis renvoie la liste
   // dédupliquée des ingrédients manquants de ces recettes. Sert de suggestions d'achats.
   const computeUnusedSuggestions = (items: FoodItem[]) => {
     // Ne proposer des compléments que pour les aliments inutilisés avec date de péremption.
@@ -941,12 +942,35 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       expiringItems.map((fi) => findStockKey(stockMap, fi.name) ?? normalizeKey(fi.name))
     );
     const unusedCanonicalNames = new Set(expiringItems.map((fi) => canonicalize(fi.name)));
+    // Tous les aliments inutilisés (présents ou non en stock courant) : on ne doit
+    // jamais les re-proposer comme "à ajouter". Ex : Sauce Tikka Masala ouverte
+    // avec stock=0 reste interdite en suggestion.
+    const allUnusedCanonicalNames = new Set(items.map((fi) => canonicalize(fi.name)));
+    // Vérifie si un ingrédient "manquant" l'est vraiment : on l'exclut s'il matche
+    // un aliment inutilisé (nom canonique strict OU inclusion complète des mots).
+    const isActuallyMissing = (missingKey: string): boolean => {
+      const missingCanonical = canonicalize(missingKey);
+      if (!missingCanonical) return true;
+      if (allUnusedCanonicalNames.has(missingCanonical)) return false;
+      const missingWords = missingCanonical.split(/\s+/).filter(Boolean);
+      if (missingWords.length === 0) return true;
+      for (const unusedCan of allUnusedCanonicalNames) {
+        const unusedWords = unusedCan.split(/\s+/).filter(Boolean);
+        if (unusedWords.length === 0) continue;
+        const shorter = missingWords.length <= unusedWords.length ? missingWords : unusedWords;
+        const longer = missingWords.length <= unusedWords.length ? unusedWords : missingWords;
+        if (shorter.every((w) => longer.includes(w))) return false;
+      }
+      return true;
+    };
     type Source = {
       unusedName: string;
       recipeName: string;
       recipeId: string;
       unusedRecipeAmountLabel: string;
       missingAmountLabel: string;
+      altMissingLabel?: string;
+      altRecipeName?: string;
       debug: { unusedUsed: number; usedWithUnused: number; missingCount: number; cal: number };
     };
     const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[]; countedRecipeIds: Set<string> }>();
@@ -963,6 +987,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       if (mealIds.size === 0) continue;
       let bestMeal: Meal | null = null;
       let bestScore: { unusedUsed: number; usedWithUnused: number; missingCount: number; cal: number } | null = null;
+      const rankedCandidates: Array<{
+        meal: Meal;
+        score: { unusedUsed: number; usedWithUnused: number; missingCount: number; cal: number };
+        missingKeys: string[];
+      }> = [];
       for (const mealId of mealIds) {
         const meal = allMeals.find(m => m.id === mealId);
         if (!meal?.ingredients?.trim()) continue;
@@ -989,21 +1018,61 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           }
         }
         const missing = getMissingIngredients(meal, stockMap);
-        const missingCount = missing.size;
+        const missingCount = Array.from(missing).filter(isActuallyMissing).length;
         const cal = parseMacroDisplay(meal.calories) ?? Number.POSITIVE_INFINITY;
         const score = { unusedUsed: usedUnusedKeys.size, usedWithUnused: usedWithUnusedKeys.size, missingCount, cal };
+        rankedCandidates.push({
+          meal,
+          score,
+          missingKeys: Array.from(missing).filter(isActuallyMissing),
+        });
+        // Priorité métier : d'abord réutiliser l'aliment inutilisé, puis minimiser
+        // les ingrédients à acheter, puis départager par calories.
         const better = !bestScore
           || score.unusedUsed > bestScore.unusedUsed
-          || (score.unusedUsed === bestScore.unusedUsed && score.usedWithUnused > bestScore.usedWithUnused)
-          || (score.unusedUsed === bestScore.unusedUsed && score.usedWithUnused === bestScore.usedWithUnused && score.missingCount < bestScore.missingCount)
-          || (score.unusedUsed === bestScore.unusedUsed && score.usedWithUnused === bestScore.usedWithUnused && score.missingCount === bestScore.missingCount && score.cal < bestScore.cal);
+          || (score.unusedUsed === bestScore.unusedUsed && score.missingCount < bestScore.missingCount)
+          || (score.unusedUsed === bestScore.unusedUsed && score.missingCount === bestScore.missingCount && score.cal < bestScore.cal);
         if (better) { bestScore = score; bestMeal = meal; }
       }
       if (!bestMeal || !bestScore) continue;
+      // Détermine une alternative "autre recette possible" pour enrichir le tooltip.
+      // On prend la meilleure candidate suivante qui nécessite au moins un ajout.
+      const sortedCandidates = [...rankedCandidates].sort((a, b) => {
+        if (a.score.unusedUsed !== b.score.unusedUsed) return b.score.unusedUsed - a.score.unusedUsed;
+        if (a.score.missingCount !== b.score.missingCount) return a.score.missingCount - b.score.missingCount;
+        if (a.score.cal !== b.score.cal) return a.score.cal - b.score.cal;
+        return a.meal.name.localeCompare(b.meal.name);
+      });
+      const alternativeCandidate = sortedCandidates.find((c) => c.meal.id !== bestMeal!.id && c.missingKeys.length > 0);
+      let alternativeMissingLabel: string | undefined;
+      let alternativeRecipeName: string | undefined;
+      if (alternativeCandidate) {
+        const altGroups = parseIngredientGroups(alternativeCandidate.meal.ingredients!);
+        const labels: string[] = [];
+        for (const altMissingKey of alternativeCandidate.missingKeys) {
+          let qty = 0;
+          let count = 0;
+          let displayName = altMissingKey;
+          for (const group of altGroups) {
+            const first = group[0]?.[0];
+            if (first && normalizeKey(first.name) === altMissingKey) {
+              qty = first.qty;
+              count = first.count;
+              displayName = first.rawName || first.name;
+              break;
+            }
+          }
+          labels.push(qty > 0 ? `${formatNumeric(qty)}g ${displayName}` : (count > 0 ? `x${count} ${displayName}` : displayName));
+        }
+        if (labels.length > 0) {
+          alternativeMissingLabel = labels.join(" + ");
+        }
+        alternativeRecipeName = alternativeCandidate.meal.name;
+      }
       // Si la meilleure recette est déjà réalisable (rien à acheter), on ne propose aucun
       // ingrédient : l'utilisateur peut déjà consommer l'aliment inutilisé via cette recette.
       if (bestScore.missingCount === 0) continue;
-      const missing = getMissingIngredients(bestMeal, stockMap);
+      const missing = new Set(Array.from(getMissingIngredients(bestMeal, stockMap)).filter(isActuallyMissing));
       const groups = parseIngredientGroups(bestMeal.ingredients!);
       let unusedQtyInRecipe = 0;
       let unusedCountInRecipe = 0;
@@ -1045,12 +1114,18 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           recipeId: bestMeal.id,
           unusedRecipeAmountLabel,
           missingAmountLabel: qty > 0 ? `${formatNumeric(qty)}g` : (count > 0 ? `x${count}` : "quantité inconnue"),
+          altMissingLabel: alternativeMissingLabel,
+          altRecipeName: alternativeRecipeName,
           debug: bestScore,
         });
         byMissing.set(missingKey, entry);
       }
     }
-    return Array.from(byMissing.values()).map(({ countedRecipeIds: _ignored, ...rest }) => rest);
+    // Filtre final de sécurité : applique la même règle qu'à la sélection
+    // (les aliments inutilisés ne doivent jamais être reproposés).
+    return Array.from(byMissing.values())
+      .map(({ countedRecipeIds: _ignored, ...rest }) => rest)
+      .filter((entry) => isActuallyMissing(entry.missingName));
   };
 
   const renderUnusedItems = (items: FoodItem[], crossCatItems: FoodItem[] = []) => {
@@ -1115,13 +1190,41 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-2 mb-1.5">🧩 Aliments pour compléter</p>
           <div className="flex flex-wrap gap-1.5">
             {suggestions.map((s, i) => {
-              const tooltipLines = [
-                ...s.sources.flatMap((src, idx) => [
-                  `Pour utiliser "${src.unusedRecipeAmountLabel} ${src.unusedName}" il faut ajouter :`,
-                  `- "${src.missingAmountLabel} ${s.missingName}" pour la recette : "${src.recipeName}"`,
-                  ...(idx < s.sources.length - 1 ? [""] : []),
-                ]),
-              ];
+              /** Formate une liste de libellés en français naturel (A, B et C) pour le tooltip. */
+              const formatFrenchList = (labels: string[]) => {
+                if (labels.length <= 1) return labels[0] ?? "";
+                if (labels.length === 2) return `${labels[0]} et ${labels[1]}`;
+                return `${labels.slice(0, -1).join(", ")} et ${labels[labels.length - 1]}`;
+              };
+              const groupedByRecipe = new Map<string, { recipeName: string; missingAmountLabel: string; unusedLabels: string[] }>();
+              for (const src of s.sources) {
+                const key = `${src.recipeId}::${src.missingAmountLabel}`;
+                const current = groupedByRecipe.get(key) ?? {
+                  recipeName: src.recipeName,
+                  missingAmountLabel: src.missingAmountLabel,
+                  unusedLabels: [],
+                };
+                const unusedLabel = `${src.unusedRecipeAmountLabel} ${src.unusedName}`;
+                if (!current.unusedLabels.includes(unusedLabel)) current.unusedLabels.push(unusedLabel);
+                groupedByRecipe.set(key, current);
+              }
+              const groups = Array.from(groupedByRecipe.values());
+              const tooltipLines = groups.flatMap((group, idx) => [
+                `Pour utiliser ${formatFrenchList(group.unusedLabels)} il faut ajouter :`,
+                `- ${group.missingAmountLabel} ${s.missingName} pour la recette : "${group.recipeName}"`,
+                ...(group.unusedLabels.length > 0 && s.sources.some((src) => src.altMissingLabel && src.altRecipeName)
+                  ? [
+                      ...Array.from(
+                        new Set(
+                          s.sources
+                            .filter((src) => src.altMissingLabel && src.altRecipeName)
+                            .map((src) => `*Ou ajouter ${src.altMissingLabel} pour la recette "${src.altRecipeName}"*`)
+                        )
+                      ),
+                    ]
+                  : []),
+                ...(idx < groups.length - 1 ? [""] : []),
+              ]);
               return (
                 <span
                   key={`unused-suggestion-${i}`}

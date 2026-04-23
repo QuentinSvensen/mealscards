@@ -97,6 +97,21 @@ export function useFoodItems() {
     return () => subscription.unsubscribe();
   }, [qc]);
 
+  // Filet de sécurité : masque les aliments "fantômes" (0 quantité ou 0 g) qui
+  // pourraient subsister en base après une déduction déclenchée par une planification.
+  // Même règle que dans `hooks/useFoodItems.ts`.
+  const isGhostFoodItem = (d: any): boolean => {
+    if (d?.is_infinite) return false;
+    const q = d?.quantity;
+    if (q === 0) return true;
+    const rawGrams = typeof d?.grams === "string" ? d.grams.trim() : d?.grams;
+    if (rawGrams === null || rawGrams === undefined || rawGrams === "") return false;
+    const numericGrams = parseFloat(String(rawGrams).replace(",", "."));
+    if (Number.isNaN(numericGrams)) return false;
+    if (numericGrams <= 0 && (q === null || q === undefined || q <= 0)) return true;
+    return false;
+  };
+
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["food_items"],
     queryFn: async () => {
@@ -105,18 +120,20 @@ export function useFoodItems() {
         .select("*")
         .order("sort_order", { ascending: true });
       if (error) throw error;
-      return (data as any[]).map(d => ({
-        ...d,
-        is_meal: d.is_meal ?? false,
-        is_infinite: d.is_infinite ?? false,
-        is_dry: d.is_dry ?? false,
-        is_indivisible: d.is_indivisible ?? false,
-        no_counter: d.no_counter ?? (!d.grams),
-        storage_type: d.storage_type ?? (d.is_dry ? 'sec' : 'frigo'),
-        quantity: d.quantity ?? null,
-        food_type: d.food_type ?? null,
-        protein: d.protein ?? null,
-      })) as FoodItem[];
+      return (data as any[])
+        .filter((d) => !isGhostFoodItem(d))
+        .map(d => ({
+          ...d,
+          is_meal: d.is_meal ?? false,
+          is_infinite: d.is_infinite ?? false,
+          is_dry: d.is_dry ?? false,
+          is_indivisible: d.is_indivisible ?? false,
+          no_counter: d.no_counter ?? (!d.grams),
+          storage_type: d.storage_type ?? (d.is_dry ? 'sec' : 'frigo'),
+          quantity: d.quantity ?? null,
+          food_type: d.food_type ?? null,
+          protein: d.protein ?? null,
+        })) as FoodItem[];
     },
     retry: 3,
     retryDelay: 500,

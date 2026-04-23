@@ -228,13 +228,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             const effectiveCounterDate = counterToSet || new Date().toISOString();
             trackOldestCounter(fi, effectiveCounterDate);
 
+            // Stock épuisé : toujours supprimer la ligne (même si compteur planifié).
+            // Sinon une carte 0g reste visible ; le "programmé demain" vit sur la carte repas, pas sur un aliment fantôme.
             if (remaining <= 0) {
-              // Si l'aliment a un compteur actif, on le garde à 0 au lieu de le supprimer
-              if (fi.counter_start_date) {
-                updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
-              } else {
-                updatesById.set(fi.id, { id: fi.id, delete: true });
-              }
+              updatesById.set(fi.id, { id: fi.id, delete: true });
             } else {
               const bumpCounter = needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
               if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
@@ -263,11 +260,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             trackOldestCounter(fi, effectiveCounterDate);
 
             if (remaining <= 0) {
-              if (fi.counter_start_date) {
-                updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
-              } else {
-                updatesById.set(fi.id, { id: fi.id, delete: true });
-              }
+              updatesById.set(fi.id, { id: fi.id, delete: true });
               continue;
             }
 
@@ -296,11 +289,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 // Unités complètes restantes → pas d'ouverture, reset du compteur
                 updatesById.set(fi.id, { id: fi.id, quantity: fullUnits, grams: formatNumeric(perUnit), ...(fi.counter_start_date ? { counter_start_date: null } : {}) });
               } else {
-                if (fi.counter_start_date) {
-                  updatesById.set(fi.id, { id: fi.id, quantity: 0, grams: "0" });
-                } else {
-                  updatesById.set(fi.id, { id: fi.id, delete: true });
-                }
+                updatesById.set(fi.id, { id: fi.id, delete: true });
               }
             } else {
               // Item simple (sans multi-unités)
@@ -747,11 +736,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       // Pas de grammes spécifiés → déduire 1 unité
       const currentQty = nameMatch.quantity ?? 1;
       if (currentQty <= 1) {
-        if (nameMatch.counter_start_date) {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
-        } else {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
-        }
+        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
       } else {
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: currentQty - 1, ...(canStartCounter && (!nameMatch.counter_start_date || forcedCounterDate) ? { counter_start_date: counterToSet } : {}) } as any).eq("id", nameMatch.id));
       }
@@ -765,11 +750,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       const totalAvailable = getFoodItemTotalGrams(nameMatch);
       const remaining = totalAvailable - mealGrams;
       if (remaining <= 0) {
-        if (nameMatch.counter_start_date) {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
-        } else {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
-        }
+        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
       } else {
         const fullUnits = Math.floor(remaining / perUnit);
         const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
@@ -786,22 +767,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             ...(nameMatch.counter_start_date ? { counter_start_date: null } : {})
           } as any).eq("id", nameMatch.id));
         } else {
-          if (nameMatch.counter_start_date) {
-            await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
-          } else {
-            await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
-          }
+          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
         }
       }
     } else {
       const current = parseQty(nameMatch.grams);
       const remaining = Math.max(0, current - mealGrams);
       if (remaining <= 0) {
-        if (nameMatch.counter_start_date) {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: 0, grams: "0" } as any).eq("id", nameMatch.id));
-        } else {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
-        }
+        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
       } else {
         const isNewUnit = remaining > 0 && remaining < current;
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({
