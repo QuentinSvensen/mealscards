@@ -601,9 +601,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * totalG / 100));
         if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * totalG / 100));
       }
-    } else if (fi.quantity && fi.quantity > 1) {
-      if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * fi.quantity));
-      if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * fi.quantity));
     }
 
     const counterDays = computeCounterDays(fi.counter_start_date);

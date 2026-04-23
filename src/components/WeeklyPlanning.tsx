@@ -280,15 +280,15 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
     >
       {/* Mobile : mise en page verticale */}
       <div className="flex flex-col sm:hidden">
-        <div className="flex items-start gap-1 min-w-0">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1 min-w-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] max-[430px]:grid-cols-1 items-start gap-x-1 gap-y-0.5 min-w-0">
+          <div className="min-w-0 overflow-hidden">
+            <div className="flex items-start gap-1 min-w-0 w-full">
               <span className="text-[9px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-              <span className="font-semibold text-[10px] min-w-0 break-words leading-tight">{meal.name}</span>
+              <span className="block flex-1 min-w-0 font-semibold text-[10px] break-normal whitespace-normal leading-tight">{meal.name}</span>
             </div>
           </div>
           {!compact && (
-            <div className="flex flex-col items-center shrink-0">
+            <div className="flex flex-col items-center shrink-0 max-[430px]:justify-self-end">
               {editingCal ? (
                 <input
                   autoFocus
@@ -406,9 +406,9 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       {/* Bureau : mise en page en deux colonnes — gauche (titre + date en bas), droite (badges) */}
       <div className="hidden sm:flex items-stretch gap-1 min-w-0">
         <div className="flex-1 min-w-0 flex flex-col justify-between">
-          <div className="flex items-center gap-1 min-w-0">
+          <div className="flex items-start gap-1 min-w-0">
             <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-            <span className="font-semibold text-xs min-w-0 break-words leading-tight">{meal.name}</span>
+            <span className="block flex-1 min-w-0 font-semibold text-xs break-normal whitespace-normal leading-tight">{meal.name}</span>
             {counterDays !== null ? (
               <span
                 className={`text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0

@@ -258,14 +258,14 @@ export function PossibleMealCard({
     const setIsOpen = isMobile ? setCalMobileOpen : setCalOpen;
 
     return (
-      <div className="flex items-center gap-1 flex-wrap shrink-0">
+      <div className={`flex items-center flex-wrap shrink-0 ${isMobile ? "gap-0.5" : "gap-1"}`}>
         <Calendar className="h-2.5 w-2.5 text-white/50 shrink-0" />
         <Popover open={isOpen} onOpenChange={setIsOpen}>
           <PopoverTrigger asChild>
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
-              className={`h-5 min-w-[88px] border bg-white/10 text-white text-[10px] px-1.5 rounded-md flex items-center hover:bg-white/20 transition-colors ${expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200' : isExpired ? 'border-white/20 text-red-200' : 'border-white/20'
+              className={`h-5 ${isMobile ? "min-w-[86px] px-1.5" : "min-w-[88px] px-1.5"} border bg-white/10 text-white text-[10px] rounded-md flex items-center hover:bg-white/20 transition-colors ${expIsToday ? 'border-red-500 ring-1 ring-red-500 text-red-200' : isExpired ? 'border-white/20 text-red-200' : 'border-white/20'
                 }`}
             >
               {pm.expiration_date
@@ -322,7 +322,7 @@ export function PossibleMealCard({
               <SelectTrigger
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
-                className="h-5 min-w-[58px] w-auto justify-start p-0 px-1.5 border border-white/20 bg-white/10 text-white text-[10px] flex items-center gap-1 hover:bg-white/20 transition-colors [&>svg:last-child]:hidden focus:ring-0 focus:ring-offset-0"
+                className={`h-5 ${isMobile ? "min-w-[62px] px-1.5 gap-0.5" : "min-w-[58px] px-1.5 gap-1"} w-auto justify-start p-0 border border-white/20 bg-white/10 text-white text-[10px] flex items-center hover:bg-white/20 transition-colors [&>svg:last-child]:hidden focus:ring-0 focus:ring-offset-0`}
               >
                 <Calendar className="h-2.5 w-2.5 opacity-50 shrink-0" />
                 {pm.day_of_week ? (
@@ -355,7 +355,7 @@ export function PossibleMealCard({
           <SelectTrigger
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="h-5 w-[50px] border-white/20 bg-white/10 text-white text-[10px] px-1"
+            className={`h-5 ${isMobile ? "w-[52px] px-1" : "w-[50px] px-1"} border-white/20 bg-white/10 text-white text-[10px]`}
           >
             <SelectValue placeholder="Quand" />
           </SelectTrigger>
@@ -407,7 +407,7 @@ export function PossibleMealCard({
             {counterDays !== null ? (
               <button
                 onClick={() => onUpdateCounter(null)}
-                className={`md:hidden text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${counterUrgent
+                className={`lg:hidden text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${counterUrgent
                   ? animateUrgent
                     ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
                     : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30'
@@ -422,7 +422,7 @@ export function PossibleMealCard({
         </div>
 
         {/* Dates bureau uniquement (en haut à droite) */}
-        <div className="hidden md:flex items-center shrink-0 mt-0.5">
+        <div className="hidden lg:flex items-center shrink-0 mt-0.5">
           {renderDatesSection(false)}
         </div>
       </div>
@@ -440,19 +440,19 @@ export function PossibleMealCard({
       ) : null}
 
       {/* Ligne 2 : Dates/Options (alignées à droite) */}
-      <div className="flex flex-wrap items-center justify-end gap-y-1.5 gap-x-2 w-full mt-1.5 mt-auto">
+      <div className="flex flex-wrap items-center justify-end gap-y-1.5 gap-x-1 md:gap-x-2 w-full mt-1.5 mt-auto max-[430px]:flex-col max-[430px]:items-end">
 
         {/* Dates - Mobile uniquement */}
-        <div className="md:hidden flex items-center gap-1 flex-wrap shrink-0">
+        <div className="lg:hidden flex items-center gap-1 flex-wrap shrink-0 max-[430px]:w-full max-[430px]:justify-end">
           {renderDatesSection(true)}
         </div>
 
         {/* Options */}
-        <div className="ml-auto flex items-center justify-end gap-1.5 shrink-0 flex-wrap">
+        <div className="ml-auto flex items-center justify-end gap-1 md:gap-1.5 shrink-0 flex-wrap max-[430px]:w-full">
           {counterDays !== null ? (
             <button
               onClick={() => onUpdateCounter(null)}
-              className={`hidden md:inline-flex text-xs font-bold px-1.5 py-0.5 rounded-full items-center gap-0.5 transition-all shrink-0 ${counterUrgent
+              className={`hidden lg:inline-flex text-xs font-bold px-1.5 py-0.5 rounded-full items-center gap-0.5 transition-all shrink-0 ${counterUrgent
                 ? animateUrgent
                   ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
