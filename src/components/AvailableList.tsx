@@ -18,7 +18,8 @@
  * tryFitMeal() : vérifie si un repas rentre dans le budget calorique restant
  * buildUnifiedItems() : fusionne toutes les sources en liste unifiée triée
  */
-import { useState, Fragment } from "react";
+import { useState, Fragment, useEffect } from "react";
+import type { ReactNode } from "react";
 import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -45,8 +46,69 @@ import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useCalorieBalance } from "@/hooks/useCalorieBalance";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
+
+/**
+ * Détecte un contexte mobile / tactile sans hover fiable, pour ouvrir le détail des suggestions au tap.
+ */
+function useUnusedSuggestionTapMode(): boolean {
+  const [tapMode, setTapMode] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px), (hover: none) and (pointer: coarse)");
+    const sync = () => setTapMode(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return tapMode;
+}
+
+/** Style commun : aliments (quantité + nom) — se détache du texte de liaison. */
+const SUGGESTION_STYLE_ALIMENT = "font-semibold tabular-nums not-italic text-emerald-950 dark:text-emerald-300";
+
+/** Style commun : nom de plat / recette entre guillemets. */
+const SUGGESTION_STYLE_PLAT = "font-semibold not-italic text-emerald-900 dark:text-emerald-400";
+
+/**
+ * Aliments inutilisés (ligne « Pour utiliser … ») : ambre pour les distinguer du vert
+ * des quantités à acheter et des noms de plats.
+ */
+const SUGGESTION_STYLE_ALIMENT_INUTILISE =
+  "font-semibold tabular-nums not-italic text-amber-950 dark:text-amber-300";
+
+/**
+ * Ligne alternative « Ou ajouter » : verts plus sourds (moins « néon ») que le bloc principal,
+ * tout en restant lisibles sur fond sombre.
+ */
+const SUGGESTION_STYLE_ALIMENT_ALT =
+  "font-semibold tabular-nums not-italic text-emerald-900 dark:text-emerald-500";
+
+/** Nom de plat sur la ligne « Ou » : même famille que les aliments alternatifs, légèrement atténué. */
+const SUGGESTION_STYLE_PLAT_ALT =
+  "font-semibold not-italic text-emerald-900/90 dark:text-emerald-500/90";
+
+/**
+ * Conteneur visuel des suggestions « Ou ajouter » : bordure en pointillés, fond grisé et léger
+ * voile d'opacité marqué pour une zone très secondaire, tout en restant lisible au besoin.
+ */
+const UNUSED_ALT_SUGGESTION_SHELL =
+  "mt-1.5 rounded-lg border border-dashed border-border/50 bg-muted/35 px-2.5 py-1.5 opacity-[0.72] dark:border-border/40 dark:bg-muted/30";
+
+/**
+ * Dans « Pour utiliser … », met en avant les aliments inutilisés (quantité + nom) avec une couleur dédiée.
+ */
+function renderUnusedFoodLabelsLightAccent(labels: string[]): ReactNode {
+  if (labels.length === 0) return null;
+  return labels.map((label, i) => (
+    <Fragment key={`${label}-${i}`}>
+      {i > 0 && (i === labels.length - 1 ? " et " : ", ")}
+      <span className={SUGGESTION_STYLE_ALIMENT_INUTILISE}>{label}</span>
+    </Fragment>
+  ));
+}
 
 interface AvailableListProps {
   category: { value: string; label: string; emoji: string };
@@ -85,6 +147,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
   const [ratioInput, setRatioInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const tapModeForUnusedSuggestions = useUnusedSuggestionTapMode();
+  const [mobileUnusedSuggestionKey, setMobileUnusedSuggestionKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tapModeForUnusedSuggestions) setMobileUnusedSuggestionKey(null);
+  }, [tapModeForUnusedSuggestions]);
   const isAvailableCb = (name: string) => {
     const key = findStockKey(stockMap, name);
     if (!key) return false;
@@ -1190,12 +1257,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-2 mb-1.5">🧩 Aliments pour compléter</p>
           <div className="flex flex-wrap gap-1.5">
             {suggestions.map((s, i) => {
-              /** Formate une liste de libellés en français naturel (A, B et C) pour le tooltip. */
-              const formatFrenchList = (labels: string[]) => {
-                if (labels.length <= 1) return labels[0] ?? "";
-                if (labels.length === 2) return `${labels[0]} et ${labels[1]}`;
-                return `${labels.slice(0, -1).join(", ")} et ${labels[labels.length - 1]}`;
-              };
               const groupedByRecipe = new Map<string, { recipeName: string; missingAmountLabel: string; unusedLabels: string[] }>();
               for (const src of s.sources) {
                 const key = `${src.recipeId}::${src.missingAmountLabel}`;
@@ -1209,32 +1270,126 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                 groupedByRecipe.set(key, current);
               }
               const groups = Array.from(groupedByRecipe.values());
-              const tooltipLines = groups.flatMap((group, idx) => [
-                `Pour utiliser ${formatFrenchList(group.unusedLabels)} il faut ajouter :`,
-                `- ${group.missingAmountLabel} ${s.missingName} pour la recette : "${group.recipeName}"`,
-                ...(group.unusedLabels.length > 0 && s.sources.some((src) => src.altMissingLabel && src.altRecipeName)
-                  ? [
-                      ...Array.from(
-                        new Set(
-                          s.sources
-                            .filter((src) => src.altMissingLabel && src.altRecipeName)
-                            .map((src) => `*Ou ajouter ${src.altMissingLabel} pour la recette "${src.altRecipeName}"*`)
-                        )
-                      ),
-                    ]
-                  : []),
-                ...(idx < groups.length - 1 ? [""] : []),
-              ]);
+              // Suggestions d’autres recettes (dédoublonnées) pour la ligne en italique sous le tooltip.
+              const dedupedAltSuggestions = Array.from(
+                new Map(
+                  s.sources
+                    .filter((src): src is (typeof src & { altMissingLabel: string; altRecipeName: string }) =>
+                      Boolean(src.altMissingLabel && src.altRecipeName),
+                    )
+                    .map((src) => [
+                      `${src.altRecipeName}\u0000${src.altMissingLabel}`,
+                      { missingLabel: src.altMissingLabel, recipeName: src.altRecipeName },
+                    ] as const)
+                ).values(),
+              );
+              const chipKey = `unused-suggestion-${i}-${s.missingName}-${s.qty}-${s.count}`;
+              const chipClassName =
+                "text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 touch-manipulation";
+              const panelShellClass =
+                "relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md shadow-black/15 ring-1 ring-border/50 dark:shadow-black/30";
+              const panelShellPopoverClass = `${panelShellClass} w-[min(100vw-2rem,24rem)] sm:w-auto sm:max-w-sm`;
+              const panelBody = (
+                <>
+                  <div className="relative space-y-2 px-3.5 py-3">
+                    {groups.map((group, idx) => (
+                      <Fragment key={`${group.recipeName}-${idx}`}>
+                        {idx > 0 && <div className="border-t border-border pt-2" />}
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] leading-snug">
+                            <span className="font-normal text-muted-foreground">Pour utiliser </span>
+                            {renderUnusedFoodLabelsLightAccent(group.unusedLabels)}
+                            <span className="font-normal text-muted-foreground"> il faut ajouter :</span>
+                          </p>
+                          <p className="text-[11px] leading-snug">
+                            <span className="font-normal text-muted-foreground">- </span>
+                            <span className={SUGGESTION_STYLE_ALIMENT}>
+                              {group.missingAmountLabel} {s.missingName}
+                            </span>
+                            <span className="font-normal text-muted-foreground"> pour la recette : </span>
+                            <span className={SUGGESTION_STYLE_PLAT}>&quot;{group.recipeName}&quot;</span>
+                          </p>
+                          {group.unusedLabels.length > 0 &&
+                            dedupedAltSuggestions.map((alt) => (
+                              <div
+                                key={`${alt.recipeName}-${alt.missingLabel}`}
+                                className={UNUSED_ALT_SUGGESTION_SHELL}
+                              >
+                                <p className="text-[10px] leading-relaxed">
+                                  <span
+                                    className="mr-0.5 inline-block translate-y-px font-normal text-muted-foreground/90 select-none"
+                                    aria-hidden
+                                  >
+                                    ↳
+                                  </span>
+                                  <span className="font-normal text-muted-foreground">Ou ajouter </span>
+                                  <span className={SUGGESTION_STYLE_ALIMENT_ALT}>{alt.missingLabel}</span>
+                                  <span className="font-normal text-muted-foreground"> pour la recette </span>
+                                  <span className={SUGGESTION_STYLE_PLAT_ALT}>&quot;{alt.recipeName}&quot;</span>
+                                </p>
+                              </div>
+                            ))}
+                        </div>
+                      </Fragment>
+                    ))}
+                  </div>
+                </>
+              );
+              if (tapModeForUnusedSuggestions) {
+                const isOpen = mobileUnusedSuggestionKey === chipKey;
+                return (
+                  <Popover
+                    key={chipKey}
+                    open={isOpen}
+                    onOpenChange={(open) => {
+                      if (open) setMobileUnusedSuggestionKey(chipKey);
+                      else setMobileUnusedSuggestionKey((k) => (k === chipKey ? null : k));
+                    }}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={`${chipClassName} cursor-pointer`}
+                        aria-expanded={isOpen}
+                        aria-controls={`unused-suggestion-panel-${i}`}
+                      >
+                        {s.missingName}
+                        {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                        {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      id={`unused-suggestion-panel-${i}`}
+                      side="bottom"
+                      align="center"
+                      sideOffset={12}
+                      className={panelShellPopoverClass}
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
+                      {panelBody}
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
               return (
-                <span
-                  key={`unused-suggestion-${i}`}
-                  className="text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
-                  title={tooltipLines.join('\n')}
-                >
-                  {s.missingName}
-                  {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
-                  {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
-                </span>
+                <Tooltip key={chipKey} delayDuration={250}>
+                  <TooltipTrigger asChild>
+                    <span className={`${chipClassName} cursor-default`}>
+                      {s.missingName}
+                      {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                      {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                    </span>
+                  </TooltipTrigger>
+                  {/* Panneau d’aide : sous la pastille « aliment à ajouter », centré sur celle-ci. */}
+                  <TooltipContent
+                    side="bottom"
+                    align="center"
+                    sideOffset={12}
+                    className={panelShellClass}
+                  >
+                    {panelBody}
+                  </TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
