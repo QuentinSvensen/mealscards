@@ -1700,7 +1700,7 @@ export function WeeklyPlanning({
                   )}
                 </h3>
                 <div
-                  className={`rounded-xl border border-dashed px-2 py-2 transition-colors ${isBreakfastDragOver ? 'border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25' : 'border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45'}`}
+                  className={`rounded-xl border border-dashed px-2 py-2 transition-colors ${isBreakfastDragOver ? 'border-primary/60 bg-primary/7 ring-1 ring-primary/20' : 'border-border/55 bg-background/10 hover:border-primary/40'}`}
                   onDragOver={(e) => {
                     const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
                     if (!canAccept) return;
@@ -2916,9 +2916,9 @@ export function WeeklyPlanning({
                 }}
                 onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
                 onDrop={(e) => handleDrop(e, iso, 'gouter')}
-                className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors ${dragOverSlot === `${iso}-gouter` ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
+                className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors flex items-center ${dragOverSlot === `${iso}-gouter` ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
               >
-                <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
                   <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
                   <button
                     onClick={() => {
