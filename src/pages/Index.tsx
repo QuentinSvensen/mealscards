@@ -549,6 +549,9 @@ const Index = () => {
     if (result?.id) {
       if (snapshots.length > 0) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
       if (source === "master") setMasterSourcePmIds(prev => new Set([...prev, result.id]));
+      if (source === "available" && typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+        setCollapsedSections(prev => ({ ...prev, [`available-${meal.category}`]: true }));
+      }
 
       // 5. Sauvegarder les macros "figées" dans les préférences pour cette carte
       if (preCal !== null) {
@@ -1063,7 +1066,12 @@ const Index = () => {
                             if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
                           }}
                           onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
-                          onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })} />
+                          onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
+                          onAfterMoveToPossible={() => {
+                            if (typeof window === "undefined") return;
+                            if (!window.matchMedia("(max-width: 767px)").matches) return;
+                            setCollapsedSections(prev => ({ ...prev, [`available-${cat.value}`]: true }));
+                          }} />
 
                       </div>
                       <div className="order-3 md:order-2">

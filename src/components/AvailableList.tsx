@@ -72,9 +72,10 @@ interface AvailableListProps {
   onToggleFavorite: (id: string) => void;
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
+  onAfterMoveToPossible?: () => void;
 }
 
-export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes }: AvailableListProps) {
+export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onAfterMoveToPossible }: AvailableListProps) {
   const isPlat = category.value === "plat";
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
@@ -614,7 +615,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return (
       <div key={fi.id} className="relative">
         <MealCard meal={fakeMeal} stockMap={stockMap}
-          onMoveToPossible={() => onMoveFoodItemToPossible(fi)}
+          onMoveToPossible={() => { onMoveFoodItemToPossible(fi); onAfterMoveToPossible?.(); }}
           onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
           onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); if (unifiedIdx !== undefined) setAvDragIndex(unifiedIdx); }}
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -710,6 +711,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               return next;
             });
             await onMoveNameMatchToPossible(meal, fi, cr && cr !== 1 ? cr : undefined);
+            onAfterMoveToPossible?.();
           }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}
@@ -787,8 +789,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
             setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
             if (cr && cr !== 1) {
               await onMovePartialToPossible(meal, cr);
+              onAfterMoveToPossible?.();
             } else {
               await onMoveToPossible(meal.id);
+              onAfterMoveToPossible?.();
             }
           }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
@@ -841,6 +845,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                   onClick={async () => {
                     setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
                     await onMoveToPossible(meal.id);
+                    onAfterMoveToPossible?.();
                   }}
                   className="bg-orange-500/80 text-white text-[10px] font-black px-1 py-0.5 hover:bg-orange-500/90 transition-colors rounded-l-full border-l border-orange-300/40"
                   title="Ajouter directement à 100%"
@@ -873,6 +878,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           onMoveToPossible={async () => {
             setCustomRatios(prev => { const next = { ...prev }; delete next[partialKey]; return next; });
             await onMovePartialToPossible(meal, effectiveRatio);
+            onAfterMoveToPossible?.();
           }}
           onRename={(name) => onRename(meal.id, name)} onDelete={() => {}} onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)} onUpdateGrams={(g) => onUpdateGrams(meal.id, g)} onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
           onToggleFavorite={() => onToggleFavorite(meal.id)}

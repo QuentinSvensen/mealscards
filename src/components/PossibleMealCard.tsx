@@ -394,20 +394,20 @@ export function PossibleMealCard({
         </div>
       )}
 
-      {/* Ligne 1 : nom + actions + dates bureau */}
-      <div className="flex items-start justify-between gap-1.5 min-w-0">
-        <div className="flex items-start gap-1.5 min-w-0 flex-1">
+      {/* Ligne 1 : nom + actions + planification à droite (ou dessous si manque de place) */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] max-[820px]:grid-cols-1 items-start gap-1.5 min-w-0">
+        <div className="flex items-start gap-1.5 min-w-0">
           <Button size="icon" variant="ghost" onClick={onRemove} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20 mt-0.5" data-testid="pm-return-btn">
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
           <div className="flex items-center gap-1 min-w-0 flex-1">
-            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal pt-[2px]">
+            <span className="block flex-1 font-semibold text-white text-sm min-w-0 break-normal whitespace-normal pt-[2px]">
               {meal.name}
             </span>
             {counterDays !== null ? (
               <button
                 onClick={() => onUpdateCounter(null)}
-                className={`lg:hidden text-xs font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-all shrink-0 ${counterUrgent
+                className={`min-[431px]:hidden max-[430px]:flex text-xs font-bold px-1.5 py-0.5 rounded-full items-center gap-0.5 transition-all shrink-0 ${counterUrgent
                   ? animateUrgent
                     ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
                     : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30'
@@ -425,6 +425,11 @@ export function PossibleMealCard({
         <div className="hidden lg:flex items-center shrink-0 mt-0.5">
           {renderDatesSection(false)}
         </div>
+
+        {/* Planification mobile/tablette : à droite du titre, ou ligne dessous à droite si manque de place */}
+        <div className="lg:hidden flex items-center shrink-0 justify-self-end max-[820px]:w-full max-[820px]:justify-end">
+          {renderDatesSection(true)}
+        </div>
       </div>
 
       {/* Superposition d'édition */}
@@ -439,20 +444,15 @@ export function PossibleMealCard({
         </div>
       ) : null}
 
-      {/* Ligne 2 : Dates/Options (alignées à droite) */}
-      <div className="flex flex-wrap items-center justify-end gap-y-1.5 gap-x-1 md:gap-x-2 w-full mt-1.5 mt-auto max-[430px]:flex-col max-[430px]:items-end">
-
-        {/* Dates - Mobile uniquement */}
-        <div className="lg:hidden flex items-center gap-1 flex-wrap shrink-0 max-[430px]:w-full max-[430px]:justify-end">
-          {renderDatesSection(true)}
-        </div>
+      {/* Ligne 2 : Options (alignées à droite) */}
+      <div className="flex flex-wrap items-center justify-end gap-y-1.5 gap-x-1 md:gap-x-2 w-full mt-1.5 mt-auto">
 
         {/* Options */}
-        <div className="ml-auto flex items-center justify-end gap-1 md:gap-1.5 shrink-0 flex-wrap max-[430px]:w-full">
+        <div className="ml-auto w-full flex flex-wrap items-center justify-end gap-1 md:gap-1.5">
           {counterDays !== null ? (
             <button
               onClick={() => onUpdateCounter(null)}
-              className={`hidden lg:inline-flex text-xs font-bold px-1.5 py-0.5 rounded-full items-center gap-0.5 transition-all shrink-0 ${counterUrgent
+              className={`hidden min-[431px]:inline-flex text-xs font-bold px-1.5 py-0.5 rounded-full items-center gap-0.5 transition-all shrink-0 ${counterUrgent
                 ? animateUrgent
                   ? 'bg-red-500/80 text-white animate-pulse shadow-lg shadow-red-500/30'
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
