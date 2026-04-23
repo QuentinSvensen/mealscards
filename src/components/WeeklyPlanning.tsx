@@ -285,16 +285,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             <div className="flex items-center gap-1 min-w-0">
               <span className="text-[9px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
               <span className="font-semibold text-[10px] min-w-0 break-words leading-tight">{meal.name}</span>
-              {counterDays !== null ? (
-                <span
-                  className={`text-[8px] font-black px-1 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
-                  ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
-                  title={counterBadgeTitle}
-                >
-                  <Timer className="h-2 w-2" />
-                  {counterDays}j
-                </span>
-              ) : null}
             </div>
           </div>
           {!compact && (
@@ -367,6 +357,16 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                   🍗
                 </button>
               )}
+              {counterDays !== null ? (
+                <span
+                  className={`text-[8px] font-black px-1 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border shrink-0
+                  ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
+                  title={counterBadgeTitle}
+                >
+                  <Timer className="h-2 w-2" />
+                  {counterDays}j
+                </span>
+              ) : null}
             </div>
           )}
         </div>
