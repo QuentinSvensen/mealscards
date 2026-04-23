@@ -274,6 +274,8 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       return sum + parseCalories(item?.calories);
     }, 0);
     const extraAssignedCal = [...assignedIds].reduce((sum, id) => {
+      const custom = parseCustomExtraId(id);
+      if (custom) return sum + custom.cal;
       const item = foodItems.find(fi => fi.id === id);
       return sum + parseCalories(item?.calories);
     }, 0);
@@ -343,6 +345,8 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       return sum + parseProtein(item?.protein);
     }, 0);
     const extraAssignedPro = [...assignedIds].reduce((sum, id) => {
+      const custom = parseCustomExtraId(id);
+      if (custom) return sum + custom.prot;
       const item = foodItems.find(fi => fi.id === id);
       return sum + parseProtein(item?.protein);
     }, 0);

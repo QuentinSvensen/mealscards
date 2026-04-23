@@ -668,6 +668,8 @@ export function WeeklyPlanning({
   const [draggedSelectedExtraId, setDraggedSelectedExtraId] = useState<string | null>(null);
   const [draggedSelectedExtraOrigin, setDraggedSelectedExtraOrigin] = useState<{ iso: string; key: string } | null>(null);
   const [selectedExtrasTopByDay, setSelectedExtrasTopByDay] = useState<Record<string, string[]>>({});
+  const [selectedExtrasMiddleByDay, setSelectedExtrasMiddleByDay] = useState<Record<string, string[]>>({});
+  const [selectedExtrasDropZone, setSelectedExtrasDropZone] = useState<string | null>(null);
   const [customExtraName, setCustomExtraName] = useState('');
   const [customExtraCal, setCustomExtraCal] = useState('');
   const [customExtraProt, setCustomExtraProt] = useState('');
@@ -947,9 +949,9 @@ export function WeeklyPlanning({
   };
 
   // Garantit qu’un extra est présent dans `planning_extra_selections` pour un jour donné.
-  // Utile quand on drag un extra depuis la popover sur un créneau (Petit déj / Midi / Soir).
+  // Fonctionne pour les extras standards ET personnalisés (`custom::...`).
   const ensureExtraSelectedForDay = (extraId: string, iso: string, key: string) => {
-    if (!extraId || extraId.startsWith('custom::')) return;
+    if (!extraId) return;
     const cur = extraSelections[iso] || extraSelections[key] || [];
     if (cur.includes(extraId)) return;
     const updated = { ...extraSelections };
@@ -959,7 +961,7 @@ export function WeeklyPlanning({
 
   // Assigne un extra à un créneau précis du jour et le retire des autres créneaux du même jour.
   const assignExtraToDaySlot = (extraId: string, iso: string, key: string, slot: 'matin' | 'midi' | 'soir' | 'gouter') => {
-    if (!extraId || extraId.startsWith('custom::')) return;
+    if (!extraId) return;
     ensureExtraSelectedForDay(extraId, iso, key);
     const assignments = { ...extraSlotAssignments };
     const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
@@ -1053,7 +1055,7 @@ export function WeeklyPlanning({
     targetKey: string,
     targetSlot: 'matin' | 'midi' | 'soir' | 'gouter'
   ) => {
-    if (!extraId || extraId.startsWith('custom::')) return;
+    if (!extraId) return;
 
     const nextSelections = removeOneExtraOccurrenceForDay(extraSelections, sourceIso, sourceKey, extraId);
     const targetCurrent = nextSelections[targetIso] || nextSelections[targetKey] || [];
@@ -1116,7 +1118,7 @@ export function WeeklyPlanning({
     }
     // Drop d’un extra sélectionné dans ce créneau (midi/soir uniquement côté TIMES).
     const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-    if (extraId && !extraId.startsWith('custom::')) {
+    if (extraId) {
       const iso = day;
       const dayKeyFromIso = weekDates.find(w => w.iso === iso)?.key || '';
       const origin = draggedSelectedExtraOrigin;
@@ -1135,7 +1137,7 @@ export function WeeklyPlanning({
     e.stopPropagation();
     setSlotDragOver(null);
     const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-    if (extraId && !extraId.startsWith('custom::')) {
+    if (extraId) {
       const targetDay = targetPm.day_of_week;
       const targetTime = targetPm.meal_time;
       if (targetDay && (targetTime === 'matin' || targetTime === 'midi' || targetTime === 'soir')) {
@@ -1664,30 +1666,12 @@ export function WeeklyPlanning({
 
           const breakfastAssignedIds =
             extraSlotAssignments[`${iso}-matin`] ?? extraSlotAssignments[`${key}-matin`] ?? [];
-          const breakfastAssigned = breakfastAssignedIds.reduce(
-            (acc, id) => {
-              const fi = foodItems.find((f) => f.id === id);
-              if (!fi) return acc;
-              acc.cal += parseCalories(fi.calories);
-              acc.pro += parseProtein(fi.protein);
-              return acc;
-            },
-            { cal: 0, pro: 0 }
-          );
+          const breakfastAssigned = sumExtrasFromSelectionIds(breakfastAssignedIds, foodItems);
           const breakfastTotalCals = baseBreakfastCals + matinCals + breakfastAssigned.cal;
           const breakfastTotalPro = baseBreakfastPro + matinPro + breakfastAssigned.pro;
           const gouterAssignedIds =
             extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
-          const gouterAssigned = gouterAssignedIds.reduce(
-            (acc, id) => {
-              const fi = foodItems.find((f) => f.id === id);
-              if (!fi) return acc;
-              acc.cal += parseCalories(fi.calories);
-              acc.pro += parseProtein(fi.protein);
-              return acc;
-            },
-            { cal: 0, pro: 0 }
-          );
+          const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
           const gouterManualCal = manualCalories[`${iso}-gouter`] || manualCalories[`${key}-gouter`] || 0;
           const gouterManualPro = manualProteins[`${iso}-gouter`] || manualProteins[`${key}-gouter`] || 0;
           const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`] || drinkChecks[`${key}-gouter`]);
@@ -1726,7 +1710,7 @@ export function WeeklyPlanning({
                   onDragLeave={() => setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))}
                   onDrop={(e) => {
                     const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
-                    if (!extraId || extraId.startsWith('custom::')) return;
+                    if (!extraId) return;
                     e.preventDefault();
                     const origin = draggedSelectedExtraOrigin;
                     if (origin && origin.iso && origin.iso !== iso) {
@@ -1977,8 +1961,9 @@ export function WeeklyPlanning({
                 {breakfastAssignedSlotIds.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
                     {breakfastAssignedSlotIds.map((extraId) => {
-                      const fi = foodItems.find(f => f.id === extraId);
-                      if (!fi) return null;
+                      const custom = parseCustomExtraId(extraId);
+                      const fi = custom ? null : foodItems.find(f => f.id === extraId);
+                      if (!fi && !custom) return null;
                       return (
                         <span
                           key={extraId}
@@ -1996,7 +1981,7 @@ export function WeeklyPlanning({
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
                           title="Extra assigné au petit déj — glisse pour déplacer"
                         >
-                          {fi.name}
+                          {custom?.name || fi?.name}
                           <button
                             onClick={() => deselectExtraForDay(extraId, iso, key)}
                             className="opacity-60 hover:opacity-100 font-bold"
@@ -2091,16 +2076,7 @@ export function WeeklyPlanning({
                   const isOver = dragOverSlot === slotKey || touchHighlight === slotKey || dragOverSlot === `${key}-${time}` || touchHighlight === `${key}-${time}`;
                   const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
                   const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb), 0);
-                  const slotAssigned = slotAssignedIds.reduce(
-                    (acc, id) => {
-                      const fi = foodItems.find((f) => f.id === id);
-                      if (!fi) return acc;
-                      acc.cal += parseCalories(fi.calories);
-                      acc.pro += parseProtein(fi.protein);
-                      return acc;
-                    },
-                    { cal: 0, pro: 0 }
-                  );
+                  const slotAssigned = sumExtrasFromSelectionIds(slotAssignedIds, foodItems);
                   const slotCals = slotCalsMeals + slotAssigned.cal;
                   const slotPro = slotProMeals + slotAssigned.pro;
                   return (
@@ -2277,8 +2253,9 @@ export function WeeklyPlanning({
                         {slotAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-0.5">
                             {slotAssignedIds.map((extraId) => {
-                              const fi = foodItems.find(f => f.id === extraId);
-                              if (!fi) return null;
+                              const custom = parseCustomExtraId(extraId);
+                              const fi = custom ? null : foodItems.find(f => f.id === extraId);
+                              if (!fi && !custom) return null;
                               return (
                                 <span
                                   key={extraId}
@@ -2296,7 +2273,7 @@ export function WeeklyPlanning({
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                                   title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
                                 >
-                                  {fi.name}
+                                  {custom?.name || fi?.name}
                                   <button
                                     onClick={() => deselectExtraForDay(extraId, iso, key)}
                                     className="opacity-60 hover:opacity-100 font-bold"
@@ -2328,7 +2305,7 @@ export function WeeklyPlanning({
                   onDragLeave={() => setDragOverSlot((cur) => (cur === extraDropKey ? null : cur))}
                   onDrop={(e) => {
                     const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
-                    if (!extraId || extraId.startsWith('custom::')) return;
+                    if (!extraId) return;
                     e.preventDefault();
                     unassignExtraFromAllDaySlots(extraId, iso, key);
                     setDraggedSelectedExtraId(null);
@@ -2505,60 +2482,6 @@ export function WeeklyPlanning({
                           </div>
 
                           <div className="space-y-1.5 max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
-                            {/* Extras personnalisés déjà validés */}
-                            {(() => {
-                              const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                              const currentIds = extraSels[iso] || extraSels[key] || [];
-                              const uniqueCustomIds = [...new Set(currentIds.filter(id => id.startsWith('custom::')))] as string[];
-                              return uniqueCustomIds.map((id) => {
-                                const c = parseCustomExtraId(id);
-                                if (!c) return null;
-                                const count = currentIds.filter(cid => cid === id).length;
-                                return (
-                                  <div key={id} className="w-full p-2.5 rounded-2xl border bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm flex items-center gap-3 hover:bg-orange-500/20 transition-all">
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[11px] font-black text-orange-600 truncate">{c.name}</p>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        onClick={() => {
-                                          const updated = { ...extraSels };
-                                          const current = updated[iso] || updated[key] || [];
-                                          const idx = current.lastIndexOf(id);
-                                          if (idx >= 0) {
-                                            const next = [...current.slice(0, idx), ...current.slice(idx + 1)];
-                                            if (iso) updated[iso] = next; else updated[key] = next;
-                                            setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                          }
-                                        }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
-                                        title="Retirer un"
-                                      >−</button>
-                                      <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                      <button
-                                        onClick={() => {
-                                          const updated = { ...extraSels };
-                                          const current = updated[iso] || updated[key] || [];
-                                          if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
-                                          setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                        }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
-                                        title="Ajouter un"
-                                      >+</button>
-                                      {c.prot > 0 && (
-                                        <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
-                                          🍗 {c.prot}
-                                        </div>
-                                      )}
-                                      <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                        <Flame className="w-2.5 h-2.5" />{c.cal}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              });
-                            })()}
-
                             {/* Aliments extras normaux — au-dessus du trait : rentrent dans les kcal restantes du jour */}
                             {(() => {
                               const sectionItems = foodItems.filter(fi => fi.storage_type === 'extras');
@@ -2578,11 +2501,11 @@ export function WeeklyPlanning({
                               const assignedIds = new Set(getAssignedExtraIdsForDay(iso, key));
                               const daySlotKey = iso || key;
 
-                              // Réordonne les extras sélectionnés (IDs non custom) en conservant les quantités.
+                              // Réordonne les extras sélectionnés (standards + custom) en conservant les quantités.
                               const reorderSelectedExtras = (sourceId: string, targetId: string) => {
                                 if (!sourceId || !targetId || sourceId === targetId) return;
                                 const idsForDay = [...currentIds];
-                                const order = Array.from(new Set(idsForDay.filter((id) => !id.startsWith("custom::"))));
+                                const order = Array.from(new Set(idsForDay.filter((id) => !assignedIds.has(id))));
                                 const from = order.indexOf(sourceId);
                                 const to = order.indexOf(targetId);
                                 if (from < 0 || to < 0) return;
@@ -2592,13 +2515,13 @@ export function WeeklyPlanning({
 
                                 const counts = new Map<string, number>();
                                 for (const id of idsForDay) counts.set(id, (counts.get(id) ?? 0) + 1);
-                                const customIds = idsForDay.filter((id) => id.startsWith("custom::"));
+                                const hiddenAssignedIds = idsForDay.filter((id) => assignedIds.has(id));
                                 const rebuilt: string[] = [];
                                 for (const id of nextOrder) {
                                   const count = counts.get(id) ?? 0;
                                   for (let i = 0; i < count; i++) rebuilt.push(id);
                                 }
-                                rebuilt.push(...customIds);
+                                rebuilt.push(...hiddenAssignedIds);
 
                                 const updated = { ...extraSels };
                                 if (iso) updated[iso] = rebuilt;
@@ -2613,11 +2536,35 @@ export function WeeklyPlanning({
                                   if (cur.includes(id)) return prev;
                                   return { ...prev, [daySlotKey]: [...cur, id] };
                                 });
+                                setSelectedExtrasMiddleByDay((prev) => {
+                                  const cur = prev[daySlotKey] || [];
+                                  if (!cur.includes(id)) return prev;
+                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
+                                });
                               };
 
-                              // Retire un extra du compartiment du dessus pour le remettre dessous.
+                              // Place un extra dans le compartiment du milieu (entre les deux traits).
+                              const moveSelectedExtraToMiddleSection = (id: string) => {
+                                setSelectedExtrasMiddleByDay((prev) => {
+                                  const cur = prev[daySlotKey] || [];
+                                  if (cur.includes(id)) return prev;
+                                  return { ...prev, [daySlotKey]: [...cur, id] };
+                                });
+                                setSelectedExtrasTopByDay((prev) => {
+                                  const cur = prev[daySlotKey] || [];
+                                  if (!cur.includes(id)) return prev;
+                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
+                                });
+                              };
+
+                              // Retire un extra des compartiments supérieurs pour le remettre dessous.
                               const moveSelectedExtraToBottomSection = (id: string) => {
                                 setSelectedExtrasTopByDay((prev) => {
+                                  const cur = prev[daySlotKey] || [];
+                                  if (!cur.includes(id)) return prev;
+                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
+                                });
+                                setSelectedExtrasMiddleByDay((prev) => {
                                   const cur = prev[daySlotKey] || [];
                                   if (!cur.includes(id)) return prev;
                                   return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
@@ -2626,20 +2573,92 @@ export function WeeklyPlanning({
 
                               const extrasById = new Map(sortedExtras.map((fi) => [fi.id, fi]));
                               const selectedOrderedIds = Array.from(
-                                new Set(currentIds.filter((id) => !id.startsWith("custom::")))
+                                new Set(currentIds.filter((id) => !assignedIds.has(id)))
                               );
                               const topIds = selectedExtrasTopByDay[daySlotKey] || [];
-                              const selectedAll = selectedOrderedIds
-                                .map((id) => extrasById.get(id))
-                                .filter((fi): fi is FoodItem => Boolean(fi))
-                                .filter((fi) => !assignedIds.has(fi.id));
-                              const selectedTop = selectedAll.filter((fi) => topIds.includes(fi.id));
-                              const selectedBottom = selectedAll.filter((fi) => !topIds.includes(fi.id));
+                              const middleIds = selectedExtrasMiddleByDay[daySlotKey] || [];
+                              const selectedTopIds = selectedOrderedIds.filter((id) => topIds.includes(id));
+                              const selectedMiddleIds = selectedOrderedIds.filter((id) => !topIds.includes(id) && middleIds.includes(id));
+                              const selectedBottomIds = selectedOrderedIds.filter((id) => !topIds.includes(id) && !middleIds.includes(id));
                               const others = sortedExtras.filter(fi => !currentIds.includes(fi.id) && !assignedIds.has(fi.id));
                               const remainingCal = Math.max(0, DAILY_GOAL - getDayCalories(key, iso));
                               const calOf = (fi: FoodItem) => parseCalories(fi.calories);
                               const fitsBudget = others.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
                               const overBudget = others.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingCal);
+                              // Rend un extra sélectionné (normal ou custom) avec drag & drop, compte et macros.
+                              const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom") => {
+                                const c = parseCustomExtraId(id);
+                                const fi = c ? null : extrasById.get(id);
+                                if (!c && !fi) return null;
+                                const count = currentIds.filter((cid) => cid === id).length;
+                                const label = c ? c.name : (fi?.name || id);
+                                const prot = c ? c.prot : parseProtein(fi?.protein);
+                                const cal = c ? c.cal : parseCalories(fi?.calories);
+                                return (
+                                  <div
+                                    key={id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                      setDraggedSelectedExtraId(id);
+                                      setDraggedSelectedExtraOrigin({ iso, key });
+                                      e.dataTransfer.effectAllowed = "move";
+                                      e.dataTransfer.setData("text/plain", id);
+                                    }}
+                                    onDragOver={(e) => {
+                                      if (!draggedSelectedExtraId || draggedSelectedExtraId === id) return;
+                                      e.preventDefault();
+                                      e.dataTransfer.dropEffect = "move";
+                                    }}
+                                    onDrop={(e) => {
+                                      e.preventDefault();
+                                      const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+                                      reorderSelectedExtras(sourceId, id);
+                                      if (selectedSection === "top") moveSelectedExtraToTopSection(sourceId);
+                                      else if (selectedSection === "middle") moveSelectedExtraToMiddleSection(sourceId);
+                                      else moveSelectedExtraToBottomSection(sourceId);
+                                      setDraggedSelectedExtraId(null);
+                                      setDraggedSelectedExtraOrigin(null);
+                                      setSelectedExtrasDropZone(null);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggedSelectedExtraId(null);
+                                      setDraggedSelectedExtraOrigin(null);
+                                      setSelectedExtrasDropZone(null);
+                                    }}
+                                    className="w-full my-1 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm cursor-grab active:cursor-grabbing hover:bg-orange-500/20"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-[11px] font-black transition-colors truncate text-orange-600">{label}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        onClick={() => deselectExtraForDay(id, iso, key)}
+                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
+                                        title="Désélectionner cet extra"
+                                      >−</button>
+                                      <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
+                                      <button
+                                        onClick={() => {
+                                          const updated = { ...extraSels };
+                                          const current = updated[iso] || updated[key] || [];
+                                          if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
+                                          setPreference.mutate({ key: 'planning_extra_selections', value: updated });
+                                        }}
+                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
+                                        title="Ajouter un"
+                                      >+</button>
+                                      {prot > 0 && (
+                                        <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
+                                          🍗 {prot}
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
+                                        <Flame className="w-2.5 h-2.5" />{cal}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              };
                               const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
                                 return (
@@ -2672,7 +2691,7 @@ export function WeeklyPlanning({
                                       setDraggedSelectedExtraId(null);
                                       setDraggedSelectedExtraOrigin(null);
                                     }}
-                                    className={`w-full p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                    className={`w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                   >
                                     <div className="flex-1 min-w-0">
                                       <p className={`text-[11px] font-black transition-colors truncate ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
@@ -2717,30 +2736,71 @@ export function WeeklyPlanning({
                               };
                               return (
                                 <>
-                                  {selectedAll.length > 0 && (
+                                  {selectedOrderedIds.length > 0 && (
                                     <>
                                       <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Extras sélectionnés</p>
-                                      {selectedTop.map((fi) => renderRow(fi, "top"))}
+                                      {selectedTopIds.map((id) => renderSelectedRowById(id, "top"))}
                                       <div
                                         onDragOver={(e) => {
                                           if (!draggedSelectedExtraId) return;
                                           e.preventDefault();
                                           e.dataTransfer.dropEffect = "move";
+                                          setSelectedExtrasDropZone(`${daySlotKey}:top`);
                                         }}
+                                        onDragLeave={() => setSelectedExtrasDropZone((cur) => (cur === `${daySlotKey}:top` ? null : cur))}
                                         onDrop={(e) => {
                                           e.preventDefault();
                                           const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
                                           if (sourceId) moveSelectedExtraToTopSection(sourceId);
                                           setDraggedSelectedExtraId(null);
                                           setDraggedSelectedExtraOrigin(null);
+                                          setSelectedExtrasDropZone(null);
                                         }}
-                                        className="relative my-1 h-2"
+                                        className="relative my-0.5 h-1"
                                         title="Dépose ici pour placer l'extra au-dessus du trait"
                                       >
-                                        <Separator className="absolute top-1/2 -translate-y-1/2 opacity-35" />
+                                        <Separator className={`absolute top-1/2 -translate-y-1/2 ${selectedExtrasDropZone === `${daySlotKey}:top` ? 'opacity-90 bg-orange-400' : 'opacity-35'}`} />
                                       </div>
-                                      {selectedBottom.map((fi) => renderRow(fi, "bottom"))}
-                                      <Separator className="my-2 opacity-60" />
+                                      <div
+                                        onDragOver={(e) => {
+                                          if (!draggedSelectedExtraId) return;
+                                          e.preventDefault();
+                                          e.dataTransfer.dropEffect = "move";
+                                          setSelectedExtrasDropZone(`${daySlotKey}:middle`);
+                                        }}
+                                        onDragLeave={() => setSelectedExtrasDropZone((cur) => (cur === `${daySlotKey}:middle` ? null : cur))}
+                                        onDrop={(e) => {
+                                          e.preventDefault();
+                                          const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+                                          if (sourceId) moveSelectedExtraToMiddleSection(sourceId);
+                                          setDraggedSelectedExtraId(null);
+                                          setDraggedSelectedExtraOrigin(null);
+                                          setSelectedExtrasDropZone(null);
+                                        }}
+                                        className={`rounded-sm transition-all ${draggedSelectedExtraId ? 'my-0.5 min-h-6' : 'my-0 min-h-0'} ${selectedExtrasDropZone === `${daySlotKey}:middle` ? 'bg-orange-500/10 ring-1 ring-orange-400/35' : ''}`}
+                                        title="Dépose ici pour placer l'extra entre les deux traits"
+                                      >
+                                        {selectedMiddleIds.map((id) => renderSelectedRowById(id, "middle"))}
+                                      </div>
+                                      <Separator
+                                        className={`${draggedSelectedExtraId && selectedExtrasDropZone === `${daySlotKey}:bottom` ? 'my-0.5 bg-orange-400 opacity-90' : draggedSelectedExtraId ? 'my-0.5' : 'my-px opacity-60'}`}
+                                        onDragOver={(e) => {
+                                          if (!draggedSelectedExtraId) return;
+                                          e.preventDefault();
+                                          e.dataTransfer.dropEffect = "move";
+                                          setSelectedExtrasDropZone(`${daySlotKey}:bottom`);
+                                        }}
+                                        onDragLeave={() => setSelectedExtrasDropZone((cur) => (cur === `${daySlotKey}:bottom` ? null : cur))}
+                                        onDrop={(e) => {
+                                          e.preventDefault();
+                                          const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
+                                          if (sourceId) moveSelectedExtraToBottomSection(sourceId);
+                                          setDraggedSelectedExtraId(null);
+                                          setDraggedSelectedExtraOrigin(null);
+                                          setSelectedExtrasDropZone(null);
+                                        }}
+                                      />
+                                      {selectedBottomIds.map((id) => renderSelectedRowById(id, "bottom"))}
                                     </>
                                   )}
                                   {fitsBudget.length > 0 && (
@@ -2901,8 +2961,9 @@ export function WeeklyPlanning({
                   {gouterAssignedIds.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {gouterAssignedIds.map((extraId) => {
-                        const fi = foodItems.find((f) => f.id === extraId);
-                        if (!fi) return null;
+                        const custom = parseCustomExtraId(extraId);
+                        const fi = custom ? null : foodItems.find((f) => f.id === extraId);
+                        if (!fi && !custom) return null;
                         return (
                           <span
                             key={extraId}
@@ -2920,7 +2981,7 @@ export function WeeklyPlanning({
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                             title="Extra assigné à Goûter — glisse pour déplacer"
                           >
-                            {fi.name}
+                            {custom?.name || fi?.name}
                             <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
                           </span>
                         );
