@@ -21,7 +21,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import { usePreferences } from "@/hooks/usePreferences";
-import { ChevronDown, ChevronRight, Loader2, ListOrdered, Package, Zap, ArrowUpDown, ArrowUp, ArrowDown, Hash, Weight } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, ListOrdered, Package, Zap, ArrowUpDown, ArrowUp, ArrowDown, Hash, Weight, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -40,8 +40,8 @@ import {
 } from "@/lib/stockUtils";
 import { computeIngredientCalories, computeIngredientProtein, cleanIngredientText } from "@/lib/ingredientUtils";
 
-/** Modes de tri de la liste générée (calories ou 1er ingrédient). */
-type MaxMealSort = "none" | "asc" | "desc" | "first_ingredient";
+/** Modes de tri de la liste générée (calories, 1er ingrédient, ou péremption). */
+type MaxMealSort = "none" | "asc" | "desc" | "first_ingredient" | "expiration";
 
 interface Props {
   foodItems: FoodItem[];
@@ -414,6 +414,47 @@ function getFirstIngredientSortKey(row: GeneratedMeal): string {
 }
 
 /**
+ * Retourne la date de péremption la plus proche pour une ligne générée.
+ * Utilise d'abord les ingrédients du plat, puis replie sur le nom du repas autonome (🍱 ...).
+ */
+function getGeneratedMealEarliestExpiration(row: GeneratedMeal, foodItems: FoodItem[]): string | null {
+  const candidateKeys = new Set<string>();
+  if (row.ingredients?.trim()) {
+    const groups = parseIngredientGroups(row.ingredients);
+    for (const group of groups) {
+      for (const alt of group) {
+        for (const item of alt) {
+          if (item.optional) continue;
+          candidateKeys.add(normalizeKey(item.name));
+        }
+      }
+    }
+  } else {
+    const fallbackName = row.name.replace(/^\s*🍱\s*/u, "").trim();
+    if (fallbackName) candidateKeys.add(normalizeKey(fallbackName));
+  }
+
+  let earliest: string | null = null;
+  for (const fi of foodItems) {
+    if (fi.storage_type === "extras") continue;
+    if (!fi.expiration_date?.trim()) continue;
+    if (!candidateKeys.has(normalizeKey(fi.name))) continue;
+    if (earliest == null || fi.expiration_date < earliest) earliest = fi.expiration_date;
+  }
+  return earliest;
+}
+
+/**
+ * Formate une date ISO (YYYY-MM-DD) en affichage court FR discret.
+ */
+function formatExpirationLabel(dateIso: string | null): string | null {
+  if (!dateIso) return null;
+  const m = dateIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return `${m[3]}/${m[2]}`;
+}
+
+/**
  * Tente de retirer du stock virtuel l'équivalent d'un aliment autonome (is_meal) lorsqu'il
  * n'a pas d'équivalent en recette : une portion = l'item aliment (grammes totaux ou unités).
  * Sert à n'ajouter la ligne "repas seul" que si le stock restant suffit après la simulation.
@@ -754,6 +795,16 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     if (sortBy === "none") return 0;
     const pri = (a.isStandaloneFood ? 1 : 0) - (b.isStandaloneFood ? 1 : 0);
     if (pri !== 0) return pri;
+    if (sortBy === "expiration") {
+      const ea = getGeneratedMealEarliestExpiration(a, foodItems);
+      const eb = getGeneratedMealEarliestExpiration(b, foodItems);
+      if (ea && eb) {
+        const cmp = ea.localeCompare(eb);
+        if (cmp !== 0) return cmp;
+      } else if (ea) return -1;
+      else if (eb) return 1;
+      return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
+    }
     if (sortBy === "first_ingredient") {
       const ka = getFirstIngredientSortKey(a);
       const kb = getFirstIngredientSortKey(b);
@@ -777,6 +828,9 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
 
   const toggleFirstIngredientSort = () => {
     setSortBy((prev) => (prev === "first_ingredient" ? "desc" : "first_ingredient"));
+  };
+  const toggleExpirationSort = () => {
+    setSortBy((prev) => (prev === "expiration" ? "desc" : "expiration"));
   };
   const remainingByStorage = {
     frigo: remainingAfterSimulation.filter((r) => r.storageGroup === "frigo"),
@@ -839,6 +893,17 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                     <ListOrdered className="h-3 w-3" />
                     1er ingr.
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleExpirationSort}
+                    className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
+                      sortBy === "expiration" ? "bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400" : ""
+                    }`}
+                  >
+                    <CalendarDays className="h-3 w-3" />
+                    Péremption
+                  </Button>
                 </>
               )}
             </div>
@@ -873,11 +938,20 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                       </span>
                     )}
                   </div>
-                  {r.ingredients && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-                      {r.ingredients}
-                    </p>
-                  )}
+                  {(() => {
+                    const exp = formatExpirationLabel(getGeneratedMealEarliestExpiration(r, foodItems));
+                    if (!r.ingredients && !exp) return null;
+                    return (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                        {r.ingredients}
+                        {exp ? (
+                          <span className="ml-1 text-muted-foreground/75 tabular-nums">
+                            {exp}
+                          </span>
+                        ) : null}
+                      </p>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

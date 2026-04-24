@@ -82,12 +82,4 @@ registerServiceWorker();
 // Masquer les logs bruyants des extensions externes ou les avertissements HMR connus de Supabase
 // (Désormais géré par console-shield dans index.html)
 
-// En dev, certains clients (mobile/réseau local) peuvent rater des mises à jour HMR partielles.
-// On force alors un reload complet dès qu'un update Vite est appliqué.
-if (import.meta.hot) {
-  import.meta.hot.on("vite:afterUpdate", () => {
-    window.location.reload();
-  });
-}
-
 createRoot(document.getElementById("root")!).render(<App />);
