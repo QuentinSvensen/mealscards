@@ -82,6 +82,7 @@ export interface StockInfo { grams: number; count: number; infinite: boolean; in
 
 /**
  * Construit une Map nom_normalisé → StockInfo à partir de la liste des aliments.
+ * Les entrées de stockage « extras » sont toujours exclues (hors des calculs de stock).
  * Agrège les grammes, quantités et flags de tous les items portant le même nom.
  */
 export function buildStockMap(foodItems: FoodItem[]): Map<string, StockInfo> {
@@ -142,6 +143,29 @@ export function pickBestAlternative(
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 3 : Disponibilité des repas
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Applique une déduction (grammes et/ou unités) au stock mutable courant.
+ * Lorsque seuls des grammes sont retirés (ingrédient « 200g X » sans « # »),
+ * le compteur d’unités est recalculé proportionnellement à la masse restante :
+ * sinon les recettes consomment le poids mais pas le #, et le « reste en stock »
+ * affiche encore l’aliment alors que les grammes sont à zéro.
+ */
+function applyDeductionToStockSnapshot(
+  stock: { grams: number; count: number; infinite: boolean },
+  d: { grams: number; count: number },
+): void {
+  if (stock.infinite) return;
+  const gBefore = stock.grams;
+  const cBefore = stock.count;
+  if (d.grams > 0) stock.grams = Math.max(0, stock.grams - d.grams);
+  if (d.count > 0) stock.count = Math.max(0, stock.count - d.count);
+  if (d.grams > 0 && d.count === 0 && gBefore > 1e-6) {
+    const gAfter = stock.grams;
+    const share = gAfter / gBefore;
+    stock.count = Math.max(0, Math.round(cBefore * share));
+  }
+}
 
 /**
  * Calcule le nombre de portions faisables d'un repas avec le stock actuel.
@@ -251,14 +275,92 @@ export function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): n
     if (!allGroupsSatisfied) break;
     for (const d of thisServingDeductions) {
       const stock = remaining.get(d.key)!;
-      if (stock.infinite) continue;
-      if (d.grams > 0) stock.grams = Math.max(0, stock.grams - d.grams);
-      if (d.count > 0) stock.count = Math.max(0, stock.count - d.count);
+      applyDeductionToStockSnapshot(stock, d);
     }
     servings++;
   }
 
   return servings === 0 ? null : servings;
+}
+
+/**
+ * Déduit une portion du repas du stock virtuel en reprenant exactement la même règle
+ * que getMealMultiple (première alternative d'ingrédients encore satisfaisante par groupe).
+ * Les quantités déduites sont multipliées par `ratio` (portion entière ou partielle).
+ * Retourne false si aucune portion n'a pu être déduite (stock insuffisant).
+ */
+export function deductMealServingFromVirtualStock(
+  meal: Meal,
+  virtualStock: Map<string, StockInfo>,
+  ratio: number = 1
+): boolean {
+  if (ratio <= 0 || !meal.ingredients?.trim()) return false;
+  const groups = parseIngredientGroups(meal.ingredients);
+  if (groups.length === 0) return false;
+  const hasRequired = groups.some((g) => !g[0]?.[0]?.optional);
+  if (!hasRequired) return false;
+
+  const keyByName = new Map<string, string | null>();
+  const resolveKey = (name: string): string | null => {
+    if (keyByName.has(name)) return keyByName.get(name)!;
+    const k = findStockKey(virtualStock, name);
+    keyByName.set(name, k);
+    return k;
+  };
+
+  const tryReserveAlt = (
+    alt: ParsedIngredient[],
+    out: Array<{ key: string; grams: number; count: number }>
+  ): boolean => {
+    const needByKey = new Map<string, { grams: number; count: number }>();
+    for (const item of alt) {
+      if (item.optional) continue;
+      const key = resolveKey(item.name);
+      if (key === null) return false;
+      const stock = virtualStock.get(key)!;
+      if (stock.infinite) continue;
+      const acc = needByKey.get(key) ?? { grams: 0, count: 0 };
+      if (item.count > 0) acc.count += item.count;
+      else if (item.qty > 0) acc.grams += item.qty;
+      needByKey.set(key, acc);
+    }
+    const proposed: Array<{ key: string; grams: number; count: number }> = [];
+    for (const [key, need] of needByKey) {
+      const stock = virtualStock.get(key)!;
+      if (stock.infinite) continue;
+      const needG = need.grams * ratio;
+      const needC = need.count * ratio;
+      if (need.count > 0 && stock.count < needC) return false;
+      if (need.grams > 0 && stock.grams < needG) return false;
+      proposed.push({ key, grams: needG, count: needC });
+    }
+    out.push(...proposed);
+    return true;
+  };
+
+  const thisServingDeductions: Array<{ key: string; grams: number; count: number }> = [];
+  let allGroupsSatisfied = true;
+  for (const group of groups) {
+    if (group[0]?.[0]?.optional) continue;
+    let altChosen = false;
+    for (const alt of group) {
+      if (tryReserveAlt(alt, thisServingDeductions)) {
+        altChosen = true;
+        break;
+      }
+    }
+    if (!altChosen) {
+      allGroupsSatisfied = false;
+      break;
+    }
+  }
+  if (!allGroupsSatisfied) return false;
+
+  for (const d of thisServingDeductions) {
+    const stock = virtualStock.get(d.key)!;
+    applyDeductionToStockSnapshot(stock, d);
+  }
+  return true;
 }
 
 /**
