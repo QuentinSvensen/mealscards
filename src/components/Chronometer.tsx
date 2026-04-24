@@ -16,7 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Pause, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 interface ChronoState {
   running: boolean;
@@ -110,6 +110,7 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[300px] rounded-[24px] sm:rounded-[34px] border-0 bg-card/95 backdrop-blur-xl shadow-2xl p-0 overflow-hidden" aria-describedby={undefined}>
+        <DialogTitle className="sr-only">Chronomètre</DialogTitle>
         <div className="flex flex-col items-center gap-5 px-6 py-8">
           <div className="text-5xl font-mono font-black text-foreground tabular-nums tracking-wider">
             {display}
