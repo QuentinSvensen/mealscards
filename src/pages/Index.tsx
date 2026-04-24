@@ -94,7 +94,6 @@ const importMealPlanGenerator = () => import("@/components/MealPlanGenerator").t
 /** Import dynamique de la gestion des aliments. */
 const importFoodItems = () => import("@/components/FoodItems").then((m) => ({ default: m.FoodItems }));
 /** Import dynamique du générateur de repas max (export par défaut du module). */
-const importMaxMealGenerator = () => import("@/components/MaxMealGenerator");
 /** Import dynamique du planning hebdomadaire. */
 const importWeeklyPlanning = () => import("@/components/WeeklyPlanning").then((m) => ({ default: m.WeeklyPlanning }));
 /** Import dynamique de la liste maîtresse. */
@@ -109,7 +108,6 @@ const importUnParUnSection = () => import("@/components/UnParUnSection").then((m
 const LazyShoppingList = lazyRetry(importShoppingList, "ShoppingList");
 const LazyMealPlanGenerator = lazyRetry(importMealPlanGenerator, "MealPlanGenerator");
 const LazyFoodItems = lazyRetry(importFoodItems, "FoodItems");
-const LazyMaxMealGenerator = lazyRetry(importMaxMealGenerator, "MaxMealGenerator");
 const LazyWeeklyPlanning = lazyRetry(importWeeklyPlanning, "WeeklyPlanning");
 const LazyMasterList = lazyRetry(importMasterList, "MasterList");
 const LazyPossibleList = lazyRetry(importPossibleList, "PossibleList");
@@ -212,7 +210,6 @@ const Index = () => {
       importPossibleList();
       importAvailableList();
       importUnParUnSection();
-      importMaxMealGenerator();
     };
     if ('requestIdleCallback' in window) {
       (window as any).requestIdleCallback(preload);
@@ -752,7 +749,6 @@ const Index = () => {
           {mainPage === "aliments" && (
             <ErrorBoundary section="Aliments">
               <LazyFoodItems />
-              <LazyMaxMealGenerator foodItems={foodItems} meals={meals} />
             </ErrorBoundary>
           )}
           {mainPage === "courses" && (

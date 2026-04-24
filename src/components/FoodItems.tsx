@@ -35,6 +35,7 @@ import { getSortedFoodItems } from "@/lib/foodSortUtils";
 import { useMeals } from "@/hooks/useMeals";
 import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
 import { BarcodeScanner } from "./BarcodeScanner";
+import MaxMealGenerator from "@/components/MaxMealGenerator";
 
 export { colorFromName };
 
@@ -1123,6 +1124,10 @@ export function FoodItems() {
           </button>
         </div>
       )}
+
+      <div className="mb-4">
+        <MaxMealGenerator foodItems={items} meals={meals} />
+      </div>
 
       {/* Sections: Frigo + Sec side by side on desktop — FULL WIDTH like meal cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-none">
