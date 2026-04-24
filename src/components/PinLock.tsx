@@ -54,10 +54,8 @@ export const PinLock = forwardRef<HTMLDivElement, { onUnlock: () => void }>(func
 
     checkForUpdate();
 
-    // Fast-reload if a new Service Worker activates while we are on this page
-    const handleControllerChange = () => window.location.reload();
-    navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
-    return () => navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
+    // Le rechargement automatique quand un nouveau Service Worker prend le contrôle
+    // est désormais géré de façon centralisée dans src/main.tsx (évite les doubles reloads).
   }, []);
 
   const showError = (msg = "Code incorrect") => {
