@@ -35,6 +35,24 @@ interface DevMenuProps {
 }
 
 export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingItems, foodItems, blockedCount, setBlockedCount }: DevMenuProps) {
+  /** Crée un téléchargement fichier et libère l'URL blob pour éviter les fuites mémoire. */
+  const downloadTextFile = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  /** Valide la catégorie repas importée et applique "plat" en fallback sécurisé. */
+  const normalizeMealCategory = (cat: string | undefined): MealCategory => {
+    const allowed: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
+    if (!cat) return "plat";
+    return allowed.includes(cat as MealCategory) ? (cat as MealCategory) : "plat";
+  };
+
   const handleExportMeals = () => {
     const allCats: MealCategory[] = ["plat", "entree", "dessert", "bonus", "petit_dejeuner"];
     const lines = allCats.flatMap((cat) => getMealsByCategory(cat)).map((m) => {
@@ -48,8 +66,7 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
       if (m.is_favorite) parts.push(`fav=1`);
       return `${m.name} (${parts.join('; ')})`;
     });
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'repas.txt'; a.click();
+    downloadTextFile("repas.txt", lines.join("\n"));
     toast({ title: `✅ ${lines.length} repas exportés` });
     onClose();
   };
@@ -75,7 +92,7 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
         paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
         const validationErr = validateMealName(name);
         if (validationErr) { skipped++; continue; }
-        const cat = (params.cat as MealCategory) || 'plat';
+        const cat = normalizeMealCategory(params.cat);
         const { data: inserted, error: insertErr } = await supabase.from("meals").insert({
           name: name.trim(), category: cat, sort_order: count, is_available: true,
           calories: params.cal || null, protein: params.prot || null, grams: params.grams || null, ingredients: params.ing || null,
@@ -120,8 +137,7 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
         lines.push(parts.length > 0 ? `${item.name} (${parts.join('; ')})` : item.name);
       }
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'courses.txt'; a.click();
+    downloadTextFile("courses.txt", lines.join("\n"));
     toast({ title: `✅ Liste de courses exportée` });
     onClose();
   };
@@ -141,16 +157,27 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
       let currentGroupId: string | null = null;
       let groupOrder = shoppingGroups.length;
       let itemOrder = 0;
-      let count = 0;
+      let count = 0, skipped = 0;
+      const knownGroupIdsByName = new Map(shoppingGroups.map((g) => [g.name, g.id]));
       for (const line of lines) {
         if (line.startsWith('[') && line.endsWith(']')) {
           const groupName = line.slice(1, -1);
           if (groupName !== 'Sans groupe') {
-            const existing = shoppingGroups.find((g) => g.name === groupName);
-            if (existing) { currentGroupId = existing.id; }
+            const existingGroupId = knownGroupIdsByName.get(groupName);
+            if (existingGroupId) { currentGroupId = existingGroupId; }
             else {
-              const { data } = await supabase.from('shopping_groups').insert({ name: groupName, sort_order: groupOrder++ } as any).select().single();
+              const { data, error } = await supabase
+                .from('shopping_groups')
+                .insert({ name: groupName, sort_order: groupOrder++ } as any)
+                .select()
+                .single();
+              if (error) {
+                currentGroupId = null;
+                skipped++;
+                continue;
+              }
               currentGroupId = data?.id ?? null;
+              if (currentGroupId) knownGroupIdsByName.set(groupName, currentGroupId);
             }
           } else { currentGroupId = null; }
           itemOrder = 0;
@@ -161,15 +188,16 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
           const paramsStr = match ? match[2] : '';
           const params: Record<string, string> = {};
           paramsStr.split(';').forEach((p) => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
-          await supabase.from('shopping_items').insert({
+          const { error } = await supabase.from('shopping_items').insert({
             name: rawName, group_id: currentGroupId, quantity: params.qte || null, brand: params.marque || null,
             content_quantity: params.cqte || null, content_quantity_type: params.ctype || null,
             checked: params.coche === '1', secondary_checked: params.coche2 === '1', sort_order: itemOrder++
           } as any);
+          if (error) { skipped++; continue; }
           count++;
         }
       }
-      toast({ title: `✅ ${count} articles importés` });
+      toast({ title: skipped > 0 ? `✅ ${count} articles importés (${skipped} ignorés)` : `✅ ${count} articles importés` });
       onClose();
     };
     input.click();
@@ -206,8 +234,7 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
         lines.push(parts.length > 0 ? `${fi.name} (${parts.join('; ')})` : fi.name);
       }
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'aliments.txt'; a.click();
+    downloadTextFile("aliments.txt", lines.join("\n"));
     toast({ title: `✅ ${foodItems.length} aliments exportés` });
     onClose();
   };
@@ -223,7 +250,7 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
       const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
       const LABEL_TO_STORAGE: Record<string, StorageType> = { 'Frigo': 'frigo', 'Placard sec': 'sec', 'Surgelés': 'surgele', 'Extras': 'extras', 'Toujours présent': 'toujours' };
       let currentStorage: StorageType = 'frigo';
-      let order = 0, count = 0;
+      let order = 0, count = 0, skipped = 0;
       for (const line of lines) {
         if (line.startsWith('[') && line.endsWith(']')) {
           const label = line.slice(1, -1);
@@ -236,10 +263,12 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
         if (!name || name.length > 100) continue;
         const params: Record<string, string> = {};
         if (match) match[2].split(';').forEach(p => { const [k, ...v] = p.split('='); if (k) params[k.trim()] = v.join('=').trim(); });
-        await supabase.from('food_items').insert({
+        const parsedQty = params.qty ? parseInt(params.qty, 10) : null;
+        const quantity = Number.isFinite(parsedQty as number) ? parsedQty : null;
+        const { error } = await supabase.from('food_items').insert({
           name, storage_type: currentStorage, sort_order: order++,
           grams: params.grams || null, calories: params.cal || null, protein: params.prot || null,
-          quantity: params.qty ? parseInt(params.qty) : null,
+          quantity,
           is_meal: params.is_meal === '1', is_infinite: params.infinite === '1',
           is_dry: params.dry === '1' || (params.dry === undefined && currentStorage === 'sec'),
           is_indivisible: params.indiv === '1',
@@ -247,9 +276,10 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
           food_type: params.type || null,
           expiration_date: params.exp || null, counter_start_date: params.counter || null,
         } as any);
+        if (error) { skipped++; continue; }
         count++;
       }
-      toast({ title: `✅ ${count} aliments importés` });
+      toast({ title: skipped > 0 ? `✅ ${count} aliments importés (${skipped} ignorés)` : `✅ ${count} aliments importés` });
       onClose();
     };
     input.click();
