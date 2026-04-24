@@ -942,10 +942,10 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                     const exp = formatExpirationLabel(getGeneratedMealEarliestExpiration(r, foodItems));
                     if (!r.ingredients && !exp) return null;
                     return (
-                      <p className="mt-0.5 text-[10px] text-muted-foreground truncate">
+                      <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground break-words whitespace-normal">
                         {r.ingredients}
                         {exp ? (
-                          <span className="ml-1 text-muted-foreground/75 tabular-nums">
+                          <span className="ml-1 text-muted-foreground/75 tabular-nums whitespace-nowrap">
                             {exp}
                           </span>
                         ) : null}
