@@ -104,6 +104,7 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
   const badgeSiblings = allPossibleMeals ?? items;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
+  const [hidePastPlannedCards, setHidePastPlannedCards] = useState(true);
 
   // Indexer les articles alimentaires pour une recherche en O(1) dans analyzeMealIngredients
   const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
@@ -119,20 +120,38 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
       return { pm, analysis };
     });
   }, [items, foodItems, foodItemIndex]);
+  const todayISO = format(new Date(), 'yyyy-MM-dd');
+  const visibleItemsWithAnalysis = useMemo(() => {
+    if (!hidePastPlannedCards) return displayItemsWithAnalysis;
+    return displayItemsWithAnalysis.filter(({ pm }) => {
+      if (!pm.day_of_week) return true;
+      // Les dates de planning au format ISO strict avant aujourd'hui sont masquées.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(pm.day_of_week)) return true;
+      return pm.day_of_week >= todayISO;
+    });
+  }, [displayItemsWithAnalysis, hidePastPlannedCards, todayISO]);
 
   return (
-    <MealList title={`${category.label} possibles`} emoji={category.emoji} count={displayItemsWithAnalysis.length} onExternalDrop={onExternalDrop}
+    <MealList title={`${category.label} possibles`} emoji={category.emoji} count={visibleItemsWithAnalysis.length} onExternalDrop={onExternalDrop}
       headerActions={<>
+        <label className="inline-flex items-center justify-center mr-1 cursor-pointer" title="Masquer les cartes planifiées avant aujourd'hui">
+          <input
+            type="checkbox"
+            checked={hidePastPlannedCards}
+            onChange={(e) => setHidePastPlannedCards(e.target.checked)}
+            className="h-4 w-4 rounded border-border/70 bg-background accent-foreground"
+            aria-label="Masquer les cartes planifiées avant aujourd'hui"
+          />
+        </label>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
         <Button size="sm" variant="ghost" onClick={onToggleSort} className="text-[10px] gap-0.5 h-6 px-1.5"><SortIcon className="h-3 w-3" /><span>{sortLabel}</span></Button>
         <Button size="sm" variant="ghost" onClick={onRandomPick} className="h-6 w-6 p-0"><Dice5 className="h-3.5 w-3.5" /></Button>
       </>}>
-      {displayItemsWithAnalysis.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Glisse des repas ici →</p>}
+      {visibleItemsWithAnalysis.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">Glisse des repas ici →</p>}
       {(() => {
         let hasTodayLine = false;
-        const todayISO = format(new Date(), 'yyyy-MM-dd');
 
-        return displayItemsWithAnalysis.map(({ pm, analysis }, index) => {
+        return visibleItemsWithAnalysis.map(({ pm, analysis }, index) => {
           const meal = pm.meals;
           if (!meal || !analysis) return null;
           const expiredIngs = analysis.expiredIngredientNames;
@@ -150,11 +169,11 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 );
 
           const isTodayPM = pm.day_of_week === todayISO;
-          const isPrevToday = index > 0 && displayItemsWithAnalysis[index - 1].pm.day_of_week === todayISO;
-          const isNextToday = index < displayItemsWithAnalysis.length - 1 && displayItemsWithAnalysis[index + 1].pm.day_of_week === todayISO;
+          const isPrevToday = index > 0 && visibleItemsWithAnalysis[index - 1].pm.day_of_week === todayISO;
+          const isNextToday = index < visibleItemsWithAnalysis.length - 1 && visibleItemsWithAnalysis[index + 1].pm.day_of_week === todayISO;
 
           const showTopSeparator = isTodayPM && !isPrevToday && index > 0;
-          const showBottomSeparator = isTodayPM && !isNextToday && index < displayItemsWithAnalysis.length - 1;
+          const showBottomSeparator = isTodayPM && !isNextToday && index < visibleItemsWithAnalysis.length - 1;
 
           return (
             <React.Fragment key={pm.id}>
