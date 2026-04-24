@@ -102,6 +102,8 @@ interface RemainingFoodLine {
   originalCount: number | null;
   unitGramsDisplay: string | null;
   remainingGramsDisplay: string | null;
+  hideUnitGramsWhenSingle?: boolean;
+  storageGroup: "frigo" | "sec" | "surgele";
   flatLabel?: string;
 }
 
@@ -264,13 +266,22 @@ function remainingLineFromCache(raw: unknown): RemainingFoodLine | null {
   const o = raw as Record<string, unknown>;
   const displayName = typeof o.displayName === "string" ? o.displayName : "";
   if (!displayName) return null;
+  const storageGroup =
+    o.storageGroup === "frigo" || o.storageGroup === "surgele" || o.storageGroup === "sec"
+      ? o.storageGroup
+      : "sec";
   if (typeof o.flatLabel === "string" && o.flatLabel.length > 0) {
-    return { displayName, ...emptyRemainingFields(), flatLabel: o.flatLabel };
+    return { displayName, storageGroup, ...emptyRemainingFields(), flatLabel: o.flatLabel };
   }
   if (o.quantityLabel != null && o.remainingGramsDisplay === undefined && o.gramsDisplay === undefined) {
-    return { displayName, ...emptyRemainingFields(), flatLabel: String(o.quantityLabel) };
+    return { displayName, storageGroup, ...emptyRemainingFields(), flatLabel: String(o.quantityLabel) };
   }
-  if (o.originalCount != null || o.unitGramsDisplay != null || o.remainingGramsDisplay != null) {
+  if (
+    o.originalCount != null ||
+    o.unitGramsDisplay != null ||
+    o.remainingGramsDisplay != null ||
+    o.hideUnitGramsWhenSingle != null
+  ) {
     const oc =
       typeof o.originalCount === "number" && !Number.isNaN(o.originalCount) && o.originalCount > 0
         ? o.originalCount
@@ -279,7 +290,14 @@ function remainingLineFromCache(raw: unknown): RemainingFoodLine | null {
     const rg =
       typeof o.remainingGramsDisplay === "string" && o.remainingGramsDisplay.length > 0 ? o.remainingGramsDisplay : null;
     if (oc != null || ug != null || rg != null) {
-      return { displayName, originalCount: oc, unitGramsDisplay: ug, remainingGramsDisplay: rg };
+      return {
+        displayName,
+        storageGroup,
+        originalCount: oc,
+        unitGramsDisplay: ug,
+        remainingGramsDisplay: rg,
+        hideUnitGramsWhenSingle: o.hideUnitGramsWhenSingle === true,
+      };
     }
   }
   if (typeof o.gramsDisplay === "string" || (typeof o.count === "number" && o.originalCount === undefined)) {
@@ -287,7 +305,7 @@ function remainingLineFromCache(raw: unknown): RemainingFoodLine | null {
     const g = typeof o.gramsDisplay === "string" && o.gramsDisplay.length > 0 ? o.gramsDisplay : null;
     if (c != null || g != null) {
       const parts = [c != null ? `#${formatCountForHash(c)}` : "", g ?? ""].filter(Boolean);
-      return { displayName, ...emptyRemainingFields(), flatLabel: parts.join(" ") };
+      return { displayName, storageGroup, ...emptyRemainingFields(), flatLabel: parts.join(" ") };
     }
   }
   const after = o.afterPillText != null ? String(o.afterPillText) : "";
@@ -295,7 +313,7 @@ function remainingLineFromCache(raw: unknown): RemainingFoodLine | null {
     const p = parseSnapshotTextToRemaining(after);
     if (p.count != null || p.gramsDisplay != null) {
       const parts = [p.count != null ? `#${formatCountForHash(p.count)}` : "", p.gramsDisplay ?? ""].filter(Boolean);
-      return { displayName, ...emptyRemainingFields(), flatLabel: parts.join(" ") };
+      return { displayName, storageGroup, ...emptyRemainingFields(), flatLabel: parts.join(" ") };
     }
   }
   return null;
@@ -323,10 +341,18 @@ function buildRemainingFoodLines(
   const keysInPlatRecipes = buildNormalizedKeysFromPlatRecipes(meals);
   const keysInAnyMeal = buildNormalizedKeysFromAllMeals(meals);
   const displayNameByKey = new Map<string, string>();
+  const storageGroupByKey = new Map<string, "frigo" | "sec" | "surgele">();
   for (const fi of foodItems) {
     if (fi.storage_type === "extras") continue;
     const k = normalizeKey(fi.name);
     if (!displayNameByKey.has(k)) displayNameByKey.set(k, fi.name.trim());
+    if (!storageGroupByKey.has(k)) {
+      const g: "frigo" | "sec" | "surgele" =
+        fi.storage_type === "surgele" ? "surgele" : fi.storage_type === "frigo" ? "frigo" : "sec";
+      storageGroupByKey.set(k, g);
+    } else if (fi.storage_type === "surgele") {
+      storageGroupByKey.set(k, "surgele");
+    }
   }
   const out: RemainingFoodLine[] = [];
   for (const [key, rem] of virtualStock) {
@@ -338,7 +364,7 @@ function buildRemainingFoodLines(
     if (rem.grams <= 0.05 && rem.count <= 0) continue;
     const orig = originalStock.get(key);
     if (!orig) continue;
-    const originalCount = orig.count > 0 ? orig.count : null;
+    const originalCount = rem.count > 0 ? rem.count : null;
     const unitG = displayUnitGramsForRemaining(key, foodItems, orig);
     const unitGramsDisplay = unitG != null && unitG > 0 ? formatGramsQty(unitG) : null;
     const partialG =
@@ -349,12 +375,19 @@ function buildRemainingFoodLines(
         : unitG == null && rem.grams > 0.05
           ? formatGramsQty(rem.grams)
           : null;
+    const looksLikeSingleOpenedUnit =
+      originalCount == null && unitG != null && unitG > 0 && rem.grams <= unitG + 0.5;
+    const hideUnitGramsWhenSingle =
+      remainingGramsDisplay != null &&
+      ((originalCount != null && Math.abs(originalCount - 1) < 0.001) || looksLikeSingleOpenedUnit);
     if (remainingGramsDisplay == null && originalCount == null && unitGramsDisplay == null) continue;
     out.push({
       displayName: displayNameByKey.get(key) ?? key,
       originalCount,
       unitGramsDisplay,
       remainingGramsDisplay,
+      hideUnitGramsWhenSingle,
+      storageGroup: storageGroupByKey.get(key) ?? "sec",
     });
   }
   out.sort((a, b) => a.displayName.localeCompare(b.displayName, "fr", { sensitivity: "base" }));
@@ -436,7 +469,9 @@ function measureLeftoverWaste(stock: Map<string, StockInfo>): number {
 }
 
 /** Marge (score « invendus ») en dessous de laquelle deux plats sont considérés équivalents côté stock. */
-const WASTE_TIE_EPS = 35;
+const WASTE_TIE_EPS = 55;
+/** Pénalité douce par répétition de recette pour favoriser la diversité à restes comparables. */
+const DIVERSITY_REPEAT_PENALTY = 18;
 
 /**
  * Indique si le candidat A est préférable à B : d'abord moins de restes, puis moins d’utilisations
@@ -445,13 +480,24 @@ const WASTE_TIE_EPS = 35;
 function isPreferredMaxMealChoice(
   wasteA: number,
   timesPickedA: number,
+  caloriesA: number | null,
   wasteB: number,
-  timesPickedB: number
+  timesPickedB: number,
+  caloriesB: number | null
 ): boolean {
+  const adjustedA = wasteA + timesPickedA * DIVERSITY_REPEAT_PENALTY;
+  const adjustedB = wasteB + timesPickedB * DIVERSITY_REPEAT_PENALTY;
+  if (adjustedA < adjustedB - WASTE_TIE_EPS) return true;
+  if (adjustedA > adjustedB + WASTE_TIE_EPS) return false;
   if (wasteA < wasteB - WASTE_TIE_EPS) return true;
   if (wasteA > wasteB + WASTE_TIE_EPS) return false;
   if (timesPickedA < timesPickedB) return true;
   if (timesPickedA > timesPickedB) return false;
+  // À égalité de stock/variété, on privilégie la recette la moins calorique.
+  const calA = caloriesA ?? Number.POSITIVE_INFINITY;
+  const calB = caloriesB ?? Number.POSITIVE_INFINITY;
+  if (calA < calB) return true;
+  if (calA > calB) return false;
   return Math.random() < 0.5;
 }
 
@@ -496,9 +542,17 @@ function runMaxPlatSimulation(foodItems: FoodItem[], meals: Meal[]): {
           if (!deductMealServingFromVirtualStock(meal, trial, ratio)) continue;
           const wasteAfter = measureLeftoverWaste(trial);
           const timesPicked = usedMealIdCounts.get(meal.id) ?? 0;
+          const candidateCalories = computeIngredientCalories(meal.ingredients);
           if (
             !bestPick ||
-            isPreferredMaxMealChoice(wasteAfter, timesPicked, bestPick.waste, bestPick.timesPicked)
+            isPreferredMaxMealChoice(
+              wasteAfter,
+              timesPicked,
+              candidateCalories,
+              bestPick.waste,
+              bestPick.timesPicked,
+              computeIngredientCalories(bestPick.meal.ingredients)
+            )
           ) {
             bestPick = { meal, ratio, waste: wasteAfter, timesPicked };
           }
@@ -533,8 +587,8 @@ function runMaxPlatSimulation(foodItems: FoodItem[], meals: Meal[]): {
   for (const fi of isMealItems) {
     if (recipeNameKeys.has(normalizeKey(fi.name))) continue;
     if (!tryConsumeStandaloneIsMealFood(fi, virtualStock)) continue;
-    const calVal = fi.calories ? parseFloat(fi.calories.replace(/[^0-9.]/g, "")) || null : null;
-    const proVal = fi.protein ? parseFloat(fi.protein.replace(/[^0-9.]/g, "")) || null : null;
+    const calVal = fi.calories ? parseFloat(fi.calories.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
+    const proVal = fi.protein ? parseFloat(fi.protein.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
     fromIsMeal.push({
       name: `🍱 ${fi.name}`,
       calories: calVal ? Math.round(calVal) : null,
@@ -564,34 +618,27 @@ function RemainingStockPills({ row }: { row: RemainingFoodLine }) {
       </span>
     );
   }
-  const uneSeuleQuantite =
-    row.originalCount != null && Math.abs(row.originalCount - 1) < 0.001;
-  if (uneSeuleQuantite && row.remainingGramsDisplay) {
-    return (
-      <div className="flex flex-wrap items-center gap-0.5 min-w-0">
-        <span className="text-[10px] font-semibold text-white bg-yellow-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-          <span aria-hidden>→</span>
-          {row.remainingGramsDisplay}
-        </span>
-      </div>
-    );
-  }
+  const uneSeuleQuantite = row.hideUnitGramsWhenSingle === true;
+  const hideSingleCount =
+    row.originalCount != null &&
+    Math.abs(row.originalCount - 1) < 0.001 &&
+    (row.unitGramsDisplay != null || row.remainingGramsDisplay != null);
   return (
-    <div className="flex flex-wrap items-center gap-0.5 min-w-0">
-      {row.originalCount != null && row.originalCount > 0 && (
-        <span className="text-[10px] font-bold text-foreground/90 bg-white/25 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 dark:text-white/90">
-          <Hash className="h-2.5 w-2.5 shrink-0" />
+    <div className="flex flex-wrap items-center gap-1 min-w-0">
+      {row.originalCount != null && row.originalCount > 0 && !hideSingleCount && (
+        <span className="text-[10px] font-semibold text-foreground/90 bg-white/20 border border-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 dark:text-white/90">
+          <Hash className="h-2.5 w-2.5 shrink-0 opacity-80" />
           {formatCountForHash(row.originalCount)}
         </span>
       )}
-      {row.unitGramsDisplay ? (
-        <span className="text-[10px] text-foreground/80 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 dark:text-white/70">
-          <Weight className="h-2.5 w-2.5 shrink-0" />
+      {!uneSeuleQuantite && row.unitGramsDisplay ? (
+        <span className="text-[10px] text-foreground/80 bg-white/15 border border-white/15 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 dark:text-white/70">
+          <Weight className="h-2.5 w-2.5 shrink-0 opacity-80" />
           {row.unitGramsDisplay}
         </span>
       ) : null}
       {row.remainingGramsDisplay ? (
-        <span className="text-[10px] font-semibold text-white bg-yellow-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+        <span className="text-[10px] font-semibold text-amber-50 bg-amber-500/35 border border-amber-300/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]">
           <span aria-hidden>→</span>
           {row.remainingGramsDisplay}
         </span>
@@ -633,14 +680,12 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
           if (parsed && typeof parsed === "object" && "results" in parsed) {
             const p = parsed as { results: GeneratedMeal[]; remaining?: unknown[]; depsKey?: string };
             if (p.depsKey === depsKey && Array.isArray(p.results)) {
+              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
               setHasGenerated(true);
-              setResults(p.results);
-              setRemainingAfterSimulation(
-                Array.isArray(p.remaining)
-                  ? p.remaining.map(remainingLineFromCache).filter((x): x is RemainingFoodLine => x != null)
-                  : []
-              );
+              setResults(r);
+              setRemainingAfterSimulation(rem);
               lastRunDepsKeyRef.current = depsKey;
+              sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey }));
               return;
             }
             if (Array.isArray(p.results)) {
@@ -659,7 +704,6 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
       }
     }
     if (!hasGenerated) return;
-    if (lastRunDepsKeyRef.current === depsKey) return;
     try {
       const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
       lastRunDepsKeyRef.current = depsKey;
@@ -734,6 +778,11 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
   const toggleFirstIngredientSort = () => {
     setSortBy((prev) => (prev === "first_ingredient" ? "desc" : "first_ingredient"));
   };
+  const remainingByStorage = {
+    frigo: remainingAfterSimulation.filter((r) => r.storageGroup === "frigo"),
+    sec: remainingAfterSimulation.filter((r) => r.storageGroup === "sec"),
+    surgele: remainingAfterSimulation.filter((r) => r.storageGroup === "surgele"),
+  };
 
   return (
     <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4 mt-4">
@@ -750,48 +799,52 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
 
       {open && (
         <div className="mt-3">
-          <div className="flex items-center gap-2 mb-3">
-            <Button size="sm" onClick={generate} disabled={loading} className="gap-1 text-xs rounded-xl">
+          <div className="mb-3 space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={generate} disabled={loading} className="gap-1 text-xs rounded-xl">
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
               Générer
-            </Button>
-            {results.length > 0 && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleCaloriesSort}
-                  className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
-                    sortBy === "desc" || sortBy === "asc"
-                      ? "bg-orange-500/10 border-orange-500/30 text-orange-600"
-                      : ""
-                  }`}
-                >
-                  {sortBy === "first_ingredient" ? (
-                    <ArrowUpDown className="h-3 w-3 opacity-40" />
-                  ) : sortBy === "none" ? (
-                    <ArrowUpDown className="h-3 w-3" />
-                  ) : sortBy === "asc" ? (
-                    <ArrowUp className="h-3 w-3" />
-                  ) : (
-                    <ArrowDown className="h-3 w-3" />
-                  )}
-                  Calories
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleFirstIngredientSort}
-                  className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
-                    sortBy === "first_ingredient" ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400" : ""
-                  }`}
-                >
-                  <ListOrdered className="h-3 w-3" />
-                  1er ingr.
-                </Button>
-              </>
-            )}
-            <span className="text-[10px] text-muted-foreground ml-1">Enchaînements qui vident le stock d’abord, puis variété (éviter la même recette si une autre option laisse un stock comparable)</span>
+              </Button>
+              {results.length > 0 && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleCaloriesSort}
+                    className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
+                      sortBy === "desc" || sortBy === "asc"
+                        ? "bg-orange-500/10 border-orange-500/30 text-orange-600"
+                        : ""
+                    }`}
+                  >
+                    {sortBy === "first_ingredient" ? (
+                      <ArrowUpDown className="h-3 w-3 opacity-40" />
+                    ) : sortBy === "none" ? (
+                      <ArrowUpDown className="h-3 w-3" />
+                    ) : sortBy === "asc" ? (
+                      <ArrowUp className="h-3 w-3" />
+                    ) : (
+                      <ArrowDown className="h-3 w-3" />
+                    )}
+                    Calories
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleFirstIngredientSort}
+                    className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
+                      sortBy === "first_ingredient" ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400" : ""
+                    }`}
+                  >
+                    <ListOrdered className="h-3 w-3" />
+                    1er ingr.
+                  </Button>
+                </>
+              )}
+            </div>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Enchaînements qui vident le stock d’abord, puis variété (éviter la même recette si une autre option laisse un stock comparable)
+            </p>
           </div>
 
           {hasGenerated && results.length === 0 && (
@@ -831,8 +884,8 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
           )}
 
           {hasGenerated && results.length > 0 && (
-            <div className="mt-4 rounded-2xl border border-dashed border-border/60 bg-muted/20 px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-1.5">
+            <div className="mt-4 rounded-2xl border border-border/60 bg-gradient-to-b from-muted/30 to-muted/10 px-3.5 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground flex items-center gap-1.5 mb-2.5">
                 <Package className="h-3.5 w-3.5 shrink-0" />
                 Reste en stock (si tu fais cette liste, simulation)
               </p>
@@ -841,17 +894,62 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                   Aucun reste à afficher : tout le stock simulé est utilisé, ou seuls des aliments « infinis » restent (non listés).
                 </p>
               ) : (
-                <ul className="flex w-full flex-col gap-1.5 text-xs text-foreground">
-                  {remainingAfterSimulation.map((row, j) => (
-                    <li
-                      key={j}
-                      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground"
-                    >
-                      <span className="font-medium shrink-0">{row.displayName}</span>
-                      <RemainingStockPills row={row} />
-                    </li>
-                  ))}
-                </ul>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-2 rounded-xl border border-sky-300/20 bg-sky-500/5 p-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-300/80">Frigo</p>
+                    {remainingByStorage.frigo.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground italic">Aucun</p>
+                    ) : (
+                      <ul className="flex w-full flex-col gap-1.5 text-xs text-foreground">
+                        {remainingByStorage.frigo.map((row, j) => (
+                          <li
+                            key={`frigo-${j}`}
+                            className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-foreground rounded-lg bg-background/20 px-2 py-1.5"
+                          >
+                            <span className="font-medium shrink-0">{row.displayName}</span>
+                            <RemainingStockPills row={row} />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="space-y-2 rounded-xl border border-amber-300/20 bg-amber-500/5 p-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-300/80">Sec</p>
+                    {remainingByStorage.sec.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground italic">Aucun</p>
+                    ) : (
+                      <ul className="flex w-full flex-col gap-1.5 text-xs text-foreground">
+                        {remainingByStorage.sec.map((row, j) => (
+                          <li
+                            key={`sec-${j}`}
+                            className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-foreground rounded-lg bg-background/20 px-2 py-1.5"
+                          >
+                            <span className="font-medium shrink-0">{row.displayName}</span>
+                            <RemainingStockPills row={row} />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="space-y-2 rounded-xl border border-indigo-300/20 bg-indigo-500/5 p-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-300/80">Surgelée</p>
+                    {remainingByStorage.surgele.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground italic">Aucun</p>
+                    ) : (
+                      <ul className="flex w-full flex-col gap-1.5 text-xs text-foreground">
+                        {remainingByStorage.surgele.map((row, j) => (
+                          <li
+                            key={`surgele-${j}`}
+                            className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-foreground rounded-lg bg-background/20 px-2 py-1.5"
+                          >
+                            <span className="font-medium shrink-0">{row.displayName}</span>
+                            <RemainingStockPills row={row} />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}
