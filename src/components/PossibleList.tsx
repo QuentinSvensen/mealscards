@@ -197,12 +197,15 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 onDuplicate={() => onDuplicate(pm.id)}
                 onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
                 onUpdatePlanning={(day, time) =>
-                  // Propager la date déjà résolue pour la carte afin d'éviter de réinjecter l'ancien compteur stock.
+                  // Créneau complet : ne pas passer de counter forcé (Index → null sur la ligne PM + sync food_items).
+                  // Sinon le 4e paramètre repasse une date « ouvert maintenant » et fausse updateFoodItemCountersForPlanning.
                   onUpdatePlanning(
                     pm.id,
                     day,
                     time,
-                    resolvedCounterStart ?? pm.counter_start_date ?? analysis.earliestCounterDate,
+                    day && time
+                      ? undefined
+                      : (resolvedCounterStart ?? pm.counter_start_date ?? analysis.earliestCounterDate),
                   )}
                 onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
                 onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal, pm.id)}

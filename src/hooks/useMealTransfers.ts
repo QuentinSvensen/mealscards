@@ -20,7 +20,8 @@ import { format, parseISO } from "date-fns";
 import {
   normalizeForMatch, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
-  getFoodItemTotalGrams, parseIngredientGroups, parsePartialQty,
+  getFoodItemTotalGrams, parseIngredientGroups, parseIngredientLine, parsePartialQty,
+  type ParsedIngredient,
 } from "@/lib/ingredientUtils";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
@@ -45,6 +46,28 @@ function setMealTimeHours(d: Date, mealTime: string | null) {
  * Calcule la date ISO du compteur d'ouverture pour un repas planifié.
  * Matin = 8h, midi = 12h, soir = 19h. Accepte les jours nommés ("lundi") ou les dates ISO.
  */
+/**
+ * Retourne les noms d’ingrédients (déjà normalisés comme dans `ParsedIngredient.name`) à comparer au stock
+ * pour une ligne de recette qui peut contenir des choix « A ou B ou C », souvent entre parenthèses.
+ * Sans cela, `updateFoodItemCountersForPlanning` ne trouve jamais le « Jambon blanc » d’un croque, etc.
+ */
+function expandOrGroupIngredientNames(item: ParsedIngredient): string[] {
+  const out = new Set<string>();
+  const push = (n: string | null | undefined) => {
+    const t = (n ?? "").trim();
+    if (t) out.add(t);
+  };
+  push(item.name);
+  const raw = item.name.replace(/^\(+/, "").replace(/\)+$/, "").trim();
+  if (/\bou\b/i.test(raw)) {
+    for (const chunk of raw.split(/\s+ou\s+/i)) {
+      const parsed = parseIngredientLine(chunk.trim());
+      if (parsed.name) push(parsed.name);
+    }
+  }
+  return [...out];
+}
+
 export function computePlannedCounterDate(dayOfWeek: string, mealTime: string | null): string {
   // Si c'est déjà une date ISO (YYYY-MM-DD), l'utiliser directement
   if (/^\d{4}-\d{2}-\d{2}$/.test(dayOfWeek)) {
@@ -810,23 +833,24 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     allPossibleMeals: any[] = []
   ) => {
     if (!ingredients?.trim()) return;
+    /** Jour + créneau (matin/midi/soir) : on synchronise toujours sur l’horaire du repas planifié. */
+    const fullPlanningSlot =
+      Boolean(dayOfWeek) && String(mealTime ?? "").trim().length > 0;
     const groups = parseIngredientGroups(ingredients);
 
     for (const group of groups) {
-      // group est ParsedIngredient[][][] : group[i] = alternative (bundle), group[i][j] = item
-      // Ignorer si la première alternative est entièrement optionnelle
-      if (group.every(altBundle => altBundle.every(item => item.optional))) continue;
-      // On prend la première alternative puis on itère sur ses items de bundle
-      const firstAltBundle = group[0];
-      if (!firstAltBundle || firstAltBundle.length === 0) continue;
+      // group : ParsedIngredient[][] — chaque entrée est une branche « OU », chaque branche un bundle « + ».
+      if (group.every(altBundle => altBundle.every((item) => item.optional))) continue;
 
-      // Itérer sur chaque item du bundle pour trouver les aliments correspondants
-      for (const alt of firstAltBundle) {
-        if (alt.optional || !alt.name) continue;
-
+      for (const bundle of group) {
+        for (const item of bundle) {
+          if (item.optional || !item.name) continue;
+          const nameTokens = expandOrGroupIngredientNames(item);
+          for (const nameToken of nameTokens) {
       // Aliments en stock correspondant à cet ingrédient (hors infini, compteur autorisé).
-      const nameMatches = foodItems.filter(
-        (fi) => strictNameMatch(fi.name, alt.name) && !fi.is_infinite && shouldStartCounter(fi),
+          const liveFoodItems = getLiveFoodItems();
+          const nameMatches = liveFoodItems.filter(
+        (fi) => strictNameMatch(fi.name, nameToken) && !fi.is_infinite && shouldStartCounter(fi),
       );
       // Un seul lot en stock : on peut programmer le compteur depuis le planning même si le paquet n’est pas
       // encore entamé — sinon le premier repas planifié (ex. burger jeudi) ne fixe jamais « jeudi midi » sur
@@ -843,28 +867,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         let earliestDateMs = Infinity;
 
         // Inclure le repas en cours de mise à jour
+        let lockToCurrentPlannedSlot = false;
         if (pmId) {
-          const pmRow = allPossibleMeals.find((p: { id: string }) => p.id === pmId);
           const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
           const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
 
-          if (targetDate && dayOfWeek) {
-            // N'utiliser fallbackDate que si l'ingrédient était RÉELLEMENT ouvert avant le déplacement
-            // de la carte (i.e. > 60s avant created_at de la carte).
-            // Si la carte vient juste d'être créée (contador set par le déplacement = "maintenant"),
-            // on utilise la date planifiée → mode Prog.
-            const wasOpenedBeforeMove =
-              fallbackDate &&
-              pmRow?.created_at &&
-              new Date(fallbackDate).getTime() < new Date(pmRow.created_at).getTime() - 60000;
-
-            if (wasOpenedBeforeMove) {
-              // L'aliment était ouvert avant ce repas → garder la date réelle d'ouverture
-              earliestDateStr = fallbackDate!;
-            } else {
-              // Aliment pas encore entamé ou entamé par ce déplacement → date planifiée (Prog.)
-              earliestDateStr = targetDate;
-            }
+          if (fullPlanningSlot && targetDate) {
+            // Toujours ancrer sur le créneau choisi (même si l’heure du repas est déjà passée aujourd’hui) :
+            // sinon on retombait sur l’ouverture réelle (ex. « 3j ») au lieu de la date de planification.
+            earliestDateStr = targetDate;
+            // Si le créneau choisi est futur, on garde cette date comme source de vérité
+            // pour passer l’aliment en mode « Prog. » immédiatement après planification.
+            lockToCurrentPlannedSlot = new Date(targetDate).getTime() > new Date().getTime();
           } else {
             earliestDateStr = candidateDate;
           }
@@ -873,9 +887,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
         let hasAnyMatchingMeal = pmId !== null;
 
-        // Parcourir tous les autres repas possibles
+        // Parcourir les autres repas **entièrement planifiés** (jour + créneau).
+        // Ignorer les cartes encore dans « Possibles » sans créneau : leur fallback « maintenant »
+        // faisait gagner le min sur les aliments partagés et annulait le mode « prog. » du repas planifié.
         for (const pm of allPossibleMeals) {
+          if (lockToCurrentPlannedSlot) break;
           if (pm.id === pmId) continue;
+          if (!pm.day_of_week || !String(pm.meal_time ?? "").trim()) continue;
           const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
           if (!pmIngs?.trim()) continue;
 
@@ -883,35 +901,29 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (!pmIngs.toLowerCase().includes(fi.name.toLowerCase())) continue;
 
           const pmG = parseIngredientGroups(pmIngs);
-          // Structure 3D : g = alternative (ParsedIngredient[]), a = bundle item (ParsedIngredient)
-          const hasMatch = pmG.some(g => g.some(altBundle => altBundle.some(item => !item.optional && strictNameMatch(fi.name, item.name))));
+          const hasMatch = pmG.some((g) =>
+            g.some((altBundle) =>
+              altBundle.some(
+                (it) =>
+                  !it.optional &&
+                  expandOrGroupIngredientNames(it).some((t) => strictNameMatch(fi.name, t)),
+              ),
+            ),
+          );
           if (!hasMatch) continue;
 
           hasAnyMatchingMeal = true;
-          // De même ici : préférer pm.counter_start_date s'il est plus ancien que la date planifiée du repas
-          const targetDate = pm.day_of_week ? computePlannedCounterDate(pm.day_of_week, pm.meal_time) : null;
-          const fallback = pm.counter_start_date || (pm.created_at || new Date().toISOString());
-          let pmDate = targetDate ?? fallback;
-
-          if (pm.day_of_week && pm.counter_start_date && new Date(pm.counter_start_date) < new Date(pmDate)) {
-            pmDate = pm.counter_start_date;
-          }
-
-          const pmMs = new Date(pmDate).getTime();
+          const siblingTarget = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
+          const pmMs = new Date(siblingTarget).getTime();
           if (pmMs < earliestDateMs) {
             earliestDateMs = pmMs;
-            earliestDateStr = pmDate;
+            earliestDateStr = siblingTarget;
           }
         }
 
-        // Paquet déjà entamé : l’ouverture réelle est au plus tard « maintenant » — ne pas laisser un min
-        // de cartes (ex. burger jeudi) réécraser une ouverture immédiate (ex. rosti non planifié).
-        if (earliestDateStr && !isFoodFullySealed(fi)) {
-          const nowMs = Date.now();
-          if (new Date(earliestDateStr).getTime() > nowMs) {
-            earliestDateStr = new Date().toISOString();
-          }
-        }
+        // Ne pas ramener une date de créneau planifié (futur, mode « prog. ») à « maintenant »
+        // juste parce que le lot est entamé : sinon la planification d’un repas possible n’écrit jamais
+        // la date du repas sur food_items et le compteur reste « déjà ouvert » au lieu de programmé.
 
         // Mettre à jour seulement si on a trouvé une date valide
         if (hasAnyMatchingMeal && earliestDateStr) {
@@ -919,9 +931,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           // Un aliment planifié pour demain ne peut pas être "déjà ouvert" → on écrase l'ancien compteur stale.
           const isSettingFutureDate = new Date(earliestDateStr).getTime() > new Date().getTime();
 
-          // Protéger les compteurs manuels (ouverts avant toute planification)
-          // SAUF si on programme explicitement pour le futur (dans ce cas le compteur stale doit être écrasé)
-          if (!isSettingFutureDate && fi.counter_start_date) {
+          // Protéger les compteurs manuels seulement hors planification complète (jour + créneau).
+          if (!fullPlanningSlot && !isSettingFutureDate && fi.counter_start_date) {
             const fiStart = new Date(fi.counter_start_date).getTime();
             const nowMs = new Date().getTime();
             const isStartedBeforeNow = fiStart <= nowMs;
@@ -936,7 +947,9 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           );
         }
       }
-      } // fin boucle bundle items
+          }
+        }
+      }
     }
     await invalidateStock();
   };
