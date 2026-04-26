@@ -423,6 +423,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             protein: fi.protein, is_indivisible: fi.is_indivisible,
             expiration_date: fi.expiration_date,
             counter_start_date: sealed ? null : fi.counter_start_date,
+            no_counter: fi.no_counter,
             sort_order: fi.sort_order, created_at: fi.created_at, is_meal: fi.is_meal,
             is_infinite: fi.is_infinite, is_dry: fi.is_dry, storage_type: fi.storage_type,
             quantity: fi.quantity, food_type: fi.food_type,
@@ -858,7 +859,9 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       // Plusieurs lots : on ne met à jour que ceux qui ont déjà un compteur (évite d’en démarrer plusieurs).
       const matchingItems =
         nameMatches.length === 1
-          ? nameMatches
+          ? (pmId !== null
+              ? nameMatches
+              : nameMatches.filter((fi) => fi.counter_start_date !== null))
           : nameMatches.filter((fi) => fi.counter_start_date !== null);
 
       for (const fi of matchingItems) {
