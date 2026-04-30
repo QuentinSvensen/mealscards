@@ -1104,11 +1104,12 @@ export function FoodItems() {
                 {suggestedStorageType === 'frigo' && <><Refrigerator className="h-3 w-3 text-blue-400" /> Frigo</>}
                 {suggestedStorageType === 'sec' && <><Package className="h-3 w-3 text-amber-500" /> Sec</>}
                 {suggestedStorageType === 'surgele' && <><Snowflake className="h-3 w-3 text-cyan-400" /> Surgelé</>}
-                {!['frigo', 'sec', 'surgele'].includes(suggestedStorageType) && suggestedStorageType}
+                {suggestedStorageType === 'extras' && <><span className="text-base leading-none">✨</span> Extras</>}
+                {!['frigo', 'sec', 'surgele', 'extras'].includes(suggestedStorageType) && suggestedStorageType}
               </span>
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <Button onClick={() => confirmAdd('frigo')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'frigo' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
             </Button>
@@ -1117,6 +1118,9 @@ export function FoodItems() {
             </Button>
             <Button onClick={() => confirmAdd('surgele')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'surgele' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Snowflake className="h-4 w-4 text-cyan-400" /> Surgelé
+            </Button>
+            <Button onClick={() => confirmAdd('extras')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'extras' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
+              <span className="text-base leading-none">✨</span> Extras
             </Button>
           </div>
           <button onClick={() => { setShowStoragePrompt(false); setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); }} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">
