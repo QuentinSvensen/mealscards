@@ -28,6 +28,10 @@ export type StructuredIngredientInlineProps = {
    * utile pour les popups où le barré est trop agressif.
    */
   softUnavailableStyle?: boolean;
+  /** Force un rendu uniforme en blanc, sans styles d'état (manquant/expiré/indispo). */
+  forcePlainWhite?: boolean;
+  /** Supprime le préfixe "x" des quantités (ex: "x2 jambon" -> "2 jambon"). */
+  removeQuantityPrefixX?: boolean;
 };
 
 /**
@@ -43,6 +47,8 @@ export function StructuredIngredientInline({
   expiringSoonIngredientNames,
   stockMap,
   softUnavailableStyle,
+  forcePlainWhite,
+  removeQuantityPrefixX,
 }: StructuredIngredientInlineProps) {
   if (!ingredients?.trim()) return null;
   const lines = parseIngredientsToLines(ingredients);
@@ -92,7 +98,9 @@ export function StructuredIngredientInline({
                     const isOpt = item.isOptional;
 
                     let cls = "";
-                    if (isMissing) cls = "bg-white/10 text-white/40 line-through px-0.5 rounded";
+                    if (forcePlainWhite) {
+                      cls = "text-white";
+                    } else if (isMissing) cls = "bg-white/10 text-white/40 line-through px-0.5 rounded";
                     else if (isExpired) cls = "bg-red-500/40 text-red-100 px-0.5 rounded font-semibold italic ring-1 ring-red-500/50";
                     else if (isSoon) cls = "ring-1 ring-red-500/60 font-semibold px-0.5 rounded";
                     else if (hasCounter) cls = "underline decoration-2 underline-offset-2 decoration-white/60 font-semibold";
@@ -102,7 +110,10 @@ export function StructuredIngredientInline({
                     }
 
                     const qtyDisp = [formatQtyDisplay(item.qty), item.count].filter(Boolean).join(" ");
-                    const textDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
+                    const rawTextDisplay = [qtyDisp, item.name].filter(Boolean).join(" ");
+                    const textDisplay = removeQuantityPrefixX
+                      ? rawTextDisplay.replace(/^\s*[x×]\s*(\d+(?:[.,]\d+)?)\s+/i, "$1 ")
+                      : rawTextDisplay;
 
                     return (
                       <React.Fragment key={ii}>

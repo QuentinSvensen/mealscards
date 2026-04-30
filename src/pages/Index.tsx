@@ -514,12 +514,14 @@ const Index = () => {
     let snapshots: FoodItem[] = [];
     let nameMatch: FoodItem | undefined;
     let oldestCounterFromDeduction: string | null = null;
+    let consumedIngredientsFromDeduction: string | null = null;
 
     // 2. Déduire les ingrédients du stock UNIQUEMENT si ça ne vient pas de "Tous" (master)
     if (source !== "master") {
       const deductionResult = await deductIngredientsFromStock(meal, undefined);
       snapshots = deductionResult.snapshots;
       oldestCounterFromDeduction = deductionResult.oldestCounter || null;
+      consumedIngredientsFromDeduction = deductionResult.consumedIngredients || null;
       nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
     }
@@ -545,6 +547,9 @@ const Index = () => {
 
     if (result?.id) {
       if (snapshots.length > 0) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
+      if (consumedIngredientsFromDeduction && consumedIngredientsFromDeduction !== meal.ingredients) {
+        updatePossibleIngredients.mutate({ id: result.id, ingredients_override: consumedIngredientsFromDeduction });
+      }
       if (source === "master") setMasterSourcePmIds(prev => new Set([...prev, result.id]));
       if (source === "available" && typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
         setCollapsedSections(prev => ({ ...prev, [`available-${meal.category}`]: true }));
@@ -838,15 +843,7 @@ const Index = () => {
               <div className="flex items-center gap-2 mb-3 sm:mb-4">
                 <TabsList className="flex-1 overflow-x-auto rounded-2xl">
                   {CATEGORIES.map((c) =>
-                    <TabsTrigger
-                      key={c.value}
-                      value={c.value}
-                      className={`text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl ${
-                        c.value === "petit_dejeuner" && activeCategory !== "petit_dejeuner"
-                          ? "bg-orange-500/10 text-orange-700 dark:text-orange-300 hover:bg-orange-500/20"
-                          : ""
-                      }`}
-                    >
+                    <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl">
                       <span className="mr-0.5">{c.emoji}</span>
                       <span className="text-[9px] sm:text-xs leading-tight">{c.label}</span>
                     </TabsTrigger>
@@ -931,7 +928,7 @@ const Index = () => {
                             const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
 
                             // 1. Deduct FIRST
-                            const { snapshots, oldestCounter } = await deductIngredientsFromStock(partialMeal);
+                            const { snapshots, oldestCounter, consumedIngredients } = await deductIngredientsFromStock(partialMeal);
 
                             let finalCounterDate: string | null = null;
                             if (oldestCounter) finalCounterDate = oldestCounter;
@@ -946,8 +943,9 @@ const Index = () => {
 
                             if (result?.id) {
                               updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
-                              if (partialMeal.ingredients && partialMeal.ingredients !== meal.ingredients) {
-                                updatePossibleIngredients.mutate({ id: result.id, ingredients_override: partialMeal.ingredients });
+                              const finalOverride = consumedIngredients || (partialMeal.ingredients && partialMeal.ingredients !== meal.ingredients ? partialMeal.ingredients : null);
+                              if (finalOverride && finalOverride !== meal.ingredients) {
+                                updatePossibleIngredients.mutate({ id: result.id, ingredients_override: finalOverride });
                               }
                             }
                           }}

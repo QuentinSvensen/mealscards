@@ -68,6 +68,34 @@ function expandOrGroupIngredientNames(item: ParsedIngredient): string[] {
   return [...out];
 }
 
+/**
+ * Construit une chaîne d'ingrédients basée uniquement sur les alternatives réellement consommées.
+ * Sert à afficher sur la carte "Possible" uniquement les choix "ou" effectivement déduits du stock.
+ */
+function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[][]): string | null {
+  /** Remet une majuscule initiale pour un affichage propre côté carte Possible. */
+  const withLeadingUppercase = (value: string): string => {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return "";
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  };
+  const lines: string[] = [];
+  for (const altBundle of pickedAlternatives) {
+    const parts = altBundle
+      .filter((item) => !item.optional)
+      .map((item) => {
+        const displayName = withLeadingUppercase(item.rawName || item.name || "");
+        if (!displayName) return "";
+        if (item.qty > 0) return `${formatNumeric(item.qty)}g ${displayName}`.trim();
+        if (item.count > 0) return `x${formatNumeric(item.count)} ${displayName}`.trim();
+        return displayName;
+      })
+      .filter(Boolean);
+    if (parts.length > 0) lines.push(parts.join(" + "));
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
 export function computePlannedCounterDate(dayOfWeek: string, mealTime: string | null): string {
   // Si c'est déjà une date ISO (YYYY-MM-DD), l'utiliser directement
   if (/^\d{4}-\d{2}-\d{2}$/.test(dayOfWeek)) {
@@ -184,10 +212,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
    * 
    * @returns snapshots (état avant déduction), consumedIds (items supprimés), oldestCounter (compteur le plus ancien)
    */
-  const deductIngredientsFromStock = async (meal: Meal, forcedCounterDate?: string): Promise<{ snapshots: FoodItem[]; consumedIds: string[]; oldestCounter: string | null }> => {
-    if (!meal.ingredients?.trim()) return { snapshots: [], consumedIds: [], oldestCounter: null };
+  const deductIngredientsFromStock = async (meal: Meal, forcedCounterDate?: string): Promise<{ snapshots: FoodItem[]; consumedIds: string[]; oldestCounter: string | null; consumedIngredients: string | null }> => {
+    if (!meal.ingredients?.trim()) return { snapshots: [], consumedIds: [], oldestCounter: null, consumedIngredients: null };
     const liveFoodItems = getLiveFoodItems();
     const groups = parseIngredientGroups(meal.ingredients);
+    const pickedAlternatives: ParsedIngredient[][] = [];
     const stockMap = buildStockMap(liveFoodItems);
     const snapshotsById = new Map<string, FoodItem>();
     const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean; counter_start_date?: string | null }>();
@@ -222,6 +251,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       if (group.every(alt => alt.every(item => item.optional))) continue;
       const altBundle = pickBestAlternative(group, stockMap);
       if (!altBundle) continue;
+      pickedAlternatives.push(altBundle);
 
       for (const alt of altBundle) {
         if (alt.optional) continue;
@@ -394,10 +424,12 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     };
     qc.setQueryData<FoodItem[]>(["food_items"], applyOptimistic);
     suppressStockRealtimeBriefly();
+    const consumedIngredients = buildConsumedIngredientsOverride(pickedAlternatives);
     return {
       snapshots: Array.from(snapshotsById.values()),
       consumedIds: Array.from(updatesById.values()).filter(u => u.delete).map(u => u.id),
       oldestCounter: oldestCounter || openedAtDeduction,
+      consumedIngredients,
     };
   };
 

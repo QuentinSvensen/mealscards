@@ -97,6 +97,7 @@ export function PossibleMealCard({
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
     pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
+  const cardColorIngredients = meal.ingredients ?? displayIngredients;
 
   // Construire le rappel isAvailable à partir de stockMap pour le calcul des macros
   const isAvailableCb = stockMap ? (name: string) => {
@@ -383,7 +384,7 @@ export function PossibleMealCard({
         onDoubleClick?.();
       }}
       className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
-      style={{ backgroundColor: getMealColor(displayIngredients, meal.name) }}
+      style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
     >
       {/* Badge multiplicateur — épinglé en haut à droite absolu */}
       {detectedRatio !== null && !editing && !editingIngredients && (
@@ -582,6 +583,9 @@ export function PossibleMealCard({
             expiredIngredientNames={expiredIngredientNames}
             expiringSoonIngredientNames={expiringSoonIngredientNames}
             stockMap={stockMap}
+            softUnavailableStyle
+            forcePlainWhite
+            removeQuantityPrefixX
           />
         </button>
       )}
