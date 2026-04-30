@@ -825,6 +825,31 @@ export function WeeklyPlanning({
   const extraSlotAssignments = getPreference<Record<string, string[]>>('planning_extra_slot_assignments', {});
 
   const savedSnapshots = getPreference<Record<string, { cal?: number; prot?: number; itemIds?: string[] }>>('planning_saved_snapshots', {});
+  /**
+   * Résout un snapshot d'extra pour un jour donné avec fallback évolutif :
+   * - priorité à la clé ISO du jour
+   * - puis clé jour (lundi/mardi/...)
+   * - puis dernier snapshot ISO connu pour ce même jour de semaine
+   */
+  const resolveExtraSnapshotForDay = (iso: string, key: string) => {
+    const direct = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
+    if (direct) return direct;
+
+    let best: any = null;
+    let bestIso = "";
+    for (const [snapKey, snapVal] of Object.entries(savedSnapshots)) {
+      if (!snapKey.startsWith("extra-")) continue;
+      const suffix = snapKey.slice("extra-".length);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(suffix)) continue;
+      const dow = JS_DAY_TO_KEY[new Date(`${suffix}T12:00:00`).getDay()];
+      if (dow !== key) continue;
+      if (!best || suffix > bestIso) {
+        best = snapVal;
+        bestIso = suffix;
+      }
+    }
+    return best;
+  };
   const [flashedKeys, setFlashedKeys] = useState<Record<string, boolean>>({});
   const WEEKLY_GOAL = DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
   const DAILY_PROTEIN_GOAL_PREF = getPreference<number>('planning_protein_goal', DAILY_PROTEIN_GOAL);
@@ -2841,8 +2866,9 @@ export function WeeklyPlanning({
                       <button
                         onClick={() => {
                           const snapKey = `extra-${iso}`;
-                          const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                          const currentIds = allExtraSels[iso] || allExtraSels[key] || [];
+                          // Utiliser l'état React courant (source de vérité instantanée) pour éviter
+                          // de relire une préférence potentiellement en retard juste après un clic +/−.
+                          const currentIds = extraSelections[iso] || extraSelections[key] || [];
                           const cal = (iso && extraCalories[iso]) || extraCalories[key] || 0;
                           const prot = (iso && extraProteins[iso]) || extraProteins[key] || 0;
                           const itemIds = currentIds;
@@ -2850,41 +2876,25 @@ export function WeeklyPlanning({
                           setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                           // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
-                          // Même clés que l’aperçu suivant : ISO en priorité (sinon la vue suivante ne lit pas les extras).
+                          // Propager via la clé "jour" (lundi/mardi/...) pour que la semaine suivante,
+                          // qui a une autre date ISO, récupère bien le visuel des saves.
                           if (weekOffset === 0) {
                             const nxtSel = { ...nextExtraSelections };
-                            if (iso) {
-                              nxtSel[iso] = [...itemIds];
-                              delete nxtSel[key];
-                            } else {
-                              nxtSel[key] = [...itemIds];
-                            }
+                            nxtSel[key] = [...itemIds];
                             setPreference.mutate({ key: 'next_week_extra_selections', value: nxtSel });
 
                             const nxtCal = { ...nextExtraCalories };
                             if (cal > 0) {
-                              if (iso) {
-                                nxtCal[iso] = cal;
-                                delete nxtCal[key];
-                              } else {
-                                nxtCal[key] = cal;
-                              }
+                              nxtCal[key] = cal;
                             } else {
-                              delete nxtCal[iso];
                               delete nxtCal[key];
                             }
                             setPreference.mutate({ key: 'next_week_extra_calories', value: nxtCal });
 
                             const nxtPro = { ...nextExtraProteins };
                             if (prot > 0) {
-                              if (iso) {
-                                nxtPro[iso] = prot;
-                                delete nxtPro[key];
-                              } else {
-                                nxtPro[key] = prot;
-                              }
+                              nxtPro[key] = prot;
                             } else {
-                              delete nxtPro[iso];
                               delete nxtPro[key];
                             }
                             setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtPro });
@@ -3370,7 +3380,7 @@ export function WeeklyPlanning({
             const baseBfMealId = bfSnap?.mealId || undefined;
             const baseBfManualCal = bfSnap?.cal || 0;
             const baseBfManualPro = bfSnap?.prot || 0;
-            const extraSnap = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
+            const extraSnap = resolveExtraSnapshotForDay(iso, key);
             const baseExtraCal = extraSnap?.cal || 0;
             const baseExtraPro = extraSnap?.prot || 0;
             const baseExtraSel: string[] = extraSnap?.itemIds || [];
