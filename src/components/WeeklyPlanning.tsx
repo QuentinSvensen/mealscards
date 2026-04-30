@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -36,7 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
-import { analyzeMealIngredients, buildStockMap, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, resolveCounterStartForPossibleBadge } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -203,6 +203,11 @@ function parseCustomExtraId(id: string): { name: string; cal: number; prot: numb
     cal: parseFloat((parts[1] || '0').replace(',', '.')) || 0,
     prot: parseFloat((parts[2] || '0').replace(',', '.')) || 0,
   };
+}
+
+/** Construit un id d'extra personnalisé à partir d'un dessert "au choix". */
+function buildDessertExtraId(name: string, cal: number, prot: number): string {
+  return `custom::${name}::${Math.round(cal)}::${Math.round(prot)}`;
 }
 
 /** Somme kcal / prot des extras (aliments stock ou entrées `custom::…`). */
@@ -572,7 +577,7 @@ export function WeeklyPlanning({
     if (!stock) return false;
     return stock.infinite || stock.grams > 0 || stock.count > 0;
   }, [stockMap]);
-  const { updateFoodItemCountersForPlanning, deductIngredientsFromStock, deductNameMatchStock } = useMealTransfers(foodItems);
+  const { updateFoodItemCountersForPlanning, deductIngredientsFromStock, restoreIngredientsToStock, deductNameMatchStock } = useMealTransfers(foodItems);
 
   const updatePlanningWithCounters = (pmId: string, day: string | null, time: string | null) => {
     const pm = possibleMeals.find(p => p.id === pmId);
@@ -606,6 +611,161 @@ export function WeeklyPlanning({
   const { getDayCalories, getDayProtein, DAILY_GOAL, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const possiblePetitDej = possibleMeals.filter(pm => pm.meals?.category === 'petit_dejeuner');
+  /** Transforme une fiche repas en payload complet utilisable par les transferts de stock. */
+  const buildMealTransferPayload = useCallback((meal: Meal): Meal => ({
+    id: meal.id,
+    name: meal.name,
+    category: meal.category,
+    calories: meal.calories,
+    protein: meal.protein,
+    grams: meal.grams,
+    ingredients: meal.ingredients,
+    sort_order: meal.sort_order,
+    created_at: meal.created_at,
+    is_available: meal.is_available,
+    is_favorite: meal.is_favorite,
+    oven_temp: meal.oven_temp ?? null,
+    oven_minutes: meal.oven_minutes ?? null,
+  }), []);
+
+  /** Liste complète des desserts "au choix" à ingrédient unique (indépendante du stock courant). */
+  const allSingleIngredientDessertExtras = useMemo(() => {
+    const desserts = getMealsByCategory('dessert');
+    return desserts
+      .filter((meal) => {
+        if (!meal.ingredients?.trim()) return false;
+        const groups = parseIngredientGroups(meal.ingredients);
+        if (groups.length !== 1) return false;
+        const firstOr = groups[0];
+        if (!firstOr || firstOr.length !== 1) return false;
+        const bundle = firstOr[0] ?? [];
+        const required = bundle.filter((i) => !i.optional);
+        return required.length === 1;
+      })
+      .map((meal) => {
+        const cal = getMealCal(meal) ?? 0;
+        const prot = getMealPro(meal) ?? 0;
+        const mealPayload = buildMealTransferPayload(meal as Meal);
+        return {
+          id: buildDessertExtraId(meal.name, cal, prot),
+          name: meal.name,
+          cal,
+          prot,
+          mealPayload,
+        };
+      });
+  }, [buildMealTransferPayload, getMealsByCategory]);
+  /** Desserts à ingrédient unique actuellement ajoutables (stock > 0). */
+  const singleIngredientDessertExtras = useMemo(() => {
+    const withExpiry = allSingleIngredientDessertExtras
+      .filter((d) => {
+        const multiple = getMealMultiple(d.mealPayload, stockMap);
+        return (multiple ?? 0) > 0;
+      })
+      .map((d) => {
+        const groups = parseIngredientGroups(d.mealPayload.ingredients || "");
+        const first = groups[0]?.[0]?.find((i) => !i.optional);
+        const ingName = first?.name || "";
+        const dates = foodItems
+          .filter((fi) => fi.storage_type !== "extras" && fi.storage_type !== "test" && strictNameMatch(fi.name, ingName))
+          .map((fi) => fi.expiration_date)
+          .filter((v): v is string => !!v)
+          .sort((a, b) => a.localeCompare(b));
+        return { ...d, sortExpiry: dates[0] ?? null };
+      });
+    withExpiry.sort((a, b) => {
+      if (a.sortExpiry && b.sortExpiry) return a.sortExpiry.localeCompare(b.sortExpiry);
+      if (a.sortExpiry) return -1;
+      if (b.sortExpiry) return 1;
+      return a.name.localeCompare(b.name, "fr");
+    });
+    return withExpiry;
+  }, [allSingleIngredientDessertExtras, stockMap, foodItems]);
+  const singleIngredientDessertById = useMemo(
+    () => new Map(allSingleIngredientDessertExtras.map((d) => [d.id, d])),
+    [allSingleIngredientDessertExtras]
+  );
+  /** Disponibilité en stock de chaque dessert (sert notamment à masquer le bouton +). */
+  const canAddDessertById = useMemo(
+    () =>
+      new Map(
+        allSingleIngredientDessertExtras.map((d) => [
+          d.id,
+          (getMealMultiple(d.mealPayload, stockMap) ?? 0) > 0,
+        ])
+      ),
+    [allSingleIngredientDessertExtras, stockMap]
+  );
+  const dessertPossibleCountById = useMemo(
+    () =>
+      new Map(
+        allSingleIngredientDessertExtras.map((d) => [
+          d.id,
+          Math.max(0, Math.floor(getMealMultiple(d.mealPayload, stockMap) ?? 0)),
+        ])
+      ),
+    [allSingleIngredientDessertExtras, stockMap]
+  );
+
+  /** Lit la mémoire des snapshots de stock des desserts extras pour pouvoir restaurer fidèlement chaque occurrence. */
+  const readDessertExtraStockSnapshots = useCallback(() => {
+    return getPreference<Record<string, Record<string, FoodItem[][]>>>('planning_dessert_extra_stock_snapshots', {});
+  }, [getPreference]);
+
+  /** Écrit la mémoire des snapshots de stock des desserts extras dans les préférences utilisateur. */
+  const writeDessertExtraStockSnapshots = useCallback((value: Record<string, Record<string, FoodItem[][]>>) => {
+    setPreference.mutate({ key: 'planning_dessert_extra_stock_snapshots', value });
+  }, [setPreference]);
+
+  /** Ajoute un snapshot de stock pour une occurrence de dessert extra sur un jour donné. */
+  const pushDessertExtraSnapshot = useCallback((dessertExtraId: string, iso: string, key: string, snapshot: FoodItem[]) => {
+    const day = iso || key;
+    const store = { ...readDessertExtraStockSnapshots() };
+    const dayStore = { ...(store[day] || {}) };
+    const cur = [...(dayStore[dessertExtraId] || [])];
+    cur.push(snapshot);
+    dayStore[dessertExtraId] = cur;
+    store[day] = dayStore;
+    writeDessertExtraStockSnapshots(store);
+  }, [readDessertExtraStockSnapshots, writeDessertExtraStockSnapshots]);
+
+  /** Retire et renvoie le dernier snapshot mémorisé pour restaurer exactement une occurrence de dessert. */
+  const popDessertExtraSnapshot = useCallback((dessertExtraId: string, iso: string, key: string): FoodItem[] | null => {
+    const day = iso || key;
+    const store = { ...readDessertExtraStockSnapshots() };
+    const dayStore = { ...(store[day] || {}) };
+    const cur = [...(dayStore[dessertExtraId] || [])];
+    if (cur.length === 0) return null;
+    const last = cur.pop() || null;
+    if (cur.length > 0) dayStore[dessertExtraId] = cur;
+    else delete dayStore[dessertExtraId];
+    if (Object.keys(dayStore).length > 0) store[day] = dayStore;
+    else delete store[day];
+    writeDessertExtraStockSnapshots(store);
+    return last;
+  }, [readDessertExtraStockSnapshots, writeDessertExtraStockSnapshots]);
+
+  /** Applique une occurrence d’ajout/retrait dessert avec décompte réel + restauration via snapshot. */
+  const applyDessertExtraStockDelta = useCallback(async (dessertExtraId: string, delta: 1 | -1, iso: string, key: string) => {
+    if (weekOffset !== 0) return false;
+    const dessert = singleIngredientDessertById.get(dessertExtraId);
+    if (!dessert) return false;
+    if (delta > 0) {
+      const res = await deductIngredientsFromStock(dessert.mealPayload);
+      // Une déduction valide peut être un UPDATE (pas seulement un DELETE) :
+      // on s'appuie donc sur la présence de snapshots touchés, pas sur consumedIds.
+      if (!res || (res.snapshots?.length ?? 0) === 0) return false;
+      pushDessertExtraSnapshot(dessertExtraId, iso, key, res.snapshots || []);
+      qc.invalidateQueries({ queryKey: ["food_items"] });
+      return true;
+    }
+    const snapshot = popDessertExtraSnapshot(dessertExtraId, iso, key);
+    // Sans snapshot, on ne restaure pas pour éviter d'inventer du stock qui n'a jamais été décrémenté.
+    if (!snapshot) return false;
+    await restoreIngredientsToStock(dessert.mealPayload, snapshot);
+    qc.invalidateQueries({ queryKey: ["food_items"] });
+    return true;
+  }, [deductIngredientsFromStock, popDessertExtraSnapshot, pushDessertExtraSnapshot, qc, restoreIngredientsToStock, singleIngredientDessertById, weekOffset]);
 
   const setBreakfastForDay = (day: string, selId: string | null) => {
     const updated = { ...breakfastSelections };
@@ -820,6 +980,8 @@ export function WeeklyPlanning({
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
+  const testItemIds = getPreference<string[]>('food_test_ids', []);
+  const testItemIdSet = new Set(testItemIds);
   // Assignation visuelle d’un extra à un créneau (matin/midi/soir) d’un jour donné.
   // Clé = `${iso}-${slot}`, valeur = liste d’ids d’aliments (pas de customExtra ici).
   const extraSlotAssignments = getPreference<Record<string, string[]>>('planning_extra_slot_assignments', {});
@@ -1052,15 +1214,37 @@ export function WeeklyPlanning({
   };
 
   // Désélectionne complètement un extra du jour (toutes occurrences) + le retire de tous les slots.
-  const deselectExtraForDay = (extraId: string, iso: string, key: string) => {
+  const deselectExtraForDay = async (extraId: string, iso: string, key: string) => {
     if (!extraId) return;
     const updatedSel = { ...extraSelections };
     const cur = updatedSel[iso] || updatedSel[key] || [];
+    const count = cur.filter((id) => id === extraId).length;
+    if (singleIngredientDessertById.has(extraId) && count > 0) {
+      for (let i = 0; i < count; i++) {
+        await applyDessertExtraStockDelta(extraId, -1, iso, key);
+      }
+    }
     const next = cur.filter((id) => id !== extraId);
     if (iso) updatedSel[iso] = next;
     else updatedSel[key] = next;
     setPreference.mutate({ key: 'planning_extra_selections', value: updatedSel });
     unassignExtraFromAllDaySlots(extraId, iso, key);
+  };
+
+  /** Retire une seule occurrence d'un extra du jour, avec restauration de stock pour les desserts dédiés. */
+  const removeOneSelectedExtraForDay = async (extraId: string, iso: string, key: string) => {
+    if (!extraId) return;
+    const current = extraSelections[iso] || extraSelections[key] || [];
+    if (!current.includes(extraId)) return;
+    if (singleIngredientDessertById.has(extraId)) {
+      await applyDessertExtraStockDelta(extraId, -1, iso, key);
+    }
+    const nextSelections = removeOneExtraOccurrenceForDay(extraSelections, iso, key, extraId);
+    setPreference.mutate({ key: 'planning_extra_selections', value: nextSelections });
+    const remaining = (nextSelections[iso] || nextSelections[key] || []).filter((id) => id === extraId).length;
+    if (remaining <= 0) {
+      unassignExtraFromAllDaySlots(extraId, iso, key);
+    }
   };
 
   // Retire une seule occurrence d'un extra dans une sélection de journée.
@@ -2527,7 +2711,7 @@ export function WeeklyPlanning({
                           <div className="space-y-1.5 max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
                             {/* Aliments extras normaux — au-dessus du trait : rentrent dans les kcal restantes du jour */}
                             {(() => {
-                              const sectionItems = foodItems.filter(fi => fi.storage_type === 'extras');
+                              const sectionItems = foodItems.filter(fi => fi.storage_type === 'extras' && !testItemIdSet.has(fi.id));
                               const sortedExtras = getSortedFoodItems(
                                 sectionItems,
                                 foodSortModes['extras'] || "manual",
@@ -2543,6 +2727,7 @@ export function WeeklyPlanning({
                               const currentIds = extraSels[iso] || extraSels[key] || [];
                               const assignedIds = new Set(getAssignedExtraIdsForDay(iso, key));
                               const daySlotKey = iso || key;
+                              const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) => !currentIds.includes(d.id));
 
                               // Réordonne les extras sélectionnés (standards + custom) en conservant les quantités.
                               const reorderSelectedExtras = (sourceId: string, targetId: string) => {
@@ -2633,6 +2818,9 @@ export function WeeklyPlanning({
                                 const c = parseCustomExtraId(id);
                                 const fi = c ? null : extrasById.get(id);
                                 if (!c && !fi) return null;
+                                const isDessertExtra = singleIngredientDessertById.has(id);
+                                const canAddDessert = !isDessertExtra || canAddDessertById.get(id) === true;
+                                const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(id) ?? 0) : null;
                                 const count = currentIds.filter((cid) => cid === id).length;
                                 const label = c ? c.name : (fi?.name || id);
                                 const prot = c ? c.prot : parseProtein(fi?.protein);
@@ -2672,24 +2860,59 @@ export function WeeklyPlanning({
                                   >
                                     <div className="flex-1 min-w-0">
                                       <p className="text-[11px] font-black transition-colors truncate text-orange-600">{label}</p>
+                                      {dessertPossibleCount !== null && (
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCount}</p>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       <button
-                                        onClick={() => deselectExtraForDay(id, iso, key)}
+                                        onClick={async () => {
+                                          try {
+                                            await removeOneSelectedExtraForDay(id, iso, key);
+                                          } catch (e) {
+                                            toast({
+                                              title: "Stock non modifié",
+                                              description: "Impossible de retirer cette occurrence.",
+                                              variant: "destructive",
+                                            });
+                                          }
+                                        }}
                                         className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
                                         title="Désélectionner cet extra"
                                       >−</button>
                                       <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                      <button
-                                        onClick={() => {
-                                          const updated = { ...extraSels };
-                                          const current = updated[iso] || updated[key] || [];
-                                          if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
-                                          setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                        }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
-                                        title="Ajouter un"
-                                      >+</button>
+                                      {canAddDessert && (
+                                        <button
+                                          onClick={async () => {
+                                            if (isDessertExtra) {
+                                              try {
+                                                const ok = await applyDessertExtraStockDelta(id, 1, iso, key);
+                                                if (!ok) {
+                                                  toast({
+                                                    title: "Stock insuffisant",
+                                                    description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                    variant: "destructive",
+                                                  });
+                                                  return;
+                                                }
+                                              } catch (e) {
+                                                toast({
+                                                  title: "Stock insuffisant",
+                                                  description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                  variant: "destructive",
+                                                });
+                                                return;
+                                              }
+                                            }
+                                            const updated = { ...extraSels };
+                                            const current = updated[iso] || updated[key] || [];
+                                            if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
+                                            setPreference.mutate({ key: 'planning_extra_selections', value: updated });
+                                          }}
+                                          className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
+                                          title="Ajouter un"
+                                        >+</button>
+                                      )}
                                       {prot > 0 && (
                                         <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
                                           🍗 {prot}
@@ -2746,7 +2969,17 @@ export function WeeklyPlanning({
                                       {count > 0 && (
                                         <>
                                           <button
-                                            onClick={() => deselectExtraForDay(fi.id, iso, key)}
+                                            onClick={async () => {
+                                              try {
+                                                await removeOneSelectedExtraForDay(fi.id, iso, key);
+                                              } catch (e) {
+                                                toast({
+                                                  title: "Stock non modifié",
+                                                  description: "Impossible de retirer cette occurrence.",
+                                                  variant: "destructive",
+                                                });
+                                              }
+                                            }}
                                             className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
                                             title="Désélectionner cet extra"
                                           >−</button>
@@ -2844,6 +3077,48 @@ export function WeeklyPlanning({
                                         }}
                                       />
                                       {selectedBottomIds.map((id) => renderSelectedRowById(id, "bottom"))}
+                                    </>
+                                  )}
+                                  {singleIngredientDessertExtras.length > 0 && (
+                                    <>
+                                      <Separator className="my-2 opacity-50" />
+                                      <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts à 1 ingrédient</p>
+                                      {unselectedDessertExtras.map((d) => (
+                                        <div key={d.id} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-[11px] font-black transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
+                                            <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) ?? 0}</p>
+                                          </div>
+                                          <div className="flex items-center gap-1.5 shrink-0">
+                                            <button onClick={async () => {
+                                              try {
+                                                const ok = await applyDessertExtraStockDelta(d.id, 1, iso, key);
+                                                if (!ok) {
+                                                  toast({
+                                                    title: "Stock insuffisant",
+                                                    description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                    variant: "destructive",
+                                                  });
+                                                  return;
+                                                }
+                                                const updated = { ...extraSels };
+                                                const current = updated[iso] || updated[key] || [];
+                                                if (iso) updated[iso] = [...current, d.id]; else updated[key] = [...current, d.id];
+                                                setPreference.mutate({ key: 'planning_extra_selections', value: updated });
+                                              } catch (e) {
+                                                toast({
+                                                  title: "Stock insuffisant",
+                                                  description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                  variant: "destructive",
+                                                });
+                                              }
+                                            }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold" title="Ajouter un">+</button>
+                                            {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">🍗 {Math.round(d.prot)}</div>}
+                                            <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      <Separator className="my-2 opacity-50" />
                                     </>
                                   )}
                                   {fitsBudget.length > 0 && (
@@ -3639,11 +3914,11 @@ export function WeeklyPlanning({
                     <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                     <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                       <PlanningInput storageKey={`next-ec-${iso}`}
-                        currentValue={(() => { const m = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseCalories(foodItems.find(fi => fi.id === id)?.calories), 0); })()}
+                        currentValue={(() => { const m = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal; return m + sumExtrasFromSelectionIds(effExtraSel, foodItems).cal; })()}
                         onSave={(val) => { const ids = effExtraSel; const sel = sumExtrasFromSelectionIds(ids, foodItems).cal; const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
                         placeholder="kcal" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center" />
                       <PlanningInput storageKey={`next-ep-${iso}`}
-                        currentValue={(() => { const m = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro; const ids = effExtraSel; return m + ids.reduce((s, id) => s + parseProtein(foodItems.find(fi => fi.id === id)?.protein), 0); })()}
+                        currentValue={(() => { const m = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro; return m + sumExtrasFromSelectionIds(effExtraSel, foodItems).pro; })()}
                         onSave={(val) => { const ids = effExtraSel; const sel = sumExtrasFromSelectionIds(ids, foodItems).pro; const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
                         placeholder="prot" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
                       <div className="flex items-center gap-1 mt-1">
@@ -3660,12 +3935,14 @@ export function WeeklyPlanning({
                             </div>
                             <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
                               {(() => {
-                                const availableExtras = foodItems.filter(fi => fi.storage_type === 'extras');
+                                const availableExtras = foodItems.filter(fi => fi.storage_type === 'extras' && !testItemIdSet.has(fi.id));
                                 const sortedItems = getSortedFoodItems(
                                   availableExtras,
                                   foodSortModes['extras'] || "manual",
                                   sortDirections['food-extras'] !== false
                                 );
+                                const selectedDessertExtras = singleIngredientDessertExtras.filter((d) => effExtraSel.includes(d.id));
+                                const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) => !effExtraSel.includes(d.id));
                                 const selected = sortedItems.filter(fi => effExtraSel.includes(fi.id));
                                 const others = sortedItems.filter(fi => !effExtraSel.includes(fi.id));
                                 const ordered = [...selected, ...others];
@@ -3705,6 +3982,41 @@ export function WeeklyPlanning({
                                 };
                                 return (
                                   <>
+                                    {singleIngredientDessertExtras.length > 0 && (
+                                      <>
+                                        <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts à 1 ingrédient</p>
+                                        {selectedDessertExtras.map((d) => {
+                                          const count = effExtraSel.filter((id) => id === d.id).length;
+                                          return (
+                                            <div key={d.id} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-orange-500/20 border-orange-500/40 shadow-inner">
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-bold transition-colors truncate text-orange-600">{d.name}</p>
+                                              </div>
+                                              <div className="flex items-center gap-1.5 shrink-0">
+                                                <button onClick={() => { const u = { ...nextExtraSelections }; const c = u[iso] || u[key] || []; const idx = c.lastIndexOf(d.id); if (idx >= 0) u[iso] = [...c.slice(0, idx), ...c.slice(idx + 1)]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
+                                                <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
+                                                <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), d.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
+                                                {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">🍗 {Math.round(d.prot)}</div>}
+                                                <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                        {unselectedDessertExtras.map((d) => (
+                                          <div key={d.id} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-[11px] font-bold transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), d.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
+                                              {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">🍗 {Math.round(d.prot)}</div>}
+                                              <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                        <Separator className="my-2 opacity-50" />
+                                      </>
+                                    )}
                                     {fitsBudget.length > 0 && (
                                       <p className="text-[9px] font-semibold text-muted-foreground px-1 pb-1">
                                         Rentrent dans le budget restant ({Math.round(remainingNextCal)} kcal / jour)
@@ -3750,10 +4062,9 @@ export function WeeklyPlanning({
               const extraSnap = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
               total += nextExtraCalories[iso] ?? nextExtraCalories[key] ?? extraSnap?.cal ?? 0;
               totalPro += nextExtraProteins[iso] ?? nextExtraProteins[key] ?? extraSnap?.prot ?? 0;
-              for (const id of (nextExtraSelections[iso] ?? nextExtraSelections[key] ?? extraSnap?.itemIds ?? [])) {
-                const fi = foodItems.find(f => f.id === id);
-                if (fi) { total += parseCalories(fi.calories); totalPro += parseProtein(fi.protein); }
-              }
+              const nextExtraSum = sumExtrasFromSelectionIds(nextExtraSelections[iso] ?? nextExtraSelections[key] ?? extraSnap?.itemIds ?? [], foodItems);
+              total += nextExtraSum.cal;
+              totalPro += nextExtraSum.pro;
             }
             const avgCal = Math.round(total / 7);
             return (

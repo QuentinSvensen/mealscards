@@ -295,7 +295,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
   // 4. Articles alimentaires inutilisés
   const unusedFoodItems = (() => {
-    const nonToujoursItems = foodItems.filter(fi => fi.storage_type !== 'toujours' && fi.storage_type !== 'extras');
+    const nonToujoursItems = foodItems.filter(fi => fi.storage_type !== 'toujours' && fi.storage_type !== 'extras' && fi.storage_type !== 'test');
     const globalAvailableMeals: Meal[] = allMeals.filter(meal => {
       if (!meal.ingredients?.trim()) return false;
       const m = getMealMultiple(meal, stockMap);

@@ -154,7 +154,7 @@ export function useFoodItems() {
       no_counter?: boolean;
     }) => {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("food_items")
         .insert({
           name,
@@ -162,15 +162,18 @@ export function useFoodItems() {
           is_dry: storage_type === 'sec',
           storage_type,
           is_meal: is_meal ?? false,
-          no_counter: no_counter ?? (storage_type === 'extras' ? true : !grams),
+          no_counter: no_counter ?? ((storage_type === 'extras' || storage_type === 'test') ? true : !grams),
           ...(quantity ? { quantity } : {}),
           ...(grams ? { grams } : {}),
           ...(food_type ? { food_type } : {}),
           ...(expiration_date ? { expiration_date } : {}),
           ...(calories ? { calories } : {}),
           ...(protein ? { protein } : {}),
-        } as any);
+        } as any)
+        .select("id")
+        .single();
       if (error) throw error;
+      return data as { id: string };
     },
     onSuccess: invalidate,
   });
@@ -244,6 +247,7 @@ interface FoodItemCardProps {
   onUpdate: (updates: Partial<FoodItem>) => void;
   onDelete: () => void;
   onDuplicate: () => void;
+  onMoveToExtras?: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -251,7 +255,7 @@ interface FoodItemCardProps {
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -553,6 +557,17 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onDragStart, onDr
           <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Dupliquer">
             <Copy className="h-3 w-3" />
           </Button>
+          {onMoveToExtras && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onMoveToExtras}
+              className="h-6 px-2 shrink-0 text-[10px] text-white/80 hover:text-white hover:bg-white/20"
+              title="Déplacer vers Extras"
+            >
+              Vers Extras
+            </Button>
+          )}
           <Button size="icon" variant="ghost" onClick={onDelete} className="h-6 w-6 shrink-0 text-white/70 hover:text-white hover:bg-white/20" title="Supprimer">
             <Trash2 className="h-3 w-3" />
           </Button>
@@ -681,6 +696,7 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
   { type: 'sec', label: 'Placard sec', emoji: <Package className="h-4 w-4 text-amber-500" /> },
   { type: 'surgele', label: 'Surgelés', emoji: <Snowflake className="h-4 w-4 text-cyan-400" /> },
   { type: 'extras', label: 'Extras', emoji: <span className="text-base">✨</span> },
+  { type: 'test', label: 'Extras non disponible', emoji: <span className="text-base">🧪</span> },
   { type: 'toujours', label: 'Toujours présent', emoji: <span className="text-base">📌</span> },
 ];
 
@@ -727,6 +743,8 @@ export function FoodItems() {
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const testItemIds = getPreference<string[]>("food_test_ids", []);
+  const testItemIdSet = new Set(testItemIds);
 
   // Mise à jour des suggestions à chaque frappe
   const handleNameChange = useCallback((value: string) => {
@@ -801,8 +819,16 @@ export function FoodItems() {
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
+  /** Retourne les items triés d'une section, avec "test" géré comme sous-ensemble virtuel de extras. */
   const getSortedItems = (storageType: StorageType): FoodItem[] => {
-    const sectionItems = items.filter(i => i.storage_type === storageType);
+    let sectionItems: FoodItem[] = [];
+    if (storageType === "test") {
+      sectionItems = items.filter((i) => i.storage_type === "extras" && testItemIdSet.has(i.id));
+    } else if (storageType === "extras") {
+      sectionItems = items.filter((i) => i.storage_type === "extras" && !testItemIdSet.has(i.id));
+    } else {
+      sectionItems = items.filter((i) => i.storage_type === storageType);
+    }
     const mode = foodSortModes[storageType] || "manual";
     const asc = sortDirections[`food-${storageType}`] !== false; // default to true (ascending)
 
@@ -830,12 +856,13 @@ export function FoodItems() {
     const grams = pendingGrams.trim() || null;
     const calories = pendingCalories.trim() || null;
     const protein = pendingProtein.trim() || null;
-    const finalNoCounter = suggestedNoCounter !== null ? suggestedNoCounter : (storageType === 'extras' ? true : !grams);
+    const finalNoCounter = suggestedNoCounter !== null ? suggestedNoCounter : ((storageType === 'extras' || storageType === 'test') ? true : !grams);
     const finalIsMeal = suggestedIsMeal !== null ? suggestedIsMeal : false;
+    const persistedStorageType: StorageType = storageType === "test" ? "extras" : storageType;
 
     addItem.mutate({
       name: pendingName,
-      storage_type: storageType,
+      storage_type: persistedStorageType,
       quantity: qty,
       grams,
       food_type: pendingFoodType,
@@ -845,17 +872,20 @@ export function FoodItems() {
       is_meal: finalIsMeal,
       no_counter: finalNoCounter
     }, {
-      onSuccess: () => {
+      onSuccess: (created: any) => {
         // Sauvegarder dans la bibliothèque pour auto-complétion future
         upsertEntry.mutate({
           name: pendingName,
           food_type: pendingFoodType,
           is_meal: finalIsMeal,
           no_counter: finalNoCounter,
-          storage_type: storageType,
+          storage_type: persistedStorageType,
           calories,
           protein,
         });
+        if (storageType === "test" && created?.id) {
+          setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
+        }
         setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewExpiration(undefined);
         setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingExpiration(null);
         setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null);
@@ -875,6 +905,22 @@ export function FoodItems() {
     reordered.splice(toIndex, 0, moved);
     reorderItems.mutate(reordered.map((item, i) => ({ id: item.id, sort_order: i })));
     resetFoodSortToManual(storageType);
+  };
+
+  /** Déplace un aliment de section en gérant la section virtuelle "test". */
+  const handleChangeStorage = (id: string, st: StorageType) => {
+    const nextSet = new Set(testItemIds);
+    if (st === "test") {
+      nextSet.add(id);
+      setPreference.mutate({ key: "food_test_ids", value: Array.from(nextSet) });
+      handleUpdate(id, { storage_type: "extras", is_dry: false });
+      return;
+    }
+    if (nextSet.has(id)) {
+      nextSet.delete(id);
+      setPreference.mutate({ key: "food_test_ids", value: Array.from(nextSet) });
+    }
+    handleUpdate(id, { storage_type: st, is_dry: st === 'sec' });
   };
 
   if (isLoading) {
@@ -979,6 +1025,7 @@ export function FoodItems() {
                           {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
                           {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
                           {entry.storage_type === 'extras' && '✨'}
+                          {entry.storage_type === 'test' && '🧪'}
                           {entry.storage_type === 'toujours' && '📌'}
                         </span>
                       </div>
@@ -1105,11 +1152,12 @@ export function FoodItems() {
                 {suggestedStorageType === 'sec' && <><Package className="h-3 w-3 text-amber-500" /> Sec</>}
                 {suggestedStorageType === 'surgele' && <><Snowflake className="h-3 w-3 text-cyan-400" /> Surgelé</>}
                 {suggestedStorageType === 'extras' && <><span className="text-base leading-none">✨</span> Extras</>}
-                {!['frigo', 'sec', 'surgele', 'extras'].includes(suggestedStorageType) && suggestedStorageType}
+                {suggestedStorageType === 'test' && <><span className="text-base leading-none">🧪</span> Extras non disponible</>}
+                {!['frigo', 'sec', 'surgele', 'extras', 'test'].includes(suggestedStorageType) && suggestedStorageType}
               </span>
             </div>
           )}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
             <Button onClick={() => confirmAdd('frigo')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'frigo' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
             </Button>
@@ -1121,6 +1169,9 @@ export function FoodItems() {
             </Button>
             <Button onClick={() => confirmAdd('extras')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'extras' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <span className="text-base leading-none">✨</span> Extras
+            </Button>
+            <Button onClick={() => confirmAdd('test')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'test' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
+              <span className="text-base leading-none">🧪</span> Extras non disponible
             </Button>
           </div>
           <button onClick={() => { setShowStoragePrompt(false); setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); }} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">
@@ -1153,13 +1204,13 @@ export function FoodItems() {
             dragIndex={dragIndex}
             setDragIndex={setDragIndex}
             allItems={items}
-            onChangeStorage={(id, st) => handleUpdate(id, { storage_type: st, is_dry: st === 'sec' })}
+            onChangeStorage={handleChangeStorage}
           />
         ))}
       </div>
       <div className="mt-4 flex justify-center">
         <div className="flex flex-col gap-4 w-full max-w-3xl">
-          {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'extras' || s.type === 'toujours').map((section) => (
+          {STORAGE_SECTIONS.filter(s => s.type === 'surgele' || s.type === 'extras' || s.type === 'test' || s.type === 'toujours').map((section) => (
             <FoodSection
               key={section.type}
               emoji={section.emoji}
@@ -1177,7 +1228,7 @@ export function FoodItems() {
               dragIndex={dragIndex}
               setDragIndex={setDragIndex}
               allItems={items}
-              onChangeStorage={(id, st) => handleUpdate(id, { storage_type: st, is_dry: st === 'sec' })}
+              onChangeStorage={handleChangeStorage}
             />
           ))}
         </div>
@@ -1214,7 +1265,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
   const SortIcon = sortMode === "expiration" ? CalendarDays : sortMode === "name" ? ArrowUpDown : sortMode === "calories" ? Flame : sortMode === "protein" ? UtensilsCrossed : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : sortMode === "name" ? "Nom" : sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
-  const [collapsed, setCollapsed] = useState(storageType === 'toujours' || storageType === 'extras');
+  const [collapsed, setCollapsed] = useState(storageType === 'toujours' || storageType === 'extras' || storageType === 'test');
   const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
   // Touch drag & drop for mobile
@@ -1390,6 +1441,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                   onUpdate={(updates) => onUpdate(item.id, updates)}
                   onDelete={() => onDelete(item.id)}
                   onDuplicate={() => onDuplicate(item.id)}
+                  onMoveToExtras={storageType === 'test' ? () => onChangeStorage(item.id, 'extras') : undefined}
                   draggableEnabled={!isTouchDevice}
                   onDragStart={(e) => {
                     e.dataTransfer.setData("foodItemIndex", String(sectionIdx));

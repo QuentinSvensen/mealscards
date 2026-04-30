@@ -109,13 +109,13 @@ interface RemainingFoodLine {
 
 /**
  * Indique si un aliment peut figurer dans le bloc « reste en stock » : exclu si tout est
- * en « extras » ou infini, ou s’il n’y a ni date de péremption (sur une fiche hors extras) ni
+ * en « extras »/« test » ou infini, ou s’il n’y a ni date de péremption (sur une fiche hors extras/test) ni
  * fiche en surgelé — le casier surgelé est affiché même sans date, comme en usage courant.
  */
 function foodKeyIsShownInRemainingSimulation(key: string, foodItems: FoodItem[]): boolean {
   const matches = foodItems.filter((fi) => normalizeKey(fi.name) === key);
   if (matches.length === 0) return false;
-  const nonExtra = matches.filter((fi) => fi.storage_type !== "extras");
+  const nonExtra = matches.filter((fi) => fi.storage_type !== "extras" && fi.storage_type !== "test");
   if (nonExtra.length === 0) return false;
   if (nonExtra.every((fi) => fi.is_infinite)) return false;
   const hasExpiration = nonExtra.some(
@@ -218,7 +218,7 @@ function formatGramsQty(grams: number): string {
 function displayUnitGramsForRemaining(key: string, foodItems: FoodItem[], orig: StockInfo): number | null {
   if (orig.indivisibleUnit > 0) return orig.indivisibleUnit;
   const nonExtra = foodItems.filter(
-    (fi) => fi.storage_type !== "extras" && normalizeKey(fi.name) === key
+    (fi) => fi.storage_type !== "extras" && fi.storage_type !== "test" && normalizeKey(fi.name) === key
   );
   const byFiche: number[] = [];
   for (const fi of nonExtra) {
@@ -328,7 +328,7 @@ function formatCountForHash(n: number): string {
 
 /**
  * Liste les aliments encore en stock après simulation (état final uniquement), en excluant les lignes
- * relevant exclusivement d’ « extras », du stock infini, ou sans date de péremption sur
+ * relevant exclusivement d’ « extras »/« test », du stock infini, ou sans date de péremption sur
  * une fiche utile. Masque les ingrédients cités seulement hors plats (dessert, petit-déj., etc.) ;
  * un aliment absent de toute recette reste affiché.
  */
@@ -343,7 +343,7 @@ function buildRemainingFoodLines(
   const displayNameByKey = new Map<string, string>();
   const storageGroupByKey = new Map<string, "frigo" | "sec" | "surgele">();
   for (const fi of foodItems) {
-    if (fi.storage_type === "extras") continue;
+    if (fi.storage_type === "extras" || fi.storage_type === "test") continue;
     const k = normalizeKey(fi.name);
     if (!displayNameByKey.has(k)) displayNameByKey.set(k, fi.name.trim());
     if (!storageGroupByKey.has(k)) {
@@ -436,7 +436,7 @@ function getGeneratedMealEarliestExpiration(row: GeneratedMeal, foodItems: FoodI
 
   let earliest: string | null = null;
   for (const fi of foodItems) {
-    if (fi.storage_type === "extras") continue;
+    if (fi.storage_type === "extras" || fi.storage_type === "test") continue;
     if (!fi.expiration_date?.trim()) continue;
     if (!candidateKeys.has(normalizeKey(fi.name))) continue;
     if (earliest == null || fi.expiration_date < earliest) earliest = fi.expiration_date;
