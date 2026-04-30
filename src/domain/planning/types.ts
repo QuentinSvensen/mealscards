@@ -33,6 +33,7 @@ export interface PossibleMealsFullBackup {
   extraCalories: Record<string, number>;
   extraProteins: Record<string, number>;
   extraSelections: Record<string, string[]>;
+  extraSlotAssignments: Record<string, string[]>;
   breakfastManualCalories: Record<string, number>;
   breakfastManualProteins: Record<string, number>;
   breakfastSelections: Record<string, string>;
@@ -56,6 +57,7 @@ export const PLANNING_RESET_PREF_KEYS = [
   "planning_cal_overrides",
   "planning_pro_overrides",
   "planning_extra_selections",
+  "planning_extra_slot_assignments",
   "planning_daily_goal",
   "next_week_daily_goal",
   "planning_protein_goal",

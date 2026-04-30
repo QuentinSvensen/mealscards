@@ -689,12 +689,12 @@ function RemainingStockPills({ row }: { row: RemainingFoodLine }) {
 }
 
 export default function MaxMealGenerator({ foodItems, meals }: Props) {
-  const { getPreference, setPreference } = usePreferences();
+  const { setPreference } = usePreferences();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GeneratedMeal[]>([]);
   const [hasGenerated, setHasGenerated] = useState(false);
-  const [sortBy, setSortBy] = useState<MaxMealSort>("desc");
+  const [sortBy, setSortBy] = useState<MaxMealSort>("expiration");
   const [remainingAfterSimulation, setRemainingAfterSimulation] = useState<RemainingFoodLine[]>([]);
   const lastRunDepsKeyRef = useRef<string | null>(null);
   const depsKey = buildMaxMealGeneratorDepsKey(foodItems, meals);
@@ -757,12 +757,6 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     }
   }, [depsKey, hasGenerated]);
 
-  // Synchroniser le mode de tri de la DB avec l'état local
-  useEffect(() => {
-    const dbSort = getPreference<MaxMealSort>("max_meal_sort_by", null as any);
-    if (dbSort) setSortBy(dbSort);
-  }, [getPreference]);
-
   // Persister dans la DB
   const dbSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -816,6 +810,35 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     const valB = b.calories ?? 0;
     return sortBy === "desc" ? valB - valA : valA - valB;
   });
+  const groupedResults = sortedResults.reduce<
+    Array<{ row: GeneratedMeal; count: number }>
+  >((acc, row) => {
+    const key = [
+      row.name,
+      row.calories ?? "",
+      row.protein ?? "",
+      row.ingredients ?? "",
+      row.ratio,
+      row.isStandaloneFood ? 1 : 0,
+    ].join("||");
+    const last = acc[acc.length - 1];
+    if (last) {
+      const lastKey = [
+        last.row.name,
+        last.row.calories ?? "",
+        last.row.protein ?? "",
+        last.row.ingredients ?? "",
+        last.row.ratio,
+        last.row.isStandaloneFood ? 1 : 0,
+      ].join("||");
+      if (lastKey === key) {
+        last.count += 1;
+        return acc;
+      }
+    }
+    acc.push({ row, count: 1 });
+    return acc;
+  }, []);
 
   const toggleCaloriesSort = () => {
     setSortBy((prev) => {
@@ -864,6 +887,17 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={toggleExpirationSort}
+                    className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
+                      sortBy === "expiration" ? "bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400" : ""
+                    }`}
+                  >
+                    <CalendarDays className="h-3 w-3" />
+                    Péremption
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={toggleCaloriesSort}
                     className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
                       sortBy === "desc" || sortBy === "asc"
@@ -893,17 +927,6 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                     <ListOrdered className="h-3 w-3" />
                     1er ingr.
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleExpirationSort}
-                    className={`gap-1.5 text-[10px] h-8 rounded-xl border-dashed ${
-                      sortBy === "expiration" ? "bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400" : ""
-                    }`}
-                  >
-                    <CalendarDays className="h-3 w-3" />
-                    Péremption
-                  </Button>
                 </>
               )}
             </div>
@@ -918,14 +941,20 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
             </p>
           )}
 
-          {sortedResults.length > 0 && (
+          {groupedResults.length > 0 && (
             <div className="flex flex-col gap-2">
-              {sortedResults.map((r, i) => (
+              {groupedResults.map(({ row: r, count }, i) => (
                 <div key={i} className="flex flex-col rounded-2xl px-3 py-2.5 bg-amber-500/10 border border-amber-500/20">
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm text-foreground flex-1 truncate">{r.name}</p>
-                    <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-full shrink-0">
-                      {r.ratio >= 1 && Number.isInteger(r.ratio) ? `x${r.ratio}` : `${Math.round(r.ratio * 100)}%`}
+                    <span
+                      className={`font-black text-amber-600 dark:text-amber-400 bg-amber-500/20 rounded-full shrink-0 ${
+                        count > 1 ? "text-sm px-2 py-0.5" : "text-[10px] px-1.5 py-0.5"
+                      }`}
+                    >
+                      {count > 1
+                        ? `x${count}`
+                        : (r.ratio >= 1 && Number.isInteger(r.ratio) ? `x${r.ratio}` : `${Math.round(r.ratio * 100)}%`)}
                     </span>
                     {r.calories !== null && (
                       <span className="text-[10px] font-bold text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-full shrink-0">

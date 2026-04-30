@@ -88,7 +88,7 @@ describe("applyNextWeekPromotionOnTop", () => {
     expect(out.planning_extra_calories["2025-04-14"]).toBeUndefined();
   });
 
-  it("ne réécrase pas une clé sauvegardée (💾) avec le brouillon next_week", () => {
+  it("la semaine suivante garde la priorité sur une valeur sauvegardée (💾)", () => {
     const merged = mergeSnapshotsIntoLivePrefMap(
       {
         planning_manual_calories: { "2025-04-14-midi": 420 },
@@ -120,8 +120,8 @@ describe("applyNextWeekPromotionOnTop", () => {
       "manual-2025-04-14-midi": { cal: 420, prot: 30 },
     };
     const out = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
-    expect(out.planning_manual_calories["2025-04-14-midi"]).toBe(420);
-    expect(out.planning_manual_proteins["2025-04-14-midi"]).toBe(30);
+    expect(out.planning_manual_calories["2025-04-14-midi"]).toBe(999);
+    expect(out.planning_manual_proteins["2025-04-14-midi"]).toBe(99);
   });
 });
 

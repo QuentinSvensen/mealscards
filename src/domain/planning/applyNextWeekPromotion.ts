@@ -14,7 +14,7 @@ import {
 export function applyNextWeekPromotionOnTop(
   merged: MergedPlanningLiveState,
   prefMap: PlanningPrefMap,
-  snapshots?: Record<string, PlanningSnapshotEntry>,
+  _snapshots?: Record<string, PlanningSnapshotEntry>,
 ): MergedPlanningLiveState {
   const out: MergedPlanningLiveState = {
     planning_manual_calories: { ...merged.planning_manual_calories },
@@ -28,42 +28,26 @@ export function applyNextWeekPromotionOnTop(
     planning_drink_checks: { ...merged.planning_drink_checks },
   };
 
-  const protectedManual = new Set<string>();
-  const protectedExtra = new Set<string>();
-  const protectedBreakfast = new Set<string>();
-  for (const key of Object.keys(snapshots ?? {})) {
-    if (key.startsWith("manual-")) protectedManual.add(key.slice("manual-".length));
-    else if (key.startsWith("extra-")) protectedExtra.add(key.slice("extra-".length));
-    else if (key.startsWith("breakfast-")) protectedBreakfast.add(key.slice("breakfast-".length));
-  }
-
-  const overlayNumbers = (
-    next: Record<string, number>,
-    target: Record<string, number>,
-    protectedKeys?: Set<string>,
-  ) => {
+  const overlayNumbers = (next: Record<string, number>, target: Record<string, number>) => {
     for (const [k, v] of Object.entries(next)) {
-      if (protectedKeys?.has(k)) continue;
       if (typeof v !== "number" || Number.isNaN(v)) continue;
       if (v > 0) target[k] = v;
       else delete target[k];
     }
   };
 
-  overlayNumbers(asNumberRecord(prefMap["next_week_manual_calories"]), out.planning_manual_calories, protectedManual);
-  overlayNumbers(asNumberRecord(prefMap["next_week_manual_proteins"]), out.planning_manual_proteins, protectedManual);
-  overlayNumbers(asNumberRecord(prefMap["next_week_extra_calories"]), out.planning_extra_calories, protectedExtra);
-  overlayNumbers(asNumberRecord(prefMap["next_week_extra_proteins"]), out.planning_extra_proteins, protectedExtra);
+  overlayNumbers(asNumberRecord(prefMap["next_week_manual_calories"]), out.planning_manual_calories);
+  overlayNumbers(asNumberRecord(prefMap["next_week_manual_proteins"]), out.planning_manual_proteins);
+  overlayNumbers(asNumberRecord(prefMap["next_week_extra_calories"]), out.planning_extra_calories);
+  overlayNumbers(asNumberRecord(prefMap["next_week_extra_proteins"]), out.planning_extra_proteins);
 
   const nES = asStringArrayRecord(prefMap["next_week_extra_selections"]);
   for (const [k, v] of Object.entries(nES)) {
-    if (protectedExtra.has(k)) continue;
     out.planning_extra_selections[k] = Array.isArray(v) ? [...v] : [];
   }
 
   const nBf = asStringRecord(prefMap["next_week_breakfast"]);
   for (const [k, v] of Object.entries(nBf)) {
-    if (protectedBreakfast.has(k)) continue;
     if (v && String(v).trim()) out.planning_breakfast[k] = v;
     else delete out.planning_breakfast[k];
   }
@@ -71,12 +55,10 @@ export function applyNextWeekPromotionOnTop(
   overlayNumbers(
     asNumberRecord(prefMap["next_week_breakfast_manual_calories"]),
     out.planning_breakfast_manual_calories,
-    protectedBreakfast,
   );
   overlayNumbers(
     asNumberRecord(prefMap["next_week_breakfast_manual_proteins"]),
     out.planning_breakfast_manual_proteins,
-    protectedBreakfast,
   );
 
   const nDr = asBoolRecord(prefMap["next_week_drink_checks"]);

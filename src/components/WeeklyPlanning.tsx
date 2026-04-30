@@ -225,6 +225,17 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
   return { cal, pro };
 }
 
+/** Formate l'étiquette d'un extra placé en incluant ses grammes s'ils existent. */
+function formatPlacedExtraLabel(extraName: string, grams?: string | null): string {
+  const name = (extraName || "").trim();
+  const rawGrams = (grams || "").trim();
+  const hasUnit = /[a-zA-Z]/.test(rawGrams);
+  const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
+  if (!name) return g;
+  if (!g) return name;
+  return `${g} ${name}`;
+}
+
 const DAILY_PROTEIN_GOAL = 110;
 
 interface TouchDragState {
@@ -1728,7 +1739,14 @@ export function WeeklyPlanning({
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]"
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors truncate max-w-[120px] ${
+                          (() => {
+                            const count = matinMeals.length + (getBreakfastForDay(key, iso) ? 1 : 0);
+                            return count > 0
+                              ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50"
+                              : "bg-slate-200/80 dark:bg-slate-700/45 text-slate-700 dark:text-slate-300 border border-dashed border-slate-400/50 dark:border-slate-500/50 hover:bg-slate-300/80 dark:hover:bg-slate-600/50";
+                          })()
+                        }`}
                         onDoubleClick={() => {
                           const bm = getBreakfastForDay(key, iso);
                           if (bm) setPopupBreakfast({ meal: bm, day: iso });
@@ -1981,7 +1999,7 @@ export function WeeklyPlanning({
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
                           title="Extra assigné au petit déj — glisse pour déplacer"
                         >
-                          {custom?.name || fi?.name}
+                          {formatPlacedExtraLabel(custom?.name || fi?.name || "", fi?.grams)}
                           <button
                             onClick={() => deselectExtraForDay(extraId, iso, key)}
                             className="opacity-60 hover:opacity-100 font-bold"
@@ -2273,7 +2291,7 @@ export function WeeklyPlanning({
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                                   title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
                                 >
-                                  {custom?.name || fi?.name}
+                                  {formatPlacedExtraLabel(custom?.name || fi?.name || "", fi?.grams)}
                                   <button
                                     onClick={() => deselectExtraForDay(extraId, iso, key)}
                                     className="opacity-60 hover:opacity-100 font-bold"
@@ -2981,7 +2999,7 @@ export function WeeklyPlanning({
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                             title="Extra assigné à Goûter — glisse pour déplacer"
                           >
-                            {custom?.name || fi?.name}
+                            {formatPlacedExtraLabel(custom?.name || fi?.name || "", fi?.grams)}
                             <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
                           </span>
                         );
@@ -3062,6 +3080,7 @@ export function WeeklyPlanning({
           const bEC = isNF ? (backupRaw.extraCalories || {}) : {};
           const bEP = isNF ? (backupRaw.extraProteins || {}) : {};
           const bES = isNF ? (backupRaw.extraSelections || {}) : {};
+          const bESA = isNF ? (backupRaw.extraSlotAssignments || {}) : {};
           const bBC = isNF ? (backupRaw.breakfastManualCalories || {}) : {};
           const bBP = isNF ? (backupRaw.breakfastManualProteins || {}) : {};
           const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
@@ -3135,16 +3154,28 @@ export function WeeklyPlanning({
                   return { cals, pros };
                 };
 
+                const matinAssignedIds = bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? [];
+                const midiAssignedIds = bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? [];
+                const soirAssignedIds = bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? [];
+                const gouterAssignedIds = bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? [];
+                const matinAssigned = sumExtrasFromSelectionIds(matinAssignedIds, foodItems);
+                const midiAssigned = sumExtrasFromSelectionIds(midiAssignedIds, foodItems);
+                const soirAssigned = sumExtrasFromSelectionIds(soirAssignedIds, foodItems);
+                const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
+
                 const resMatin = processCards(matinCards);
-                bfSlotCal += resMatin.cals; bfSlotPro += resMatin.pros;
+                bfSlotCal += resMatin.cals + matinAssigned.cal;
+                bfSlotPro += resMatin.pros + matinAssigned.pro;
 
                 const resMidi = processCards(midiCards);
-                midiSlotCal = resMidi.cals; midiSlotPro = resMidi.pros;
+                midiSlotCal = resMidi.cals + midiAssigned.cal;
+                midiSlotPro = resMidi.pros + midiAssigned.pro;
                 if (midiCards.length === 0) { midiSlotCal += (bMC[`${iso}-midi`] || bMC[`${key}-midi`] || 0); midiSlotPro += (bMP[`${iso}-midi`] || bMP[`${key}-midi`] || 0); }
                 if (bDC[`${iso}-midi`] || bDC[`${key}-midi`]) midiSlotCal += 150;
 
                 const resSoir = processCards(soirCards);
-                soirSlotCal = resSoir.cals; soirSlotPro = resSoir.pros;
+                soirSlotCal = resSoir.cals + soirAssigned.cal;
+                soirSlotPro = resSoir.pros + soirAssigned.pro;
                 if (soirCards.length === 0) { soirSlotCal += (bMC[`${iso}-soir`] || bMC[`${key}-soir`] || 0); soirSlotPro += (bMP[`${iso}-soir`] || bMP[`${key}-soir`] || 0); }
                 if (bDC[`${iso}-soir`] || bDC[`${key}-soir`]) soirSlotCal += 150;
 
@@ -3155,8 +3186,12 @@ export function WeeklyPlanning({
                 dayTotal += (bEC[iso] || bEC[key] || 0);
                 dayPro += (bEP[iso] || bEP[key] || 0);
                 const backupExtraSum = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
-                dayTotal += backupExtraSum.cal;
-                dayPro += backupExtraSum.pro;
+                const backupAssignedExtraCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
+                const backupAssignedExtraPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
+                const backupUnassignedExtraCal = Math.max(0, backupExtraSum.cal - backupAssignedExtraCal);
+                const backupUnassignedExtraPro = Math.max(0, backupExtraSum.pro - backupAssignedExtraPro);
+                dayTotal += backupUnassignedExtraCal;
+                dayPro += backupUnassignedExtraPro;
 
                 // Le calcul des boissons est déjà inclus dans les totaux des créneaux (slots)
 
@@ -3277,10 +3312,18 @@ export function WeeklyPlanning({
                         <div className="flex flex-col items-center gap-1 mt-1 w-full opacity-60">
                           {(() => {
                             const sel = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
+                            const matinAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? [], foodItems);
+                            const midiAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? [], foodItems);
+                            const soirAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? [], foodItems);
+                            const gouterAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? [], foodItems);
+                            const assignedCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
+                            const assignedPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
+                            const extraCal = Math.max(0, sel.cal - assignedCal);
+                            const extraPro = Math.max(0, sel.pro - assignedPro);
                             return (
                               <>
-                                <div className="text-[10px] text-orange-400 font-bold">{Math.round((bEC[iso] || bEC[key] || 0) + sel.cal)}</div>
-                                <div className="text-[10px] text-blue-400 font-bold">{Math.round((bEP[iso] || bEP[key] || 0) + sel.pro)}</div>
+                                <div className="text-[10px] text-orange-400 font-bold">{Math.round((bEC[iso] || bEC[key] || 0) + extraCal)}</div>
+                                <div className="text-[10px] text-blue-400 font-bold">{Math.round((bEP[iso] || bEP[key] || 0) + extraPro)}</div>
                               </>
                             );
                           })()}
@@ -3402,7 +3445,16 @@ export function WeeklyPlanning({
                   <div className="flex items-center gap-1">
                     <Popover>
                       <PopoverTrigger asChild>
-                        <button className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 px-2 py-0.5 rounded-full font-semibold hover:bg-orange-200 dark:hover:bg-orange-900/50 transition-colors truncate max-w-[120px]">
+                        <button
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors truncate max-w-[120px] ${
+                            (() => {
+                              const count = matinMeals.length + (hasNextBf && !matinMeals.length ? 1 : 0);
+                              return count > 0
+                                ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50"
+                                : "bg-slate-200/80 dark:bg-slate-700/45 text-slate-700 dark:text-slate-300 border border-dashed border-slate-400/50 dark:border-slate-500/50 hover:bg-slate-300/80 dark:hover:bg-slate-600/50";
+                            })()
+                          }`}
+                        >
                           {(() => {
                             const count = matinMeals.length + (hasNextBf && !matinMeals.length ? 1 : 0);
                             if (count > 1) return 'Plusieurs petits déj';

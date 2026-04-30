@@ -838,7 +838,15 @@ const Index = () => {
               <div className="flex items-center gap-2 mb-3 sm:mb-4">
                 <TabsList className="flex-1 overflow-x-auto rounded-2xl">
                   {CATEGORIES.map((c) =>
-                    <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl">
+                    <TabsTrigger
+                      key={c.value}
+                      value={c.value}
+                      className={`text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl ${
+                        c.value === "petit_dejeuner" && activeCategory !== "petit_dejeuner"
+                          ? "bg-orange-500/10 text-orange-700 dark:text-orange-300 hover:bg-orange-500/20"
+                          : ""
+                      }`}
+                    >
                       <span className="mr-0.5">{c.emoji}</span>
                       <span className="text-[9px] sm:text-xs leading-tight">{c.label}</span>
                     </TabsTrigger>

@@ -223,7 +223,7 @@ export function PossibleMealCard({
             return baseGrams > 0 ? `${baseGrams}g ${meal.name}` : `1 ${meal.name}`;
           })();
 
-        const scaledIngredients = scaleIngredientStringExact(baseIng, ratio);
+        const scaledIngredients = scaleIngredientStringExact(baseIng, ratio, undefined, true);
         onUpdatePossibleIngredients(scaledIngredients);
       }
       // NOTE : Ne PAS appeler onUpdateGrams ou onUpdateCalories ici — ceux-ci modifient le repas MAÎTRE.
@@ -545,7 +545,7 @@ export function PossibleMealCard({
                     const baseGrams = parseFloat((meal.grams || "0").replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
                     return baseGrams > 0 ? `${baseGrams}g ${meal.name}` : `1 ${meal.name}`;
                   })();
-                  const baseIngredients = scaleIngredientStringExact(baseIng, 1 / detectedRatio);
+                  const baseIngredients = scaleIngredientStringExact(baseIng, 1 / detectedRatio, undefined, true);
                   onSplitQuantity(detectedRatio, baseIngredients);
                 }}>
                   <SplitSquareHorizontal className="mr-2 h-4 w-4" /> Diviser les quantités

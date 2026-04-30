@@ -304,6 +304,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const nameMatchMealNames = new Set<string>();
     for (const meal of allMeals) {
       if (meal.ingredients?.trim()) continue;
+      if (!meal.is_available) continue;
       for (const fi of foodItems) {
         if (strictNameMatch(meal.name, fi.name)) {
           nameMatchMealNames.add(normalizeForMatch(fi.name));
@@ -500,12 +501,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const getVal = (u: UnifiedAvail): number => {
         if (sortMode === "calories") {
           if (u.type === 'isMeal') {
+            // Pour le tri numérique, classer sur UNE seule portion (et non le total xN disponible).
             let displayCal = u.fi.calories;
             if (u.fi.grams) {
-              const totalG = getFoodItemTotalGrams(u.fi);
-              if (totalG > 0 && displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * totalG / 100));
-            } else if (u.fi.quantity && u.fi.quantity > 1 && displayCal) {
-              displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * u.fi.quantity));
+              const unitG = parseQty(u.fi.grams);
+              if (unitG > 0 && displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
             }
             const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: displayCal, ingredients: null };
             return getDisplayedCalories(fakeMeal) ?? 0;
@@ -527,12 +527,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         }
 
         if (u.type === 'isMeal') {
+            // Même règle côté protéines : tri basé sur la portion unitaire.
             let displayPro = u.fi.protein;
             if (u.fi.grams) {
-              const totalG = getFoodItemTotalGrams(u.fi);
-              if (totalG > 0 && displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * totalG / 100));
-            } else if (u.fi.quantity && u.fi.quantity > 1 && displayPro) {
-              displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * u.fi.quantity));
+              const unitG = parseQty(u.fi.grams);
+              if (unitG > 0 && displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * unitG / 100));
             }
             return parseMacroValue(displayPro);
         }

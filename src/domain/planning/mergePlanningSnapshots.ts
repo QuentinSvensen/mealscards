@@ -1,6 +1,5 @@
 import type { PlanningSnapshotEntry, MergedPlanningLiveState, PlanningPrefMap } from "./types";
 import {
-  asBoolRecord,
   asNumberRecord,
   asStringArrayRecord,
   asStringRecord,
@@ -11,17 +10,19 @@ import {
  * (même logique que le reset auto / manuel).
  */
 export function mergeSnapshotsIntoLivePrefMap(
-  prefMap: PlanningPrefMap,
+  _prefMap: PlanningPrefMap,
   snapshots: Record<string, PlanningSnapshotEntry>
 ): MergedPlanningLiveState {
-  const rMC = { ...asNumberRecord(prefMap["planning_manual_calories"]) };
-  const rMP = { ...asNumberRecord(prefMap["planning_manual_proteins"]) };
-  const rEC = { ...asNumberRecord(prefMap["planning_extra_calories"]) };
-  const rEP = { ...asNumberRecord(prefMap["planning_extra_proteins"]) };
-  const rES = { ...asStringArrayRecord(prefMap["planning_extra_selections"]) };
-  const rBC = { ...asNumberRecord(prefMap["planning_breakfast_manual_calories"]) };
-  const rBP = { ...asNumberRecord(prefMap["planning_breakfast_manual_proteins"]) };
-  const keptBreakfast = { ...asStringRecord(prefMap["planning_breakfast"]) };
+  // Reset hebdo : on repart d'un état vierge.
+  // Seules les entrées explicitement sauvegardées (snapshots 💾) sont réinjectées.
+  const rMC: Record<string, number> = {};
+  const rMP: Record<string, number> = {};
+  const rEC: Record<string, number> = {};
+  const rEP: Record<string, number> = {};
+  const rES: Record<string, string[]> = {};
+  const rBC: Record<string, number> = {};
+  const rBP: Record<string, number> = {};
+  const keptBreakfast: Record<string, string> = {};
 
   for (const [key, snap] of Object.entries(snapshots)) {
     const s = snap;
@@ -51,6 +52,6 @@ export function mergeSnapshotsIntoLivePrefMap(
     planning_breakfast_manual_calories: rBC,
     planning_breakfast_manual_proteins: rBP,
     planning_breakfast: keptBreakfast,
-    planning_drink_checks: { ...asBoolRecord(prefMap["planning_drink_checks"]) },
+    planning_drink_checks: {},
   };
 }

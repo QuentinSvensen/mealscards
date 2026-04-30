@@ -36,6 +36,7 @@ export function buildFullBackupPayload(
     extraCalories: asNumberRecord(prefMap["planning_extra_calories"]),
     extraProteins: asNumberRecord(prefMap["planning_extra_proteins"]),
     extraSelections: asStringArrayRecord(prefMap["planning_extra_selections"]),
+    extraSlotAssignments: asStringArrayRecord(prefMap["planning_extra_slot_assignments"]),
     breakfastManualCalories: asNumberRecord(prefMap["planning_breakfast_manual_calories"]),
     breakfastManualProteins: asNumberRecord(prefMap["planning_breakfast_manual_proteins"]),
     breakfastSelections: asStringRecord(prefMap["planning_breakfast"]),

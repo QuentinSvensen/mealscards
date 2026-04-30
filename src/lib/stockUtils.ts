@@ -1050,7 +1050,12 @@ export function buildScaledMealForRatio(meal: Meal, ratio: number, stockMap?: Ma
  * - Les ingrédients indivisibles : arrondis au multiple de l'unité
  * - Les macros {cal} et [pro] : préservées telles quelles
  */
-export function scaleIngredientStringExact(rawIngredients: string | null, ratio: number, stockMap?: Map<string, StockInfo>): string | null {
+export function scaleIngredientStringExact(
+  rawIngredients: string | null,
+  ratio: number,
+  stockMap?: Map<string, StockInfo>,
+  allowIndivisibleSplitInPossible: boolean = false,
+): string | null {
   if (!rawIngredients?.trim()) return null;
 
   // Première passe : déterminer le ratio effectif en tenant compte des arrondis de comptage
@@ -1065,7 +1070,7 @@ export function scaleIngredientStringExact(rawIngredients: string | null, ratio:
     const { text: withoutMetrics } = extractMetrics(cleanAlt);
     const parsed = parseIngredientLineRaw(withoutMetrics);
 
-    if (parsed.count > 0 && parsed.qty === 0) {
+    if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible) {
       const scaledCount = Math.round(parsed.count * ratio);
       const actualRatio = scaledCount / parsed.count;
       if (Math.abs(actualRatio - ratio) > 0.001) {
@@ -1087,12 +1092,14 @@ export function scaleIngredientStringExact(rawIngredients: string | null, ratio:
         let scaledQtyRaw = parsed.qty > 0 ? parsed.qty * effectiveRatio : 0;
         let scaledCountRaw = parsed.count > 0 ? parsed.count * effectiveRatio : 0;
 
-        if (parsed.count > 0 && parsed.qty === 0) {
+        if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible) {
           scaledCountRaw = Math.round(scaledCountRaw);
         }
 
-        // Arrondir au multiple de l'unité indivisible si applicable
-        if (stockMap) {
+        // Arrondir au multiple de l'unité indivisible si applicable.
+        // Exception explicite : en catégorie "Possible", on autorise la division
+        // via multiple/pourcent et "Diviser les quantités".
+        if (stockMap && !allowIndivisibleSplitInPossible) {
           const key = findStockKey(stockMap, parsed.name);
           if (key) {
             const stock = stockMap.get(key)!;
