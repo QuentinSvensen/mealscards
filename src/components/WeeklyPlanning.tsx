@@ -2861,8 +2861,11 @@ export function WeeklyPlanning({
                                   >
                                     <div className="flex-1 min-w-0">
                                       <p className="text-[11px] font-black transition-colors truncate text-orange-600">{label}</p>
+                                      {(!c && (fi?.grams || fi?.quantity)) && (
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">{fi?.grams ? `${fi.grams}` : ''}{fi?.grams && fi?.quantity ? ' · ' : ''}{fi?.quantity ? `x${fi.quantity}` : ''}</p>
+                                      )}
                                       {dessertPossibleCount !== null && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCount}</p>
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">x{dessertPossibleCount}</p>
                                       )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
