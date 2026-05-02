@@ -18,9 +18,10 @@ import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { format, parseISO } from "date-fns";
 import {
-  normalizeForMatch, strictNameMatch,
+  normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, parseIngredientLine, parsePartialQty,
+  extractIngredientMacros,
   type ParsedIngredient,
 } from "@/lib/ingredientUtils";
 import {
@@ -71,24 +72,40 @@ function expandOrGroupIngredientNames(item: ParsedIngredient): string[] {
 /**
  * Construit une chaîne d'ingrédients basée uniquement sur les alternatives réellement consommées.
  * Sert à afficher sur la carte "Possible" uniquement les choix "ou" effectivement déduits du stock.
+ * Reprend les suffixes {cal} / [pro] depuis la recette maître pour l’éditeur et les calculs.
+ * Les quantités unitaires utilisent « 4 Pain » (pas « x4 Pain ») pour rester parsables en colonnes.
  */
-function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[][]): string | null {
+function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[][], mealIngredients: string): string | null {
   /** Remet une majuscule initiale pour un affichage propre côté carte Possible. */
   const withLeadingUppercase = (value: string): string => {
     const trimmed = (value || "").trim();
     if (!trimmed) return "";
     return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
   };
+
+  const macroMap = extractIngredientMacros(mealIngredients);
+
+  /** Réinjecte les macros par nom (clé normalisée), comme serializeIngredients. */
+  const macroSuffixForDisplayName = (displayName: string): string => {
+    const m = macroMap.get(normalizeKey(displayName));
+    if (!m) return "";
+    let s = "";
+    if (m.cal) s += `{${m.cal}}`;
+    if (m.pro) s += ` [${m.pro}]`;
+    return s;
+  };
+
   const lines: string[] = [];
   for (const altBundle of pickedAlternatives) {
     const parts = altBundle
       .filter((item) => !item.optional)
       .map((item) => {
-        const displayName = withLeadingUppercase(item.rawName || item.name || "");
+        const displayName = withLeadingUppercase(item.name || "");
         if (!displayName) return "";
-        if (item.qty > 0) return `${formatNumeric(item.qty)}g ${displayName}`.trim();
-        if (item.count > 0) return `x${formatNumeric(item.count)} ${displayName}`.trim();
-        return displayName;
+        const macros = macroSuffixForDisplayName(displayName);
+        if (item.qty > 0) return `${formatNumeric(item.qty)}g ${displayName}${macros}`.trim();
+        if (item.count > 0) return `${formatNumeric(item.count)} ${displayName}${macros}`.trim();
+        return `${displayName}${macros}`;
       })
       .filter(Boolean);
     if (parts.length > 0) lines.push(parts.join(" + "));
@@ -424,7 +441,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     };
     qc.setQueryData<FoodItem[]>(["food_items"], applyOptimistic);
     suppressStockRealtimeBriefly();
-    const consumedIngredients = buildConsumedIngredientsOverride(pickedAlternatives);
+    const consumedIngredients = buildConsumedIngredientsOverride(pickedAlternatives, meal.ingredients);
     return {
       snapshots: Array.from(snapshotsById.values()),
       consumedIds: Array.from(updatesById.values()).filter(u => u.delete).map(u => u.id),
