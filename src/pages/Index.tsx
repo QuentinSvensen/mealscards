@@ -1193,22 +1193,29 @@ const Index = () => {
                                       foodItemIndex,
                                     ) ?? nextAnalysis?.earliestCounterDate ?? pm.counter_start_date ?? null
                                   : null;
+                              // Détecter si le jour sélectionné est dans le futur (même sans créneau choisi).
+                              // Utiliser « midi » comme créneau provisoire pour basculer le compteur en
+                              // mode « prog. » dès la sélection du jour, au lieu de garder l'ancien compteur.
+                              const isFutureDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) && day > new Date().toISOString().slice(0, 10);
+                              const provisionalTime = time || (isFutureDay ? 'midi' : null);
+                              const hasEffectiveSlot = Boolean(day && provisionalTime);
+
                               // Ne pas persister analysis.earliestCounterDate sur la carte quand jour+créneau sont
-                              // fixés (sinon « maintenant » après déduction écrase le min jeudi d’un autre repas).
+                              // fixés (sinon « maintenant » après déduction écrase le min jeudi d'un autre repas).
                               const counterForMutate =
-                                day && time && !isOccupied ? undefined : effectiveCounter;
+                                hasEffectiveSlot && !isOccupied ? undefined : effectiveCounter;
                               updatePlanning.mutate({
                                 id,
                                 day_of_week: day,
                                 meal_time: time,
                                 counter_start_date: counterForMutate,
                               });
-                              // N'appeler la mise à jour du compteur que si jour ET créneau sont définis.
-                              // Sinon le compteur serait programmé à 00h (sans heure de repas).
+                              // Appeler la mise à jour du compteur dès qu'un créneau effectif existe
+                              // (jour + heure explicite, ou jour futur + « midi » provisoire).
                               // Le 2e appel (choix de l'heure) corrigera avec la bonne heure.
-                              if (day && time) {
+                              if (day && provisionalTime) {
                                 const fallbackDate = nextResolvedCounter ?? counter ?? pm.counter_start_date ?? null;
-                                updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, nextPossibleMeals);
+                                updateFoodItemCountersForPlanning(id, ing, day, provisionalTime, fallbackDate, pm.created_at, nextPossibleMeals);
                               }
                             }
                           }}
