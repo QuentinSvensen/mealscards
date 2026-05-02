@@ -8,6 +8,8 @@ import {
   formatPlannedCounterOpenFr,
   getCounterDaysBadgeTooltip,
 } from "@/lib/ingredientUtils";
+import { buildFoodItemIndex } from "@/lib/stockUtils";
+import type { FoodItem } from "@/hooks/useFoodItems";
 
 // ─── CALORIE COMPUTATION ────────────────────────────────────────────────────
 
@@ -70,6 +72,31 @@ describe("computeIngredientProtein", () => {
 
   it("returns null when no protein data", () => {
     expect(computeIngredientProtein("200g Poulet")).toBeNull();
+  });
+
+  it("complète les prot depuis les fiches aliments quand [pro] est absent sur la ligne", () => {
+    const fi: FoodItem = {
+      id: "t1",
+      name: "Poulet",
+      grams: null,
+      calories: null,
+      protein: "31",
+      expiration_date: null,
+      counter_start_date: null,
+      sort_order: 0,
+      created_at: "",
+      is_meal: false,
+      is_infinite: false,
+      is_dry: false,
+      is_indivisible: false,
+      no_counter: true,
+      storage_type: "frigo",
+      quantity: null,
+      food_type: null,
+    };
+    const foodItems = [fi];
+    const index = buildFoodItemIndex(foodItems);
+    expect(computeIngredientProtein("200g Poulet", undefined, 1, foodItems, index)).toBe(62);
   });
 });
 

@@ -36,7 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
-import { analyzeMealIngredients, buildStockMap, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -562,6 +562,7 @@ export function WeeklyPlanning({
   const { items: foodItems } = useFoodItems();
   const { foodSortModes, sortDirections } = useSortModes({ enabled: true });
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
+  const foodMacroIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
   const { weekOffset, setWeekOffset, weekDates, todayISO } = usePlanningWeek();
   const manualResetLockRef = useRef(false);
   const [manualResetBusy, setManualResetBusy] = useState(false);
@@ -1084,7 +1085,7 @@ export function WeeklyPlanning({
           const overridePro = c.id ? bPO[c.id] : undefined;
           const fullPm = { ...c, meals: m };
           dayCal += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
-          dayPro += getCardDisplayProtein(fullPm, overridePro, isAvailableCb);
+          dayPro += getCardDisplayProtein(fullPm, overridePro, isAvailableCb, foodItems, foodMacroIndex);
         }
       });
 
@@ -1106,7 +1107,7 @@ export function WeeklyPlanning({
           const pm = cards.find(p => p.id === bfSel.slice(3));
           if (pm) {
             dayCal += getCardDisplayCalories(pm, bCO[pm.id], isAvailableCb);
-            dayPro += getCardDisplayProtein(pm, bPO[pm.id], isAvailableCb);
+            dayPro += getCardDisplayProtein(pm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
           }
         } else {
           const m = allMealsById.get(bfSel);
@@ -1614,7 +1615,7 @@ export function WeeklyPlanning({
     const rawCalNum = overrideCal ? (parseFloat(overrideCal) || 0) : getCardDisplayCalories(pm, undefined, isAvailableCb);
     const displayCal = rawCalNum ? String(Math.round(rawCalNum)) : null;
     const overridePro = proOverrides[pm.id];
-    const rawProNum = overridePro ? (parseFloat(overridePro) || 0) : getCardDisplayProtein(pm, undefined, isAvailableCb);
+    const rawProNum = overridePro ? (parseFloat(overridePro) || 0) : getCardDisplayProtein(pm, undefined, isAvailableCb, foodItems, foodMacroIndex);
     const displayPro = rawProNum ? String(Math.round(rawProNum)) : null;
 
     const isComputedCal = !overrideCal && computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
@@ -1857,7 +1858,7 @@ export function WeeklyPlanning({
           const dayCalories = getDayCalories(key, iso);
           const matinMeals = getMealsForSlot(key, 'matin', iso);
           const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-          const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
+          const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
 
           const breakfast = getBreakfastForDay(key, iso);
           let baseBreakfastCals = 0;
@@ -1873,7 +1874,7 @@ export function WeeklyPlanning({
                 baseBreakfastPro = 0;
               } else {
                 baseBreakfastCals = possiblePdj ? getCardDisplayCalories(possiblePdj, calOverrides[possiblePdj.id], isAvailableCb) : parseCalories(breakfast.calories);
-                baseBreakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, proOverrides[possiblePdj.id], isAvailableCb) : parseProtein(breakfast.protein);
+                baseBreakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, proOverrides[possiblePdj.id], isAvailableCb, foodItems, foodMacroIndex) : parseProtein(breakfast.protein);
               }
             } else {
               baseBreakfastCals = getMealCal(breakfast);
@@ -2302,7 +2303,7 @@ export function WeeklyPlanning({
                     extraSlotAssignments[`${iso}-${time}`] ?? extraSlotAssignments[`${key}-${time}`] ?? [];
                   const isOver = dragOverSlot === slotKey || touchHighlight === slotKey || dragOverSlot === `${key}-${time}` || touchHighlight === `${key}-${time}`;
                   const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
-                  const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb), 0);
+                  const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotAssigned = sumExtrasFromSelectionIds(slotAssignedIds, foodItems);
                   const slotCals = slotCalsMeals + slotAssigned.cal;
                   const slotPro = slotProMeals + slotAssigned.pro;
@@ -3416,7 +3417,7 @@ export function WeeklyPlanning({
                     const m = allMealsById.get(pm.meal_id);
                     const fullPm = m ? { ...pm, meals: m } : pm;
                     bfSlotCal += getCardDisplayCalories(fullPm, bCO[pm.id], isAvailableCb);
-                    bfSlotPro += getCardDisplayProtein(fullPm, bPO[pm.id], isAvailableCb);
+                    bfSlotPro += getCardDisplayProtein(fullPm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
                   }
                 } else {
                   bfSlotCal += (bBC[iso] || bBC[key] || 0);
@@ -3434,7 +3435,7 @@ export function WeeklyPlanning({
                     const overridePro = bPO[c.id];
                     const fullPm = { ...c, meals: m };
                     cals += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
-                    pros += getCardDisplayProtein(fullPm, overridePro, isAvailableCb);
+                    pros += getCardDisplayProtein(fullPm, overridePro, isAvailableCb, foodItems, foodMacroIndex);
                   }
                   return { cals, pros };
                 };
@@ -3685,7 +3686,7 @@ export function WeeklyPlanning({
 
             const matinMeals = getMealsForSlot(key, 'matin', iso);
             const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-            const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
+            const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
 
             // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm: ou programmed matin)
             const hasNextBf = !!(effBfMeal || effBfPm || matinMeals.length > 0);
@@ -3718,7 +3719,7 @@ export function WeeklyPlanning({
               nxtDayPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? baseManualPro;
               // Inclure les cartes programmées
               const slotMeals = getMealsForSlot(key, time, iso);
-              nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb), 0);
+              nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
             }
             nxtDayPro += effExtraPro + nextExtraSelMacros.pro;
 
@@ -4103,7 +4104,7 @@ export function WeeklyPlanning({
               popupPm.counter_start_date ??
               null;
             const displayCal = String(getCardDisplayCalories(popupPm, calOverrides[popupPm.id], isAvailableCb));
-            const displayPro = String(getCardDisplayProtein(popupPm, proOverrides[popupPm.id], isAvailableCb));
+            const displayPro = String(getCardDisplayProtein(popupPm, proOverrides[popupPm.id], isAvailableCb, foodItems, foodMacroIndex));
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
             const counterBadgeTitle =
               counterDays !== null && effectiveStart

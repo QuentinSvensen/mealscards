@@ -804,16 +804,64 @@ const _calCache = new Map<string, number | null>();
 const _proCache = new Map<string, number | null>();
 const MACRO_CACHE_MAX = 500;
 
+/**
+ * Index inversé nom normalisé → fiches aliments (même structure que `buildFoodItemIndex` dans stockUtils).
+ * Sert à résoudre rapidement les protéines pour 100 g à partir du garde-manger.
+ */
+export type FoodItemMacroIndex = Map<string, FoodItem[]>;
+
+/**
+ * Trouve les fiches aliments dont le nom correspond à un ingrédient de recette (lookup exact puis fuzzy).
+ * Évite d’importer stockUtils ici pour ne pas créer de dépendance circulaire.
+ */
+function lookupFoodItemsForMacro(name: string, foodItems: FoodItem[], index?: FoodItemMacroIndex): FoodItem[] {
+  if (index) {
+    const exact = index.get(normalizeKey(name));
+    if (exact && exact.length > 0) return exact;
+    const results: FoodItem[] = [];
+    for (const [, items] of index) {
+      if (items.length > 0 && strictNameMatch(items[0].name, name)) {
+        results.push(...items);
+      }
+    }
+    return results;
+  }
+  return foodItems.filter((fi) => fi.storage_type !== "extras" && strictNameMatch(fi.name, name));
+}
+
+/**
+ * Extrait les grammes de protéines pour 100 g depuis une fiche aliment (chaîne potentiellement annotée).
+ */
+function parseFoodItemProteinPer100(fi: FoodItem): number | null {
+  if (!fi.protein?.trim()) return null;
+  const n = parseFloat(fi.protein.replace(",", ".").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Retourne les protéines pour 100 g du premier aliment matché qui définit une valeur exploitable, sinon null.
+ */
+function resolveProteinPer100FromFoodItems(name: string, foodItems: FoodItem[], index?: FoodItemMacroIndex): number | null {
+  for (const fi of lookupFoodItemsForMacro(name, foodItems, index)) {
+    const p = parseFoodItemProteinPer100(fi);
+    if (p !== null) return p;
+  }
+  return null;
+}
+
 /** Calcule calories ou protéines agrégées sur une chaîne d’ingrédients (avec cache LRU). */
 function _computeMacro(
   ingredientStr: string | null,
   field: 'cal' | 'pro',
   cache: Map<string, number | null>,
   isAvailable?: (name: string) => boolean,
-  ratio: number = 1
+  ratio: number = 1,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
 ): number | null {
   if (!ingredientStr?.trim()) return null;
-  if (!isAvailable && ratio === 1) {
+  const useFoodProFallback = field === "pro" && !!foodItems?.length;
+  if (!isAvailable && ratio === 1 && !useFoodProFallback) {
     const cached = cache.get(ingredientStr);
     if (cached !== undefined) return cached;
   }
@@ -857,7 +905,11 @@ function _computeMacro(
     // Sommer les composants du bundle choisi
     for (const item of chosenAlt) {
       const rawVal = field === 'cal' ? item.cal : item.pro;
-      const val = parseFloat(rawVal.replace(",", "."));
+      let val = parseFloat(rawVal.replace(",", "."));
+      if ((!val || isNaN(val)) && useFoodProFallback) {
+        const fromFood = resolveProteinPer100FromFoodItems(item.name, foodItems!, foodItemIndex);
+        if (fromFood !== null) val = fromFood;
+      }
       if (!val || isNaN(val)) continue;
       hasValue = true;
       const qty = parseFloat(item.qty.replace(",", "."));
@@ -868,7 +920,7 @@ function _computeMacro(
     }
   }
   const result = hasValue ? Math.round(total * ratio) : null;
-  if (!isAvailable && ratio === 1) {
+  if (!isAvailable && ratio === 1 && !useFoodProFallback) {
     if (cache.size > MACRO_CACHE_MAX) cache.clear();
     cache.set(ingredientStr!, result);
   }
@@ -880,9 +932,18 @@ export function computeIngredientCalories(ingredientStr: string | null, isAvaila
   return _computeMacro(ingredientStr, 'cal', _calCache, isAvailable, ratio);
 }
 
-/** Calcule les protéines totales depuis une chaîne d'ingrédients */
-export function computeIngredientProtein(ingredientStr: string | null, isAvailable?: (name: string) => boolean, ratio: number = 1): number | null {
-  return _computeMacro(ingredientStr, 'pro', _proCache, isAvailable, ratio);
+/**
+ * Calcule les protéines totales depuis une chaîne d'ingrédients ; peut compléter les [pro] absents
+ * avec les protéines pour 100 g des fiches aliments correspondantes (`foodItems` + index optionnel).
+ */
+export function computeIngredientProtein(
+  ingredientStr: string | null,
+  isAvailable?: (name: string) => boolean,
+  ratio: number = 1,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
+  return _computeMacro(ingredientStr, 'pro', _proCache, isAvailable, ratio, foodItems, foodItemIndex);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

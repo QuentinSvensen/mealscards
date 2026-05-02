@@ -12,7 +12,7 @@
  * detectScaleRatio() : détecte si les ingrédients ont été mis à l'échelle
  * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,9 +33,11 @@ import {
   hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
 } from "@/lib/ingredientUtils";
+import { usePreferences } from "@/hooks/usePreferences";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, buildFoodItemIndex } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
+import type { FoodItem } from "@/hooks/useFoodItems";
 import { fr } from "date-fns/locale";
 
 interface PossibleMealCardProps {
@@ -64,12 +66,66 @@ interface PossibleMealCardProps {
   expiringSoonIngredientNames?: Set<string>;
   onDoubleClick?: () => void;
   realtimeCounterStartDate?: string | null;
+  /** Fiches aliments (garde-manger) : complète les protéines quand les lignes n’ont que des kcal ou pas de [pro]. */
+  foodItems?: FoodItem[];
 }
 
 const DAY_LABELS: Record<string, string> = {
   lundi: 'Lun', mardi: 'Mar', mercredi: 'Mer', jeudi: 'Jeu',
   vendredi: 'Ven', samedi: 'Sam', dimanche: 'Dim',
 };
+
+/**
+ * Interprète une macro figée à l’arrivée dans « possible » (préférences planning_*) et la multiplie par la quantité de cartes.
+ * Même logique que getCardDisplayCalories / getCardDisplayProtein dans useCalorieBalance.
+ */
+function parsePlanningMacroOverride(override: string | undefined, qty: number): number | null {
+  if (override == null || String(override).trim() === "") return null;
+  const n = parseFloat(String(override).replace(",", ".").replace(/[^0-9.-]/g, ""));
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * qty);
+}
+
+/**
+ * Indique si les kcal affichées sur une carte « possible » relèvent du calcul par lignes (style orange),
+ * comme sur MealCard « au choix ». Si l’override post-déduction a perdu les `{cal}`, on regarde la recette maître.
+ */
+function caloriesLookComputedOnPossibleCard(
+  ingredientsOverrideDefined: boolean,
+  displayIngredients: string | null | undefined,
+  masterIngredients: string | null | undefined,
+  scaleR: number,
+  isAvailable?: (name: string) => boolean,
+): boolean {
+  const fromDisplay = computeIngredientCalories(displayIngredients ?? null, isAvailable, scaleR);
+  if (fromDisplay !== null) return true;
+  if (!ingredientsOverrideDefined || !masterIngredients?.trim()) return false;
+  return computeIngredientCalories(masterIngredients, isAvailable, 1) !== null;
+}
+
+/**
+ * Idem pour les protéines (bleu), y compris complément depuis les fiches aliments sur les lignes.
+ */
+function proteinLooksComputedOnPossibleCard(
+  ingredientsOverrideDefined: boolean,
+  displayIngredients: string | null | undefined,
+  masterIngredients: string | null | undefined,
+  scaleR: number,
+  isAvailable: ((name: string) => boolean) | undefined,
+  foodItems: FoodItem[] | undefined,
+  foodMacroIndex: ReturnType<typeof buildFoodItemIndex> | undefined,
+): boolean {
+  const fromDisplay = computeIngredientProtein(
+    displayIngredients ?? null,
+    isAvailable,
+    scaleR,
+    foodItems,
+    foodMacroIndex,
+  );
+  if (fromDisplay !== null) return true;
+  if (!ingredientsOverrideDefined || !masterIngredients?.trim()) return false;
+  return computeIngredientProtein(masterIngredients, isAvailable, 1, foodItems, foodMacroIndex) !== null;
+}
 
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
 
@@ -80,10 +136,13 @@ export function PossibleMealCard({
   onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity,
   onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
-  realtimeCounterStartDate
+  realtimeCounterStartDate, foodItems
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
+  const { getPreference } = usePreferences();
+  const calOverrides = getPreference<Record<string, string>>("planning_cal_overrides", {});
+  const proOverrides = getPreference<Record<string, string>>("planning_pro_overrides", {});
   const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | "ratio" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
@@ -91,8 +150,17 @@ export function PossibleMealCard({
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
 
+  const foodMacroIndex = useMemo(
+    () => (foodItems?.length ? buildFoodItemIndex(foodItems) : undefined),
+    [foodItems],
+  );
+
   const meal = pm.meals;
   if (!meal) return null;
+
+  const qty = pm.quantity ?? 1;
+  const frozenDisplayCal = parsePlanningMacroOverride(calOverrides[pm.id], qty);
+  const frozenDisplayPro = parsePlanningMacroOverride(proOverrides[pm.id], qty);
 
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
@@ -493,14 +561,25 @@ export function PossibleMealCard({
           )}
           {/* le badge de ratio a été déplacé en haut à droite absolu */}
           {(() => {
-            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+            const scaleR = detectedRatio ?? 1;
+            const rawDisplayCal = frozenDisplayCal !== null
+              ? frozenDisplayCal
+              : getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
-            const isComputed = computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
+            const isComputed = caloriesLookComputedOnPossibleCard(
+              pm.ingredients_override != null,
+              displayIngredients,
+              meal.ingredients,
+              scaleR,
+              isAvailableCb,
+            );
 
             return displayCal ? (
               <button
                 onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}
-                className={`text-[10px] text-white px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputed ? 'bg-orange-500/50 font-bold hover:bg-orange-500/60' : 'bg-black/30 text-white/90 hover:bg-black/40'
+                className={`text-[10px] px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputed
+                  ? 'bg-orange-500/50 text-white font-bold hover:bg-orange-500/60'
+                  : 'bg-black/30 text-white/90 hover:bg-black/40'
                   }`}
               >
                 <Flame className="h-2.5 w-2.5" />{displayCal}
@@ -508,11 +587,24 @@ export function PossibleMealCard({
             ) : null;
           })()}
           {(() => {
-            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb);
-            const displayPro = rawDisplayPro ? Math.round(rawDisplayPro) : null;
-            const isComputedPro = computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
-            return displayPro && displayPro !== 0 ? (
-              <span className={`text-[10px] px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${isComputedPro ? 'bg-blue-600/60 text-white' : 'text-white/90 bg-blue-500/40'
+            const scaleR = detectedRatio ?? 1;
+            const rawDisplayPro = frozenDisplayPro !== null
+              ? frozenDisplayPro
+              : getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const displayPro = rawDisplayPro != null ? Math.round(rawDisplayPro) : null;
+            const isComputedPro = proteinLooksComputedOnPossibleCard(
+              pm.ingredients_override != null,
+              displayIngredients,
+              meal.ingredients,
+              scaleR,
+              isAvailableCb,
+              foodItems,
+              foodMacroIndex,
+            );
+            return displayPro != null && displayPro > 0 ? (
+              <span className={`text-[10px] px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${isComputedPro
+                ? 'bg-blue-600/60 text-white'
+                : 'bg-black/30 text-white/90'
                 }`}>
                 🍗 {displayPro}
               </span>

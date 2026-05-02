@@ -15,10 +15,10 @@ import { useMemo } from 'react';
 import { format, startOfWeek, addDays } from 'date-fns';
 import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from '@/hooks/useMeals';
 import { usePreferences } from '@/hooks/usePreferences';
-import { computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
-import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedCalories, getDisplayedProtein } from '@/lib/stockUtils';
+import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
+import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedCalories, getDisplayedProtein, buildFoodItemIndex } from '@/lib/stockUtils';
 
-import { useFoodItems } from "@/hooks/useFoodItems";
+import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 
 const DEFAULT_DAILY_GOAL = 2750;
 const DRINK_CALORIES = 150;
@@ -138,8 +138,15 @@ export function getCardDisplayCalories(
 
 /**
  * Calcule les protéines affichées pour une seule carte de planification.
+ * Passe `foodItems` + index pour aligner l’affichage avec les protéines dérivées des fiches aliments (sans [pro] sur les lignes).
  */
-export function getCardDisplayProtein(pm: PossibleMeal, proOverride?: string | null, isAvailable?: (name: string) => boolean): number {
+export function getCardDisplayProtein(
+  pm: PossibleMeal,
+  proOverride?: string | null,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number {
   const meal = pm.meals;
   if (!meal) return 0;
   const qty = pm.quantity ?? 1;
@@ -147,7 +154,13 @@ export function getCardDisplayProtein(pm: PossibleMeal, proOverride?: string | n
   if (proOverride) return parseProtein(proOverride) * qty;
 
   // Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
-  const displayPro = getDisplayedPMProtein(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
+  const displayPro = getDisplayedPMProtein(
+    pm,
+    getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined,
+    isAvailable,
+    foodItems,
+    foodItemIndex,
+  );
   return (displayPro || 0) * qty;
 }
 
@@ -159,6 +172,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const { meals: allMeals, possibleMeals, getMealsByCategory } = useMeals();
   const { getPreference } = usePreferences();
   const { items: foodItems } = useFoodItems();
+  const foodItemMacroIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
 
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
@@ -293,7 +307,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const mealPro = slotTimes.reduce((total, time) => {
       const slotMeals = getMealsForSlot(dayKey, time, isoDate);
       if (slotMeals.length > 0) {
-        return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable), 0);
+        return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
       }
       const manualKey = (isoDate && manualProteins[`${isoDate}-${time}`] !== undefined) ? `${isoDate}-${time}` : `${dayKey}-${time}`;
       return total + (manualProteins[manualKey] || 0);
@@ -310,11 +324,11 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
           // Déjà compté dans mealPro via les calculs du créneau 'matin' !
           breakfastPro = 0;
         } else {
-          breakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, undefined, isAvailable) : parseProtein(breakfast.protein);
+          breakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, undefined, isAvailable, foodItems, foodItemMacroIndex) : parseProtein(breakfast.protein);
         }
       } else {
         // Utilise les protéines calculées à partir des ingrédients
-        breakfastPro = getDisplayedProtein(breakfast, null, undefined, isAvailable) || 0;
+        breakfastPro = getDisplayedProtein(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
       }
     } else {
       const manualKey = (isoDate && breakfastManualProteins[isoDate] !== undefined) ? isoDate : dayKey;

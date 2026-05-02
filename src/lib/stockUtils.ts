@@ -23,6 +23,7 @@ import {
   computeCounterDays,
   getTargetDate,
   type ParsedIngredient,
+  type FoodItemMacroIndex,
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -856,7 +857,8 @@ export function getDisplayedCalories(meal: { calories?: string | null; ingredien
   const scaledBaseCal = (baseCal !== null && ratio) ? baseCal * ratio : baseCal;
 
   const ingredients = ingredientsOverride ?? meal.ingredients;
-  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable);
+  const r = ratio ?? 1;
+  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable, r);
 
   // Mode additif : override d'ingrédients + repas de base sans ingrédients mais avec macros
   if (ingredientsOverride && !meal.ingredients && baseCal !== null) {
@@ -868,12 +870,21 @@ export function getDisplayedCalories(meal: { calories?: string | null; ingredien
 }
 
 /** Calcule les protéines affichées pour un repas (même logique que getDisplayedCalories) */
-export function getDisplayedProtein(meal: { protein?: string | null; ingredients?: string | null }, ingredientsOverride?: string | null, ratio?: number, isAvailable?: (name: string) => boolean): number | null {
+export function getDisplayedProtein(
+  meal: { protein?: string | null; calories?: string | null; ingredients?: string | null },
+  ingredientsOverride?: string | null,
+  ratio?: number,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
   const basePro = parseMacroDisplay(meal.protein);
   const scaledBasePro = (basePro !== null && ratio) ? basePro * ratio : basePro;
 
   const ingredients = ingredientsOverride ?? meal.ingredients;
-  const ingPro = computeIngredientProtein(ingredients ?? null, isAvailable);
+  const r = ratio ?? 1;
+  const ingPro = computeIngredientProtein(ingredients ?? null, isAvailable, r, foodItems, foodItemIndex);
+  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable, r);
 
   if (ingredientsOverride && !meal.ingredients && basePro !== null) {
     const total = (scaledBasePro || 0) + (ingPro || 0);
@@ -881,6 +892,20 @@ export function getDisplayedProtein(meal: { protein?: string | null; ingredients
   }
 
   if (ingPro !== null && Number.isFinite(ingPro)) return Math.round(ingPro);
+
+  // Les lignes d’ingrédients ont souvent les kcal par ligne mais pas les protéines : dans ce cas,
+  // estimer les prot affichées au prorata des kcal (carte repas vs somme ingrédients), comme le fallback du popup PossibleList.
+  const baseCal = parseMacroDisplay(meal.calories);
+  if (
+    ingCal !== null &&
+    ingCal > 0 &&
+    baseCal !== null &&
+    baseCal > 0 &&
+    basePro !== null
+  ) {
+    return Math.round(basePro * (ingCal / baseCal));
+  }
+
   return scaledBasePro !== null ? Math.round(scaledBasePro) : null;
 }
 
@@ -890,8 +915,14 @@ export function getDisplayedPMCalories(pm: { ingredients_override?: string | nul
 }
 
 /** Protéines affichées pour une instance PossibleMeal (utilise ingredients_override si présent) */
-export function getDisplayedPMProtein(pm: { ingredients_override?: string | null; meals?: { protein?: string | null; ingredients?: string | null } | null }, ratio?: number, isAvailable?: (name: string) => boolean): number | null {
-  return getDisplayedProtein(pm.meals || {}, pm.ingredients_override, ratio, isAvailable);
+export function getDisplayedPMProtein(
+  pm: { ingredients_override?: string | null; meals?: { protein?: string | null; calories?: string | null; ingredients?: string | null } | null },
+  ratio?: number,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
+  return getDisplayedProtein(pm.meals || {}, pm.ingredients_override, ratio, isAvailable, foodItems, foodItemIndex);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

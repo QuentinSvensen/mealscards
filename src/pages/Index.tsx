@@ -532,7 +532,7 @@ const Index = () => {
       return !!fi && (fi.is_infinite || (fi.quantity ?? 0) > 0 || parseQty(fi.grams) > 0);
     };
     const preCal = getDisplayedCalories(meal, undefined, undefined, isAvailBefore);
-    const prePro = getDisplayedProtein(meal, undefined, undefined, isAvailBefore);
+    const prePro = getDisplayedProtein(meal, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
 
     // 4. Carte « Possible » = copie logique avant déduction stock
     const finalCounterDate = source === "master" 

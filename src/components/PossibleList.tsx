@@ -54,6 +54,7 @@ const MemoizedPossibleMealCard = React.memo(
       prevProps.realtimeCounterStartDate === nextProps.realtimeCounterStartDate &&
       prevProps.isHighlighted === nextProps.isHighlighted &&
       prevProps.stockMap === nextProps.stockMap &&
+      prevProps.foodItems === nextProps.foodItems &&
       prevProps.onReturnWithoutDeductionLabel === nextProps.onReturnWithoutDeductionLabel &&
       !!prevProps.onReturnToMaster === !!nextProps.onReturnToMaster &&
       !!prevProps.onReturnWithoutDeduction === !!nextProps.onReturnWithoutDeduction &&
@@ -186,7 +187,7 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                   <Separator className="flex-1 opacity-40 bg-primary/30" />
                 </div>
               )}
-              <MemoizedPossibleMealCard pm={pm} stockMap={stockMap}
+              <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
                 expiredIngredientNames={expiredIngs}
                 expiringSoonIngredientNames={soonIngs}
                 onRemove={() => onRemove(pm.id)}
