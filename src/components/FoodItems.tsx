@@ -696,7 +696,6 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
   { type: 'sec', label: 'Placard sec', emoji: <Package className="h-4 w-4 text-amber-500" /> },
   { type: 'surgele', label: 'Surgelés', emoji: <Snowflake className="h-4 w-4 text-cyan-400" /> },
   { type: 'extras', label: 'Extras', emoji: <span className="text-base">✨</span> },
-  { type: 'test', label: 'Extras non disponible', emoji: <span className="text-base">🧪</span> },
   { type: 'toujours', label: 'Toujours présent', emoji: <span className="text-base">📌</span> },
 ];
 
@@ -1025,7 +1024,6 @@ export function FoodItems() {
                           {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
                           {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
                           {entry.storage_type === 'extras' && '✨'}
-                          {entry.storage_type === 'test' && '🧪'}
                           {entry.storage_type === 'toujours' && '📌'}
                         </span>
                       </div>
@@ -1152,12 +1150,11 @@ export function FoodItems() {
                 {suggestedStorageType === 'sec' && <><Package className="h-3 w-3 text-amber-500" /> Sec</>}
                 {suggestedStorageType === 'surgele' && <><Snowflake className="h-3 w-3 text-cyan-400" /> Surgelé</>}
                 {suggestedStorageType === 'extras' && <><span className="text-base leading-none">✨</span> Extras</>}
-                {suggestedStorageType === 'test' && <><span className="text-base leading-none">🧪</span> Extras non disponible</>}
-                {!['frigo', 'sec', 'surgele', 'extras', 'test'].includes(suggestedStorageType) && suggestedStorageType}
+                {!['frigo', 'sec', 'surgele', 'extras'].includes(suggestedStorageType) && suggestedStorageType}
               </span>
             </div>
           )}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <Button onClick={() => confirmAdd('frigo')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'frigo' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
             </Button>
@@ -1169,9 +1166,6 @@ export function FoodItems() {
             </Button>
             <Button onClick={() => confirmAdd('extras')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'extras' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <span className="text-base leading-none">✨</span> Extras
-            </Button>
-            <Button onClick={() => confirmAdd('test')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'test' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
-              <span className="text-base leading-none">🧪</span> Extras non disponible
             </Button>
           </div>
           <button onClick={() => { setShowStoragePrompt(false); setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); }} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">

@@ -86,6 +86,8 @@ interface PossibleListProps {
   onUpdateGrams: (id: string, g: string | null, pmId?: string) => void;
   onUpdateIngredients: (id: string, ing: string | null) => void;
   onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;
+  onUpdateOvenTemp?: (id: string, temp: string | null) => void;
+  onUpdateOvenMinutes?: (id: string, minutes: string | null) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onSplitQuantity?: (id: string, ratio: number, baseIngredients: string | null) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
@@ -100,7 +102,14 @@ interface PossibleListProps {
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
-export function PossibleList({ category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove, onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onUpdatePossibleIngredients, onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems, onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals }: PossibleListProps) {
+export function PossibleList({
+  category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove,
+  onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate,
+  onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams,
+  onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes,
+  onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems,
+  onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals
+}: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -213,6 +222,8 @@ export function PossibleList({ category, items, sortMode, stockMap, onToggleSort
                 onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g, pm.id)}
                 onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
                 onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
+                onUpdateOvenTemp={onUpdateOvenTemp ? (t) => onUpdateOvenTemp(pm.meals.id, t) : undefined}
+                onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
                 onUpdateQuantity={unParUnSourcePmIds.has(pm.id) ? (qty) => onUpdateQuantity(pm.id, qty) : undefined}
                 onSplitQuantity={onSplitQuantity ? (ratio, baseIng) => onSplitQuantity(pm.id, ratio, baseIng) : undefined}
                 onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}

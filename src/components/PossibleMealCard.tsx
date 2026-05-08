@@ -57,6 +57,8 @@ interface PossibleMealCardProps {
   onSplitQuantity?: (ratio: number, baseIngredients: string | null) => void;
   onUpdateIngredients: (ing: string | null) => void;
   onUpdatePossibleIngredients?: (newIngredients: string | null) => void;
+  onUpdateOvenTemp?: (temp: string | null) => void;
+  onUpdateOvenMinutes?: (minutes: string | null) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -134,7 +136,9 @@ export function PossibleMealCard({
   pm, stockMap, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel,
   onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
   onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity,
-  onUpdateIngredients, onUpdatePossibleIngredients, onDragStart, onDragOver,
+  onUpdateIngredients, onUpdatePossibleIngredients, 
+  onUpdateOvenTemp, onUpdateOvenMinutes,
+  onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
   realtimeCounterStartDate, foodItems
 }: PossibleMealCardProps) {
@@ -143,7 +147,7 @@ export function PossibleMealCard({
   const { getPreference } = usePreferences();
   const calOverrides = getPreference<Record<string, string>>("planning_cal_overrides", {});
   const proOverrides = getPreference<Record<string, string>>("planning_pro_overrides", {});
-  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | "ratio" | null>(null);
+  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calMobileOpen, setCalMobileOpen] = useState(false);
@@ -165,7 +169,7 @@ export function PossibleMealCard({
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
     pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
-  const cardColorIngredients = meal.ingredients ?? displayIngredients;
+  const cardColorIngredients = displayIngredients;
 
   // Construire le rappel isAvailable à partir de stockMap pour le calcul des macros
   const isAvailableCb = stockMap ? (name: string) => {
@@ -267,6 +271,8 @@ export function PossibleMealCard({
     const val = editValue.trim() || null;
     if (editing === "calories") onUpdateCalories(val);
     if (editing === "grams") onUpdateGrams(val);
+    if (editing === "oven_temp" && onUpdateOvenTemp) onUpdateOvenTemp(val);
+    if (editing === "oven_minutes" && onUpdateOvenMinutes) onUpdateOvenMinutes(val);
     if (editing === "quantity" && onUpdateQuantity) {
       const qty = parseInt(editValue.trim());
       if (!isNaN(qty) && qty >= 1) onUpdateQuantity(qty);
@@ -503,9 +509,16 @@ export function PossibleMealCard({
 
       {/* Superposition d'édition */}
       {editing ? (
-        <Input autoFocus placeholder={editing === "ratio" ? "75% ou x2" : editing === "calories" ? "Ex: 350 kcal" : "Ex: 150g"} value={editValue}
+        <Input autoFocus placeholder={
+          editing === "ratio" ? "75% ou x2" :
+            editing === "calories" ? "Ex: 350 kcal" :
+              editing === "oven_temp" ? "Ex: 180" :
+                editing === "oven_minutes" ? "Ex: 25" :
+                  "Ex: 150g"
+        } value={editValue}
           onChange={(e) => setEditValue(e.target.value)} onBlur={handleSaveEdit}
           onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
+          inputMode={editing === "oven_temp" || editing === "oven_minutes" ? "numeric" : undefined}
           className="mt-1.5 h-6 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
       ) : editingIngredients ? (
         <div className="mt-1.5">
@@ -653,6 +666,16 @@ export function PossibleMealCard({
               <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
                 <Weight className="mr-2 h-4 w-4" /> Grammes
               </DropdownMenuItem>
+              {onUpdateOvenTemp && (
+                <DropdownMenuItem onClick={() => { setEditValue(meal.oven_temp || ""); setEditing("oven_temp"); }}>
+                  <Thermometer className="mr-2 h-4 w-4" /> Température (°C)
+                </DropdownMenuItem>
+              )}
+              {onUpdateOvenMinutes && (
+                <DropdownMenuItem onClick={() => { setEditValue(meal.oven_minutes || ""); setEditing("oven_minutes"); }}>
+                  <Timer className="mr-2 h-4 w-4" /> Durée (min)
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={openIngredients}>
                 <List className="mr-2 h-4 w-4" /> Ingrédients
               </DropdownMenuItem>

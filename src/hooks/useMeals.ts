@@ -176,7 +176,7 @@ export function useMeals(options?: { enabled?: boolean }) {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category, calories, protein, grams, ingredients, expiration_date, possible_quantity, counter_start_date }: { name: string; category: string; calories?: string | null; protein?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null }) => {
+    mutationFn: async ({ name, category, calories, protein, grams, ingredients, expiration_date, possible_quantity, counter_start_date, oven_temp, oven_minutes }: { name: string; category: string; calories?: string | null; protein?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null; oven_temp?: string | null; oven_minutes?: string | null }) => {
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
         .insert({
@@ -188,6 +188,8 @@ export function useMeals(options?: { enabled?: boolean }) {
           ...(protein !== undefined ? { protein } : {}),
           ...(grams !== undefined ? { grams } : {}),
           ...(ingredients !== undefined ? { ingredients } : {}),
+          ...(oven_temp !== undefined ? { oven_temp } : {}),
+          ...(oven_minutes !== undefined ? { oven_minutes } : {}),
         })
         .select()
         .single();
@@ -363,9 +365,13 @@ export function useMeals(options?: { enabled?: boolean }) {
       const pm = possibleMeals.find(p => p.id === id);
       if (!pm) throw new Error("Possible meal not found");
 
+      const newQty = Math.max(1, Math.round(pm.quantity / ratio));
       const { error: updateError } = await supabase
         .from("possible_meals")
-        .update({ ingredients_override: baseIngredients })
+        .update({ 
+          ingredients_override: baseIngredients,
+          quantity: newQty
+        })
         .eq("id", id);
       if (updateError) throw updateError;
 
@@ -377,7 +383,7 @@ export function useMeals(options?: { enabled?: boolean }) {
           expiration_date: pm.expiration_date,
           counter_start_date: pm.counter_start_date,
           ingredients_override: baseIngredients,
-          quantity: pm.quantity,
+          quantity: newQty,
           day_of_week: pm.day_of_week,
           meal_time: pm.meal_time,
         });

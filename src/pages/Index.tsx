@@ -939,6 +939,8 @@ const Index = () => {
                               calories: meal.calories, protein: meal.protein, grams: meal.grams, ingredients: meal.ingredients,
                               expiration_date: anBefore.earliestExpiration,
                               counter_start_date: finalCounterDate,
+                              oven_temp: meal.oven_temp,
+                              oven_minutes: meal.oven_minutes,
                             });
 
                             if (result?.id) {
@@ -1016,6 +1018,8 @@ const Index = () => {
                                   ingredients: meal.ingredients || (parseQty(finalGrams) > 0 ? `${finalGrams} ${meal.name}` : null),
                                   expiration_date: fi.expiration_date,
                                   counter_start_date: finalCd,
+                                  oven_temp: meal.oven_temp,
+                                  oven_minutes: meal.oven_minutes,
                                 });
                                 if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
                               } else {
@@ -1121,7 +1125,10 @@ const Index = () => {
                               updateFoodItemCountersForPlanning(null, ing, null, null, null, null, remainingMeals);
                             }
                           }}
-                          onSplitQuantity={(id, ratio, baseIng) => splitPossibleMealQuantity.mutate({ id, ratio, baseIngredients: baseIng })}
+                          onSplitQuantity={(id, ratio, baseIng) => {
+                            splitPossibleMealQuantity.mutate({ id, ratio, baseIngredients: baseIng });
+                            updateSnapshots(prev => { const next = { ...prev }; delete next[id]; return next; });
+                          }}
                           onDelete={(id) => {
                             const pm = possibleMeals.find(p => p.id === id);
                             deletePossibleMeal.mutate(id);
@@ -1360,6 +1367,8 @@ const Index = () => {
                             }
                             updatePossibleQuantity.mutate({ id, quantity: qty });
                           }}
+                          onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
+                          onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
                           onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
                           onExternalDrop={(mealId, source, pmId) => handleMoveToPossibleGeneral(mealId, source, pmId)}
                           highlightedId={highlightedId}
