@@ -3028,7 +3028,7 @@ export function WeeklyPlanning({
                                         <div key={d.id} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
                                           <div className="flex-1 min-w-0">
                                             <p className="text-[11px] font-black transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
-                                            <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) ?? 0}</p>
+                                            <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) === Infinity ? "∞" : (dessertPossibleCountById.get(d.id) ?? 0)}</p>
                                           </div>
                                           <div className="flex items-center gap-1.5 shrink-0">
                                             <button onClick={async () => {
