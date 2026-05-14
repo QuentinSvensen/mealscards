@@ -1151,56 +1151,65 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         }
         alternativeRecipeName = alternativeCandidate.meal.name;
       }
-      // Si la meilleure recette est déjà réalisable (rien à acheter), on ne propose aucun
-      // ingrédient : l'utilisateur peut déjà consommer l'aliment inutilisé via cette recette.
-      if (bestScore.missingCount === 0) continue;
-      const missing = new Set(Array.from(getMissingIngredients(bestMeal, stockMap)).filter(isActuallyMissing));
-      const groups = parseIngredientGroups(bestMeal.ingredients!);
-      let unusedQtyInRecipe = 0;
-      let unusedCountInRecipe = 0;
-      for (const group of groups) {
-        for (const alt of group) {
-          for (const item of alt) {
-            const sameByCanonical = canonicalize(item.name) === fiCanonical;
-            if (!strictNameMatch(item.name, fi.name) && !sameByCanonical) continue;
-            if (item.qty > 0) unusedQtyInRecipe = Math.max(unusedQtyInRecipe, item.qty);
-            if (item.count > 0) unusedCountInRecipe = Math.max(unusedCountInRecipe, item.count);
-          }
-        }
-      }
-      const unusedRecipeAmountLabel =
-        unusedQtyInRecipe > 0
-          ? `${formatNumeric(unusedQtyInRecipe)}g`
-          : (unusedCountInRecipe > 0 ? `x${unusedCountInRecipe}` : "quantité inconnue");
-      for (const missingKey of missing) {
-        let qty = 0, count = 0, displayName = missingKey;
+      // On retient les recettes "intéressantes" pour suggérer des compléments :
+      // celles qui utilisent l'aliment et qui n'ont que 1 ou 2 ingrédients manquants.
+      // Même si une recette à 0 manque existe, on veut suggérer des achats pour d'autres variantes.
+      const goodCandidates = sortedCandidates.filter(c => c.score.missingCount > 0 && c.score.missingCount <= 2);
+      
+      // On limite à quelques candidates par aliment pour éviter de polluer la liste.
+      const candidatesToProcess = goodCandidates.slice(0, 3);
+
+      for (const candidate of candidatesToProcess) {
+        const meal = candidate.meal;
+        const score = candidate.score;
+        const missing = new Set(Array.from(getMissingIngredients(meal, stockMap)).filter(isActuallyMissing));
+        const groups = parseIngredientGroups(meal.ingredients!);
+        let unusedQtyInRecipe = 0;
+        let unusedCountInRecipe = 0;
         for (const group of groups) {
-          const first = group[0]?.[0];
-          if (first && normalizeKey(first.name) === missingKey) {
-            qty = first.qty;
-            count = first.count;
-            displayName = first.rawName || first.name;
-            break;
+          for (const alt of group) {
+            for (const item of alt) {
+              const sameByCanonical = canonicalize(item.name) === fiCanonical;
+              if (!strictNameMatch(item.name, fi.name) && !sameByCanonical) continue;
+              if (item.qty > 0) unusedQtyInRecipe = Math.max(unusedQtyInRecipe, item.qty);
+              if (item.count > 0) unusedCountInRecipe = Math.max(unusedCountInRecipe, item.count);
+            }
           }
         }
-        const entry = byMissing.get(missingKey) || { missingName: displayName, qty: 0, count: 0, sources: [], countedRecipeIds: new Set<string>() };
-        // Cumule la quantité demandée uniquement une fois par recette pour ce même ingrédient manquant.
-        if (!entry.countedRecipeIds.has(bestMeal.id)) {
-          entry.qty += qty;
-          entry.count += count;
-          entry.countedRecipeIds.add(bestMeal.id);
+        const unusedRecipeAmountLabel =
+          unusedQtyInRecipe > 0
+            ? `${formatNumeric(unusedQtyInRecipe)}g`
+            : (unusedCountInRecipe > 0 ? `x${unusedCountInRecipe}` : "quantité inconnue");
+
+        for (const missingKey of missing) {
+          let qty = 0, count = 0, displayName = missingKey;
+          for (const group of groups) {
+            const first = group[0]?.[0];
+            if (first && normalizeKey(first.name) === missingKey) {
+              qty = first.qty;
+              count = first.count;
+              displayName = first.rawName || first.name;
+              break;
+            }
+          }
+          const entry = byMissing.get(missingKey) || { missingName: displayName, qty: 0, count: 0, sources: [], countedRecipeIds: new Set<string>() };
+          if (!entry.countedRecipeIds.has(meal.id)) {
+            entry.qty += qty;
+            entry.count += count;
+            entry.countedRecipeIds.add(meal.id);
+          }
+          entry.sources.push({
+            unusedName: fi.name,
+            recipeName: meal.name,
+            recipeId: meal.id,
+            unusedRecipeAmountLabel,
+            missingAmountLabel: qty > 0 ? `${formatNumeric(qty)}g` : (count > 0 ? `x${count}` : "quantité inconnue"),
+            altMissingLabel: alternativeMissingLabel,
+            altRecipeName: alternativeRecipeName,
+            debug: score,
+          });
+          byMissing.set(missingKey, entry);
         }
-        entry.sources.push({
-          unusedName: fi.name,
-          recipeName: bestMeal.name,
-          recipeId: bestMeal.id,
-          unusedRecipeAmountLabel,
-          missingAmountLabel: qty > 0 ? `${formatNumeric(qty)}g` : (count > 0 ? `x${count}` : "quantité inconnue"),
-          altMissingLabel: alternativeMissingLabel,
-          altRecipeName: alternativeRecipeName,
-          debug: bestScore,
-        });
-        byMissing.set(missingKey, entry);
       }
     }
     // Filtre final de sécurité : applique la même règle qu'à la sélection
