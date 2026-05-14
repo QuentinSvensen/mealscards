@@ -40,7 +40,7 @@ import {
   type StockInfo, type FoodItemIndex,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey
+  normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -1073,7 +1073,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const mealIds = new Set<string>(index.get(unusedKey) ?? []);
       for (const [idxKey, ids] of index.entries()) {
         const isCanonicalMatch = canonicalize(idxKey) === fiCanonical;
-        if (!strictNameMatch(idxKey, fi.name) && !isCanonicalMatch) continue;
+        const isSmartMatch = smartFoodContains(idxKey, fi.name);
+        if (!strictNameMatch(idxKey, fi.name) && !isCanonicalMatch && !isSmartMatch) continue;
         for (const id of ids) mealIds.add(id);
       }
       if (mealIds.size === 0) continue;
