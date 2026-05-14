@@ -1030,13 +1030,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         .map((w) => w.replace(/s$/i, ""))
         .join(" ");
 
-    // On traite tous les items inutilisés pour suggérer des compléments.
-    const candidatesToProcessByFi = items;
+    // On ne traite que les items inutilisés AVEC une date de péremption pour suggérer des compléments.
+    const candidatesToProcessByFi = items.filter(fi => !!fi.expiration_date);
 
     const unusedStockKeys = new Set(
-      items.map((fi) => findStockKey(stockMap, fi.name) ?? normalizeKey(fi.name))
+      candidatesToProcessByFi.map((fi) => findStockKey(stockMap, fi.name) ?? normalizeKey(fi.name))
     );
-    const unusedCanonicalNames = new Set(items.map((fi) => canonicalize(fi.name)));
+    const unusedCanonicalNames = new Set(candidatesToProcessByFi.map((fi) => canonicalize(fi.name)));
     const allUnusedCanonicalNames = new Set(items.map((fi) => canonicalize(fi.name)));
 
     const isActuallyMissing = (missingKey: string): boolean => {
