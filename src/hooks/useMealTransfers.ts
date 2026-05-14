@@ -304,11 +304,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
               updatesById.set(fi.id, { id: fi.id, delete: true });
             } else {
               const bumpCounter = needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
+              const clearCtr = !bumpCounter && fi.counter_start_date && isFoodFullySealed({ ...fi, quantity: remaining } as FoodItem);
               if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
               updatesById.set(fi.id, {
                 id: fi.id,
                 quantity: Math.ceil(remaining),
                 ...(bumpCounter ? { counter_start_date: effectiveCounterDate } : {}),
+                ...(clearCtr ? { counter_start_date: null } : {}),
               });
             }
           }
@@ -751,7 +753,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (remaining <= 0) {
             await safeMutate("Ajustement stock (count)", () => supabase.from("food_items").delete().eq("id", fi.id));
           } else {
-            await safeMutate("Ajustement stock (count)", () => supabase.from("food_items").update({ quantity: remaining } as any).eq("id", fi.id));
+            const clearCtr = fi.counter_start_date && isFoodFullySealed({ ...fi, quantity: remaining } as FoodItem);
+            await safeMutate("Ajustement stock (count)", () => supabase.from("food_items").update({ quantity: remaining, ...(clearCtr ? { counter_start_date: null } : {}) } as any).eq("id", fi.id));
           }
         }
       }
@@ -811,7 +814,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       if (currentQty <= 1) {
         await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
       } else {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: currentQty - 1, ...(canStartCounter && (!nameMatch.counter_start_date || forcedCounterDate) ? { counter_start_date: counterToSet } : {}) } as any).eq("id", nameMatch.id));
+        const clearCtr = nameMatch.counter_start_date && isFoodFullySealed({ ...nameMatch, quantity: currentQty - 1 } as FoodItem);
+        await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: currentQty - 1, ...(clearCtr ? { counter_start_date: null } : {}) } as any).eq("id", nameMatch.id));
       }
       await invalidateStock();
       return;

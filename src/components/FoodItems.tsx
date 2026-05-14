@@ -357,7 +357,8 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onMoveToExtras, o
       if (currentQty <= 1) {
         onDelete();
       } else {
-        onUpdate({ quantity: currentQty - 1 });
+        // Unité entière consommée, les suivantes sont scellées, donc on arrête le compteur
+        onUpdate({ quantity: currentQty - 1, counter_start_date: null });
       }
     }
   };
