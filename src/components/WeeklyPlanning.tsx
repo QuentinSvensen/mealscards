@@ -629,12 +629,19 @@ export function WeeklyPlanning({
     oven_minutes: meal.oven_minutes ?? null,
   }), []);
 
-  /** Liste complète des desserts "au choix" à ingrédient unique (indépendante du stock courant). */
+  /** Liste complète des desserts "au choix" à ingrédient unique + Shaker whey. */
   const allSingleIngredientDessertExtras = useMemo(() => {
     const desserts = getMealsByCategory('dessert');
-    return desserts
+    const shakers = meals.filter(m => m.name.toLowerCase() === "shaker whey");
+    const candidates = [...desserts];
+    for (const s of shakers) {
+      if (!candidates.find(c => c.id === s.id)) candidates.push(s as any);
+    }
+
+    return candidates
       .filter((meal) => {
         if (!meal.ingredients?.trim()) return false;
+        if (meal.name.toLowerCase() === "shaker whey") return true;
         const groups = parseIngredientGroups(meal.ingredients);
         if (groups.length !== 1) return false;
         const firstOr = groups[0];
@@ -3016,7 +3023,7 @@ export function WeeklyPlanning({
                                   {singleIngredientDessertExtras.length > 0 && (
                                     <>
                                       <Separator className="my-2 opacity-50" />
-                                      <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts à 1 ingrédient</p>
+                                      <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
                                       {unselectedDessertExtras.map((d) => (
                                         <div key={d.id} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
                                           <div className="flex-1 min-w-0">
@@ -3918,7 +3925,7 @@ export function WeeklyPlanning({
                                   <>
                                     {singleIngredientDessertExtras.length > 0 && (
                                       <>
-                                        <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts à 1 ingrédient</p>
+                                        <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
                                         {selectedDessertExtras.map((d) => {
                                           const count = effExtraSel.filter((id) => id === d.id).length;
                                           return (
