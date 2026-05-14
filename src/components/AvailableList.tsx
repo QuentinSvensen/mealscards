@@ -411,12 +411,22 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     sortedAvailable.sort((a, b) => {
       const aAn = analyzeMealIngredients(a.meal, foodItems);
       const bAn = analyzeMealIngredients(b.meal, foodItems);
-      return compareExpirationWithCounter(aAn.earliestExpiration, bAn.earliestExpiration, aAn.maxIngredientCounter, bAn.maxIngredientCounter);
+      const res = compareExpirationWithCounter(aAn.earliestExpiration, bAn.earliestExpiration, aAn.maxIngredientCounter, bAn.maxIngredientCounter);
+      if (res !== 0) return res;
+      // Tie-breaker: favorites first
+      if (a.meal.is_favorite && !b.meal.is_favorite) return -1;
+      if (!a.meal.is_favorite && b.meal.is_favorite) return 1;
+      return 0;
     });
     sortedNameMatches.sort((a, b) => {
       const ac = computeCounterDays(a.fi.counter_start_date);
       const bc = computeCounterDays(b.fi.counter_start_date);
-      return compareExpirationWithCounter(a.fi.expiration_date, b.fi.expiration_date, ac, bc);
+      const res = compareExpirationWithCounter(a.fi.expiration_date, b.fi.expiration_date, ac, bc);
+      if (res !== 0) return res;
+      // Tie-breaker: favorites first
+      if (a.meal.is_favorite && !b.meal.is_favorite) return -1;
+      if (!a.meal.is_favorite && b.meal.is_favorite) return 1;
+      return 0;
     });
     sortedIsMealItems.sort((a, b) => {
       const ac = computeCounterDays(a.counter_start_date);
