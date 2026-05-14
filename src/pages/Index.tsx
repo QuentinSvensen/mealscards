@@ -249,6 +249,24 @@ const Index = () => {
     };
   }, []);
 
+  // ─── Rafraîchissement automatique des données au retour sur l'app ────────────────
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && unlocked) {
+        // Force React Query à rafraîchir toutes les requêtes actives en arrière-plan
+        qc.invalidateQueries();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [qc, unlocked]);
+
   useEffect(() => {
     const TAB_KEY = 'mealcards_open_tabs';
     const count = parseInt(localStorage.getItem(TAB_KEY) || '0');
