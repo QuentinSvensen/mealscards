@@ -455,11 +455,27 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     if (useRemainingCalories) {
       items = items.filter(u => {
         if (u.type === 'isMeal') {
-          const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
+          let displayCal = u.fi.calories;
+          if (u.fi.grams) {
+            const unitG = parseQty(u.fi.grams);
+            if (unitG > 0 && displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
+          }
+          const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: displayCal, ingredients: null };
           return tryFitMeal(fakeMeal, 1, false).show;
         }
         if (u.type === 'nm') {
-          return tryFitMeal(u.nm.meal, 1, false).show;
+          let baseCal = u.nm.meal.calories && u.nm.meal.calories !== "0" ? parseFloat(u.nm.meal.calories.replace(",", ".")) : 0;
+          if (!baseCal && u.nm.fi.calories) {
+            const fiCal = parseFloat(u.nm.fi.calories.replace(",", "."));
+            if (u.nm.fi.grams) {
+              const unitG = parseQty(u.nm.fi.grams);
+              if (unitG > 0) baseCal = (fiCal * unitG) / 100;
+            } else {
+              baseCal = fiCal;
+            }
+          }
+          const fakeMeal: Meal = { ...u.nm.meal, calories: baseCal > 0 ? String(Math.round(baseCal)) : u.nm.meal.calories };
+          return tryFitMeal(fakeMeal, 1, false).show;
         }
         if (u.type === 'av') {
           const ratioToTry = customRatios[u.item.meal.id] ?? 1;

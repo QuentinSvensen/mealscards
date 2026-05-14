@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import { applyNextWeekPromotionOnTop } from "./applyNextWeekPromotion";
 import { mergeSnapshotsIntoLivePrefMap } from "./mergePlanningSnapshots";
 import { resolvePostResetGoals } from "./postResetGoals";
@@ -14,7 +14,7 @@ const baseMeal = {
 };
 
 describe("mergeSnapshotsIntoLivePrefMap", () => {
-  it("applique les snapshots 💾 par-dessus les préférences live", () => {
+  it("applique les snapshots ðŸ’¾ par-dessus les prÃ©fÃ©rences live", () => {
     const prefMap: PlanningPrefMap = {
       planning_manual_calories: { "2025-04-07-midi": 100 },
       planning_manual_proteins: {},
@@ -37,7 +37,7 @@ describe("mergeSnapshotsIntoLivePrefMap", () => {
     expect(merged.planning_extra_selections["2025-04-07"]).toEqual(["a", "b"]);
   });
 
-  it("ignore les clés de snapshots inconnues", () => {
+  it("ignore les clÃ©s de snapshots inconnues", () => {
     const prefMap: PlanningPrefMap = {
       planning_manual_calories: {},
       planning_manual_proteins: {},
@@ -55,7 +55,7 @@ describe("mergeSnapshotsIntoLivePrefMap", () => {
 });
 
 describe("applyNextWeekPromotionOnTop", () => {
-  it("écrase les extras issus des snapshots avec le brouillon semaine suivante", () => {
+  it("Ã©crase les extras issus des snapshots avec le brouillon semaine suivante", () => {
     const merged = mergeSnapshotsIntoLivePrefMap(
       {
         planning_manual_calories: {},
@@ -88,7 +88,7 @@ describe("applyNextWeekPromotionOnTop", () => {
     expect(out.planning_extra_calories["2025-04-14"]).toBeUndefined();
   });
 
-  it("la semaine suivante garde la priorité sur une valeur sauvegardée (💾)", () => {
+  it("la semaine suivante garde la prioritÃ© sur une valeur sauvegardÃ©e (ðŸ’¾)", () => {
     const merged = mergeSnapshotsIntoLivePrefMap(
       {
         planning_manual_calories: { "2025-04-14-midi": 420 },
@@ -150,7 +150,7 @@ describe("resolvePostResetGoals", () => {
 });
 
 describe("filterPossibleMealsToDeleteForWeeklyClear", () => {
-  it("supprime les ISO jusqu’au cutoff et le plateau", () => {
+  it("supprime les ISO jusquâ€™au cutoff et le plateau", () => {
     const meals = [
       { id: "1", day_of_week: null },
       { id: "2", day_of_week: "2025-04-06" },
@@ -160,10 +160,21 @@ describe("filterPossibleMealsToDeleteForWeeklyClear", () => {
     const del = filterPossibleMealsToDeleteForWeeklyClear(meals, "2025-04-07");
     expect(del.map(m => m.id).sort()).toEqual(["1", "2", "4"].sort());
   });
+
+  it("préserve les cartes créées directement dans Possible (is_available=false, sans jour)", () => {
+    const meals = [
+      { id: "keep", day_of_week: null, meals: { is_available: false } },
+      { id: "del1", day_of_week: null, meals: { is_available: true } },
+      { id: "del2", day_of_week: "2025-04-06", meals: { is_available: false } },
+    ] as unknown as PossibleMeal[];
+    const del = filterPossibleMealsToDeleteForWeeklyClear(meals, "2025-04-07");
+    expect(del.map(m => m.id).sort()).toEqual(["del1", "del2"].sort());
+    expect(del.find(m => m.id === "keep")).toBeUndefined();
+  });
 });
 
 describe("getPossibleMealIdsToDeleteOnManualReset", () => {
-  it("conserve le petit-déj plateau sans jour", () => {
+  it("conserve le petit-dÃ©j plateau sans jour", () => {
     const meals = [
       { id: "a", day_of_week: null, meals: { category: "petit_dejeuner" } },
       { id: "b", day_of_week: "2025-04-07", meals: { category: "plat" } },
@@ -173,7 +184,7 @@ describe("getPossibleMealIdsToDeleteOnManualReset", () => {
 });
 
 describe("buildFullBackupPayload", () => {
-  it("sérialise les cartes et les objectifs numériques", () => {
+  it("sÃ©rialise les cartes et les objectifs numÃ©riques", () => {
     const pm = [
       {
         id: "x",

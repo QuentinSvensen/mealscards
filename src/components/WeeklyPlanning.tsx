@@ -2045,17 +2045,6 @@ export function WeeklyPlanning({
                           if (val > 0) updated[iso] = val;
                           else { delete updated[iso]; delete updated[key]; }
                           setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: updated });
-                          if (weekOffset === 0) {
-                            const curProt = (iso && breakfastManualProteins[iso]) || breakfastManualProteins[key] || 0;
-                            const nxtC = { ...nextBreakfastManualCalories };
-                            const nxtP = { ...nextBreakfastManualProteins };
-                            if (val > 0) { nxtC[iso] = val; nxtC[key] = val; }
-                            else { delete nxtC[iso]; delete nxtC[key]; }
-                            if (curProt > 0) { nxtP[iso] = curProt; nxtP[key] = curProt; }
-                            else { delete nxtP[iso]; delete nxtP[key]; }
-                            setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: nxtC });
-                            setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: nxtP });
-                          }
                         }}
                         placeholder="kcal"
                         className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40"
@@ -2068,17 +2057,6 @@ export function WeeklyPlanning({
                           if (val > 0) updated[iso] = val;
                           else { delete updated[iso]; delete updated[key]; }
                           setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: updated });
-                          if (weekOffset === 0) {
-                            const curCal = (iso && breakfastManualCalories[iso]) || breakfastManualCalories[key] || 0;
-                            const nxtC = { ...nextBreakfastManualCalories };
-                            const nxtP = { ...nextBreakfastManualProteins };
-                            if (curCal > 0) { nxtC[iso] = curCal; nxtC[key] = curCal; }
-                            else { delete nxtC[iso]; delete nxtC[key]; }
-                            if (val > 0) { nxtP[iso] = val; nxtP[key] = val; }
-                            else { delete nxtP[iso]; delete nxtP[key]; }
-                            setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: nxtC });
-                            setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: nxtP });
-                          }
                         }}
                         placeholder="prot"
                         className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40"
@@ -2372,19 +2350,6 @@ export function WeeklyPlanning({
                                 if (val > 0) updated[`${iso}-${time}`] = val;
                                 else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
                                 setPreference.mutate({ key: 'planning_manual_calories', value: updated });
-                                if (weekOffset === 0) {
-                                  const kKeySlot = `${key}-${time}`;
-                                  const kIsoSlot = `${iso}-${time}`;
-                                  const curProt = manualProteins[`${iso}-${time}`] || manualProteins[`${key}-${time}`] || 0;
-                                  const nxtCal = { ...nextManualCalories };
-                                  const nxtPro = { ...nextManualProteins };
-                                  if (val > 0) { nxtCal[kKeySlot] = val; nxtCal[kIsoSlot] = val; }
-                                  else { delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot]; }
-                                  if (curProt > 0) { nxtPro[kKeySlot] = curProt; nxtPro[kIsoSlot] = curProt; }
-                                  else { delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot]; }
-                                  setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
-                                  setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
-                                }
                               }}
                               placeholder="kcal"
                               className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
@@ -2397,19 +2362,6 @@ export function WeeklyPlanning({
                                 if (val > 0) updated[`${iso}-${time}`] = val;
                                 else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
                                 setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
-                                if (weekOffset === 0) {
-                                  const kKeySlot = `${key}-${time}`;
-                                  const kIsoSlot = `${iso}-${time}`;
-                                  const curCal = manualCalories[`${iso}-${time}`] || manualCalories[`${key}-${time}`] || 0;
-                                  const nxtCal = { ...nextManualCalories };
-                                  const nxtPro = { ...nextManualProteins };
-                                  if (curCal > 0) { nxtCal[kKeySlot] = curCal; nxtCal[kIsoSlot] = curCal; }
-                                  else { delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot]; }
-                                  if (val > 0) { nxtPro[kKeySlot] = val; nxtPro[kIsoSlot] = val; }
-                                  else { delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot]; }
-                                  setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
-                                  setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
-                                }
                               }}
                               placeholder="prot"
                               className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
@@ -2572,17 +2524,6 @@ export function WeeklyPlanning({
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
                         setPreference.mutate({ key: 'planning_extra_calories', value: updated });
-                        if (weekOffset === 0) {
-                          const nxtEC = { ...nextExtraCalories };
-                          if (manual > 0) { nxtEC[iso] = manual; nxtEC[key] = manual; }
-                          else { delete nxtEC[iso]; delete nxtEC[key]; }
-                          setPreference.mutate({ key: 'next_week_extra_calories', value: nxtEC });
-                          const protManual = extraProteins[iso] || extraProteins[key] || 0;
-                          const nxtEP = { ...nextExtraProteins };
-                          if (protManual > 0) { nxtEP[iso] = protManual; nxtEP[key] = protManual; }
-                          else { delete nxtEP[iso]; delete nxtEP[key]; }
-                          setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtEP });
-                        }
                       }}
                       placeholder="kcal"
                       className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
@@ -2615,17 +2556,6 @@ export function WeeklyPlanning({
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
                         setPreference.mutate({ key: 'planning_extra_proteins', value: updated });
-                        if (weekOffset === 0) {
-                          const nxtEP = { ...nextExtraProteins };
-                          if (manual > 0) { nxtEP[iso] = manual; nxtEP[key] = manual; }
-                          else { delete nxtEP[iso]; delete nxtEP[key]; }
-                          setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtEP });
-                          const calManual = extraCalories[iso] || extraCalories[key] || 0;
-                          const nxtEC = { ...nextExtraCalories };
-                          if (calManual > 0) { nxtEC[iso] = calManual; nxtEC[key] = calManual; }
-                          else { delete nxtEC[iso]; delete nxtEC[key]; }
-                          setPreference.mutate({ key: 'next_week_extra_calories', value: nxtEC });
-                        }
                       }}
                       placeholder="prot"
                       className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"

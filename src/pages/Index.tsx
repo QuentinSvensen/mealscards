@@ -1234,6 +1234,13 @@ const Index = () => {
                               setPreference.mutate({ key: 'planning_cal_overrides', value: { ...currentCals, [pmId]: cal || "0" } });
                             }
                           }}
+                          onUpdateProtein={(id, pro, pmId) => {
+                            updateProtein.mutate({ id, protein: pro });
+                            if (pmId) {
+                              const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
+                              setPreference.mutate({ key: 'planning_pro_overrides', value: { ...currentPros, [pmId]: pro || "0" } });
+                            }
+                          }}
                           onUpdateGrams={async (id, g, pmId) => {
                             const pm = pmId ? possibleMeals.find(p => p.id === pmId) : possibleMeals.find(p => p.meal_id === id);
                             if (pm && unParUnSourcePmIds.has(pm.id)) {
@@ -1421,7 +1428,9 @@ const Index = () => {
                               }
                               const unitG = parseQty(fi.grams);
                               const totalMovedG = unitG > 0 ? ((consumeQty || 0) * unitG + (consumeGrams || 0)) : 0;
-                              if (totalMovedG <= 0 && (consumeQty !== undefined || consumeGrams !== undefined)) return;
+                              // Guard : ne bloquer que si l'aliment A des grammes et qu'on ne déplace rien.
+                              // Pour les aliments en quantité seule (unitG = 0), on ne doit PAS bloquer ici.
+                              if (unitG > 0 && totalMovedG <= 0 && (consumeQty !== undefined || consumeGrams !== undefined)) return;
                               const actualMovedG = totalMovedG > 0 ? totalMovedG : (unitG > 0 ? unitG : 0);
 
                               const displayGrams = actualMovedG > 0 ? String(actualMovedG) : (fi.grams ? String(parseQty(fi.grams)) : null);

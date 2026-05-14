@@ -270,24 +270,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
     const selectionKey = (isoDate && extraSelections[isoDate] !== undefined) ? isoDate : dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
-    const assignedIds = new Set<string>([
-      ...(extraSlotAssignments[`${isoDate || dayKey}-matin`] || []),
-      ...(extraSlotAssignments[`${isoDate || dayKey}-midi`] || []),
-      ...(extraSlotAssignments[`${isoDate || dayKey}-soir`] || []),
-      ...(extraSlotAssignments[`${isoDate || dayKey}-gouter`] || []),
-      ...(extraSlotAssignments[`${dayKey}-matin`] || []),
-      ...(extraSlotAssignments[`${dayKey}-midi`] || []),
-      ...(extraSlotAssignments[`${dayKey}-soir`] || []),
-      ...(extraSlotAssignments[`${dayKey}-gouter`] || []),
-    ]);
     const extraSelectedCal = selectedExtraIds.reduce((sum, id) => {
-      if (assignedIds.has(id)) return sum;
-      const custom = parseCustomExtraId(id);
-      if (custom) return sum + custom.cal;
-      const item = foodItems.find(fi => fi.id === id);
-      return sum + parseCalories(item?.calories);
-    }, 0);
-    const extraAssignedCal = [...assignedIds].reduce((sum, id) => {
       const custom = parseCustomExtraId(id);
       if (custom) return sum + custom.cal;
       const item = foodItems.find(fi => fi.id === id);
@@ -299,7 +282,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       return sum + (drinkChecks[drinkKey] ? DRINK_CALORIES : 0);
     }, 0);
 
-    return mealCals + breakfastCal + extraManual + extraSelectedCal + extraAssignedCal + drinkCal;
+    return mealCals + breakfastCal + extraManual + extraSelectedCal + drinkCal;
   };
 
   const getDayProtein = (dayKey: string, isoDate?: string): number => {
@@ -341,31 +324,14 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
     const selectionKey = (isoDate && extraSelections[isoDate] !== undefined) ? isoDate : dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
-    const assignedIds = new Set<string>([
-      ...(extraSlotAssignments[`${isoDate || dayKey}-matin`] || []),
-      ...(extraSlotAssignments[`${isoDate || dayKey}-midi`] || []),
-      ...(extraSlotAssignments[`${isoDate || dayKey}-soir`] || []),
-      ...(extraSlotAssignments[`${isoDate || dayKey}-gouter`] || []),
-      ...(extraSlotAssignments[`${dayKey}-matin`] || []),
-      ...(extraSlotAssignments[`${dayKey}-midi`] || []),
-      ...(extraSlotAssignments[`${dayKey}-soir`] || []),
-      ...(extraSlotAssignments[`${dayKey}-gouter`] || []),
-    ]);
     const extraSelectedPro = selectedExtraIds.reduce((sum, id) => {
-      if (assignedIds.has(id)) return sum;
-      const custom = parseCustomExtraId(id);
-      if (custom) return sum + custom.prot;
-      const item = foodItems.find(fi => fi.id === id);
-      return sum + parseProtein(item?.protein);
-    }, 0);
-    const extraAssignedPro = [...assignedIds].reduce((sum, id) => {
       const custom = parseCustomExtraId(id);
       if (custom) return sum + custom.prot;
       const item = foodItems.find(fi => fi.id === id);
       return sum + parseProtein(item?.protein);
     }, 0);
 
-    return mealPro + breakfastPro + extraManual + extraSelectedPro + extraAssignedPro;
+    return mealPro + breakfastPro + extraManual + extraSelectedPro;
   };
 
   const getTargetCalorieThreshold = () => {

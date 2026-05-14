@@ -52,6 +52,7 @@ interface PossibleMealCardProps {
   onUpdatePlanning: (day: string | null, time: string | null) => void;
   onUpdateCounter: (date: string | null) => void;
   onUpdateCalories: (cal: string | null) => void;
+  onUpdateProtein?: (pro: string | null) => void;
   onUpdateGrams: (g: string | null) => void;
   onUpdateQuantity?: (qty: number) => void;
   onSplitQuantity?: (ratio: number, baseIngredients: string | null) => void;
@@ -135,7 +136,7 @@ function proteinLooksComputedOnPossibleCard(
 export function PossibleMealCard({
   pm, stockMap, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel,
   onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
-  onUpdateCounter, onUpdateCalories, onUpdateGrams, onUpdateQuantity,
+  onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateQuantity,
   onUpdateIngredients, onUpdatePossibleIngredients, 
   onUpdateOvenTemp, onUpdateOvenMinutes,
   onDragStart, onDragOver,
@@ -147,7 +148,7 @@ export function PossibleMealCard({
   const { getPreference } = usePreferences();
   const calOverrides = getPreference<Record<string, string>>("planning_cal_overrides", {});
   const proOverrides = getPreference<Record<string, string>>("planning_pro_overrides", {});
-  const [editing, setEditing] = useState<"calories" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
+  const [editing, setEditing] = useState<"calories" | "protein" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calMobileOpen, setCalMobileOpen] = useState(false);
@@ -270,6 +271,7 @@ export function PossibleMealCard({
   const handleSaveEdit = () => {
     const val = editValue.trim() || null;
     if (editing === "calories") onUpdateCalories(val);
+    if (editing === "protein" && onUpdateProtein) onUpdateProtein(val);
     if (editing === "grams") onUpdateGrams(val);
     if (editing === "oven_temp" && onUpdateOvenTemp) onUpdateOvenTemp(val);
     if (editing === "oven_minutes" && onUpdateOvenMinutes) onUpdateOvenMinutes(val);
@@ -512,9 +514,10 @@ export function PossibleMealCard({
         <Input autoFocus placeholder={
           editing === "ratio" ? "75% ou x2" :
             editing === "calories" ? "Ex: 350 kcal" :
-              editing === "oven_temp" ? "Ex: 180" :
-                editing === "oven_minutes" ? "Ex: 25" :
-                  "Ex: 150g"
+              editing === "protein" ? "Ex: 28 g" :
+                editing === "oven_temp" ? "Ex: 180" :
+                  editing === "oven_minutes" ? "Ex: 25" :
+                    "Ex: 150g"
         } value={editValue}
           onChange={(e) => setEditValue(e.target.value)} onBlur={handleSaveEdit}
           onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
@@ -615,12 +618,15 @@ export function PossibleMealCard({
               foodMacroIndex,
             );
             return displayPro != null && displayPro > 0 ? (
-              <span className={`text-[10px] px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${isComputedPro
-                ? 'bg-blue-600/60 text-white'
-                : 'bg-black/30 text-white/90'
-                }`}>
+              <button
+                onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}
+                className={`text-[10px] px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${isComputedPro
+                  ? 'bg-blue-600/60 text-white hover:bg-blue-600/80'
+                  : 'bg-black/30 text-white/90 hover:bg-black/40'
+                  }`}
+              >
                 🍗 {displayPro}
-              </span>
+              </button>
             ) : null;
           })()}
 
@@ -663,6 +669,11 @@ export function PossibleMealCard({
               <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
                 <Flame className="mr-2 h-4 w-4" /> Calories
               </DropdownMenuItem>
+              {onUpdateProtein && (
+                <DropdownMenuItem onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}>
+                  <span className="mr-2 text-sm">🍗</span> Protéines
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
                 <Weight className="mr-2 h-4 w-4" /> Grammes
               </DropdownMenuItem>

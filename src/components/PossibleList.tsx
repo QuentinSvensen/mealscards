@@ -83,6 +83,7 @@ interface PossibleListProps {
   onUpdatePlanning: (id: string, day: string | null, time: string | null, counter_start_date?: string | null) => void;
   onUpdateCounter: (id: string, d: string | null) => void;
   onUpdateCalories: (id: string, cal: string | null, pmId?: string) => void;
+  onUpdateProtein?: (id: string, pro: string | null, pmId?: string) => void;
   onUpdateGrams: (id: string, g: string | null, pmId?: string) => void;
   onUpdateIngredients: (id: string, ing: string | null) => void;
   onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;
@@ -105,7 +106,7 @@ interface PossibleListProps {
 export function PossibleList({
   category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove,
   onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate,
-  onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateGrams,
+  onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateGrams,
   onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes,
   onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems,
   onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals
@@ -219,6 +220,7 @@ export function PossibleList({
                   )}
                 onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
                 onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal, pm.id)}
+                onUpdateProtein={onUpdateProtein ? (pro) => onUpdateProtein(pm.meal_id, pro, pm.id) : undefined}
                 onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g, pm.id)}
                 onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
                 onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
