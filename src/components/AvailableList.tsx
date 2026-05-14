@@ -1161,17 +1161,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         }
         alternativeRecipeName = alternativeCandidate.meal.name;
       }
-      // On retient les recettes "intéressantes" pour suggérer des compléments :
-      // celles qui utilisent l'aliment et qui n'ont que 1 ou 2 ingrédients manquants.
-      // Même si une recette à 0 manque existe, on veut suggérer des achats pour d'autres variantes.
-      const goodCandidates = sortedCandidates.filter(c => c.score.missingCount > 0 && c.score.missingCount <= 2);
+      // Pour cet aliment, on cherche la meilleure recette qui nécessite des achats (compléments).
+      // On autorise jusqu'à 3 ingrédients manquants pour ne pas rater les recettes type Pizza/Burger.
+      const bestWithMissing = sortedCandidates.find(c => c.score.missingCount > 0 && c.score.missingCount <= 3);
       
-      // On limite à quelques candidates par aliment pour éviter de polluer la liste.
-      const candidatesToProcess = goodCandidates.slice(0, 3);
-
-      for (const candidate of candidatesToProcess) {
-        const meal = candidate.meal;
-        const score = candidate.score;
+      if (bestWithMissing) {
+        const meal = bestWithMissing.meal;
+        const score = bestWithMissing.score;
         const missing = new Set(Array.from(getMissingIngredients(meal, stockMap)).filter(isActuallyMissing));
         const groups = parseIngredientGroups(meal.ingredients!);
         let unusedQtyInRecipe = 0;
