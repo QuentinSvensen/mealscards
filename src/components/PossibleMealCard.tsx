@@ -32,6 +32,7 @@ import {
   computeIngredientProtein, cleanIngredientText, normalizeKey,
   hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
+  ingredientsForPossibleCardDisplay,
 } from "@/lib/ingredientUtils";
 import { usePreferences } from "@/hooks/usePreferences";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
@@ -132,6 +133,56 @@ function proteinLooksComputedOnPossibleCard(
 
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
 
+/** Indique si une recette contient des marqueurs d'édition structurés : alternative, liaison ou optionnel. */
+function hasIngredientStructure(lines: IngLine[]): boolean {
+  return lines.some((line) => line.isOr || line.isAnd || line.isOptional);
+}
+
+/** Reconstruit l'éditeur Possible avec la structure master, sans écraser les quantités propres à la carte. */
+function buildPossibleEditorLines(
+  masterIngredients: string | null | undefined,
+  overrideIngredients: string | null | undefined,
+  ratio: number | null,
+  scaleLines: (lines: IngLine[], ratio: number) => IngLine[],
+): IngLine[] {
+  const hasOverride = overrideIngredients != null && String(overrideIngredients).trim() !== "";
+  const source = hasOverride ? overrideIngredients! : masterIngredients;
+  if (!source?.trim()) return [];
+
+  const overrideLines = hasOverride ? parseIngredientsToLines(overrideIngredients!) : [];
+  const masterLines = masterIngredients?.trim() ? parseIngredientsToLines(masterIngredients) : [];
+  const overrideHasStructure = hasOverride && hasIngredientStructure(overrideLines);
+  const masterHasStructure = hasIngredientStructure(masterLines);
+
+  if (!hasOverride || overrideHasStructure || !masterHasStructure) {
+    return !hasOverride && ratio !== null ? scaleLines(parseIngredientsToLines(source), ratio) : parseIngredientsToLines(source);
+  }
+
+  const overrideByName = new Map<string, IngLine[]>();
+  for (const line of overrideLines) {
+    const key = normalizeKey(line.name);
+    if (!key) continue;
+    const matches = overrideByName.get(key) ?? [];
+    matches.push(line);
+    overrideByName.set(key, matches);
+  }
+
+  const scaledMasterLines = ratio !== null ? scaleLines(masterLines, ratio) : masterLines;
+  return scaledMasterLines.map((line) => {
+    const key = normalizeKey(line.name);
+    const matching = key ? overrideByName.get(key)?.shift() : undefined;
+    if (!matching) return line;
+    return {
+      ...line,
+      qty: matching.qty,
+      count: matching.count,
+      name: matching.name || line.name,
+      cal: matching.cal || line.cal,
+      pro: matching.pro || line.pro,
+    };
+  });
+}
+
 /** Carte d’un repas « possible » : dates, macros, édition, drag & drop (voir en-tête de module). */
 export function PossibleMealCard({
   pm, stockMap, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel,
@@ -171,6 +222,10 @@ export function PossibleMealCard({
   const displayIngredients =
     pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
   const cardColorIngredients = displayIngredients;
+  const cardDisplayIngredients = useMemo(
+    () => ingredientsForPossibleCardDisplay(displayIngredients),
+    [displayIngredients],
+  );
 
   // Construire le rappel isAvailable à partir de stockMap pour le calcul des macros
   const isAvailableCb = stockMap ? (name: string) => {
@@ -328,28 +383,23 @@ export function PossibleMealCard({
     }));
   };
 
-  // Ouvre l'éditeur avec la recette master (qui contient les "ou", "et", "?")
-  // plutôt que l'override réduit (qui ne garde que l'alternative sélectionnée).
+  // Ouvre l'éditeur avec les marqueurs ou/? de la recette master si l'override Possible a été réduit.
   const openIngredients = () => {
-    const baseLines = parseIngredientsToLines(meal.ingredients ?? displayIngredients);
-    setIngLines(detectedRatio !== null ? scaleEditorLines(baseLines, detectedRatio) : baseLines);
+    const lines = buildPossibleEditorLines(
+      meal.ingredients,
+      pm.ingredients_override,
+      detectedRatio,
+      scaleEditorLines,
+    );
+    if (lines.length === 0) return;
+    setIngLines(lines);
     setEditingIngredients(true);
   };
 
   const commitIngredients = () => {
-    const ratio = detectedRatio ?? 1;
-    const masterLines = ratio !== 1 ? scaleEditorLines(ingLines, 1 / ratio) : ingLines;
-    const fullRecipe = serializeIngredients(masterLines);
-
-    // Sauvegarder la recette complète non-scalée (avec "ou", "?") sur le repas master.
-    onUpdateIngredients(fullRecipe);
-
+    const serialized = serializeIngredients(ingLines);
     if (onUpdatePossibleIngredients) {
-      // Version réduite pour l'affichage sur la carte :
-      // ne garde que la première alternative de chaque groupe "ou" et retire les optionnels.
-      const displayLines = ingLines.filter(l => !l.isOr && !l.isOptional);
-      const displaySerialized = serializeIngredients(displayLines);
-      onUpdatePossibleIngredients(displaySerialized === null ? "" : displaySerialized);
+      onUpdatePossibleIngredients(serialized === null ? "" : serialized);
     }
     setEditingIngredients(false);
   };
@@ -729,10 +779,10 @@ export function PossibleMealCard({
       </div>
 
       {/* Ligne 3 : ingrédients (cliquer pour éditer) — afficher si la base ou l'override a des ingrédients */}
-      {!editing && !editingIngredients && displayIngredients && (
+      {!editing && !editingIngredients && cardDisplayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
           <StructuredIngredientInline
-            ingredients={displayIngredients}
+            ingredients={cardDisplayIngredients}
             expiredIngredientNames={expiredIngredientNames}
             expiringSoonIngredientNames={expiringSoonIngredientNames}
             stockMap={stockMap}

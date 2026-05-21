@@ -963,6 +963,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       Boolean(dayOfWeek) && String(mealTime ?? "").trim().length > 0;
     const groups = parseIngredientGroups(ingredients);
 
+    // Updates à appliquer en une seule passe : on les collecte d'abord, puis on les écrit
+    // en batch avec .select().single() pour récupérer la ligne authoritative et patcher le cache.
+    // Cela évite qu'un événement realtime sur replica en retard ré-écrase notre update.
+    const pendingUpdates = new Map<string, string>();
+
     for (const group of groups) {
       // group : ParsedIngredient[][] — chaque entrée est une branche « OU », chaque branche un bundle « + ».
       if (group.every(altBundle => altBundle.every((item) => item.optional))) continue;
@@ -1011,42 +1016,48 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       }
 
       for (const fi of matchingItems) {
-        // Trouver la date la plus ancienne parmi TOUS les repas planifiés utilisant cet ingrédient
+        // Objectif : faire pointer le compteur de l’aliment sur la date FUTURE LA PLUS PROCHE
+        // parmi tous les repas planifiés qui l’utilisent. Un repas planifié dans le passé
+        // (en retard, non consommé) ne doit pas écraser cette date future ; sinon le compteur
+        // reste bloqué sur un créneau déjà passé au lieu d’afficher « Prog. ».
         let earliestDateStr: string | null = null;
         let earliestDateMs = Infinity;
+        const nowMsRef = new Date().getTime();
 
-        // Inclure le repas en cours de mise à jour
+        /** Candidat pour earliest : on garde le min des dates futures rencontrées. */
+        const considerCandidate = (iso: string, ms: number) => {
+          if (ms <= nowMsRef) return; // créneau passé ignoré
+          if (ms < earliestDateMs) {
+            earliestDateMs = ms;
+            earliestDateStr = iso;
+          }
+        };
+
+        // Repas en cours de mise à jour (pmId courant).
+        // Cas particulier : si fullPlanningSlot est faux (ex. carte Possible sans créneau choisi),
+        // on accepte un fallback « maintenant » comme avant pour maintenir l’ouverture immédiate.
         if (pmId) {
           const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
-          const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
-
           if (fullPlanningSlot && targetDate) {
-            // Ancrer sur le créneau choisi : sinon on retombait sur l’ouverture réelle (ex. « 3j »)
-            // au lieu de la date de planification. On laisse ensuite la boucle des siblings remonter
-            // une date plus ancienne si un autre repas planifié utilise déjà cet ingrédient (ex. Burrito
-            // lundi midi entame la viande hachée, Gnocchis mardi midi doit afficher 1j).
-            earliestDateStr = targetDate;
+            const targetMs = new Date(targetDate).getTime();
+            considerCandidate(targetDate, targetMs);
           } else {
+            const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
             earliestDateStr = candidateDate;
+            earliestDateMs = new Date(candidateDate).getTime();
           }
-          earliestDateMs = new Date(earliestDateStr).getTime();
         }
 
         let hasAnyMatchingMeal = pmId !== null;
-        // Borne minimale : on ignore les siblings planifiés très anciens (au-delà de 24h dans le passé) ;
-        // ils représentent des repas consommés depuis longtemps et leur date ne doit pas réécrire un compteur futur.
-        const oldestRelevantSiblingMs = new Date().getTime() - 24 * 60 * 60 * 1000;
 
         // Parcourir les autres repas **entièrement planifiés** (jour + créneau).
-        // Ignorer les cartes encore dans « Possibles » sans créneau : leur fallback « maintenant »
-        // faisait gagner le min sur les aliments partagés et annulait le mode « prog. » du repas planifié.
+        // Seuls les créneaux FUTURS sont retenus : le compteur reflète la prochaine ouverture.
         for (const pm of allPossibleMeals) {
           if (pm.id === pmId) continue;
           if (!pm.day_of_week || !String(pm.meal_time ?? "").trim()) continue;
           const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
           if (!pmIngs?.trim()) continue;
 
-          // Vérification rapide par nom avant le parsing complet
           if (!pmIngs.toLowerCase().includes(fi.name.toLowerCase())) continue;
 
           const pmG = parseIngredientGroups(pmIngs);
@@ -1061,15 +1072,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           );
           if (!hasMatch) continue;
 
-          hasAnyMatchingMeal = true;
           const siblingTarget = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
           const pmMs = new Date(siblingTarget).getTime();
-          // Filtre : siblings très anciens ignorés (voir commentaire `oldestRelevantSiblingMs`).
-          if (pmMs < oldestRelevantSiblingMs) continue;
-          if (pmMs < earliestDateMs) {
-            earliestDateMs = pmMs;
-            earliestDateStr = siblingTarget;
-          }
+          // Filtre fondamental : sibling au créneau passé → on l’ignore complètement.
+          // Il représente un repas en retard et ne doit pas dicter la date d’ouverture future.
+          if (pmMs <= nowMsRef) continue;
+
+          hasAnyMatchingMeal = true;
+          considerCandidate(siblingTarget, pmMs);
         }
 
         // Ne pas ramener une date de créneau planifié (futur, mode « prog. ») à « maintenant »
@@ -1093,16 +1103,62 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             }
           }
 
-          await safeMutate("Mise à jour compteur", () =>
-            supabase.from("food_items").update({ counter_start_date: earliestDateStr } as any).eq("id", fi.id)
-          );
+          pendingUpdates.set(fi.id, earliestDateStr);
         }
       }
           }
         }
       }
     }
-    await invalidateStock();
+
+    if (pendingUpdates.size === 0) return;
+
+    // 1. Patch optimiste immédiat : l'UI reflète le compteur programmé sans attendre le réseau.
+    await qc.cancelQueries({ queryKey: ["food_items"] });
+    qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+      if (!Array.isArray(old)) return old;
+      return old.map((fi) => {
+        const newDate = pendingUpdates.get(fi.id);
+        return newDate !== undefined ? { ...fi, counter_start_date: newDate } : fi;
+      });
+    });
+
+    // 2. Suspendre le realtime : un événement Supabase sur réplique en retard ne doit pas
+    //    ré-écraser notre cache (bug « 0j » au lieu de « Prog. » après planification).
+    suppressStockRealtimeBriefly();
+
+    // 3. Écriture batch en base avec récupération de la ligne authoritative.
+    const updateResults = await safeMutate("Mise à jour compteur", () =>
+      Promise.all(
+        Array.from(pendingUpdates.entries()).map(([id, dateIso]) =>
+          supabase
+            .from("food_items")
+            .update({ counter_start_date: dateIso } as any)
+            .eq("id", id)
+            .select("*")
+            .single(),
+        ),
+      ),
+    );
+
+    // 4. Patcher le cache avec les lignes authoritatives renvoyées par le primaire.
+    //    NE PAS appeler invalidateStock() ensuite : le refetch irait sur une réplique en retard
+    //    et écraserait notre mise à jour par l'ancienne valeur « maintenant ».
+    if (Array.isArray(updateResults)) {
+      const authoritativeById = new Map<string, FoodItem>();
+      for (const res of updateResults) {
+        if (!res || (res as any).error) continue;
+        const row = (res as { data?: FoodItem | null }).data;
+        if (row?.id) authoritativeById.set(row.id, row as FoodItem);
+      }
+      if (authoritativeById.size > 0) {
+        await qc.cancelQueries({ queryKey: ["food_items"] });
+        qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((fi) => authoritativeById.get(fi.id) ?? fi);
+        });
+      }
+    }
   };
 
   return {

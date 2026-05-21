@@ -789,6 +789,17 @@ export function serializeIngredients(lines: IngLine[]): string | null {
   return result.length ? result.join(", ") : null;
 }
 
+/**
+ * Réduit une recette pour l'affichage compact d'une carte Possible :
+ * garde le premier choix de chaque groupe « ou » et retire les ingrédients optionnels (?).
+ */
+export function ingredientsForPossibleCardDisplay(ingredients: string | null | undefined): string | null {
+  if (!ingredients?.trim()) return ingredients ?? null;
+  const lines = parseIngredientsToLines(ingredients);
+  const displayLines = lines.filter((l) => !l.isOr && !l.isOptional);
+  return serializeIngredients(displayLines) ?? ingredients;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 7 : Calcul des macros (calories et protéines)
 // ═══════════════════════════════════════════════════════════════════════════════
