@@ -310,19 +310,46 @@ export function PossibleMealCard({
     setEditing(null);
   };
 
+  // Applique le ratio de la carte aux champs numériques de l'éditeur (grammes et quantités).
+  const scaleEditorLines = (lines: IngLine[], ratio: number): IngLine[] => {
+    const scaleValue = (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return value;
+      const parsed = parseFloat(trimmed.replace(",", "."));
+      if (Number.isNaN(parsed)) return value;
+      const scaled = Math.round(parsed * ratio * 10) / 10;
+      return Number.isInteger(scaled) ? String(Math.trunc(scaled)) : String(scaled);
+    };
+
+    return lines.map((line) => ({
+      ...line,
+      qty: scaleValue(line.qty),
+      count: scaleValue(line.count),
+    }));
+  };
+
+  // Ouvre l'éditeur avec la recette master (qui contient les "ou", "et", "?")
+  // plutôt que l'override réduit (qui ne garde que l'alternative sélectionnée).
   const openIngredients = () => {
-    setIngLines(parseIngredientsToLines(displayIngredients));
+    const baseLines = parseIngredientsToLines(meal.ingredients ?? displayIngredients);
+    setIngLines(detectedRatio !== null ? scaleEditorLines(baseLines, detectedRatio) : baseLines);
     setEditingIngredients(true);
   };
 
   const commitIngredients = () => {
-    const serialized = serializeIngredients(ingLines);
+    const ratio = detectedRatio ?? 1;
+    const masterLines = ratio !== 1 ? scaleEditorLines(ingLines, 1 / ratio) : ingLines;
+    const fullRecipe = serializeIngredients(masterLines);
+
+    // Sauvegarder la recette complète non-scalée (avec "ou", "?") sur le repas master.
+    onUpdateIngredients(fullRecipe);
+
     if (onUpdatePossibleIngredients) {
-      // `null` serait stocké comme absence d'override → retombée sur la recette maître.
-      // Chaîne vide = « tout retiré » explicite, sans réafficher les quantités d'origine.
-      onUpdatePossibleIngredients(serialized === null ? "" : serialized);
-    } else {
-      onUpdateIngredients(serialized);
+      // Version réduite pour l'affichage sur la carte :
+      // ne garde que la première alternative de chaque groupe "ou" et retire les optionnels.
+      const displayLines = ingLines.filter(l => !l.isOr && !l.isOptional);
+      const displaySerialized = serializeIngredients(displayLines);
+      onUpdatePossibleIngredients(displaySerialized === null ? "" : displaySerialized);
     }
     setEditingIngredients(false);
   };

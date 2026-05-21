@@ -285,7 +285,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
       onDoubleClick={onDoubleClick}
-      className={`rounded-xl text-white select-none
+      className={`${compact ? "w-fit max-w-full" : "w-full"} min-w-0 overflow-hidden rounded-xl text-white select-none
         ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
         transition-transform hover:scale-[1.01]
         ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
@@ -296,15 +296,15 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
     >
       {/* Mobile : mise en page verticale */}
       <div className="flex flex-col sm:hidden">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] max-[430px]:grid-cols-1 items-start gap-x-1 gap-y-0.5 min-w-0">
-          <div className="min-w-0 overflow-hidden">
-            <div className="flex items-start gap-1 min-w-0 w-full">
+        <div className="flex flex-col min-w-0 gap-0.5">
+          <div className="min-w-0 max-w-full overflow-hidden">
+            <div className="flex items-start gap-1 min-w-0 max-w-full">
               <span className="text-[9px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-              <span className="block flex-1 min-w-0 font-semibold text-[10px] break-normal whitespace-normal leading-tight">{meal.name}</span>
+              <span className="block flex-1 min-w-0 max-w-full font-semibold text-[10px] leading-tight whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word]">{meal.name}</span>
             </div>
           </div>
           {!compact && (
-            <div className="flex flex-col items-center shrink-0 max-[430px]:justify-self-end">
+            <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full self-end">
               {editingCal ? (
                 <input
                   autoFocus
@@ -324,7 +324,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               ) : displayCal ? (
                 <button
                   onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                  className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
+                  className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
                     }`}
                   title="Modifier les calories (temporaire)"
                 >
@@ -353,13 +353,13 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                     setEditingPro(false);
                   }}
                   onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none mt-0.5"
+                  className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
                   placeholder="prot"
                 />
               ) : displayPro ? (
                 <button
                   onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-                  className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+                  className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
                   title="Modifier les protéines (temporaire)"
                 >
                   🍗 {displayPro}
@@ -367,7 +367,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               ) : (
                 <button
                   onClick={() => { setProValue(""); setEditingPro(true); }}
-                  className="text-[10px] text-white/40 hover:text-white/60 mt-0.5"
+                  className="text-[10px] text-white/40 hover:text-white/60"
                   title="Ajouter des protéines"
                 >
                   🍗
@@ -375,7 +375,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               )}
               {counterDays !== null ? (
                 <span
-                  className={`text-[8px] font-black px-1 py-0.5 rounded-full mt-0.5 flex items-center gap-0.5 border shrink-0
+                  className={`text-[8px] font-black px-1 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
                   ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
                   title={counterBadgeTitle}
                 >
@@ -420,11 +420,11 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       </div>
 
       {/* Bureau : mise en page en deux colonnes — gauche (titre + date en bas), droite (badges) */}
-      <div className="hidden sm:flex items-stretch gap-1 min-w-0">
+      <div className="hidden sm:flex flex-col items-stretch gap-0.5 min-w-0 max-w-full">
         <div className="flex-1 min-w-0 flex flex-col justify-between">
-          <div className="flex items-start gap-1 min-w-0">
+          <div className="flex items-start gap-1 min-w-0 max-w-full">
             <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-            <span className="block flex-1 min-w-0 font-semibold text-xs break-normal whitespace-normal leading-tight">{meal.name}</span>
+            <span className="block flex-1 min-w-0 max-w-full font-semibold text-xs leading-tight whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word]">{meal.name}</span>
             {counterDays !== null ? (
               <span
                 className={`text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
@@ -469,7 +469,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
           )}
         </div>
         {!compact && (
-          <div className="flex flex-col items-center shrink-0">
+          <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
             {editingCal ? (
               <input
                 autoFocus
@@ -489,7 +489,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             ) : displayCal ? (
               <button
                 onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
+                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
                   }`}
                 title="Modifier les calories (temporaire)"
               >
@@ -518,13 +518,13 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
                   setEditingPro(false);
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none mt-0.5"
+                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
                 placeholder="prot"
               />
             ) : displayPro ? (
               <button
                 onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-                className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full mt-0.5 flex items-center justify-center ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+                className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
                 title="Modifier les protéines (temporaire)"
               >
                 🍗 {displayPro}
@@ -532,7 +532,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             ) : (
               <button
                 onClick={() => { setProValue(""); setEditingPro(true); }}
-                className="text-[10px] text-white/40 hover:text-white/60 mt-0.5"
+                className="text-[10px] text-white/40 hover:text-white/60"
                 title="Ajouter des protéines"
               >
                 🍗
@@ -638,7 +638,15 @@ export function WeeklyPlanning({
       if (!candidates.find(c => c.id === s.id)) candidates.push(s as any);
     }
 
-    return candidates
+    const extrasByCustomId = new Map<string, {
+      id: string;
+      name: string;
+      cal: number;
+      prot: number;
+      mealPayload: Meal;
+    }>();
+
+    candidates
       .filter((meal) => {
         if (!meal.ingredients?.trim()) return false;
         if (meal.name.toLowerCase() === "shaker whey") return true;
@@ -661,8 +669,15 @@ export function WeeklyPlanning({
           prot,
           mealPayload,
         };
+      })
+      .forEach((extra) => {
+        // Plusieurs fiches repas peuvent représenter le même extra (ex. Shaker whey).
+        // On déduplique par id custom pour éviter deux lignes identiques dans le popover.
+        if (!extrasByCustomId.has(extra.id)) extrasByCustomId.set(extra.id, extra);
       });
-  }, [buildMealTransferPayload, getMealsByCategory]);
+
+    return Array.from(extrasByCustomId.values());
+  }, [buildMealTransferPayload, getMealsByCategory, meals]);
   /** Desserts à ingrédient unique actuellement ajoutables (stock > 0). */
   const singleIngredientDessertExtras = useMemo(() => {
     const withExpiry = allSingleIngredientDessertExtras
@@ -758,22 +773,26 @@ export function WeeklyPlanning({
     if (weekOffset !== 0) return false;
     const dessert = singleIngredientDessertById.get(dessertExtraId);
     if (!dessert) return false;
+    const isInfiniteDessertStock = getMealMultiple(dessert.mealPayload, stockMap) === Infinity;
     if (delta > 0) {
       const res = await deductIngredientsFromStock(dessert.mealPayload);
       // Une déduction valide peut être un UPDATE (pas seulement un DELETE) :
       // on s'appuie donc sur la présence de snapshots touchés, pas sur consumedIds.
-      if (!res || (res.snapshots?.length ?? 0) === 0) return false;
+      // Si tout le stock concerné est infini (ex. Shaker whey), il n'y a rien à snapshotter.
+      if (!res || ((res.snapshots?.length ?? 0) === 0 && !isInfiniteDessertStock)) return false;
+      if ((res.snapshots?.length ?? 0) === 0) return true;
       pushDessertExtraSnapshot(dessertExtraId, iso, key, res.snapshots || []);
       qc.invalidateQueries({ queryKey: ["food_items"] });
       return true;
     }
     const snapshot = popDessertExtraSnapshot(dessertExtraId, iso, key);
+    if (!snapshot && isInfiniteDessertStock) return true;
     // Sans snapshot, on ne restaure pas pour éviter d'inventer du stock qui n'a jamais été décrémenté.
     if (!snapshot) return false;
     await restoreIngredientsToStock(dessert.mealPayload, snapshot);
     qc.invalidateQueries({ queryKey: ["food_items"] });
     return true;
-  }, [deductIngredientsFromStock, popDessertExtraSnapshot, pushDessertExtraSnapshot, qc, restoreIngredientsToStock, singleIngredientDessertById, weekOffset]);
+  }, [deductIngredientsFromStock, popDessertExtraSnapshot, pushDessertExtraSnapshot, qc, restoreIngredientsToStock, singleIngredientDessertById, stockMap, weekOffset]);
 
   const setBreakfastForDay = (day: string, selId: string | null) => {
     const updated = { ...breakfastSelections };
@@ -1871,7 +1890,7 @@ export function WeeklyPlanning({
           let baseBreakfastCals = 0;
           let baseBreakfastPro = 0;
           if (breakfast) {
-            const selId = (iso && breakfastSelections[iso]) || breakfastSelections[key];
+            const selId = (iso && breakfastSelections[iso]) || undefined;
             if (selId?.startsWith('pm:')) {
               const pmId = selId.slice(3);
               const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
@@ -1888,8 +1907,8 @@ export function WeeklyPlanning({
               baseBreakfastPro = getMealPro(breakfast);
             }
           } else {
-            baseBreakfastCals = (iso && breakfastManualCalories[iso]) || breakfastManualCalories[key] || 0;
-            baseBreakfastPro = (iso && breakfastManualProteins[iso]) || breakfastManualProteins[key] || 0;
+            baseBreakfastCals = (iso && breakfastManualCalories[iso]) || 0;
+            baseBreakfastPro = (iso && breakfastManualProteins[iso]) || 0;
           }
 
           const breakfastAssignedIds =
@@ -1900,9 +1919,9 @@ export function WeeklyPlanning({
           const gouterAssignedIds =
             extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
           const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
-          const gouterManualCal = manualCalories[`${iso}-gouter`] || manualCalories[`${key}-gouter`] || 0;
-          const gouterManualPro = manualProteins[`${iso}-gouter`] || manualProteins[`${key}-gouter`] || 0;
-          const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`] || drinkChecks[`${key}-gouter`]);
+          const gouterManualCal = manualCalories[`${iso}-gouter`] || 0;
+          const gouterManualPro = manualProteins[`${iso}-gouter`] || 0;
+          const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`]);
           const gouterTotalCals = gouterManualCal + gouterAssigned.cal + (gouterDrink ? 150 : 0);
           const gouterTotalPro = gouterManualPro + gouterAssigned.pro;
 
@@ -1995,7 +2014,7 @@ export function WeeklyPlanning({
                               const proDisplay = getMealPro(pm.meals || {}, pm.ingredients_override);
                               const pmSelId = `pm:${pm.id}`;
                               const isMatinSelected = (pm.day_of_week === key || pm.day_of_week === iso) && pm.meal_time === 'matin';
-                              const isDropdownSelected = (iso && breakfastSelections[iso] === pmSelId) || breakfastSelections[key] === pmSelId;
+                              const isDropdownSelected = Boolean(iso && breakfastSelections[iso] === pmSelId);
                               const isSelected = isMatinSelected || isDropdownSelected;
                               // Trouver les autres jours où ce petit déjeuner est sélectionné
                               const otherDays = weekDates.filter(wd => wd.iso !== iso && (breakfastSelections[wd.iso] === pmSelId || breakfastSelections[wd.key] === pmSelId || (pm.day_of_week === wd.iso && pm.meal_time === 'matin') || (pm.day_of_week === wd.key && pm.meal_time === 'matin')));
@@ -2022,7 +2041,7 @@ export function WeeklyPlanning({
                           const calDisplay = getMealCal(m);
                           const proDisplay = getMealPro(m);
                           const mealSelId = `meal:${m.id}`;
-                          const isSelected = (iso && breakfastSelections[iso] === mealSelId) || breakfastSelections[key] === mealSelId;
+                          const isSelected = Boolean(iso && breakfastSelections[iso] === mealSelId);
                           const otherDays = weekDates.filter(wd => wd.iso !== iso && (breakfastSelections[wd.iso] === mealSelId || breakfastSelections[wd.key] === mealSelId));
                           const otherDaysLabel = otherDays.length > 0 ? otherDays.map(d => d.display.slice(0, 3)).join(', ') : null;
                           return (
@@ -2046,7 +2065,7 @@ export function WeeklyPlanning({
                     <>
                       <PlanningInput
                         storageKey={`breakfast-cal-${iso}`}
-                        currentValue={(iso && breakfastManualCalories[iso]) || breakfastManualCalories[key] || 0}
+                        currentValue={(iso && breakfastManualCalories[iso]) || 0}
                         onSave={(val) => {
                           const updated = { ...breakfastManualCalories };
                           if (val > 0) updated[iso] = val;
@@ -2058,7 +2077,7 @@ export function WeeklyPlanning({
                       />
                       <PlanningInput
                         storageKey={`breakfast-prot-${iso}`}
-                        currentValue={(iso && breakfastManualProteins[iso]) || breakfastManualProteins[key] || 0}
+                        currentValue={(iso && breakfastManualProteins[iso]) || 0}
                         onSave={(val) => {
                           const updated = { ...breakfastManualProteins };
                           if (val > 0) updated[iso] = val;
@@ -2081,21 +2100,21 @@ export function WeeklyPlanning({
                         else updated[key] = true;
                         setPreference.mutate({ key: 'planning_auto_consume_breakfast', value: updated });
                       }}
-                      className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${(iso && autoConsumeBreakfast[iso]) || autoConsumeBreakfast[key]
+                      className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${(iso && autoConsumeBreakfast[iso])
                         ? 'bg-green-500/20 text-green-400 border border-green-400/50'
                         : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
                         }`}
-                      title={(iso && autoConsumeBreakfast[iso]) || autoConsumeBreakfast[key] ? 'Auto-consommation activée — sera déduit à 23h59 ou au prochain lancement' : 'Activer la décompte automatique du petit déj'}
+                      title={(iso && autoConsumeBreakfast[iso]) ? 'Auto-consommation activée — sera déduit à 23h59 ou au prochain lancement' : 'Activer la décompte automatique du petit déj'}
                     >🔄</button>
                   )}
-                  {!(matinMeals.length > 0 || (iso && breakfastSelections[iso]?.startsWith('pm:')) || breakfastSelections[key]?.startsWith('pm:')) && (
+                  {!(matinMeals.length > 0 || (iso && breakfastSelections[iso]?.startsWith('pm:'))) && (
                     <button
                       onClick={() => {
                         const snapKey = `breakfast-${iso}`;
-                        const cal = (iso && breakfastManualCalories[iso]) || breakfastManualCalories[key] || 0;
-                        const prot = (iso && breakfastManualProteins[iso]) || breakfastManualProteins[key] || 0;
+                        const cal = (iso && breakfastManualCalories[iso]) || 0;
+                        const prot = (iso && breakfastManualProteins[iso]) || 0;
                         const breakfast = getBreakfastForDay(key, iso);
-                        const mealId = (iso && breakfastSelections[iso]) || breakfastSelections[key] || undefined;
+                        const mealId = (iso && breakfastSelections[iso]) || undefined;
                         const updated = { ...savedSnapshots, [snapKey]: { cal, prot, name: breakfast?.name, mealId } };
                         setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
@@ -2173,13 +2192,13 @@ export function WeeklyPlanning({
                 </div>
                 {breakfastAssignedSlotIds.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {breakfastAssignedSlotIds.map((extraId) => {
+                    {breakfastAssignedSlotIds.map((extraId, index) => {
                       const custom = parseCustomExtraId(extraId);
                       const fi = custom ? null : foodItems.find(f => f.id === extraId);
                       if (!fi && !custom) return null;
                       return (
                         <span
-                          key={extraId}
+                          key={`breakfast-assigned-${extraId}-${index}`}
                           draggable
                           onDragStart={(e) => {
                             setDraggedSelectedExtraId(extraId);
@@ -2280,7 +2299,7 @@ export function WeeklyPlanning({
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-[1fr_1fr_auto] gap-1 sm:gap-3">
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1 sm:gap-3">
                 {TIMES.map((time) => {
                   const slotKey = `${iso}-${time}`;
                   const slotMeals = getMealsForSlot(key, time, iso);
@@ -2304,7 +2323,7 @@ export function WeeklyPlanning({
                       }}
                       onDragLeave={() => setDragOverSlot(null)}
                       onDrop={(e) => handleDrop(e, iso, time)}
-                      className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
+                      className={`min-w-0 min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
                     >
                       <div className="flex items-center justify-between mb-0.5">
                         <div className="flex items-center gap-1">
@@ -2319,13 +2338,13 @@ export function WeeklyPlanning({
                               else updated[`${iso}-${time}`] = true;
                               setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                             }}
-                            className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]
+                            className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${drinkChecks[`${iso}-${time}`]
                               ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold'
                               : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'
                               }`}
                             title="+ Boisson sucrée (+150 cal)"
                           >
-                            🥤 {drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`] ? '+150' : ''}
+                            🥤 {drinkChecks[`${iso}-${time}`] ? '+150' : ''}
                           </button>
                         </div>
                         {(slotCals > 0 || slotPro > 0) && (
@@ -2351,7 +2370,7 @@ export function WeeklyPlanning({
                           <div className="flex flex-col items-start gap-0.5">
                             <PlanningInput
                               storageKey={`manual-${iso}-${time}`}
-                              currentValue={manualCalories[`${iso}-${time}`] || manualCalories[`${key}-${time}`] || 0}
+                              currentValue={manualCalories[`${iso}-${time}`] || 0}
                               onSave={(val) => {
                                 const updated = { ...manualCalories };
                                 if (val > 0) updated[`${iso}-${time}`] = val;
@@ -2363,7 +2382,7 @@ export function WeeklyPlanning({
                             />
                             <PlanningInput
                               storageKey={`manual-prot-${iso}-${time}`}
-                              currentValue={manualProteins[`${iso}-${time}`] || manualProteins[`${key}-${time}`] || 0}
+                              currentValue={manualProteins[`${iso}-${time}`] || 0}
                               onSave={(val) => {
                                 const updated = { ...manualProteins };
                                 if (val > 0) updated[`${iso}-${time}`] = val;
@@ -2377,8 +2396,8 @@ export function WeeklyPlanning({
                               <button
                                 onClick={() => {
                                   const snapKey = `manual-${iso}-${time}`;
-                                  const cal = manualCalories[`${iso}-${time}`] || manualCalories[`${key}-${time}`] || 0;
-                                  const prot = manualProteins[`${iso}-${time}`] || manualProteins[`${key}-${time}`] || 0;
+                                  const cal = manualCalories[`${iso}-${time}`] || 0;
+                                  const prot = manualProteins[`${iso}-${time}`] || 0;
                                   const updated = { ...savedSnapshots, [snapKey]: { cal, prot } };
                                   setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
@@ -2395,7 +2414,7 @@ export function WeeklyPlanning({
                                       nxtPro[kKeySlot] = prot;
                                       setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
                                     }
-                                    if (drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]) {
+                                    if (drinkChecks[`${iso}-${time}`]) {
                                       const nxtDrk = { ...nextDrinkChecks };
                                       nxtDrk[kKeySlot] = true;
                                       setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
@@ -2439,13 +2458,13 @@ export function WeeklyPlanning({
                         )}
                         {slotAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-0.5">
-                            {slotAssignedIds.map((extraId) => {
+                            {slotAssignedIds.map((extraId, index) => {
                               const custom = parseCustomExtraId(extraId);
                               const fi = custom ? null : foodItems.find(f => f.id === extraId);
                               if (!fi && !custom) return null;
                               return (
                                 <span
-                                  key={extraId}
+                                  key={`${time}-assigned-${extraId}-${index}`}
                                   draggable
                                   onDragStart={(e) => {
                                     setDraggedSelectedExtraId(extraId);
@@ -2506,9 +2525,9 @@ export function WeeklyPlanning({
                     <PlanningInput
                       storageKey={`extra-${iso}`}
                       currentValue={(() => {
-                        const manual = extraCalories[iso] || extraCalories[key] || 0;
+                        const manual = extraCalories[iso] || 0;
                         const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || allExtraSels[key] || [];
+                        const ids = allExtraSels[iso] || [];
                         const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
                         const selected = ids.reduce((sum, id) => {
                           if (assignedSet.has(id)) return sum;
@@ -2520,7 +2539,7 @@ export function WeeklyPlanning({
                       })()}
                       onSave={(val) => {
                         const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || allExtraSels[key] || [];
+                        const ids = allExtraSels[iso] || [];
                         const selected = ids.reduce((sum, id) => {
                           const custom = parseCustomExtraId(id);
                           if (custom) return sum + custom.cal;
@@ -2538,9 +2557,9 @@ export function WeeklyPlanning({
                     <PlanningInput
                       storageKey={`extra-prot-${iso}`}
                       currentValue={(() => {
-                        const manual = extraProteins[iso] || extraProteins[key] || 0;
+                        const manual = extraProteins[iso] || 0;
                         const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || allExtraSels[key] || [];
+                        const ids = allExtraSels[iso] || [];
                         const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
                         const selected = ids.reduce((sum, id) => {
                           if (assignedSet.has(id)) return sum;
@@ -2552,7 +2571,7 @@ export function WeeklyPlanning({
                       })()}
                       onSave={(val) => {
                         const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || allExtraSels[key] || [];
+                        const ids = allExtraSels[iso] || [];
                         const selected = ids.reduce((sum, id) => {
                           const custom = parseCustomExtraId(id);
                           if (custom) return sum + custom.prot;
@@ -2574,7 +2593,7 @@ export function WeeklyPlanning({
                       }}>
                         <PopoverTrigger asChild>
                           <button
-                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${((getPreference<Record<string, string[]>>('planning_extra_selections', {})[iso || ""]?.length || 0) > 0 || (getPreference<Record<string, string[]>>('planning_extra_selections', {})[key]?.length || 0) > 0) ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
+                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${((getPreference<Record<string, string[]>>('planning_extra_selections', {})[iso || ""]?.length || 0) > 0) ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
                             title="Ajouter un Extra"
                           >
                             <Plus className="h-3 w-3" />
@@ -2595,7 +2614,7 @@ export function WeeklyPlanning({
                                   const customId = `custom::${name}::${cal}::${prot}`;
                                   const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                                   const updated = { ...extraSels };
-                                  const current = updated[iso] || updated[key] || [];
+                                  const current = updated[iso] || [];
                                   if (iso) updated[iso] = [...current, customId]; else updated[key] = [...current, customId];
                                   setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                   setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
@@ -2633,7 +2652,7 @@ export function WeeklyPlanning({
                                 const customId = `custom::${name}::${cal}::${prot}`;
                                 const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                                 const updated = { ...extraSels };
-                                const current = updated[iso] || updated[key] || [];
+                                const current = updated[iso] || [];
                                 if (iso) updated[iso] = [...current, customId]; else updated[key] = [...current, customId];
                                 setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                 setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
@@ -2662,7 +2681,7 @@ export function WeeklyPlanning({
                                 </div>
                               );
                               const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                              const currentIds = extraSels[iso] || extraSels[key] || [];
+                              const currentIds = extraSels[iso] || [];
                               const assignedIds = new Set(getAssignedExtraIdsForDay(iso, key));
                               const daySlotKey = iso || key;
                               const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) => !currentIds.includes(d.id));
@@ -2752,7 +2771,8 @@ export function WeeklyPlanning({
                               const fitsBudget = others.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
                               const overBudget = others.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingCal);
                               // Rend un extra sélectionné (normal ou custom) avec drag & drop, compte et macros.
-                              const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom") => {
+                              /** Rend une ligne d'extra sélectionné avec une clé stable par section pour accepter les doublons. */
+                              const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom", occurrenceIndex: number) => {
                                 const c = parseCustomExtraId(id);
                                 const fi = c ? null : extrasById.get(id);
                                 if (!c && !fi) return null;
@@ -2765,7 +2785,7 @@ export function WeeklyPlanning({
                                 const cal = c ? c.cal : parseCalories(fi?.calories);
                                 return (
                                   <div
-                                    key={id}
+                                    key={`${selectedSection}-${id}-${occurrenceIndex}`}
                                     draggable
                                     onDragStart={(e) => {
                                       setDraggedSelectedExtraId(id);
@@ -2802,7 +2822,9 @@ export function WeeklyPlanning({
                                         <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">{fi?.grams ? `${fi.grams}` : ''}{fi?.grams && fi?.quantity ? ' · ' : ''}{fi?.quantity ? `x${fi.quantity}` : ''}</p>
                                       )}
                                       {dessertPossibleCount !== null && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">x{dessertPossibleCount}</p>
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
+                                          x{dessertPossibleCount === Infinity ? <span className="text-xs">∞</span> : dessertPossibleCount}
+                                        </p>
                                       )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
@@ -2846,7 +2868,7 @@ export function WeeklyPlanning({
                                               }
                                             }
                                             const updated = { ...extraSels };
-                                            const current = updated[iso] || updated[key] || [];
+                                            const current = updated[iso] || [];
                                             if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
                                             setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                           }}
@@ -2930,7 +2952,7 @@ export function WeeklyPlanning({
                                       <button
                                         onClick={() => {
                                           const updated = { ...extraSels };
-                                          const current = updated[iso] || updated[key] || [];
+                                          const current = updated[iso] || [];
                                           if (iso) updated[iso] = [...current, fi.id]; else updated[key] = [...current, fi.id];
                                           setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                         }}
@@ -2956,7 +2978,7 @@ export function WeeklyPlanning({
                                   {selectedOrderedIds.length > 0 && (
                                     <>
                                       <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Extras sélectionnés</p>
-                                      {selectedTopIds.map((id) => renderSelectedRowById(id, "top"))}
+                                      {selectedTopIds.map((id, index) => renderSelectedRowById(id, "top", index))}
                                       <div
                                         onDragOver={(e) => {
                                           if (!draggedSelectedExtraId) return;
@@ -2997,7 +3019,7 @@ export function WeeklyPlanning({
                                         className={`rounded-sm transition-all ${draggedSelectedExtraId ? 'my-0.5 min-h-6' : 'my-0 min-h-0'} ${selectedExtrasDropZone === `${daySlotKey}:middle` ? 'bg-orange-500/10 ring-1 ring-orange-400/35' : ''}`}
                                         title="Dépose ici pour placer l'extra entre les deux traits"
                                       >
-                                        {selectedMiddleIds.map((id) => renderSelectedRowById(id, "middle"))}
+                                        {selectedMiddleIds.map((id, index) => renderSelectedRowById(id, "middle", index))}
                                       </div>
                                       <Separator
                                         className={`${draggedSelectedExtraId && selectedExtrasDropZone === `${daySlotKey}:bottom` ? 'my-0.5 bg-orange-400 opacity-90' : draggedSelectedExtraId ? 'my-0.5' : 'my-px opacity-60'}`}
@@ -3017,15 +3039,15 @@ export function WeeklyPlanning({
                                           setSelectedExtrasDropZone(null);
                                         }}
                                       />
-                                      {selectedBottomIds.map((id) => renderSelectedRowById(id, "bottom"))}
+                                      {selectedBottomIds.map((id, index) => renderSelectedRowById(id, "bottom", index))}
                                     </>
                                   )}
                                   {singleIngredientDessertExtras.length > 0 && (
                                     <>
                                       <Separator className="my-2 opacity-50" />
                                       <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                      {unselectedDessertExtras.map((d) => (
-                                        <div key={d.id} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
+                                      {unselectedDessertExtras.map((d, index) => (
+                                        <div key={`unselected-dessert-${d.id}-${index}`} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
                                           <div className="flex-1 min-w-0">
                                             <p className="text-[11px] font-black transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
                                             <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}</p>
@@ -3043,7 +3065,7 @@ export function WeeklyPlanning({
                                                   return;
                                                 }
                                                 const updated = { ...extraSels };
-                                                const current = updated[iso] || updated[key] || [];
+                                                const current = updated[iso] || [];
                                                 if (iso) updated[iso] = [...current, d.id]; else updated[key] = [...current, d.id];
                                                 setPreference.mutate({ key: 'planning_extra_selections', value: updated });
                                               } catch (e) {
@@ -3084,9 +3106,9 @@ export function WeeklyPlanning({
                           const snapKey = `extra-${iso}`;
                           // Utiliser l'état React courant (source de vérité instantanée) pour éviter
                           // de relire une préférence potentiellement en retard juste après un clic +/−.
-                          const currentIds = extraSelections[iso] || extraSelections[key] || [];
-                          const cal = (iso && extraCalories[iso]) || extraCalories[key] || 0;
-                          const prot = (iso && extraProteins[iso]) || extraProteins[key] || 0;
+                          const currentIds = extraSelections[iso] || [];
+                          const cal = (iso && extraCalories[iso]) || 0;
+                          const prot = (iso && extraProteins[iso]) || 0;
                           const itemIds = currentIds;
                           const updated = { ...savedSnapshots, [snapKey]: { cal, prot, itemIds } };
                           setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
@@ -3204,13 +3226,13 @@ export function WeeklyPlanning({
                   {getMealsForSlot(key, 'gouter', iso).map((pm) => renderMiniCard(pm, true))}
                   {gouterAssignedIds.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {gouterAssignedIds.map((extraId) => {
+                      {gouterAssignedIds.map((extraId, index) => {
                         const custom = parseCustomExtraId(extraId);
                         const fi = custom ? null : foodItems.find((f) => f.id === extraId);
                         if (!fi && !custom) return null;
                         return (
                           <span
-                            key={extraId}
+                            key={`gouter-assigned-${extraId}-${index}`}
                             draggable
                             onDragStart={(e) => {
                               setDraggedSelectedExtraId(extraId);
@@ -3473,13 +3495,13 @@ export function WeeklyPlanning({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-[1fr_1fr_auto] gap-1 sm:gap-3">
+                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1 sm:gap-3">
                       {TIMES.map(time => {
                         const slotCards = dayCards.filter((c: any) => c.meal_time === time);
                         const kIso = `${iso}-${time}`;
                         const kKey = `${key}-${time}`;
                         return (
-                          <div key={time} className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-border/55 bg-background/10 p-1 sm:p-1.5">
+                          <div key={time} className="min-w-0 min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-border/55 bg-background/10 p-1 sm:p-1.5">
                             <div className="flex items-center justify-between mb-0.5">
                               <div className="flex items-center gap-1">
                                 <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
@@ -3521,9 +3543,11 @@ export function WeeklyPlanning({
                                   const m = allMealsById.get(c.meal_id);
                                   if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
                                   return (
-                                    <div key={i} className="rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex items-center justify-between transition-all" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
-                                      <span className="truncate">{getCategoryEmoji(m.category)} {m.name}</span>
-                                      {bCO[c.id] && <span className="ml-1 opacity-80 shrink-0">🔥{bCO[c.id]}</span>}
+                                    <div key={i} className="w-full min-w-0 overflow-hidden rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex flex-col gap-0.5 transition-all" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
+                                      <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
+                                        {getCategoryEmoji(m.category)} {m.name}
+                                      </span>
+                                      {bCO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
                                     </div>
                                   );
                                 })
@@ -3926,10 +3950,10 @@ export function WeeklyPlanning({
                                     {singleIngredientDessertExtras.length > 0 && (
                                       <>
                                         <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                        {selectedDessertExtras.map((d) => {
+                                        {selectedDessertExtras.map((d, index) => {
                                           const count = effExtraSel.filter((id) => id === d.id).length;
                                           return (
-                                            <div key={d.id} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-orange-500/20 border-orange-500/40 shadow-inner">
+                                            <div key={`next-selected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-orange-500/20 border-orange-500/40 shadow-inner">
                                               <div className="flex-1 min-w-0">
                                                 <p className="text-[11px] font-bold transition-colors truncate text-orange-600">{d.name}</p>
                                               </div>
@@ -3943,8 +3967,8 @@ export function WeeklyPlanning({
                                             </div>
                                           );
                                         })}
-                                        {unselectedDessertExtras.map((d) => (
-                                          <div key={d.id} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
+                                        {unselectedDessertExtras.map((d, index) => (
+                                          <div key={`next-unselected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
                                             <div className="flex-1 min-w-0">
                                               <p className="text-[11px] font-bold transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
                                             </div>

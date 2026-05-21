@@ -1039,18 +1039,15 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const unusedCanonicalNames = new Set(candidatesToProcessByFi.map((fi) => canonicalize(fi.name)));
     const allUnusedCanonicalNames = new Set(items.map((fi) => canonicalize(fi.name)));
 
+    // Vérifie qu'un ingrédient manquant n'est pas déjà parmi les aliments inutilisés.
+    // Comparaison stricte (nom canonique exact) pour éviter les faux positifs entre
+    // produits différents partageant un mot (ex: "poulet" ≠ "aiguillettes poulet").
     const isActuallyMissing = (missingKey: string): boolean => {
       const missingCanonical = canonicalize(missingKey);
       if (!missingCanonical) return true;
       if (allUnusedCanonicalNames.has(missingCanonical)) return false;
-      const missingWords = missingCanonical.split(/\s+/).filter(Boolean);
-      if (missingWords.length === 0) return true;
-      for (const unusedCan of allUnusedCanonicalNames) {
-        const unusedWords = unusedCan.split(/\s+/).filter(Boolean);
-        if (unusedWords.length === 0) continue;
-        const shorter = missingWords.length <= unusedWords.length ? missingWords : unusedWords;
-        const longer = missingWords.length <= unusedWords.length ? unusedWords : missingWords;
-        if (shorter.every((w) => longer.includes(w))) return false;
+      for (const fi of items) {
+        if (strictNameMatch(missingKey, fi.name)) return false;
       }
       return true;
     };
@@ -1597,6 +1594,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
                 const baseCmp = compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
                 if (baseCmp !== 0) return baseCmp;
+
+                const aFav = a.type === 'nm' ? !!a.nm.meal.is_favorite : (a.type === 'av' || a.type === 'partial') ? !!a.item.meal.is_favorite : false;
+                const bFav = b.type === 'nm' ? !!b.nm.meal.is_favorite : (b.type === 'av' || b.type === 'partial') ? !!b.item.meal.is_favorite : false;
+                if (aFav !== bFav) return aFav ? -1 : 1;
 
                 // Same group + same date => calories ascending as tiebreaker
                 if (a.sortCalories !== null && b.sortCalories !== null && a.sortCalories !== b.sortCalories) return a.sortCalories - b.sortCalories;

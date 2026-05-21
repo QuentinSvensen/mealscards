@@ -692,7 +692,11 @@ export function useMeals(options?: { enabled?: boolean }) {
         if (dateCmp !== 0) return dateCmp;
       }
 
-      // En cas d'égalité : calories puis nom
+      // En cas d'égalité de péremption/compteur : favoris d'abord, puis calories puis nom.
+      const aFav = !!a.meals?.is_favorite;
+      const bFav = !!b.meals?.is_favorite;
+      if (aFav !== bFav) return aFav ? -1 : 1;
+
       const aCal = extractSortableCalories(a);
       const bCal = extractSortableCalories(b);
       if (aCal !== null && bCal !== null && aCal !== bCal) return aCal - bCal;

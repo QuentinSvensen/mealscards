@@ -1112,11 +1112,8 @@ const Index = () => {
                             const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
                             const snapshots = deductionSnapshots[id];
                             if (snapshots && snapshots.length > 0) {
-                              // Restauration exacte depuis les snapshots (état avant déduction)
                               await restoreIngredientsToStock({} as Meal, snapshots);
                             } else if (pm?.meals) {
-                              // Sans snapshots : utiliser les ingredients_override (quantités modifiées)
-                              // pour restaurer le bon montant, sinon la recette d'origine
                               const mealForRestore = pm.ingredients_override
                                 ? { ...pm.meals, ingredients: pm.ingredients_override }
                                 : pm.meals;

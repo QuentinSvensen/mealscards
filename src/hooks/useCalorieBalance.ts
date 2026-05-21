@@ -203,7 +203,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   /** Résout un ID de sélection de petit-déjeuner en un objet de type Meal.
    *  Prend en charge le format préfixé (pm:xxx / meal:xxx) et les anciens IDs simples. */
   const getBreakfastForDay = (dayKey: string, isoDate?: string): Meal | null => {
-    const selId = (isoDate && breakfastSelections[isoDate]) || breakfastSelections[dayKey];
+    const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
     if (!selId) return null;
 
     // Format préfixé
@@ -237,14 +237,14 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
           s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailable)
           , 0);
       }
-      const manualKey = (isoDate && manualCalories[`${isoDate}-${time}`] !== undefined) ? `${isoDate}-${time}` : `${dayKey}-${time}`;
+      const manualKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
       return total + (manualCalories[manualKey] || 0);
     }, 0);
 
     const breakfast = getBreakfastForDay(dayKey, isoDate);
     let breakfastCal = 0;
     if (breakfast) {
-      const selId = (isoDate && breakfastSelections[isoDate]) || breakfastSelections[dayKey];
+      const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
       // S'il s'agit d'une sélection de repas possible, utiliser les calories affichées sur la carte (respecte les overrides)
       if (selId?.startsWith('pm:')) {
         const pmId = selId.slice(3);
@@ -260,15 +260,15 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         breakfastCal = getDisplayedCalories(breakfast, null, undefined, isAvailable) || 0;
       }
     } else {
-      const manualKey = (isoDate && breakfastManualCalories[isoDate] !== undefined) ? isoDate : dayKey;
+      const manualKey = isoDate || dayKey;
       breakfastCal = breakfastManualCalories[manualKey] || 0;
     }
 
-    const manualExtraKey = (isoDate && extraCalories[isoDate] !== undefined) ? isoDate : dayKey;
+    const manualExtraKey = isoDate || dayKey;
     const extraManual = extraCalories[manualExtraKey] || 0;
     
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-    const selectionKey = (isoDate && extraSelections[isoDate] !== undefined) ? isoDate : dayKey;
+    const selectionKey = isoDate || dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
     const extraSelectedCal = selectedExtraIds.reduce((sum, id) => {
       const custom = parseCustomExtraId(id);
@@ -278,7 +278,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     }, 0);
 
     const drinkCal = [...TIMES, 'gouter'].reduce((sum, time) => {
-      const drinkKey = (isoDate && drinkChecks[`${isoDate}-${time}`] !== undefined) ? `${isoDate}-${time}` : `${dayKey}-${time}`;
+      const drinkKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
       return sum + (drinkChecks[drinkKey] ? DRINK_CALORIES : 0);
     }, 0);
 
@@ -292,14 +292,14 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       if (slotMeals.length > 0) {
         return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
       }
-      const manualKey = (isoDate && manualProteins[`${isoDate}-${time}`] !== undefined) ? `${isoDate}-${time}` : `${dayKey}-${time}`;
+      const manualKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
       return total + (manualProteins[manualKey] || 0);
     }, 0);
 
     const breakfast = getBreakfastForDay(dayKey, isoDate);
     let breakfastPro = 0;
     if (breakfast) {
-      const selId = (isoDate && breakfastSelections[isoDate]) || breakfastSelections[dayKey];
+      const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
       if (selId?.startsWith('pm:')) {
         const pmId = selId.slice(3);
         const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
@@ -314,15 +314,15 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         breakfastPro = getDisplayedProtein(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
       }
     } else {
-      const manualKey = (isoDate && breakfastManualProteins[isoDate] !== undefined) ? isoDate : dayKey;
+      const manualKey = isoDate || dayKey;
       breakfastPro = breakfastManualProteins[manualKey] || 0;
     }
 
-    const manualExtraKey = (isoDate && extraProteins[isoDate] !== undefined) ? isoDate : dayKey;
+    const manualExtraKey = isoDate || dayKey;
     const extraManual = extraProteins[manualExtraKey] || 0;
     
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-    const selectionKey = (isoDate && extraSelections[isoDate] !== undefined) ? isoDate : dayKey;
+    const selectionKey = isoDate || dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
     const extraSelectedPro = selectedExtraIds.reduce((sum, id) => {
       const custom = parseCustomExtraId(id);

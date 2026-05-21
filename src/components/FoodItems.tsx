@@ -282,26 +282,65 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onMoveToExtras, o
   const canEditPartial = !item.is_infinite && gramsData.unit !== null && (effectiveQty ? effectiveQty > 1 : true);
   const showPartialLabel = gramsData.remainder !== null;
 
+  // Indique si la prochaine version simulée de l'aliment est entièrement scellée
+  // (aucune unité entamée). Utilisé pour arrêter automatiquement les compteurs.
+  const isNextStateFullySealed = (nextGrams: string | null | undefined, nextQuantity: number | null | undefined): boolean => {
+    if (!nextGrams) return true;
+    const parsed = parseStoredGrams(nextGrams);
+    if (parsed.unit === null || parsed.unit <= 0) return true;
+    if (parsed.remainder !== null && parsed.remainder > 0 && parsed.remainder < parsed.unit) return false;
+    const q = nextQuantity ?? 1;
+    return q >= 0;
+  };
+
+  // Décide si on doit nettoyer le compteur lors d'une édition manuelle :
+  // - L'aliment possède un compteur actuellement actif (passé, non programmé)
+  // - L'état projeté après édition est entièrement scellé
+  const counterShouldStop = (nextGrams: string | null | undefined, nextQuantity: number | null | undefined): boolean => {
+    if (!item.counter_start_date) return false;
+    if (new Date(item.counter_start_date).getTime() > Date.now()) return false;
+    return isNextStateFullySealed(nextGrams, nextQuantity);
+  };
+
   const saveEdit = () => {
     const val = editValue.trim();
     if (editing === "name" && val) onUpdate({ name: val });
     if (editing === "grams") {
       const g = val || null;
-      onUpdate({ grams: g, ...(!g ? { no_counter: true } : {}) });
+      const clearCtr = counterShouldStop(g, item.quantity);
+      onUpdate({
+        grams: g,
+        ...(!g ? { no_counter: true } : {}),
+        ...(clearCtr ? { counter_start_date: null } : {}),
+      });
     }
     if (editing === "calories") onUpdate({ calories: val || null });
     if (editing === "protein") onUpdate({ protein: val || null });
-    if (editing === "quantity") onUpdate({ quantity: val ? parseInt(val) || null : null });
+    if (editing === "quantity") {
+      const nextQty = val ? parseInt(val) || null : null;
+      const clearCtr = counterShouldStop(item.grams, nextQty);
+      onUpdate({
+        quantity: nextQty,
+        ...(clearCtr ? { counter_start_date: null } : {}),
+      });
+    }
     if (editing === "partial" && gramsData.unit !== null) {
+      const applyPartialUpdate = (nextGrams: string) => {
+        const clearCtr = counterShouldStop(nextGrams, item.quantity);
+        onUpdate({
+          grams: nextGrams,
+          ...(clearCtr ? { counter_start_date: null } : {}),
+        });
+      };
       if (!val) {
-        onUpdate({ grams: formatNumericFR(gramsData.unit) });
+        applyPartialUpdate(formatNumericFR(gramsData.unit));
       } else {
         const parsed = parseFloat(val.replace(",", "."));
         if (!isNaN(parsed) && parsed > 0) {
           if (parsed >= gramsData.unit) {
-            onUpdate({ grams: formatNumericFR(gramsData.unit) });
+            applyPartialUpdate(formatNumericFR(gramsData.unit));
           } else {
-            onUpdate({ grams: encodeStoredGramsFR(gramsData.unit, parsed) });
+            applyPartialUpdate(encodeStoredGramsFR(gramsData.unit, parsed));
           }
         }
       }

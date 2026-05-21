@@ -505,14 +505,85 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
     const groups = parseIngredientGroups(meal.ingredients);
     for (const group of groups) {
-      const liveStockMap = buildStockMap(currentFoodItems);
-      const altBundle = pickBestAlternative(group, liveStockMap) || group[0];
+      // Pour la restauration on prend le premier bundle (celui qui a été déduit à l'origine),
+      // PAS pickBestAlternative qui choisirait en fonction du stock actuel (post-déduction).
+      const altBundle = group[0];
       if (!altBundle) continue;
 
       for (const alt of altBundle) {
         const { qty: neededGrams, count: neededCount, name } = alt;
+        if (neededGrams <= 0 && neededCount <= 0) continue;
         const matchingItems = currentFoodItems.filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite).sort(sortStockDeductionPriority);
-        if (matchingItems.length === 0) continue;
+
+        if (matchingItems.length === 0) {
+          // Aliment entièrement consommé et supprimé du stock → le recréer à partir de la
+          // bibliothèque ou en créant un minimum viable pour que le stock soit cohérent.
+          const templateFi = foodItems.find(fi => strictNameMatch(fi.name, name) && !fi.is_infinite);
+          const storageFallback = templateFi?.storage_type ?? 'frigo';
+          const unitGrams = templateFi ? parseQty(templateFi.grams) : 0;
+
+          if (neededCount > 0) {
+            await safeMutate("Restauration stock (recréation count)", () =>
+              (supabase as any).from("food_items").insert({
+                name: templateFi?.name ?? name,
+                quantity: neededCount,
+                grams: templateFi?.grams ?? null,
+                calories: templateFi?.calories ?? null,
+                protein: templateFi?.protein ?? null,
+                is_indivisible: templateFi?.is_indivisible ?? false,
+                expiration_date: templateFi?.expiration_date ?? null,
+                counter_start_date: null,
+                no_counter: templateFi?.no_counter ?? false,
+                is_meal: templateFi?.is_meal ?? false,
+                is_infinite: false,
+                is_dry: templateFi?.is_dry ?? false,
+                storage_type: storageFallback,
+                food_type: templateFi?.food_type ?? null,
+              })
+            );
+          } else if (neededGrams > 0 && unitGrams > 0) {
+            const fullUnits = Math.floor(neededGrams / unitGrams);
+            const rem = Math.round((neededGrams - fullUnits * unitGrams) * 10) / 10;
+            await safeMutate("Restauration stock (recréation grams)", () =>
+              (supabase as any).from("food_items").insert({
+                name: templateFi?.name ?? name,
+                quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
+                grams: encodeStoredGrams(unitGrams, rem > 0 ? rem : null),
+                calories: templateFi?.calories ?? null,
+                protein: templateFi?.protein ?? null,
+                is_indivisible: templateFi?.is_indivisible ?? false,
+                expiration_date: templateFi?.expiration_date ?? null,
+                counter_start_date: null,
+                no_counter: templateFi?.no_counter ?? false,
+                is_meal: templateFi?.is_meal ?? false,
+                is_infinite: false,
+                is_dry: templateFi?.is_dry ?? false,
+                storage_type: storageFallback,
+                food_type: templateFi?.food_type ?? null,
+              })
+            );
+          } else if (neededGrams > 0) {
+            await safeMutate("Restauration stock (recréation simple)", () =>
+              (supabase as any).from("food_items").insert({
+                name: templateFi?.name ?? name,
+                grams: formatNumeric(neededGrams),
+                calories: templateFi?.calories ?? null,
+                protein: templateFi?.protein ?? null,
+                is_indivisible: templateFi?.is_indivisible ?? false,
+                expiration_date: templateFi?.expiration_date ?? null,
+                counter_start_date: null,
+                no_counter: templateFi?.no_counter ?? false,
+                is_meal: templateFi?.is_meal ?? false,
+                is_infinite: false,
+                is_dry: templateFi?.is_dry ?? false,
+                storage_type: storageFallback,
+                food_type: templateFi?.food_type ?? null,
+              })
+            );
+          }
+          continue;
+        }
+
         const fi = matchingItems[0];
         if (neededCount > 0) {
           const newQty = (fi.quantity ?? 1) + neededCount;
@@ -906,16 +977,38 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const nameMatches = liveFoodItems.filter(
         (fi) => strictNameMatch(fi.name, nameToken) && !fi.is_infinite && shouldStartCounter(fi),
       );
+
+      // Détermine si on est en train de planifier ce repas vers un créneau futur :
+      // dans ce cas on autorise l'écriture d'un compteur prog. même sur un lot scellé,
+      // y compris quand il y a plusieurs lots sans compteur en stock.
+      const plannedTargetForFilter = pmId !== null && dayOfWeek
+        ? computePlannedCounterDate(dayOfWeek, mealTime)
+        : null;
+      const plannedTargetIsFuture = plannedTargetForFilter
+        ? new Date(plannedTargetForFilter).getTime() > new Date().getTime()
+        : false;
+      const canAssignProgToSealedLot = pmId !== null && fullPlanningSlot && plannedTargetIsFuture;
+
       // Un seul lot en stock : on peut programmer le compteur depuis le planning même si le paquet n’est pas
       // encore entamé — sinon le premier repas planifié (ex. burger jeudi) ne fixe jamais « jeudi midi » sur
       // l’aliment et le repas du vendredi n’a pas d’écart « 1j » à afficher.
-      // Plusieurs lots : on ne met à jour que ceux qui ont déjà un compteur (évite d’en démarrer plusieurs).
-      const matchingItems =
-        nameMatches.length === 1
-          ? (pmId !== null
-              ? nameMatches
-              : nameMatches.filter((fi) => fi.counter_start_date !== null))
+      // Plusieurs lots : on met à jour ceux qui ont déjà un compteur ; sinon, pour la
+      // planification d'un créneau futur, on élit le lot prioritaire (selon priorité de
+      // déduction) pour qu'il passe quand même en mode « Prog. ».
+      let matchingItems: FoodItem[];
+      if (nameMatches.length === 1) {
+        matchingItems = pmId !== null
+          ? nameMatches
           : nameMatches.filter((fi) => fi.counter_start_date !== null);
+      } else {
+        const withCounter = nameMatches.filter((fi) => fi.counter_start_date !== null);
+        if (withCounter.length > 0 || !canAssignProgToSealedLot) {
+          matchingItems = withCounter;
+        } else {
+          const elected = [...nameMatches].sort(sortStockDeductionPriority)[0];
+          matchingItems = elected ? [elected] : [];
+        }
+      }
 
       for (const fi of matchingItems) {
         // Trouver la date la plus ancienne parmi TOUS les repas planifiés utilisant cet ingrédient
@@ -923,18 +1016,16 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         let earliestDateMs = Infinity;
 
         // Inclure le repas en cours de mise à jour
-        let lockToCurrentPlannedSlot = false;
         if (pmId) {
           const targetDate = dayOfWeek ? computePlannedCounterDate(dayOfWeek, mealTime) : null;
           const candidateDate = targetDate ?? fallbackDate ?? new Date().toISOString();
 
           if (fullPlanningSlot && targetDate) {
-            // Toujours ancrer sur le créneau choisi (même si l’heure du repas est déjà passée aujourd’hui) :
-            // sinon on retombait sur l’ouverture réelle (ex. « 3j ») au lieu de la date de planification.
+            // Ancrer sur le créneau choisi : sinon on retombait sur l’ouverture réelle (ex. « 3j »)
+            // au lieu de la date de planification. On laisse ensuite la boucle des siblings remonter
+            // une date plus ancienne si un autre repas planifié utilise déjà cet ingrédient (ex. Burrito
+            // lundi midi entame la viande hachée, Gnocchis mardi midi doit afficher 1j).
             earliestDateStr = targetDate;
-            // Si le créneau choisi est futur, on garde cette date comme source de vérité
-            // pour passer l’aliment en mode « Prog. » immédiatement après planification.
-            lockToCurrentPlannedSlot = new Date(targetDate).getTime() > new Date().getTime();
           } else {
             earliestDateStr = candidateDate;
           }
@@ -942,12 +1033,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         }
 
         let hasAnyMatchingMeal = pmId !== null;
+        // Borne minimale : on ignore les siblings planifiés très anciens (au-delà de 24h dans le passé) ;
+        // ils représentent des repas consommés depuis longtemps et leur date ne doit pas réécrire un compteur futur.
+        const oldestRelevantSiblingMs = new Date().getTime() - 24 * 60 * 60 * 1000;
 
         // Parcourir les autres repas **entièrement planifiés** (jour + créneau).
         // Ignorer les cartes encore dans « Possibles » sans créneau : leur fallback « maintenant »
         // faisait gagner le min sur les aliments partagés et annulait le mode « prog. » du repas planifié.
         for (const pm of allPossibleMeals) {
-          if (lockToCurrentPlannedSlot) break;
           if (pm.id === pmId) continue;
           if (!pm.day_of_week || !String(pm.meal_time ?? "").trim()) continue;
           const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
@@ -971,6 +1064,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           hasAnyMatchingMeal = true;
           const siblingTarget = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
           const pmMs = new Date(siblingTarget).getTime();
+          // Filtre : siblings très anciens ignorés (voir commentaire `oldestRelevantSiblingMs`).
+          if (pmMs < oldestRelevantSiblingMs) continue;
           if (pmMs < earliestDateMs) {
             earliestDateMs = pmMs;
             earliestDateStr = siblingTarget;
