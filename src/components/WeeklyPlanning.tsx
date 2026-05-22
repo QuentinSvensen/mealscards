@@ -236,16 +236,24 @@ function formatPlacedExtraLabel(extraName: string, grams?: string | null, quanti
   const rawGrams = (grams || "").trim();
   const hasUnit = /[a-zA-Z]/.test(rawGrams);
   const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
-  const q =
-    quantity != null && quantity > 0
-      ? quantity > 1
-        ? `x${quantity}`
-        : String(quantity)
-      : "";
+  const q = quantity != null && quantity > 0 ? `#${quantity}` : "";
   const prefix = [g, q].filter(Boolean).join(" ");
   if (!name) return prefix;
   if (!prefix) return name;
   return `${prefix} ${name}`;
+}
+
+/** Multiplie un grammage affichable si c'est une valeur numérique simple, en conservant l'unité éventuelle. */
+function multiplyDisplayGrams(grams: string | null | undefined, count: number): string | null {
+  const raw = (grams || "").trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d+(?:[.,]\d+)?)(.*)$/);
+  if (!match) return raw;
+  const value = parseFloat(match[1].replace(",", "."));
+  if (!Number.isFinite(value)) return raw;
+  const unit = match[2]?.trim() || "";
+  const total = formatNumeric(value * Math.max(1, count));
+  return unit ? `${total}${unit}` : total;
 }
 
 /**
@@ -318,6 +326,50 @@ function getPlacedExtraLabel(
   return formatPlacedExtraLabel(name, null, null);
 }
 
+/** Regroupe une liste d'extras assignés en conservant l'ordre et le nombre d'occurrences. */
+function groupAssignedExtraIds(ids: string[]): Array<{ id: string; count: number }> {
+  const groups: Array<{ id: string; count: number }> = [];
+  for (const id of ids) {
+    const existing = groups.find((group) => group.id === id);
+    if (existing) existing.count += 1;
+    else groups.push({ id, count: 1 });
+  }
+  return groups;
+}
+
+/** Construit le texte d'une bulle d'extra assigné en affichant la quantité totale déplacée. */
+function getAssignedExtraLabel(
+  extraId: string,
+  count: number,
+  custom: { name: string } | null,
+  fi: FoodItem | null | undefined,
+  foodItems: FoodItem[],
+  dessertById: Map<string, { mealPayload: Meal }>,
+): string {
+  const name = custom?.name || fi?.name || "";
+  if (fi) {
+    const totalQuantity = fi.quantity != null ? Math.max(1, fi.quantity) * Math.max(1, count) : null;
+    return formatPlacedExtraLabel(name, multiplyDisplayGrams(fi.grams, count), totalQuantity);
+  }
+  const dessert = dessertById.get(extraId);
+  if (dessert) {
+    const { grams, quantity } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
+    const totalQuantity = quantity != null ? Math.max(1, quantity) * Math.max(1, count) : null;
+    return formatPlacedExtraLabel(name, multiplyDisplayGrams(grams, count), totalQuantity);
+  }
+  const stockByName = foodItems.find(
+    (f) =>
+      strictNameMatch(f.name, name) &&
+      f.storage_type !== "extras" &&
+      f.storage_type !== "test",
+  );
+  if (stockByName) {
+    const totalQuantity = stockByName.quantity != null ? Math.max(1, stockByName.quantity) * Math.max(1, count) : null;
+    return formatPlacedExtraLabel(name, multiplyDisplayGrams(stockByName.grams, count), totalQuantity);
+  }
+  return formatPlacedExtraLabel(name, null, null);
+}
+
 const DAILY_PROTEIN_GOAL = 110;
 
 interface TouchDragState {
@@ -350,6 +402,79 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
   const [editingPro, setEditingPro] = useState(false);
   const [proValue, setProValue] = useState("");
 
+  const macroControls = !compact ? (
+    <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
+      {editingCal ? (
+        <input
+          autoFocus
+          type="text"
+          inputMode="numeric"
+          value={calValue}
+          onChange={(e) => setCalValue(e.target.value)}
+          onBlur={() => {
+            const trimmed = calValue.trim();
+            onCalorieChange(trimmed || null);
+            setEditingCal(false);
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
+          placeholder="kcal"
+        />
+      ) : displayCal ? (
+        <button
+          onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
+          className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
+            }`}
+          title="Modifier les calories (temporaire)"
+        >
+          <Flame className="h-3 w-3" />
+          {displayCal}
+        </button>
+      ) : (
+        <button
+          onClick={() => { setCalValue(""); setEditingCal(true); }}
+          className="text-[10px] text-white/40 hover:text-white/60"
+          title="Ajouter des calories"
+        >
+          <Flame className="h-3 w-3" />
+        </button>
+      )}
+      {editingPro ? (
+        <input
+          autoFocus
+          type="text"
+          inputMode="numeric"
+          value={proValue}
+          onChange={(e) => setProValue(e.target.value)}
+          onBlur={() => {
+            const trimmed = proValue.trim();
+            onProteinChange(trimmed || null);
+            setEditingPro(false);
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
+          placeholder="prot"
+        />
+      ) : displayPro ? (
+        <button
+          onClick={() => { setProValue(displayPro); setEditingPro(true); }}
+          className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+          title="Modifier les protéines (temporaire)"
+        >
+          🍗 {displayPro}
+        </button>
+      ) : (
+        <button
+          onClick={() => { setProValue(""); setEditingPro(true); }}
+          className="text-[10px] text-white/40 hover:text-white/60"
+          title="Ajouter des protéines"
+        >
+          🍗
+        </button>
+      )}
+    </div>
+  ) : null;
+
   return (
     <div
       draggable={!isTouchDevice}
@@ -380,107 +505,28 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               <span className="block flex-1 min-w-0 max-w-full font-semibold text-[10px] leading-tight whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word]">{meal.name}</span>
             </div>
           </div>
-          {!compact && (
-            <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full self-end">
-              {editingCal ? (
-                <input
-                  autoFocus
-                  type="text"
-                  inputMode="numeric"
-                  value={calValue}
-                  onChange={(e) => setCalValue(e.target.value)}
-                  onBlur={() => {
-                    const trimmed = calValue.trim();
-                    onCalorieChange(trimmed || null);
-                    setEditingCal(false);
-                  }}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-                  placeholder="kcal"
-                />
-              ) : displayCal ? (
-                <button
-                  onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                  className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
-                    }`}
-                  title="Modifier les calories (temporaire)"
-                >
-                  <Flame className="h-3 w-3" />
-                  {displayCal}
-                </button>
-              ) : (
-                <button
-                  onClick={() => { setCalValue(""); setEditingCal(true); }}
-                  className="text-[10px] text-white/40 hover:text-white/60"
-                  title="Ajouter des calories"
-                >
-                  <Flame className="h-3 w-3" />
-                </button>
-              )}
-              {editingPro ? (
-                <input
-                  autoFocus
-                  type="text"
-                  inputMode="numeric"
-                  value={proValue}
-                  onChange={(e) => setProValue(e.target.value)}
-                  onBlur={() => {
-                    const trimmed = proValue.trim();
-                    onProteinChange(trimmed || null);
-                    setEditingPro(false);
-                  }}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-                  placeholder="prot"
-                />
-              ) : displayPro ? (
-                <button
-                  onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-                  className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
-                  title="Modifier les protéines (temporaire)"
-                >
-                  🍗 {displayPro}
-                </button>
-              ) : (
-                <button
-                  onClick={() => { setProValue(""); setEditingPro(true); }}
-                  className="text-[10px] text-white/40 hover:text-white/60"
-                  title="Ajouter des protéines"
-                >
-                  🍗
-                </button>
-              )}
-              {counterDays !== null ? (
-                <span
-                  className={`text-[8px] font-black px-1 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
-                  ${counterUrgent ? `bg-red-600 text-white border-red-300 shadow-md ${!isPast ? 'animate-pulse' : ''}` : "bg-black/50 text-white border-white/30"}`}
-                  title={counterBadgeTitle}
-                >
-                  <Timer className="h-2 w-2" />
-                  {counterDays}j
-                </span>
-              ) : null}
-            </div>
-          )}
         </div>
-        {!compact && (pm.expiration_date || meal.grams || pm.ingredients_override || meal.ingredients) && (
+        {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || pm.ingredients_override || meal.ingredients) && (
           <div className="mt-auto pt-0.5">
-            {meal.grams && (
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                  <Weight className="h-2 w-2" />
-                  {meal.grams}
-                </span>
-              </div>
-            )}
-            {(pm.ingredients_override || meal.ingredients || pm.expiration_date) && (
-              <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
+            <div className="flex items-end justify-between gap-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-1 min-w-0">
                 {pm.expiration_date && (
-                  <span className={`inline-flex items-center gap-0.5 mr-1 rounded px-1 py-0.5 border align-middle ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border align-middle text-[9px] font-normal ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
                     <Calendar className="h-2 w-2 inline" />
                     {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   </span>
                 )}
+                {meal.grams && (
+                  <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                    <Weight className="h-2 w-2" />
+                    {meal.grams}
+                  </span>
+                )}
+              </div>
+              {macroControls}
+            </div>
+            {(pm.ingredients_override || meal.ingredients || pm.expiration_date) && (
+              <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
                 {!hideIngredients && (pm.ingredients_override || meal.ingredients) && (
                   <StructuredIngredientInline
                     compact
@@ -513,24 +559,25 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               </span>
             ) : null}
           </div>
-          {!compact && (pm.expiration_date || meal.grams || pm.ingredients_override || meal.ingredients) && (
+          {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || pm.ingredients_override || meal.ingredients) && (
             <div className="pt-0.5">
-              {meal.grams && (
-                <div className="flex items-center gap-1">
-                  <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                    <Weight className="h-2 w-2" />
-                    {meal.grams}
-                  </span>
-                </div>
-              )}
-              {pm.expiration_date && (
-                <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px]`}>
-                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border ${expired ? "text-red-300 font-bold border-red-400/50 bg-red-500/20" : "text-white/60 border-white/15 bg-white/5"}`}>
+              <div className="flex items-end justify-between gap-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1 min-w-0">
+                  {pm.expiration_date && (
+                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border text-[9px] font-normal ${expired ? "text-red-300 font-bold border-red-400/50 bg-red-500/20" : "text-white/60 border-white/15 bg-white/5"}`}>
                     <Calendar className="h-2 w-2 inline" />
                     {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
                   </span>
+                  )}
+                  {meal.grams && (
+                    <span className="text-[9px] text-white/60 flex items-center gap-0.5">
+                      <Weight className="h-2 w-2" />
+                      {meal.grams}
+                    </span>
+                  )}
                 </div>
-              )}
+                {macroControls}
+              </div>
               {!hideIngredients && (pm.ingredients_override || meal.ingredients) && (
                 <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 flex flex-wrap gap-x-1`}>
                   <StructuredIngredientInline
@@ -545,78 +592,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             </div>
           )}
         </div>
-        {!compact && (
-          <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
-            {editingCal ? (
-              <input
-                autoFocus
-                type="text"
-                inputMode="numeric"
-                value={calValue}
-                onChange={(e) => setCalValue(e.target.value)}
-                onBlur={() => {
-                  const trimmed = calValue.trim();
-                  onCalorieChange(trimmed || null);
-                  setEditingCal(false);
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-                placeholder="kcal"
-              />
-            ) : displayCal ? (
-              <button
-                onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-                className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
-                  }`}
-                title="Modifier les calories (temporaire)"
-              >
-                <Flame className="h-3 w-3" />
-                {displayCal}
-              </button>
-            ) : (
-              <button
-                onClick={() => { setCalValue(""); setEditingCal(true); }}
-                className="text-[10px] text-white/40 hover:text-white/60"
-                title="Ajouter des calories"
-              >
-                <Flame className="h-3 w-3" />
-              </button>
-            )}
-            {editingPro ? (
-              <input
-                autoFocus
-                type="text"
-                inputMode="numeric"
-                value={proValue}
-                onChange={(e) => setProValue(e.target.value)}
-                onBlur={() => {
-                  const trimmed = proValue.trim();
-                  onProteinChange(trimmed || null);
-                  setEditingPro(false);
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-                placeholder="prot"
-              />
-            ) : displayPro ? (
-              <button
-                onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-                className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
-                title="Modifier les protéines (temporaire)"
-              >
-                🍗 {displayPro}
-              </button>
-            ) : (
-              <button
-                onClick={() => { setProValue(""); setEditingPro(true); }}
-                className="text-[10px] text-white/40 hover:text-white/60"
-                title="Ajouter des protéines"
-              >
-                🍗
-              </button>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1265,6 +1240,8 @@ export function WeeklyPlanning({
   const assignExtraToDaySlot = (extraId: string, iso: string, key: string, slot: 'matin' | 'midi' | 'soir' | 'gouter') => {
     if (!extraId) return;
     ensureExtraSelectedForDay(extraId, iso, key);
+    const selectedForDay = extraSelections[iso] || extraSelections[key] || [];
+    const occurrenceCount = Math.max(1, selectedForDay.filter((id) => id === extraId).length);
     const assignments = { ...extraSlotAssignments };
     const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
     for (const s of slots) {
@@ -1277,7 +1254,8 @@ export function WeeklyPlanning({
     }
     const targetKey = iso ? `${iso}-${slot}` : `${key}-${slot}`;
     const targetCur = assignments[targetKey] || [];
-    if (!targetCur.includes(extraId)) assignments[targetKey] = [...targetCur, extraId];
+    const withoutCurrentExtra = targetCur.filter((id) => id !== extraId);
+    assignments[targetKey] = [...withoutCurrentExtra, ...Array(occurrenceCount).fill(extraId)];
     setPreference.mutate({ key: 'planning_extra_slot_assignments', value: assignments });
   };
 
@@ -2269,13 +2247,13 @@ export function WeeklyPlanning({
                 </div>
                 {breakfastAssignedSlotIds.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {breakfastAssignedSlotIds.map((extraId, index) => {
+                    {groupAssignedExtraIds(breakfastAssignedSlotIds).map(({ id: extraId, count }, index) => {
                       const custom = parseCustomExtraId(extraId);
                       const fi = custom ? null : foodItems.find(f => f.id === extraId);
                       if (!fi && !custom) return null;
                       return (
                         <span
-                          key={`breakfast-assigned-${extraId}-${index}`}
+                          key={`breakfast-assigned-${extraId}-${index}-${count}`}
                           draggable
                           onDragStart={(e) => {
                             setDraggedSelectedExtraId(extraId);
@@ -2290,7 +2268,7 @@ export function WeeklyPlanning({
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
                           title="Extra assigné au petit déj — glisse pour déplacer"
                         >
-                          {getPlacedExtraLabel(extraId, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
+                          {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
                           <button
                             onClick={() => deselectExtraForDay(extraId, iso, key)}
                             className="opacity-60 hover:opacity-100 font-bold"
@@ -2535,13 +2513,13 @@ export function WeeklyPlanning({
                         )}
                         {slotAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-0.5">
-                            {slotAssignedIds.map((extraId, index) => {
+                            {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
                               const custom = parseCustomExtraId(extraId);
                               const fi = custom ? null : foodItems.find(f => f.id === extraId);
                               if (!fi && !custom) return null;
                               return (
                                 <span
-                                  key={`${time}-assigned-${extraId}-${index}`}
+                                  key={`${time}-assigned-${extraId}-${index}-${count}`}
                                   draggable
                                   onDragStart={(e) => {
                                     setDraggedSelectedExtraId(extraId);
@@ -2556,7 +2534,7 @@ export function WeeklyPlanning({
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                                   title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
                                 >
-                                  {getPlacedExtraLabel(extraId, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
+                                  {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
                                   <button
                                     onClick={() => deselectExtraForDay(extraId, iso, key)}
                                     className="opacity-60 hover:opacity-100 font-bold"
@@ -3300,16 +3278,20 @@ export function WeeklyPlanning({
                     placeholder="prot"
                     className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
                   />
-                  {getMealsForSlot(key, 'gouter', iso).map((pm) => renderMiniCard(pm, true))}
+                  {getMealsForSlot(key, 'gouter', iso).map((pm) => (
+                    <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
+                      {renderMiniCard(pm, true)}
+                    </div>
+                  ))}
                   {gouterAssignedIds.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {gouterAssignedIds.map((extraId, index) => {
+                      {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
                         const custom = parseCustomExtraId(extraId);
                         const fi = custom ? null : foodItems.find((f) => f.id === extraId);
                         if (!fi && !custom) return null;
                         return (
                           <span
-                            key={`gouter-assigned-${extraId}-${index}`}
+                            key={`gouter-assigned-${extraId}-${index}-${count}`}
                             draggable
                             onDragStart={(e) => {
                               setDraggedSelectedExtraId(extraId);
@@ -3324,7 +3306,7 @@ export function WeeklyPlanning({
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                             title="Extra assigné à Goûter — glisse pour déplacer"
                           >
-                            {getPlacedExtraLabel(extraId, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
+                            {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
                             <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
                           </span>
                         );
