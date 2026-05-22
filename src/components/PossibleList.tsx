@@ -18,7 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
-import { computeIngredientCalories, computeIngredientProtein, getMealColor } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -262,6 +262,7 @@ export function PossibleList({
           {popupPm && popupPm.meals && (() => {
             const meal = popupPm.meals;
             const displayIngredients = popupPm.ingredients_override ?? meal.ingredients;
+            const popupDisplayIngredients = ingredientsForPossibleCardDisplay(displayIngredients);
             const ingCal = computeIngredientCalories(displayIngredients);
             const ingPro = computeIngredientProtein(displayIngredients);
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
@@ -317,14 +318,14 @@ export function PossibleList({
                     📅 {format(parseISO(popupPm.expiration_date), "d MMMM yyyy", { locale: fr })}
                   </p>
                 )}
-                {displayIngredients && (
+                {popupDisplayIngredients && (
                   <div className="bg-black/20 rounded-xl p-3 mt-1">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide">Ingrédients</p>
                     <div className="text-sm text-white/90">
                       <StructuredIngredientInline
-                        ingredients={displayIngredients}
+                        ingredients={popupDisplayIngredients}
                         stockMap={stockMap}
-                        softUnavailableStyle
+                        forcePlainWhite
                       />
                     </div>
                   </div>

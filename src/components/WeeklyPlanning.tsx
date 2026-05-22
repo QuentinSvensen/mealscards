@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups, formatNumeric } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -4130,6 +4130,7 @@ export function WeeklyPlanning({
           {popupPm && popupPm.meals && (() => {
             const meal = popupPm.meals;
             const displayIngredients = popupPm.ingredients_override ?? meal.ingredients;
+            const popupDisplayIngredients = ingredientsForPossibleCardDisplay(displayIngredients);
             const mealForAnalysis = { ...meal, ingredients: displayIngredients };
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
             const effectiveStart =
@@ -4192,14 +4193,14 @@ export function WeeklyPlanning({
                     📅 {format(parseISO(popupPm.expiration_date), "d MMMM yyyy", { locale: fr })}
                   </p>
                 )}
-                {displayIngredients && (
+                {popupDisplayIngredients && (
                   <div className="bg-black/20 rounded-xl p-3 mt-1">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide">Ingrédients</p>
                     <div className="text-sm text-white/90">
                       <StructuredIngredientInline
-                        ingredients={displayIngredients}
+                        ingredients={popupDisplayIngredients}
                         stockMap={stockMap}
-                        softUnavailableStyle
+                        forcePlainWhite
                       />
                     </div>
                   </div>
