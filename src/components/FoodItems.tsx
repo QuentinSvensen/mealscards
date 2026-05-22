@@ -28,7 +28,7 @@ import { fr } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { colorFromName, computeCounterDays, computeCounterHours, isExpiredDate } from "@/lib/ingredientUtils";
+import { colorFromName, computeCounterDays, computeCounterHours, isExpiredDate, normalizeKey } from "@/lib/ingredientUtils";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useSortModes, FoodSortMode } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
@@ -88,6 +88,15 @@ function encodeStoredGramsFR(unit: number, remainder: number | null): string {
 export function useFoodItems() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
+
+  /** Suspend brièvement le realtime stock pour éviter qu'un refetch stale annule un patch local. */
+  const suppressStockRealtimeBriefly = () => {
+    try {
+      (window as any).__suppressStockRealtimeUntil = Date.now() + 6000;
+    } catch {
+      // no-op
+    }
+  };
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -180,13 +189,40 @@ export function useFoodItems() {
 
   const updateItem = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<FoodItem> & { id: string }) => {
-      const { error } = await supabase
+      suppressStockRealtimeBriefly();
+      const { data, error } = await supabase
         .from("food_items")
         .update(updates as any)
-        .eq("id", id);
+        .eq("id", id)
+        .select("*")
+        .single();
       if (error) throw error;
+      return data as FoodItem;
     },
-    onSuccess: invalidate,
+    onMutate: async ({ id, ...updates }) => {
+      suppressStockRealtimeBriefly();
+      await qc.cancelQueries({ queryKey: ["food_items"] });
+      const previous = qc.getQueryData<FoodItem[]>(["food_items"]);
+      qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((item) => (
+          item.id === id ? { ...item, ...updates } as FoodItem : item
+        ));
+      });
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        qc.setQueryData(["food_items"], context.previous);
+      }
+    },
+    onSuccess: (updated) => {
+      suppressStockRealtimeBriefly();
+      qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((item) => (item.id === updated.id ? updated : item));
+      });
+    },
   });
 
   const deleteItem = useMutation({
@@ -727,6 +763,35 @@ const foodItemSchema = z.object({
   name: z.string().trim().min(1, "Le nom est requis").max(100, "Nom trop long (100 car. max)"),
 });
 
+const FOOD_LIBRARY_AMOUNT_PREF_KEY = "food_library_amounts";
+
+type FoodLibraryAmountMemory = Record<string, { grams: string; quantity?: string }>;
+
+/** Retourne la clé stable utilisée pour mémoriser la valeur initiale d'un aliment saisi. */
+function getFoodLibraryAmountKey(name: string): string {
+  return normalizeKey(name);
+}
+
+/** Prépare la valeur initiale stockée : grammes si présents, sinon quantité seule. */
+function buildFoodLibraryAmountMemory(quantity: string | number | null | undefined, grams: string | null | undefined) {
+  const initialGrams = (grams || "").trim();
+  const initialQuantity = quantity == null ? "" : String(quantity).trim();
+  return {
+    grams: initialGrams,
+    ...(initialGrams ? {} : { quantity: initialQuantity }),
+  };
+}
+
+/** Affiche la valeur mémorisée d'une suggestion : grammes prioritaires, sinon quantité. */
+function formatFoodLibraryAmountLabel(amount: { grams?: string; quantity?: string } | undefined): string | null {
+  if (!amount) return null;
+  const grams = (amount.grams || "").trim();
+  if (grams) return /[a-zA-Z]/.test(grams) ? grams : `${grams}g`;
+  const quantity = (amount.quantity || "").trim();
+  if (quantity) return `x${quantity}`;
+  return null;
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 type SortMode = "manual" | "expiration";
@@ -784,6 +849,23 @@ export function FoodItems() {
   const [searchQuery, setSearchQuery] = useState("");
   const testItemIds = getPreference<string[]>("food_test_ids", []);
   const testItemIdSet = new Set(testItemIds);
+  const foodLibraryAmountMemory = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
+
+  /** Mémorise la valeur de première création : grammes, ou quantité si aucun gramme n'a été saisi. */
+  const rememberInitialFoodLibraryAmount = useCallback((name: string, quantity: string | number | null | undefined, grams: string | null | undefined) => {
+    const key = getFoodLibraryAmountKey(name);
+    if (!key) return;
+    const current = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
+    const existing = current[key];
+    if (existing?.grams || existing?.quantity) return;
+    setPreference.mutate({
+      key: FOOD_LIBRARY_AMOUNT_PREF_KEY,
+      value: {
+        ...current,
+        [key]: buildFoodLibraryAmountMemory(quantity, grams),
+      },
+    });
+  }, [getPreference, setPreference]);
 
   // Mise à jour des suggestions à chaque frappe
   const handleNameChange = useCallback((value: string) => {
@@ -805,6 +887,10 @@ export function FoodItems() {
     setSuggestedStorageType(entry.storage_type);
     setSuggestedIsMeal(entry.is_meal);
     setSuggestedNoCounter(entry.no_counter);
+    const amountKey = getFoodLibraryAmountKey(entry.name);
+    const storedAmount = foodLibraryAmountMemory[amountKey];
+    setNewGrams(storedAmount?.grams || "");
+    setNewQuantity(storedAmount?.grams ? "" : storedAmount?.quantity || "");
     if (entry.calories) setNewCalories(entry.calories);
     if (entry.protein) setNewProtein(entry.protein);
     setSuggestions([]);
@@ -814,7 +900,7 @@ export function FoodItems() {
       const qtyInput = document.querySelector<HTMLInputElement>('input[placeholder*="Quantité"]');
       qtyInput?.focus();
     }, 50);
-  }, []);
+  }, [foodLibraryAmountMemory]);
 
   const handleUpdate = useCallback((id: string, updates: Partial<FoodItem>) => {
     // 1. Mise à jour de l'aliment en stock
@@ -922,6 +1008,7 @@ export function FoodItems() {
           calories,
           protein,
         });
+        rememberInitialFoodLibraryAmount(pendingName, pendingQuantity, grams);
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
         }
@@ -1030,49 +1117,58 @@ export function FoodItems() {
                   Aucun résultat dans la bibliothèque
                 </div>
               ) : (
-                suggestions.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="w-full px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
-                  >
-                    <button
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
-                      className="flex-1 text-left flex items-center min-w-0"
+                suggestions.map((entry) => {
+                  const amountLabel = formatFoodLibraryAmountLabel(
+                    foodLibraryAmountMemory[getFoodLibraryAmountKey(entry.name)],
+                  );
+                  return (
+                    <div
+                      key={entry.id}
+                      className="w-full px-3 py-2 flex items-center gap-2 hover:bg-primary/10 transition-colors group border-b border-white/5 last:border-b-0"
                     >
-                      <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
-                        {entry.name}
-                      </span>
-                      <div className="flex items-center gap-1 shrink-0 ml-2">
-                        {entry.food_type === 'feculent' && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
-                            <Wheat className="h-2.5 w-2.5" />Féc
-                          </span>
-                        )}
-                        {entry.food_type === 'viande' && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
-                            <Drumstick className="h-2.5 w-2.5" />Via
-                          </span>
-                        )}
-                        {entry.is_meal && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
-                            <UtensilsCrossed className="h-2.5 w-2.5" />
-                          </span>
-                        )}
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
-                          {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
-                          {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
-                          {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
-                          {entry.storage_type === 'extras' && '✨'}
-                          {entry.storage_type === 'toujours' && '📌'}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(entry); }}
+                        className="flex-1 text-left flex items-center min-w-0"
+                      >
+                        <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate flex-1">
+                          {entry.name}
                         </span>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          {amountLabel && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/25 font-bold">
+                              {amountLabel}
+                            </span>
+                          )}
+                          {entry.food_type === 'feculent' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold flex items-center gap-0.5">
+                              <Wheat className="h-2.5 w-2.5" />Féc
+                            </span>
+                          )}
+                          {entry.food_type === 'viande' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-400/30 font-bold flex items-center gap-0.5">
+                              <Drumstick className="h-2.5 w-2.5" />Via
+                            </span>
+                          )}
+                          {entry.is_meal && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/20 text-white/80 border border-white/30 font-bold flex items-center gap-0.5">
+                              <UtensilsCrossed className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
+                            {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
+                            {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
+                            {entry.storage_type === 'surgele' && <Snowflake className="h-2.5 w-2.5" />}
+                            {entry.storage_type === 'extras' && '✨'}
+                            {entry.storage_type === 'toujours' && '📌'}
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
                         deleteEntry.mutate(entry.id);
                         setSuggestions(prev => prev.filter(s => s.id !== entry.id));
                       }}
@@ -1082,8 +1178,9 @@ export function FoodItems() {
                       <Trash2 className="h-3 w-3" />
                     </button>
                     </div>
-                  ))
-                )}
+                  );
+                })
+              )}
               </div>
             </div>
           )}

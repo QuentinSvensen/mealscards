@@ -78,9 +78,15 @@ export function useFoodLibrary() {
       const q = normalizeSearch(query);
       if (!q) return [];
       
+      const seenNames = new Set<string>();
       return searchIndex
         .filter((e) => e._normalized.startsWith(q))
         .sort((a, b) => a.name.localeCompare(b.name))
+        .filter((entry) => {
+          if (seenNames.has(entry._normalized)) return false;
+          seenNames.add(entry._normalized);
+          return true;
+        })
         .slice(0, limit);
     },
     [searchIndex]

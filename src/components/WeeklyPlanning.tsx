@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups, formatNumeric } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -230,15 +230,92 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
   return { cal, pro };
 }
 
-/** Formate l'étiquette d'un extra placé en incluant ses grammes s'ils existent. */
-function formatPlacedExtraLabel(extraName: string, grams?: string | null): string {
+/** Formate l'étiquette d'un extra placé en incluant ses grammes et sa quantité s'ils existent. */
+function formatPlacedExtraLabel(extraName: string, grams?: string | null, quantity?: number | null): string {
   const name = (extraName || "").trim();
   const rawGrams = (grams || "").trim();
   const hasUnit = /[a-zA-Z]/.test(rawGrams);
   const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
-  if (!name) return g;
-  if (!g) return name;
-  return `${g} ${name}`;
+  const q =
+    quantity != null && quantity > 0
+      ? quantity > 1
+        ? `x${quantity}`
+        : String(quantity)
+      : "";
+  const prefix = [g, q].filter(Boolean).join(" ");
+  if (!name) return prefix;
+  if (!prefix) return name;
+  return `${prefix} ${name}`;
+}
+
+/**
+ * Déduit grammes / quantité affichables depuis une recette dessert (ingrédient unique ou fiche stock liée).
+ * Sert les bulles d'extras déplacés créés via `custom::…` (desserts au choix), qui n'ont pas de `FoodItem` direct.
+ */
+function extractExtraDisplayQuantity(
+  meal: Meal | null | undefined,
+  foodItems: FoodItem[],
+): { grams: string | null; quantity: number | null } {
+  if (!meal) return { grams: null, quantity: null };
+  const groups = parseIngredientGroups(meal.ingredients || "");
+  for (const group of groups) {
+    for (const bundle of group) {
+      const ing = bundle.find((i) => !i.optional);
+      if (!ing) continue;
+      if (ing.qty > 0) {
+        return { grams: formatNumeric(ing.qty), quantity: null };
+      }
+      if (ing.count > 0) {
+        return { grams: null, quantity: ing.count };
+      }
+      const stockFi = foodItems.find(
+        (f) =>
+          strictNameMatch(f.name, ing.name) &&
+          f.storage_type !== "extras" &&
+          f.storage_type !== "test",
+      );
+      if (stockFi) {
+        return { grams: stockFi.grams, quantity: stockFi.quantity };
+      }
+    }
+  }
+  const rawMealGrams = (meal.grams || "").trim();
+  if (rawMealGrams) return { grams: rawMealGrams, quantity: null };
+  return { grams: null, quantity: null };
+}
+
+/**
+ * Construit le libellé complet d'une bulle d'extra déplacée (stock, dessert custom ou les deux).
+ */
+function getPlacedExtraLabel(
+  extraId: string,
+  custom: { name: string } | null,
+  fi: FoodItem | null | undefined,
+  foodItems: FoodItem[],
+  dessertById: Map<string, { mealPayload: Meal }>,
+): string {
+  const name = custom?.name || fi?.name || "";
+  if (fi) {
+    return formatPlacedExtraLabel(name, fi.grams, fi.quantity);
+  }
+  const dessert = dessertById.get(extraId);
+  if (dessert) {
+    const { grams, quantity } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
+    if (grams || quantity) {
+      return formatPlacedExtraLabel(name, grams, quantity);
+    }
+  }
+  // Secours : fiche stock homonyme (recette dessert sans grammage explicite dans les ingrédients).
+  const stockByName = foodItems.find(
+    (f) =>
+      strictNameMatch(f.name, name) &&
+      f.storage_type !== "extras" &&
+      f.storage_type !== "test",
+  );
+  if (stockByName) {
+    return formatPlacedExtraLabel(name, stockByName.grams, stockByName.quantity);
+  }
+  return formatPlacedExtraLabel(name, null, null);
 }
 
 const DAILY_PROTEIN_GOAL = 110;
@@ -2213,7 +2290,7 @@ export function WeeklyPlanning({
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
                           title="Extra assigné au petit déj — glisse pour déplacer"
                         >
-                          {formatPlacedExtraLabel(custom?.name || fi?.name || "", fi?.grams)}
+                          {getPlacedExtraLabel(extraId, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
                           <button
                             onClick={() => deselectExtraForDay(extraId, iso, key)}
                             className="opacity-60 hover:opacity-100 font-bold"
@@ -2479,7 +2556,7 @@ export function WeeklyPlanning({
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                                   title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
                                 >
-                                  {formatPlacedExtraLabel(custom?.name || fi?.name || "", fi?.grams)}
+                                  {getPlacedExtraLabel(extraId, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
                                   <button
                                     onClick={() => deselectExtraForDay(extraId, iso, key)}
                                     className="opacity-60 hover:opacity-100 font-bold"
@@ -3247,7 +3324,7 @@ export function WeeklyPlanning({
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                             title="Extra assigné à Goûter — glisse pour déplacer"
                           >
-                            {formatPlacedExtraLabel(custom?.name || fi?.name || "", fi?.grams)}
+                            {getPlacedExtraLabel(extraId, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
                             <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
                           </span>
                         );
