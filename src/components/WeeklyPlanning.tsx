@@ -3420,12 +3420,14 @@ export function WeeklyPlanning({
                 const midiCards = dayCards.filter((c: any) => c.meal_time === 'midi');
                 const soirCards = dayCards.filter((c: any) => c.meal_time === 'soir');
                 const matinCards = dayCards.filter((c: any) => c.meal_time === 'matin');
+                const gouterCards = dayCards.filter((c: any) => c.meal_time === 'gouter');
 
                 // Current totals will be calculated below from slot values
 
                 let bfSlotCal = 0, bfSlotPro = 0;
                 let midiSlotCal = 0, midiSlotPro = 0;
                 let soirSlotCal = 0, soirSlotPro = 0;
+                let gouterSlotCal = 0, gouterSlotPro = 0;
 
                 // Calcul du petit déjeuner
                 const bfSel = bBS[iso] || bBS[key];
@@ -3486,8 +3488,17 @@ export function WeeklyPlanning({
                 if (soirCards.length === 0) { soirSlotCal += (bMC[`${iso}-soir`] || bMC[`${key}-soir`] || 0); soirSlotPro += (bMP[`${iso}-soir`] || bMP[`${key}-soir`] || 0); }
                 if (bDC[`${iso}-soir`] || bDC[`${key}-soir`]) soirSlotCal += 150;
 
-                let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal;
-                let dayPro = bfSlotPro + midiSlotPro + soirSlotPro;
+                const resGouter = processCards(gouterCards);
+                gouterSlotCal = resGouter.cals + gouterAssigned.cal;
+                gouterSlotPro = resGouter.pros + gouterAssigned.pro;
+                if (gouterCards.length === 0) {
+                  gouterSlotCal += (bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0);
+                  gouterSlotPro += (bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0);
+                }
+                if (bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) gouterSlotCal += 150;
+
+                let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal + gouterSlotCal;
+                let dayPro = bfSlotPro + midiSlotPro + soirSlotPro + gouterSlotPro;
 
                 // Extras (sauvegarde : mêmes ids que le planning courant, y compris extras saisis à la main)
                 dayTotal += (bEC[iso] || bEC[key] || 0);
@@ -3637,6 +3648,53 @@ export function WeeklyPlanning({
                             );
                           })()}
                         </div>
+                      </div>
+                    </div>
+                    <div className="mt-1.5 min-h-[34px] rounded-xl border border-dashed border-orange-300/45 bg-orange-500/3 p-0.5 sm:p-1 flex items-center">
+                      <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
+                        <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
+                        {(bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) && (
+                          <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +150</span>
+                        )}
+                        {gouterCards.length === 0 && (
+                          <>
+                            <div className="text-[10px] text-muted-foreground px-1 opacity-60">{bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0} kcal</div>
+                            <div className="text-[10px] text-blue-400 px-1 opacity-60">{bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0} prot</div>
+                          </>
+                        )}
+                        {gouterCards.map((c: any, i: number) => {
+                          const m = allMealsById.get(c.meal_id);
+                          if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
+                          return (
+                            <div key={i} className="inline-block mr-1 min-w-[132px] rounded-xl px-3 py-1.5 text-white text-center text-[9px] sm:text-[10px] font-semibold transition-all" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
+                              {getCategoryEmoji(m.category)} {m.name}
+                            </div>
+                          );
+                        })}
+                        {gouterAssignedIds.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
+                              const custom = parseCustomExtraId(extraId);
+                              const fi = custom ? null : foodItems.find((f) => f.id === extraId);
+                              if (!fi && !custom) return null;
+                              return (
+                                <span
+                                  key={`backup-gouter-assigned-${extraId}-${index}-${count}`}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25"
+                                >
+                                  {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {(gouterSlotCal > 0 || gouterSlotPro > 0) && (
+                          <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
+                            {gouterSlotCal > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterSlotCal)}</span>}
+                            {gouterSlotCal > 0 && gouterSlotPro > 0 && <span className="opacity-30">•</span>}
+                            {gouterSlotPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterSlotPro)}</span>}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
