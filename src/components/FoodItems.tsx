@@ -150,7 +150,7 @@ export function useFoodItems() {
   });
 
   const addItem = useMutation({
-    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date, calories, protein, is_meal, no_counter }: {
+    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date, calories, protein, is_meal, no_counter, is_indivisible }: {
       name: string;
       storage_type: StorageType;
       quantity?: number | null;
@@ -161,6 +161,7 @@ export function useFoodItems() {
       protein?: string | null;
       is_meal?: boolean;
       no_counter?: boolean;
+      is_indivisible?: boolean;
     }) => {
       const maxOrder = items.reduce((m, i) => Math.max(m, i.sort_order), -1);
       const { data, error } = await supabase
@@ -172,6 +173,7 @@ export function useFoodItems() {
           storage_type,
           is_meal: is_meal ?? false,
           no_counter: no_counter ?? ((storage_type === 'extras' || storage_type === 'test') ? true : !grams),
+          is_indivisible: is_indivisible ?? false,
           ...(quantity ? { quantity } : {}),
           ...(grams ? { grams } : {}),
           ...(food_type ? { food_type } : {}),
@@ -765,30 +767,38 @@ const foodItemSchema = z.object({
 
 const FOOD_LIBRARY_AMOUNT_PREF_KEY = "food_library_amounts";
 
-type FoodLibraryAmountMemory = Record<string, { grams: string; quantity?: string }>;
+type FoodLibraryAmountMemory = Record<string, { grams: string; quantity?: string; is_indivisible?: boolean }>;
 
 /** Retourne la clé stable utilisée pour mémoriser la valeur initiale d'un aliment saisi. */
 function getFoodLibraryAmountKey(name: string): string {
   return normalizeKey(name);
 }
 
-/** Prépare la valeur initiale stockée : grammes si présents, sinon quantité seule. */
-function buildFoodLibraryAmountMemory(quantity: string | number | null | undefined, grams: string | null | undefined) {
+/** Prépare la valeur initiale stockée : quantité et grammes ensemble, plus l'option indivisible. */
+function buildFoodLibraryAmountMemory(
+  quantity: string | number | null | undefined,
+  grams: string | null | undefined,
+  isIndivisible?: boolean,
+) {
   const initialGrams = (grams || "").trim();
   const initialQuantity = quantity == null ? "" : String(quantity).trim();
   return {
     grams: initialGrams,
-    ...(initialGrams ? {} : { quantity: initialQuantity }),
+    quantity: initialQuantity,
+    ...(isIndivisible !== undefined ? { is_indivisible: isIndivisible } : {}),
   };
 }
 
-/** Affiche la valeur mémorisée d'une suggestion : grammes prioritaires, sinon quantité. */
+/** Affiche la valeur mémorisée d'une suggestion : quantité et grammes si les deux existent. */
 function formatFoodLibraryAmountLabel(amount: { grams?: string; quantity?: string } | undefined): string | null {
   if (!amount) return null;
   const grams = (amount.grams || "").trim();
-  if (grams) return /[a-zA-Z]/.test(grams) ? grams : `${grams}g`;
   const quantity = (amount.quantity || "").trim();
-  if (quantity) return `x${quantity}`;
+  const gramsLabel = grams ? (/[a-zA-Z]/.test(grams) ? grams : `${grams}g`) : "";
+  const quantityLabel = quantity ? `x${quantity}` : "";
+  if (quantityLabel && gramsLabel) return `${quantityLabel} · ${gramsLabel}`;
+  if (gramsLabel) return gramsLabel;
+  if (quantityLabel) return quantityLabel;
   return null;
 }
 
@@ -825,6 +835,7 @@ export function FoodItems() {
   const [newCalories, setNewCalories] = useState("");
   const [newProtein, setNewProtein] = useState("");
   const [newFoodType, setNewFoodType] = useState<FoodType>(null);
+  const [newIsIndivisible, setNewIsIndivisible] = useState(false);
   const [newExpiration, setNewExpiration] = useState<Date | undefined>(undefined);
   const [expCalOpen, setExpCalOpen] = useState(false);
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
@@ -835,6 +846,7 @@ export function FoodItems() {
   const [suggestedStorageType, setSuggestedStorageType] = useState<string | null>(null);
   const [suggestedIsMeal, setSuggestedIsMeal] = useState<boolean | null>(null);
   const [suggestedNoCounter, setSuggestedNoCounter] = useState<boolean | null>(null);
+  const [suggestedIsIndivisible, setSuggestedIsIndivisible] = useState<boolean | null>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -845,24 +857,40 @@ export function FoodItems() {
   const [pendingCalories, setPendingCalories] = useState("");
   const [pendingProtein, setPendingProtein] = useState("");
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
+  const [pendingIsIndivisible, setPendingIsIndivisible] = useState(false);
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const testItemIds = getPreference<string[]>("food_test_ids", []);
   const testItemIdSet = new Set(testItemIds);
   const foodLibraryAmountMemory = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
 
-  /** Mémorise la valeur de première création : grammes, ou quantité si aucun gramme n'a été saisi. */
-  const rememberInitialFoodLibraryAmount = useCallback((name: string, quantity: string | number | null | undefined, grams: string | null | undefined) => {
+  /** Mémorise la première valeur de création et l'option indivisible pour les prochains ajouts du même aliment. */
+  const rememberInitialFoodLibraryAmount = useCallback((
+    name: string,
+    quantity: string | number | null | undefined,
+    grams: string | null | undefined,
+    isIndivisible?: boolean,
+  ) => {
     const key = getFoodLibraryAmountKey(name);
     if (!key) return;
     const current = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
     const existing = current[key];
-    if (existing?.grams || existing?.quantity) return;
+    const nextAmount = buildFoodLibraryAmountMemory(quantity, grams, isIndivisible);
+    const mergedAmount = {
+      grams: nextAmount.grams || existing?.grams || "",
+      quantity: nextAmount.quantity || existing?.quantity || "",
+      is_indivisible: nextAmount.is_indivisible ?? existing?.is_indivisible ?? false,
+    };
+    if (
+      existing?.grams === mergedAmount.grams &&
+      (existing?.quantity || "") === mergedAmount.quantity &&
+      existing.is_indivisible === mergedAmount.is_indivisible
+    ) return;
     setPreference.mutate({
       key: FOOD_LIBRARY_AMOUNT_PREF_KEY,
       value: {
         ...current,
-        [key]: buildFoodLibraryAmountMemory(quantity, grams),
+        [key]: mergedAmount,
       },
     });
   }, [getPreference, setPreference]);
@@ -890,7 +918,9 @@ export function FoodItems() {
     const amountKey = getFoodLibraryAmountKey(entry.name);
     const storedAmount = foodLibraryAmountMemory[amountKey];
     setNewGrams(storedAmount?.grams || "");
-    setNewQuantity(storedAmount?.grams ? "" : storedAmount?.quantity || "");
+    setNewQuantity(storedAmount?.quantity || "");
+    setNewIsIndivisible(storedAmount?.is_indivisible ?? false);
+    setSuggestedIsIndivisible(storedAmount?.is_indivisible ?? null);
     if (entry.calories) setNewCalories(entry.calories);
     if (entry.protein) setNewProtein(entry.protein);
     setSuggestions([]);
@@ -911,6 +941,7 @@ export function FoodItems() {
     if (item && (
       updates.is_meal !== undefined ||
       updates.no_counter !== undefined ||
+      updates.is_indivisible !== undefined ||
       updates.food_type !== undefined ||
       updates.storage_type !== undefined ||
       updates.calories !== undefined ||
@@ -925,8 +956,11 @@ export function FoodItems() {
         calories: updates.calories !== undefined ? updates.calories : item.calories,
         protein: updates.protein !== undefined ? updates.protein : item.protein,
       });
+      if (updates.is_indivisible !== undefined) {
+        rememberInitialFoodLibraryAmount(item.name, item.quantity, item.grams, updates.is_indivisible);
+      }
     }
-  }, [items, updateItem, upsertEntry]);
+  }, [items, updateItem, upsertEntry, rememberInitialFoodLibraryAmount]);
 
   // Fermer les suggestions quand on clique ailleurs
   useEffect(() => {
@@ -972,6 +1006,7 @@ export function FoodItems() {
     setPendingCalories(newCalories);
     setPendingProtein(newProtein);
     setPendingFoodType(newFoodType);
+    setPendingIsIndivisible(newIsIndivisible);
     setPendingExpiration(newExpiration ? format(newExpiration, 'yyyy-MM-dd') : null);
     setShowStoragePrompt(true);
   };
@@ -983,6 +1018,7 @@ export function FoodItems() {
     const protein = pendingProtein.trim() || null;
     const finalNoCounter = suggestedNoCounter !== null ? suggestedNoCounter : ((storageType === 'extras' || storageType === 'test') ? true : !grams);
     const finalIsMeal = suggestedIsMeal !== null ? suggestedIsMeal : false;
+    const finalIsIndivisible = Boolean(grams) && (suggestedIsIndivisible !== null ? suggestedIsIndivisible : pendingIsIndivisible);
     const persistedStorageType: StorageType = storageType === "test" ? "extras" : storageType;
 
     addItem.mutate({
@@ -995,7 +1031,8 @@ export function FoodItems() {
       calories,
       protein,
       is_meal: finalIsMeal,
-      no_counter: finalNoCounter
+      no_counter: finalNoCounter,
+      is_indivisible: finalIsIndivisible,
     }, {
       onSuccess: (created: any) => {
         // Sauvegarder dans la bibliothèque pour auto-complétion future
@@ -1008,13 +1045,13 @@ export function FoodItems() {
           calories,
           protein,
         });
-        rememberInitialFoodLibraryAmount(pendingName, pendingQuantity, grams);
+        rememberInitialFoodLibraryAmount(pendingName, pendingQuantity, grams, finalIsIndivisible);
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
         }
-        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewExpiration(undefined);
-        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingExpiration(null);
-        setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null);
+        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewIsIndivisible(false); setNewExpiration(undefined);
+        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingExpiration(null);
+        setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); setSuggestedIsIndivisible(null);
         setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 });
       },
       onError: (err: unknown) => {
@@ -1155,6 +1192,11 @@ export function FoodItems() {
                               <UtensilsCrossed className="h-2.5 w-2.5" />
                             </span>
                           )}
+                          {foodLibraryAmountMemory[getFoodLibraryAmountKey(entry.name)]?.is_indivisible && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 border border-orange-400/30 font-bold flex items-center gap-0.5">
+                              <Lock className="h-2.5 w-2.5" />Indiv.
+                            </span>
+                          )}
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/50 border border-white/15 flex items-center gap-0.5">
                             {entry.storage_type === 'frigo' && <Refrigerator className="h-2.5 w-2.5" />}
                             {entry.storage_type === 'sec' && <Package className="h-2.5 w-2.5" />}
@@ -1291,6 +1333,20 @@ export function FoodItems() {
               </span>
             </div>
           )}
+          {pendingGrams.trim() && (
+            <div className="mb-3">
+              <button
+                onClick={() => {
+                  setSuggestedIsIndivisible(null);
+                  setPendingIsIndivisible(prev => !prev);
+                }}
+                className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${pendingIsIndivisible ? 'bg-orange-500/20 text-orange-300 border-orange-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'}`}
+                title={pendingIsIndivisible ? "Indivisible activé pour cet aliment" : "Marquer cet aliment comme indivisible"}
+              >
+                <Lock className="h-3 w-3" />Indivisible
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <Button onClick={() => confirmAdd('frigo')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'frigo' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
@@ -1305,7 +1361,7 @@ export function FoodItems() {
               <span className="text-base leading-none">✨</span> Extras
             </Button>
           </div>
-          <button onClick={() => { setShowStoragePrompt(false); setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); }} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">
+          <button onClick={() => { setShowStoragePrompt(false); setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); setSuggestedIsIndivisible(null); }} className="text-xs text-muted-foreground mt-2 w-full text-center hover:text-foreground">
             Annuler
           </button>
         </div>

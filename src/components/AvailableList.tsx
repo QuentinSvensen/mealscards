@@ -258,6 +258,37 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
   // 2. Correspondance par nom
   type NameMatch = { meal: Meal; fi: FoodItem; portionsAvailable: number | null };
+
+  /** Construit un repas factice avec les calories réellement affichées pour un aliment-repas. */
+  const buildIsMealCalorieMeal = (fi: FoodItem): Meal => {
+    let displayCal = fi.calories;
+    if (fi.grams) {
+      const totalG = getFoodItemTotalGrams(fi);
+      const calPer100 = displayCal ? parseFloat(displayCal.replace(",", ".")) : 0;
+      if (totalG > 0 && Number.isFinite(calPer100) && calPer100 > 0) {
+        displayCal = String(Math.round(calPer100 * totalG / 100));
+      }
+    }
+    return { ...fi as unknown as Meal, calories: displayCal, ingredients: null };
+  };
+
+  /** Construit un repas factice avec les calories visibles pour une correspondance nom ↔ aliment. */
+  const buildNameMatchCalorieMeal = (nm: NameMatch): Meal => {
+    let baseCal = nm.meal.calories && nm.meal.calories !== "0" ? parseFloat(nm.meal.calories.replace(",", ".")) : 0;
+    if (!baseCal && nm.fi.calories) {
+      const fiCal = parseFloat(nm.fi.calories.replace(",", "."));
+      if (Number.isFinite(fiCal) && fiCal > 0) {
+        if (nm.fi.grams) {
+          const totalG = getFoodItemTotalGrams(nm.fi);
+          if (totalG > 0) baseCal = (fiCal * totalG) / 100;
+        } else {
+          baseCal = fiCal * (nm.fi.quantity ?? 1);
+        }
+      }
+    }
+    return { ...nm.meal, calories: baseCal > 0 ? String(Math.round(baseCal)) : nm.meal.calories, ingredients: null };
+  };
+
   const nameMatches: NameMatch[] = [];
   const nameMatchedFiIds = new Set<string>();
 
@@ -465,27 +496,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     if (useRemainingCalories) {
       items = items.filter(u => {
         if (u.type === 'isMeal') {
-          let displayCal = u.fi.calories;
-          if (u.fi.grams) {
-            const unitG = parseQty(u.fi.grams);
-            if (unitG > 0 && displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
-          }
-          const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: displayCal, ingredients: null };
-          return tryFitMeal(fakeMeal, 1, false).show;
+          return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
         }
         if (u.type === 'nm') {
-          let baseCal = u.nm.meal.calories && u.nm.meal.calories !== "0" ? parseFloat(u.nm.meal.calories.replace(",", ".")) : 0;
-          if (!baseCal && u.nm.fi.calories) {
-            const fiCal = parseFloat(u.nm.fi.calories.replace(",", "."));
-            if (u.nm.fi.grams) {
-              const unitG = parseQty(u.nm.fi.grams);
-              if (unitG > 0) baseCal = (fiCal * unitG) / 100;
-            } else {
-              baseCal = fiCal;
-            }
-          }
-          const fakeMeal: Meal = { ...u.nm.meal, calories: baseCal > 0 ? String(Math.round(baseCal)) : u.nm.meal.calories };
-          return tryFitMeal(fakeMeal, 1, false).show;
+          return tryFitMeal(buildNameMatchCalorieMeal(u.nm), 1, false).show;
         }
         if (u.type === 'av') {
           const ratioToTry = customRatios[u.item.meal.id] ?? 1;
@@ -1523,13 +1537,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               const unified: UnifiedItem[] = [];
               for (const fi of [...sortedIsMealItems, ...isMealWithDate]) {
                 const counter = computeCounterDays(fi.counter_start_date);
-                const fakeMeal: Meal = { ...fi as unknown as Meal, calories: fi.calories, ingredients: null };
+                const fakeMeal = buildIsMealCalorieMeal(fi);
                 unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(fakeMeal) });
               }
               for (let i = 0; i < sortedNameMatches.length; i++) {
                 const nm = sortedNameMatches[i];
                 const counter = computeCounterDays(nm.fi.counter_start_date);
-                unified.push({ type: 'nm', nm, nmIdx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(nm.meal) });
+                unified.push({ type: 'nm', nm, nmIdx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(buildNameMatchCalorieMeal(nm)) });
               }
               for (const item of sortedAvailable) {
                 const an = analyzeMealIngredients(item.meal, foodItems);
@@ -1558,11 +1572,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               if (useRemainingCalories) {
                 filteredUnified = filteredUnified.filter(u => {
                   if (u.type === 'isMeal') {
-                    const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: u.fi.calories, ingredients: null };
-                    return tryFitMeal(fakeMeal, 1, false).show;
+                    return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
                   }
                   if (u.type === 'nm') {
-                    return tryFitMeal(u.nm.meal, 1, false).show;
+                    return tryFitMeal(buildNameMatchCalorieMeal(u.nm), 1, false).show;
                   }
                   if (u.type === 'av') {
                     const ratioToTry = customRatios[u.item.meal.id] ?? 1;
