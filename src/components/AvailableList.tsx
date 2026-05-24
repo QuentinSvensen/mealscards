@@ -1043,6 +1043,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         .filter(Boolean)
         .map((w) => w.replace(/s$/i, ""))
         .join(" ");
+    const genericSingleWordIngredients = new Set(["sauce"]);
+
+    /** Vérifie qu'un ingrédient de recette correspond vraiment à l'aliment stocké sans confondre un terme trop générique. */
+    const ingredientMatchesFoodItem = (ingredientName: string, fi: FoodItem): boolean => {
+      if (strictNameMatch(ingredientName, fi.name)) return true;
+      const ingredientCanonical = canonicalize(ingredientName);
+      const foodCanonical = canonicalize(fi.name);
+      if (ingredientCanonical === foodCanonical) return true;
+      if (genericSingleWordIngredients.has(ingredientCanonical)) return false;
+      return smartFoodContains(ingredientName, fi.name);
+    };
 
     // On ne traite que les items inutilisés AVEC une date de péremption pour suggérer des compléments.
     const candidatesToProcessByFi = items.filter(fi => !!fi.expiration_date);
@@ -1078,13 +1089,26 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     };
     const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[]; countedRecipeIds: Set<string> }>();
 
+    /** Formate la quantité d'un aliment inutilisé, avec repli sur le stock si la recette ne précise rien. */
+    const formatUnusedRecipeAmountLabel = (fi: FoodItem, recipeQty: number, recipeCount: number): string => {
+      if (recipeQty > 0) return `${formatNumeric(recipeQty)}g`;
+      if (recipeCount > 0) return `x${formatNumeric(recipeCount)}`;
+
+      const unitGrams = parseQty(fi.grams);
+      const quantity = fi.quantity ?? null;
+      if (unitGrams > 0 && quantity && quantity > 1) return `${formatNumeric(unitGrams)}g x${formatNumeric(quantity)}`;
+      if (unitGrams > 0) return `${formatNumeric(unitGrams)}g`;
+      if (quantity && quantity > 0) return `x${formatNumeric(quantity)}`;
+      return "";
+    };
+
     for (const fi of candidatesToProcessByFi) {
       const unusedKey = normalizeKey(fi.name);
       const fiCanonical = canonicalize(fi.name);
       const mealIds = new Set<string>(index.get(unusedKey) ?? []);
       for (const [idxKey, ids] of index.entries()) {
         const isCanonicalMatch = canonicalize(idxKey) === fiCanonical;
-        const isSmartMatch = smartFoodContains(idxKey, fi.name);
+        const isSmartMatch = ingredientMatchesFoodItem(idxKey, fi);
         if (!strictNameMatch(idxKey, fi.name) && !isCanonicalMatch && !isSmartMatch) continue;
         for (const id of ids) mealIds.add(id);
       }
@@ -1177,16 +1201,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           for (const alt of group) {
             for (const item of alt) {
               const sameByCanonical = canonicalize(item.name) === fiCanonical;
-              if (!strictNameMatch(item.name, fi.name) && !sameByCanonical) continue;
+              if (!ingredientMatchesFoodItem(item.name, fi) && !sameByCanonical) continue;
               if (item.qty > 0) unusedQtyInRecipe = Math.max(unusedQtyInRecipe, item.qty);
               if (item.count > 0) unusedCountInRecipe = Math.max(unusedCountInRecipe, item.count);
             }
           }
         }
         const unusedRecipeAmountLabel =
-          unusedQtyInRecipe > 0
-            ? `${formatNumeric(unusedQtyInRecipe)}g`
-            : (unusedCountInRecipe > 0 ? `x${unusedCountInRecipe}` : "quantité inconnue");
+          formatUnusedRecipeAmountLabel(fi, unusedQtyInRecipe, unusedCountInRecipe);
 
         for (const missingKey of missing) {
           let qty = 0, count = 0, displayName = missingKey;
