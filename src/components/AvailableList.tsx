@@ -1248,10 +1248,104 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       .filter((entry) => isActuallyMissing(entry.missingName));
   };
 
+  /**
+   * Recettes auxquelles il ne manque qu'UN SEUL ingrédient.
+   * Allocation gloutonne par calories croissantes : si deux recettes consomment le même
+   * stock fini (ex. 200g de lardons), seule la moins calorique est retenue.
+   */
+  const computeOneMissingSuggestions = (): { missingName: string; qty: number; count: number; recipes: { name: string; id: string }[] }[] => {
+    if (!allMeals.length) return [];
+
+    type Candidate = {
+      meal: Meal;
+      missingKey: string;
+      missingDisplayName: string;
+      missingQty: number;
+      missingCount: number;
+      finiteStockKeys: Set<string>;
+      cal: number;
+    };
+    const candidates: Candidate[] = [];
+
+    for (const meal of allMeals) {
+      if (!meal.ingredients?.trim()) continue;
+      const groups = parseIngredientGroups(meal.ingredients);
+      if (groups.length <= 1) continue;
+      const missing = getMissingIngredients(meal, stockMap);
+      if (missing.size !== 1) continue;
+      const missingKey = Array.from(missing)[0];
+
+      // Collecter les clés de stock fini que cette recette consommerait
+      const finiteStockKeys = new Set<string>();
+      for (const group of groups) {
+        for (const alt of group) {
+          for (const item of alt) {
+            if (normalizeKey(item.name) === missingKey) continue;
+            const sk = findStockKey(stockMap, item.name);
+            if (!sk) continue;
+            const stock = stockMap.get(sk);
+            if (stock && !stock.infinite) finiteStockKeys.add(sk);
+          }
+        }
+      }
+      if (finiteStockKeys.size === 0) continue;
+
+      let mQty = 0, mCount = 0, displayName = missingKey;
+      for (const group of groups) {
+        const first = group[0]?.[0];
+        if (first && normalizeKey(first.name) === missingKey) {
+          mQty = first.qty; mCount = first.count;
+          displayName = first.rawName || first.name;
+          break;
+        }
+      }
+      candidates.push({
+        meal,
+        missingKey,
+        missingDisplayName: displayName,
+        missingQty: mQty,
+        missingCount: mCount,
+        finiteStockKeys,
+        cal: parseMacroDisplay(meal.calories) ?? Infinity,
+      });
+    }
+
+    // Tri par calories croissantes pour privilégier les recettes légères
+    candidates.sort((a, b) => a.cal - b.cal);
+
+    // Allocation gloutonne : réserver le stock fini au fur et à mesure
+    const reservedStock = new Set<string>();
+    const byMissing = new Map<string, { missingName: string; qty: number; count: number; recipes: { name: string; id: string }[] }>();
+
+    for (const c of candidates) {
+      // Vérifier qu'au moins un ingrédient fini n'est pas déjà réservé
+      let hasAvailableFinite = false;
+      for (const sk of c.finiteStockKeys) {
+        if (!reservedStock.has(sk)) { hasAvailableFinite = true; break; }
+      }
+      if (!hasAvailableFinite) continue;
+
+      // Réserver tout le stock fini de cette recette
+      for (const sk of c.finiteStockKeys) reservedStock.add(sk);
+
+      const entry = byMissing.get(c.missingKey) ?? { missingName: c.missingDisplayName, qty: 0, count: 0, recipes: [] };
+      if (!entry.recipes.some(r => r.id === c.meal.id)) {
+        entry.qty = Math.max(entry.qty, c.missingQty);
+        entry.count = Math.max(entry.count, c.missingCount);
+        entry.recipes.push({ name: c.meal.name, id: c.meal.id });
+      }
+      byMissing.set(c.missingKey, entry);
+    }
+    return Array.from(byMissing.values());
+  };
+
   const renderUnusedItems = (items: FoodItem[], crossCatItems: FoodItem[] = []) => {
     const allItems = [...items, ...crossCatItems];
     const crossCatIds = new Set(crossCatItems.map(fi => fi.id));
     const suggestions = computeUnusedSuggestions(allItems);
+    const oneMissing = computeOneMissingSuggestions();
+    const existingSuggestionNames = new Set(suggestions.map(s => normalizeKey(s.missingName)));
+    const filteredOneMissing = oneMissing.filter(s => !existingSuggestionNames.has(normalizeKey(s.missingName)));
     return (
     <div className={`${isPlat ? 'mb-2' : 'mt-4'} rounded-2xl bg-muted/30 border border-border/20 p-3`}>
       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">🧊 Aliments inutilisés ({allItems.length})</p>
@@ -1445,9 +1539,117 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                 </Tooltip>
               );
             })}
+            {/* Aliments à acheter : il ne manque qu'un seul ingrédient pour compléter la recette (fond rose) */}
+            {filteredOneMissing.map((s, i) => {
+              const chipKey = `one-missing-${i}-${s.missingName}`;
+              const chipClassName =
+                "text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-pink-500/20 text-pink-300 ring-1 ring-pink-500/40 touch-manipulation";
+              const tooltipContent = (
+                <div className="text-[11px] leading-relaxed max-w-xs px-3 py-2 space-y-1">
+                  <p className="font-semibold text-foreground">Il ne manque que cet aliment pour :</p>
+                  {s.recipes.map((r) => (
+                    <p key={r.id} className="text-muted-foreground">• <span className="font-semibold text-foreground">{r.name}</span></p>
+                  ))}
+                </div>
+              );
+              if (tapModeForUnusedSuggestions) {
+                const isOpen = mobileUnusedSuggestionKey === chipKey;
+                return (
+                  <Popover key={chipKey} open={isOpen} onOpenChange={(open) => {
+                    if (open) setMobileUnusedSuggestionKey(chipKey);
+                    else setMobileUnusedSuggestionKey((k) => (k === chipKey ? null : k));
+                  }}>
+                    <PopoverTrigger asChild>
+                      <button type="button" className={`${chipClassName} cursor-pointer`}>
+                        {s.missingName}
+                        {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                        {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="center" sideOffset={12}
+                      className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md w-[min(100vw-2rem,24rem)]"
+                      onOpenAutoFocus={(e) => e.preventDefault()}>
+                      {tooltipContent}
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
+              return (
+                <Tooltip key={chipKey} delayDuration={250}>
+                  <TooltipTrigger asChild>
+                    <span className={`${chipClassName} cursor-default`}>
+                      {s.missingName}
+                      {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                      {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="center" sideOffset={12}
+                    className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md">
+                    {tooltipContent}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
           </div>
         </>
         
+      )}
+      {suggestions.length === 0 && filteredOneMissing.length > 0 && (
+        <>
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-2 mb-1.5">🧩 Aliments pour compléter</p>
+          <div className="flex flex-wrap gap-1.5">
+            {filteredOneMissing.map((s, i) => {
+              const chipKey = `one-missing-only-${i}-${s.missingName}`;
+              const chipClassName =
+                "text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-pink-500/20 text-pink-300 ring-1 ring-pink-500/40 touch-manipulation";
+              const tooltipContent = (
+                <div className="text-[11px] leading-relaxed max-w-xs px-3 py-2 space-y-1">
+                  <p className="font-semibold text-foreground">Il ne manque que cet aliment pour :</p>
+                  {s.recipes.map((r) => (
+                    <p key={r.id} className="text-muted-foreground">• <span className="font-semibold text-foreground">{r.name}</span></p>
+                  ))}
+                </div>
+              );
+              if (tapModeForUnusedSuggestions) {
+                const isOpen = mobileUnusedSuggestionKey === chipKey;
+                return (
+                  <Popover key={chipKey} open={isOpen} onOpenChange={(open) => {
+                    if (open) setMobileUnusedSuggestionKey(chipKey);
+                    else setMobileUnusedSuggestionKey((k) => (k === chipKey ? null : k));
+                  }}>
+                    <PopoverTrigger asChild>
+                      <button type="button" className={`${chipClassName} cursor-pointer`}>
+                        {s.missingName}
+                        {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                        {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent side="bottom" align="center" sideOffset={12}
+                      className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md w-[min(100vw-2rem,24rem)]"
+                      onOpenAutoFocus={(e) => e.preventDefault()}>
+                      {tooltipContent}
+                    </PopoverContent>
+                  </Popover>
+                );
+              }
+              return (
+                <Tooltip key={chipKey} delayDuration={250}>
+                  <TooltipTrigger asChild>
+                    <span className={`${chipClassName} cursor-default`}>
+                      {s.missingName}
+                      {s.qty > 0 && <span className="opacity-60">{formatNumeric(s.qty)}g</span>}
+                      {s.count > 0 && <span className="opacity-60">×{s.count}</span>}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="center" sideOffset={12}
+                    className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md">
+                    {tooltipContent}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
     );
