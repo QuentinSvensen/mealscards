@@ -34,7 +34,6 @@ import {
   extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
   ingredientsForPossibleCardDisplay,
 } from "@/lib/ingredientUtils";
-import { usePreferences } from "@/hooks/usePreferences";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, buildFoodItemIndex } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -78,17 +77,6 @@ const DAY_LABELS: Record<string, string> = {
   lundi: 'Lun', mardi: 'Mar', mercredi: 'Mer', jeudi: 'Jeu',
   vendredi: 'Ven', samedi: 'Sam', dimanche: 'Dim',
 };
-
-/**
- * Interprète une macro figée à l’arrivée dans « possible » (préférences planning_*) et la multiplie par la quantité de cartes.
- * Même logique que getCardDisplayCalories / getCardDisplayProtein dans useCalorieBalance.
- */
-function parsePlanningMacroOverride(override: string | undefined, qty: number): number | null {
-  if (override == null || String(override).trim() === "") return null;
-  const n = parseFloat(String(override).replace(",", ".").replace(/[^0-9.-]/g, ""));
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * qty);
-}
 
 /**
  * Indique si les kcal affichées sur une carte « possible » relèvent du calcul par lignes (style orange),
@@ -196,9 +184,6 @@ export function PossibleMealCard({
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const { getPreference } = usePreferences();
-  const calOverrides = getPreference<Record<string, string>>("planning_cal_overrides", {});
-  const proOverrides = getPreference<Record<string, string>>("planning_pro_overrides", {});
   const [editing, setEditing] = useState<"calories" | "protein" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
@@ -213,10 +198,6 @@ export function PossibleMealCard({
 
   const meal = pm.meals;
   if (!meal) return null;
-
-  const qty = pm.quantity ?? 1;
-  const frozenDisplayCal = parsePlanningMacroOverride(calOverrides[pm.id], qty);
-  const frozenDisplayPro = parsePlanningMacroOverride(proOverrides[pm.id], qty);
 
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
@@ -655,9 +636,7 @@ export function PossibleMealCard({
           {/* le badge de ratio a été déplacé en haut à droite absolu */}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayCal = frozenDisplayCal !== null
-              ? frozenDisplayCal
-              : getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
             const isComputed = caloriesLookComputedOnPossibleCard(
               pm.ingredients_override != null,
@@ -681,9 +660,7 @@ export function PossibleMealCard({
           })()}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayPro = frozenDisplayPro !== null
-              ? frozenDisplayPro
-              : getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayPro = rawDisplayPro != null ? Math.round(rawDisplayPro) : null;
             const isComputedPro = proteinLooksComputedOnPossibleCard(
               pm.ingredients_override != null,

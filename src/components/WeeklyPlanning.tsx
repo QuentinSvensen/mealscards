@@ -36,7 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedPMCalories, getDisplayedPMProtein, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -1692,11 +1692,11 @@ export function WeeklyPlanning({
       }
     }
 
-    // Utiliser la logique de macros centralisée — toujours arrondir aux entiers (pas de décimales)
-    const rawCalNum = overrideCal ? (parseFloat(overrideCal) || 0) : getCardDisplayCalories(pm, undefined, isAvailableCb);
+    // Utiliser le même calcul que la carte "possible" : macros de la portion visible, pas du total #quantity.
+    const rawCalNum = overrideCal ? (parseFloat(overrideCal) || 0) : getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
     const displayCal = rawCalNum ? String(Math.round(rawCalNum)) : null;
     const overridePro = proOverrides[pm.id];
-    const rawProNum = overridePro ? (parseFloat(overridePro) || 0) : getCardDisplayProtein(pm, undefined, isAvailableCb, foodItems, foodMacroIndex);
+    const rawProNum = overridePro ? (parseFloat(overridePro) || 0) : getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
     const displayPro = rawProNum ? String(Math.round(rawProNum)) : null;
 
     const isComputedCal = !overrideCal && computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
@@ -4185,8 +4185,15 @@ export function WeeklyPlanning({
               analysis.earliestCounterDate ??
               popupPm.counter_start_date ??
               null;
-            const displayCal = String(getCardDisplayCalories(popupPm, calOverrides[popupPm.id], isAvailableCb));
-            const displayPro = String(getCardDisplayProtein(popupPm, proOverrides[popupPm.id], isAvailableCb, foodItems, foodMacroIndex));
+            const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
+            const popupCal = calOverrides[popupPm.id]
+              ? parseFloat(calOverrides[popupPm.id]) || 0
+              : getDisplayedPMCalories(popupPm, popupRatio ?? undefined, isAvailableCb);
+            const popupPro = proOverrides[popupPm.id]
+              ? parseFloat(proOverrides[popupPm.id]) || 0
+              : getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const displayCal = popupCal ? String(Math.round(popupCal)) : null;
+            const displayPro = popupPro ? String(Math.round(popupPro)) : null;
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
             const counterBadgeTitle =
               counterDays !== null && effectiveStart

@@ -117,7 +117,7 @@ export function getOverrideScaleRatio(
 
 /**
  * Calcule les calories affichées pour une seule carte de planification.
- * C'est la source unique de vérité — utilisée pour l'affichage WeeklyPlanning et les totaux caloriques.
+ * C'est la source unique de vérité pour les totaux : ils additionnent la portion visible, pas le stock #quantity.
  */
 export function getCardDisplayCalories(
   pm: PossibleMeal,
@@ -126,14 +126,13 @@ export function getCardDisplayCalories(
 ): number {
   const meal = pm.meals;
   if (!meal) return 0;
-  const qty = pm.quantity ?? 1;
 
   // 1. Surchage manuelle sur la carte de planification
-  if (calOverride) return parseCalories(calOverride) * qty;
+  if (calOverride) return parseCalories(calOverride);
 
   // 2. Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
   const displayCal = getDisplayedPMCalories(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
-  return (displayCal || 0) * qty;
+  return displayCal || 0;
 }
 
 /**
@@ -149,9 +148,8 @@ export function getCardDisplayProtein(
 ): number {
   const meal = pm.meals;
   if (!meal) return 0;
-  const qty = pm.quantity ?? 1;
 
-  if (proOverride) return parseProtein(proOverride) * qty;
+  if (proOverride) return parseProtein(proOverride);
 
   // Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
   const displayPro = getDisplayedPMProtein(
@@ -161,7 +159,7 @@ export function getCardDisplayProtein(
     foodItems,
     foodItemIndex,
   );
-  return (displayPro || 0) * qty;
+  return displayPro || 0;
 }
 
 /**
