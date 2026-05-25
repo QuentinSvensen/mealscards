@@ -9,6 +9,8 @@ import {
   getMealMultiple, getMealFractionalRatio,
   getMissingIngredients, buildScaledMealForRatio, scaleIngredientStringExact,
   resolveCounterStartForPossibleBadge,
+  analyzeMealIngredients,
+  recipeHasFiniteCounterableIngredients,
   type StockInfo,
 } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -500,9 +502,51 @@ describe("validation max des cartes en pourcentage", () => {
   });
 });
 
-// ─── Badge compteur : carte seule vs partage d’ingrédient ─────────────────────
+// ─── Compteur et ingrédients ∞ ────────────────────────────────────────────────
+
+describe("analyzeMealIngredients — stock infini", () => {
+  it("n’expose pas de compteur quand tous les ingrédients sont en stock ∞", () => {
+    const counterDate = "2026-04-20T10:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Whey", is_infinite: true, counter_start_date: counterDate }),
+      makeFoodItem({ name: "Eau", is_infinite: true, counter_start_date: counterDate }),
+    ];
+    const meal = makeMeal({
+      name: "Shaker whey",
+      ingredients: "15g Whey, 100g Eau",
+    });
+    const analysis = analyzeMealIngredients(meal, foodItems);
+    expect(analysis.earliestCounterDate).toBeNull();
+    expect(analysis.hasCounterableIngredient).toBe(false);
+    expect(recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems)).toBe(false);
+  });
+});
 
 describe("resolveCounterStartForPossibleBadge", () => {
+  it("ne renvoie rien pour une recette 100 % ∞ même si les fiches portent counter_start_date", () => {
+    const foodItems = [
+      makeFoodItem({ name: "Whey", is_infinite: true, counter_start_date: "2026-04-20T10:00:00.000Z" }),
+    ];
+    const pm = {
+      id: "pm-shaker",
+      day_of_week: "2026-04-25",
+      meal_time: "soir",
+      ingredients_override: "15g Whey, 100g Eau",
+      meals: { ingredients: "30g Whey, 200g Eau" },
+    };
+    const fixedNow = new Date("2026-04-25T10:00:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      pm,
+      [],
+      "2026-04-20T10:00:00.000Z",
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBeUndefined();
+  });
+
   it("aligne sur le créneau planifié quand aucune autre carte ne partage l’ingrédient compteur", () => {
     const foodItems = [makeFoodItem({ name: "Tenders", grams: "500" })];
     const pm = {
@@ -561,7 +605,7 @@ describe("resolveCounterStartForPossibleBadge", () => {
     expect(out).toBe(baseDate);
   });
 
-  it("aligne sur le créneau même si l’ingrédient est marqué no_counter ou surgelé", () => {
+  it("aligne sur le créneau quand la carte porte un compteur même si l’ingrédient est no_counter ou surgelé", () => {
     const foodItems = [
       makeFoodItem({ name: "Tenders", grams: "500", no_counter: true, storage_type: "surgele" }),
     ];
@@ -577,8 +621,8 @@ describe("resolveCounterStartForPossibleBadge", () => {
     const out = resolveCounterStartForPossibleBadge(
       burger,
       [],
+      null,
       base,
-      undefined,
       foodItems,
       undefined,
       fixedNow,

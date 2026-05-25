@@ -38,6 +38,7 @@ import {
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
   getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
+  recipeHasFiniteCounterableIngredients,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
@@ -553,9 +554,10 @@ const Index = () => {
     const prePro = getDisplayedProtein(meal, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
 
     // 4. Carte « Possible » = copie logique avant déduction stock
-    const finalCounterDate = source === "master" 
-      ? null 
-      : (oldestCounterFromDeduction || anBefore.earliestCounterDate || null);
+    const finalCounterDate =
+      source === "master" || !recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems, foodItemIndex)
+        ? null
+        : oldestCounterFromDeduction || anBefore.earliestCounterDate || null;
 
     const result = await moveToPossible.mutateAsync({
       mealId,
@@ -949,8 +951,10 @@ const Index = () => {
                             const { snapshots, oldestCounter, consumedIngredients } = await deductIngredientsFromStock(partialMeal);
 
                             let finalCounterDate: string | null = null;
-                            if (oldestCounter) finalCounterDate = oldestCounter;
-                            else if (anBefore.earliestCounterDate) finalCounterDate = anBefore.earliestCounterDate;
+                            if (recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems, foodItemIndex)) {
+                              if (oldestCounter) finalCounterDate = oldestCounter;
+                              else if (anBefore.earliestCounterDate) finalCounterDate = anBefore.earliestCounterDate;
+                            }
 
                             const result = await addMealToPossibleDirectly.mutateAsync({
                               name: meal.name, category: cat.value,
@@ -1016,7 +1020,7 @@ const Index = () => {
                                 calories: finalCal, protein: finalPro, grams: finalGrams,
                                 ingredients: baseIng,
                                 expiration_date: fi.expiration_date,
-                                counter_start_date: fi.counter_start_date,
+                                counter_start_date: null,
                               });
                               if (result?.id && scaledIng) {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: scaledIng });

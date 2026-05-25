@@ -227,15 +227,23 @@ describe("Counter lifecycle scenarios", () => {
 
   it("Scenario: ingredient with no_counter or storage_type surgele should not get counter_start_date", () => {
     // This is enforced in deductIngredientsFromStock: shouldStartCounter check
-    // fi.storage_type !== 'surgele' && !fi.no_counter
-    const fiSurgele = { storage_type: "surgele", no_counter: false, counter_start_date: null };
-    const fiNoCtr = { storage_type: "frigo", no_counter: true, counter_start_date: null };
-    
-    const shouldStartSurgele = !fiSurgele.counter_start_date && fiSurgele.storage_type !== 'surgele' && !fiSurgele.no_counter;
+    // !is_infinite && storage_type !== 'surgele' && !no_counter
+    const fiSurgele = { is_infinite: false, storage_type: "surgele", no_counter: false, counter_start_date: null };
+    const fiNoCtr = { is_infinite: false, storage_type: "frigo", no_counter: true, counter_start_date: null };
+    const fiInfinite = { is_infinite: true, storage_type: "frigo", no_counter: false, counter_start_date: null };
+
+    const shouldStartSurgele = !fiSurgele.counter_start_date && !fiSurgele.is_infinite && fiSurgele.storage_type !== 'surgele' && !fiSurgele.no_counter;
     const shouldStartNoCtr = !fiNoCtr.counter_start_date && fiNoCtr.storage_type !== 'surgele' && !fiNoCtr.no_counter;
     
+    const shouldStartInfinite =
+      !fiInfinite.counter_start_date &&
+      !fiInfinite.is_infinite &&
+      fiInfinite.storage_type !== "surgele" &&
+      !fiInfinite.no_counter;
+
     expect(shouldStartSurgele).toBe(false);
     expect(shouldStartNoCtr).toBe(false);
+    expect(shouldStartInfinite).toBe(false);
   });
 
   it("Scenario: counter cleared when partial remainder consumed fully", () => {

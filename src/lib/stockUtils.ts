@@ -465,6 +465,13 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Résultat de l'analyse complète des ingrédients d'un repas */
+/**
+ * Indique si un aliment du garde-manger peut porter un compteur d’ouverture (stock fini, non surgelé).
+ */
+export function isFoodItemCounterEligible(fi: FoodItem): boolean {
+  return !fi.is_infinite && fi.storage_type !== "surgele" && !fi.no_counter;
+}
+
 export interface MealAnalysis {
   /** Date de péremption la plus proche parmi les ingrédients */
   earliestExpiration: string | null;
@@ -482,7 +489,7 @@ export interface MealAnalysis {
   earliestCounterDate: string | null;
   /** Noms des ingrédients ayant un compteur actif */
   counterIngredientNames: Set<string>;
-  /** Vrai si au moins un ingrédient peut avoir un compteur (non surgelé, non no_counter) */
+  /** Vrai si au moins un ingrédient peut avoir un compteur (stock fini, non surgelé, non no_counter) */
   hasCounterableIngredient: boolean;
 }
 
@@ -550,8 +557,8 @@ export function analyzeMealIngredients(
             }
           }
 
-          // --- Analyse du compteur d'ouverture ---
-          if (fi.counter_start_date) {
+          // --- Analyse du compteur d'ouverture (uniquement stock fini compteur) ---
+          if (isFoodItemCounterEligible(fi) && fi.counter_start_date) {
             const days = computeCounterDays(fi.counter_start_date);
             if (days !== null) {
               if (result.maxIngredientCounter === null || days > result.maxIngredientCounter) {
@@ -567,7 +574,7 @@ export function analyzeMealIngredients(
           }
 
           // --- Vérifier si l'aliment peut avoir un compteur ---
-          if (fi.storage_type !== 'surgele' && !fi.no_counter) {
+          if (isFoodItemCounterEligible(fi)) {
             result.hasCounterableIngredient = true;
           }
         }
@@ -604,7 +611,7 @@ function counterableIngredientKeysFromRecipe(
     for (const item of bundle) {
       if (item.optional || !item.name) continue;
       const counterCapableMatches = lookupFoodItems(item.name, foodItems, index).filter(
-        (fi) => fi.storage_type !== "surgele" && !fi.no_counter,
+        isFoodItemCounterEligible,
       );
       if (counterCapableMatches.length > 0) {
         keys.add(normalizeKey(item.name));
@@ -612,6 +619,17 @@ function counterableIngredientKeysFromRecipe(
     }
   }
   return keys;
+}
+
+/**
+ * Indique si la recette comporte au moins un ingrédient lié à du stock fini pouvant porter un compteur.
+ */
+export function recipeHasFiniteCounterableIngredients(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+): boolean {
+  return counterableIngredientKeysFromRecipe(ingredients, foodItems, index).size > 0;
 }
 
 /**
@@ -651,10 +669,16 @@ export function resolveCounterStartForPossibleBadge(
   const currentIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
   const mine = counterableIngredientKeysFromRecipe(currentIngredients, foodItems, index);
 
-  let base =
-    (earliestFromAnalysis && earliestFromAnalysis.trim()) ||
-    (cardCounterFallback && cardCounterFallback.trim()) ||
-    undefined;
+  // Recette 100 % ∞ : ignorer les dates résiduelles sur les fiches aliments, garder seulement la carte.
+  let base: string | undefined;
+  if (mine.size > 0) {
+    base =
+      (earliestFromAnalysis && earliestFromAnalysis.trim()) ||
+      (cardCounterFallback && cardCounterFallback.trim()) ||
+      undefined;
+  } else {
+    base = (cardCounterFallback && cardCounterFallback.trim()) || undefined;
+  }
 
   // Si on n'a pas de base côté stock/carte, mais qu'un sibling non planifié partage un ingrédient
   // de la recette, il est en consommation immédiate : on hérite de SA date pour refléter que l'ingrédient
@@ -748,7 +772,7 @@ function findCriticalCounterKeys(
     for (const item of bundle) {
       if (item.optional || !item.name) continue;
       for (const fi of lookupFoodItems(item.name, foodItems, index)) {
-        if (!fi.counter_start_date) continue;
+        if (!isFoodItemCounterEligible(fi) || !fi.counter_start_date) continue;
         const csdMs = parseISO(fi.counter_start_date).getTime();
         if (Number.isNaN(csdMs)) continue;
         // Tolérance d'une minute pour absorber les écarts de sérialisation ISO.

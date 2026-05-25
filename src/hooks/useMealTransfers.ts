@@ -199,9 +199,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
   /**
    * Détermine si un aliment doit recevoir un compteur d'ouverture.
-   * Conditions : non surgelé ET pas marqué no_counter.
+   * Conditions : stock fini, non surgelé, pas marqué no_counter.
    */
-  const shouldStartCounter = (fi: FoodItem) => fi.storage_type !== 'surgele' && !fi.no_counter;
+  const shouldStartCounter = (fi: FoodItem) =>
+    !fi.is_infinite && fi.storage_type !== "surgele" && !fi.no_counter;
 
   /**
    * Vérifie si le compteur doit être mis à jour (pas déjà en cours ou forcé).
