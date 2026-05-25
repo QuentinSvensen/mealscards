@@ -316,13 +316,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   }
 
   // 3. Articles alimentaires de type 'is_meal'
-  const isMealItems = foodItems.filter((fi) => {
+  const isMealItems = isPlat ? foodItems.filter((fi) => {
     if (!fi.is_meal) return false;
     if (nameMatchedFiIds.has(fi.id)) return false;
     const hasRecipeMatch = meals.some(m => strictNameMatch(m.name, fi.name));
     if (hasRecipeMatch) return false;
     return true;
-  });
+  }) : [];
 
   // 4. Articles alimentaires inutilisés
   const unusedFoodItems = (() => {
@@ -1847,7 +1847,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               // Find where past/today ends and future begins
               const todayStr = new Date().toISOString().slice(0, 10);
               let dateSeparatorInserted = false;
-              const firstIsMealIdx = !isPlat ? filteredUnified.findIndex(u => u.type === 'isMeal') : -1;
+              const firstIsMealIdx = isPlat ? filteredUnified.findIndex(u => u.type === 'isMeal') : -1;
 
               return filteredUnified.map((u, idx) => {
                 const elements: React.ReactNode[] = [];
@@ -1886,7 +1886,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
             // manual or calories: use unified items
             const unifiedItems = buildUnifiedItems();
-            const firstIsMealIdx = !isPlat ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
+            const firstIsMealIdx = isPlat ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
             return unifiedItems.map((u, idx) => {
               const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
                 <div key={`sep-ismeal-m`} className="flex items-center gap-2 my-2">
