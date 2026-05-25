@@ -42,6 +42,7 @@ import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
+import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
@@ -1894,10 +1895,11 @@ export function WeeklyPlanning({
       await deletePossibleMealsByIds(ids);
 
       const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
+      const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
       const goals = resolvePostResetGoals(prefMap);
       pushWeeklyResetClientPreferences(
         setPreference,
-        merged,
+        promoted,
         goals,
         new Date().toISOString(),
         "manual_button"
