@@ -21,7 +21,7 @@ import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, parseIngredientLine, parsePartialQty,
-  extractIngredientMacros,
+  extractIngredientMacros, extractMetrics, parseIngredientLineRaw,
   type ParsedIngredient,
 } from "@/lib/ingredientUtils";
 import {
@@ -85,6 +85,35 @@ function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[]
 
   const macroMap = extractIngredientMacros(mealIngredients);
 
+  /** Associe chaque nom normalisé au nom original de la recette pour préserver apostrophes et accents. */
+  const buildOriginalDisplayNameMap = (ingredients: string): Map<string, string> => {
+    const out = new Map<string, string>();
+    ingredients
+      .split(/(?:\n|,(?!\d))/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((group) => {
+        group
+          .split(/\|/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((alt) => {
+            alt
+              .split(/\+/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .forEach((rawItem) => {
+                const cleanItem = rawItem.startsWith("?") ? rawItem.slice(1).trim() : rawItem;
+                const { text: withoutMetrics } = extractMetrics(cleanItem);
+                const parsed = parseIngredientLineRaw(withoutMetrics);
+                if (parsed.rawName?.trim()) out.set(normalizeKey(parsed.name), withLeadingUppercase(parsed.rawName));
+              });
+          });
+      });
+    return out;
+  };
+  const originalDisplayNameByKey = buildOriginalDisplayNameMap(mealIngredients);
+
   /** Réinjecte les macros par nom (clé normalisée), comme serializeIngredients. */
   const macroSuffixForDisplayName = (displayName: string): string => {
     const m = macroMap.get(normalizeKey(displayName));
@@ -100,7 +129,7 @@ function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[]
     const parts = altBundle
       .filter((item) => !item.optional)
       .map((item) => {
-        const displayName = withLeadingUppercase(item.name || "");
+        const displayName = originalDisplayNameByKey.get(normalizeKey(item.name)) ?? withLeadingUppercase(item.name || "");
         if (!displayName) return "";
         const macros = macroSuffixForDisplayName(displayName);
         if (item.qty > 0) return `${formatNumeric(item.qty)}g ${displayName}${macros}`.trim();
@@ -967,7 +996,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     // Updates à appliquer en une seule passe : on les collecte d'abord, puis on les écrit
     // en batch avec .select().single() pour récupérer la ligne authoritative et patcher le cache.
     // Cela évite qu'un événement realtime sur replica en retard ré-écrase notre update.
-    const pendingUpdates = new Map<string, string>();
+    const pendingUpdates = new Map<string, string | null>();
 
     for (const group of groups) {
       // group : ParsedIngredient[][] — chaque entrée est une branche « OU », chaque branche un bundle « + ».
@@ -984,39 +1013,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         (fi) => strictNameMatch(fi.name, nameToken) && !fi.is_infinite && shouldStartCounter(fi),
       );
 
-      // Détermine si on est en train de planifier ce repas vers un créneau futur :
-      // dans ce cas on autorise l'écriture d'un compteur prog. même sur un lot scellé,
-      // y compris quand il y a plusieurs lots sans compteur en stock.
-      const plannedTargetForFilter = pmId !== null && dayOfWeek
-        ? computePlannedCounterDate(dayOfWeek, mealTime)
-        : null;
-      const plannedTargetIsFuture = plannedTargetForFilter
-        ? new Date(plannedTargetForFilter).getTime() > new Date().getTime()
-        : false;
-      const canAssignProgToSealedLot = pmId !== null && fullPlanningSlot && plannedTargetIsFuture;
-
-      // Un seul lot en stock : on peut programmer le compteur depuis le planning même si le paquet n’est pas
-      // encore entamé — sinon le premier repas planifié (ex. burger jeudi) ne fixe jamais « jeudi midi » sur
-      // l’aliment et le repas du vendredi n’a pas d’écart « 1j » à afficher.
-      // Plusieurs lots : on met à jour ceux qui ont déjà un compteur ; sinon, pour la
-      // planification d'un créneau futur, on élit le lot prioritaire (selon priorité de
-      // déduction) pour qu'il passe quand même en mode « Prog. ».
-      let matchingItems: FoodItem[];
-      if (nameMatches.length === 1) {
-        matchingItems = pmId !== null
-          ? nameMatches
-          : nameMatches.filter((fi) => fi.counter_start_date !== null);
-      } else {
-        const withCounter = nameMatches.filter((fi) => fi.counter_start_date !== null);
-        if (withCounter.length > 0 || !canAssignProgToSealedLot) {
-          matchingItems = withCounter;
-        } else {
-          const elected = [...nameMatches].sort(sortStockDeductionPriority)[0];
-          matchingItems = elected ? [elected] : [];
-        }
-      }
+      // La planification ne doit pas "ouvrir" un lot scellé : on ne touche qu'aux lots
+      // qui portent déjà un compteur réel. Les compteurs futurs existants sont des reliquats
+      // de l'ancien mode "prog." et seront nettoyés plus bas.
+      const matchingItems = nameMatches.filter((fi) => fi.counter_start_date !== null);
 
       for (const fi of matchingItems) {
+        const currentCounterMs = fi.counter_start_date ? new Date(fi.counter_start_date).getTime() : NaN;
+        if (fullPlanningSlot && Number.isFinite(currentCounterMs) && currentCounterMs > new Date().getTime()) {
+          pendingUpdates.set(fi.id, null);
+          continue;
+        }
+
         // Objectif : faire pointer le compteur de l’aliment sur la date FUTURE LA PLUS PROCHE
         // parmi tous les repas planifiés qui l’utilisent. Un repas planifié dans le passé
         // (en retard, non consommé) ne doit pas écraser cette date future ; sinon le compteur
@@ -1089,9 +1097,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
         // Mettre à jour seulement si on a trouvé une date valide
         if (hasAnyMatchingMeal && earliestDateStr) {
-          // Si la date cible est dans le FUTUR (repas planifié à venir), on met toujours à jour le compteur.
-          // Un aliment planifié pour demain ne peut pas être "déjà ouvert" → on écrase l'ancien compteur stale.
           const isSettingFutureDate = new Date(earliestDateStr).getTime() > new Date().getTime();
+          if (fullPlanningSlot && isSettingFutureDate) continue;
 
           // Protéger les compteurs manuels seulement hors planification complète (jour + créneau).
           if (!fullPlanningSlot && !isSettingFutureDate && fi.counter_start_date) {

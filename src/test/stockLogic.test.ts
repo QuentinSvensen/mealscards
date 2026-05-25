@@ -3,6 +3,7 @@ import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientLine, parseIngredientGroups,
+  restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
@@ -522,6 +523,16 @@ describe("analyzeMealIngredients — stock infini", () => {
   });
 });
 
+describe("restoreIngredientDisplayNamesFromReference", () => {
+  it("restaure les apostrophes depuis la recette maître sans changer les quantités scalées", () => {
+    const out = restoreIngredientDisplayNamesFromReference(
+      "25.5g Flocon davoine, 52.5g Whey",
+      "34g Flocon d'avoine, 70g Whey",
+    );
+    expect(out).toBe("25.5g Flocon d'avoine, 52.5g Whey");
+  });
+});
+
 describe("resolveCounterStartForPossibleBadge", () => {
   it("ne renvoie rien pour une recette 100 % ∞ même si les fiches portent counter_start_date", () => {
     const foodItems = [
@@ -605,7 +616,7 @@ describe("resolveCounterStartForPossibleBadge", () => {
     expect(out).toBe(baseDate);
   });
 
-  it("aligne sur le créneau quand la carte porte un compteur même si l’ingrédient est no_counter ou surgelé", () => {
+  it("masque le compteur quand l’ingrédient est no_counter ou surgelé", () => {
     const foodItems = [
       makeFoodItem({ name: "Tenders", grams: "500", no_counter: true, storage_type: "surgele" }),
     ];
@@ -627,8 +638,7 @@ describe("resolveCounterStartForPossibleBadge", () => {
       undefined,
       fixedNow,
     );
-    expect(out).toBeDefined();
-    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(base).getTime());
+    expect(out).toBeUndefined();
   });
 
   it("conserve la date du stock si un sibling partageant l’ingrédient est planifié plus tôt", () => {

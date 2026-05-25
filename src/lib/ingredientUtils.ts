@@ -800,6 +800,47 @@ export function ingredientsForPossibleCardDisplay(ingredients: string | null | u
   return serializeIngredients(displayLines) ?? ingredients;
 }
 
+/**
+ * Construit une table nom normalisé → nom affiché depuis une recette de référence.
+ * Sert à réafficher les apostrophes/accents quand un override a été généré avec des noms normalisés.
+ */
+function buildReferenceIngredientDisplayNameMap(referenceIngredients: string | null | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!referenceIngredients?.trim()) return map;
+  for (const line of parseIngredientsToLines(referenceIngredients)) {
+    const name = line.name?.trim();
+    if (!name) continue;
+    const key = normalizeKey(name);
+    if (key && !map.has(key)) map.set(key, name);
+  }
+  return map;
+}
+
+/**
+ * Remplace seulement les noms d'un override par ceux de la recette maître quand ils matchent.
+ * Préserve les quantités scalées de la carte Possible tout en restaurant `Flocon d'avoine`, accents, etc.
+ */
+export function restoreIngredientDisplayNamesFromReference(
+  ingredients: string | null | undefined,
+  referenceIngredients: string | null | undefined,
+): string | null {
+  if (!ingredients?.trim()) return ingredients ?? null;
+  const displayNames = buildReferenceIngredientDisplayNameMap(referenceIngredients);
+  if (displayNames.size === 0) return ingredients;
+
+  const lines = parseIngredientsToLines(ingredients);
+  let changed = false;
+  for (const line of lines) {
+    const key = normalizeKey(line.name || "");
+    const displayName = key ? displayNames.get(key) : undefined;
+    if (displayName && displayName !== line.name) {
+      line.name = displayName;
+      changed = true;
+    }
+  }
+  return changed ? serializeIngredients(lines) ?? ingredients : ingredients;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 7 : Calcul des macros (calories et protéines)
 // ═══════════════════════════════════════════════════════════════════════════════

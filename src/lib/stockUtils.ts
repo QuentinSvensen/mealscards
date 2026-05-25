@@ -668,17 +668,12 @@ export function resolveCounterStartForPossibleBadge(
   const now = fixedNow ?? new Date();
   const currentIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
   const mine = counterableIngredientKeysFromRecipe(currentIngredients, foodItems, index);
+  if (mine.size === 0) return undefined;
 
-  // Recette 100 % ∞ : ignorer les dates résiduelles sur les fiches aliments, garder seulement la carte.
-  let base: string | undefined;
-  if (mine.size > 0) {
-    base =
-      (earliestFromAnalysis && earliestFromAnalysis.trim()) ||
-      (cardCounterFallback && cardCounterFallback.trim()) ||
-      undefined;
-  } else {
-    base = (cardCounterFallback && cardCounterFallback.trim()) || undefined;
-  }
+  let base =
+    (earliestFromAnalysis && earliestFromAnalysis.trim()) ||
+    (cardCounterFallback && cardCounterFallback.trim()) ||
+    undefined;
 
   // Si on n'a pas de base côté stock/carte, mais qu'un sibling non planifié partage un ingrédient
   // de la recette, il est en consommation immédiate : on hérite de SA date pour refléter que l'ingrédient

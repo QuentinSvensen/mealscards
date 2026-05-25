@@ -32,7 +32,7 @@ import {
   computeIngredientProtein, cleanIngredientText, normalizeKey,
   hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
-  ingredientsForPossibleCardDisplay,
+  ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, buildFoodItemIndex } from "@/lib/stockUtils";
@@ -202,10 +202,17 @@ export function PossibleMealCard({
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
     pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
-  const cardColorIngredients = displayIngredients;
+  const displayIngredientsWithReferenceNames = useMemo(
+    () =>
+      pm.ingredients_override != null
+        ? restoreIngredientDisplayNamesFromReference(displayIngredients, meal.ingredients)
+        : displayIngredients,
+    [displayIngredients, meal.ingredients, pm.ingredients_override],
+  );
+  const cardColorIngredients = displayIngredientsWithReferenceNames;
   const cardDisplayIngredients = useMemo(
-    () => ingredientsForPossibleCardDisplay(displayIngredients),
-    [displayIngredients],
+    () => ingredientsForPossibleCardDisplay(displayIngredientsWithReferenceNames),
+    [displayIngredientsWithReferenceNames],
   );
 
   // Construire le rappel isAvailable à partir de stockMap pour le calcul des macros
