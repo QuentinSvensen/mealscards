@@ -45,6 +45,7 @@ import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/meals
 import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
+import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
@@ -1069,29 +1070,14 @@ export function WeeklyPlanning({
 
   const savedSnapshots = getPreference<Record<string, { cal?: number; prot?: number; itemIds?: string[] }>>('planning_saved_snapshots', {});
   /**
-   * Résout un snapshot d'extra pour un jour donné avec fallback évolutif :
-   * - priorité à la clé ISO du jour
-   * - puis clé jour (lundi/mardi/...)
-   * - puis dernier snapshot ISO connu pour ce même jour de semaine
+   * Résout le snapshot d'extra directement lié au jour affiché.
+   * Les anciens snapshots ISO d'un même jour de semaine ne sont pas repris ici :
+   * ils peuvent réafficher en semaine prochaine un extra qui vient d'être oublié.
    */
   const resolveExtraSnapshotForDay = (iso: string, key: string) => {
     const direct = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
     if (direct) return direct;
-
-    let best: any = null;
-    let bestIso = "";
-    for (const [snapKey, snapVal] of Object.entries(savedSnapshots)) {
-      if (!snapKey.startsWith("extra-")) continue;
-      const suffix = snapKey.slice("extra-".length);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(suffix)) continue;
-      const dow = JS_DAY_TO_KEY[new Date(`${suffix}T12:00:00`).getDay()];
-      if (dow !== key) continue;
-      if (!best || suffix > bestIso) {
-        best = snapVal;
-        bestIso = suffix;
-      }
-    }
-    return best;
+    return null;
   };
   const [flashedKeys, setFlashedKeys] = useState<Record<string, boolean>>({});
   const WEEKLY_GOAL = DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
@@ -3202,19 +3188,21 @@ export function WeeklyPlanning({
                         }}
                         onDoubleClick={() => {
                           const snapKey = `extra-${iso}`;
-                          const updated = { ...savedSnapshots };
-                          delete updated[snapKey];
-                          delete updated[`extra-${key}`];
+                          const updated = clearExtraSnapshotsForWeekday(savedSnapshots, iso, key, JS_DAY_TO_KEY);
                           setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
-                          // Nettoyer la sync de la semaine prochaine si oubliée
+                          // Semaine suivante : état vide explicite (évite le repli sur d’anciens snapshots extra-YYYY-MM-DD).
                           if (weekOffset === 0) {
-                            const nxtSel = { ...nextExtraSelections }; delete nxtSel[key]; delete nxtSel[iso];
-                            setPreference.mutate({ key: 'next_week_extra_selections', value: nxtSel });
-                            const nxtCal = { ...nextExtraCalories }; delete nxtCal[key]; delete nxtCal[iso];
-                            setPreference.mutate({ key: 'next_week_extra_calories', value: nxtCal });
-                            const nxtPro = { ...nextExtraProteins }; delete nxtPro[key]; delete nxtPro[iso];
-                            setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtPro });
+                            const cleared = clearNextWeekExtraStateForDay(
+                              nextExtraSelections,
+                              nextExtraCalories,
+                              nextExtraProteins,
+                              iso,
+                              key,
+                            );
+                            setPreference.mutate({ key: 'next_week_extra_selections', value: cleared.selections });
+                            setPreference.mutate({ key: 'next_week_extra_calories', value: cleared.calories });
+                            setPreference.mutate({ key: 'next_week_extra_proteins', value: cleared.proteins });
                           }
                         }}
                         className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${flashedKeys[`extra-${iso}`]
@@ -3564,6 +3552,16 @@ export function WeeklyPlanning({
                         {dayTotal > 0 && (
                           <span className={`text-[10px] font-bold whitespace-nowrap ${backupTotals.archivedDailyGoal - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                             {backupTotals.archivedDailyGoal - dayTotal > 0 ? `reste ${Math.round(backupTotals.archivedDailyGoal - dayTotal)}` : `+${Math.round(dayTotal - backupTotals.archivedDailyGoal)}`}
+                          </span>
+                        )}
+                        {dayPro > 0 && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
+                            🍗 {Math.round(dayPro)} <span className="text-blue-400/50 font-normal">/ {backupTotals.archivedProteinGoal}</span>
+                          </span>
+                        )}
+                        {dayPro > 0 && (
+                          <span className={`text-[10px] font-bold whitespace-nowrap ${backupTotals.archivedProteinGoal - dayPro > 0 ? 'text-blue-400/60' : 'text-blue-500'}`}>
+                            {backupTotals.archivedProteinGoal - dayPro > 0 ? `reste ${Math.round(backupTotals.archivedProteinGoal - dayPro)}` : `+${Math.round(dayPro - backupTotals.archivedProteinGoal)}`}
                           </span>
                         )}
                       </div>
