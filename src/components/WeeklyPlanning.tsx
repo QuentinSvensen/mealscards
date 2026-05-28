@@ -404,6 +404,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
   const [calValue, setCalValue] = useState("");
   const [editingPro, setEditingPro] = useState(false);
   const [proValue, setProValue] = useState("");
+  const cardColorIngredients = pm.ingredients_override ?? meal.ingredients;
 
   const macroControls = !compact ? (
     <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
@@ -497,7 +498,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
         ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
         ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
       `}
-      style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}
+      style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
     >
       {/* Mobile : mise en page verticale */}
       <div className="flex flex-col sm:hidden">

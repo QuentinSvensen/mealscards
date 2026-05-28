@@ -18,6 +18,7 @@ import { computeIngredientCalories, getTargetDate } from "@/lib/ingredientUtils"
 import { getDisplayedPMCalories } from "@/lib/stockUtils";
 import { toast } from "@/hooks/use-toast";
 import { computePlannedCounterDate } from "@/hooks/useMealTransfers";
+import { comparePossiblePlanningOrder } from "@/domain/planning/possiblePlanningSort";
 import { parseISO } from "date-fns";
 
 export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
@@ -709,28 +710,7 @@ export function useMeals(options?: { enabled?: boolean }) {
 
   const sortByPlanning = (items: PossibleMeal[]) => {
     const fixedNow = new Date();
-    return [...items].sort((a, b) => {
-      const aHasPlan = !!a.day_of_week;
-      const bHasPlan = !!b.day_of_week;
-
-      if (aHasPlan || bHasPlan) {
-        if (aHasPlan && bHasPlan) {
-          const dateA = getTargetDate(a.day_of_week, fixedNow, a.counter_start_date, a.meal_time);
-          const dateB = getTargetDate(b.day_of_week, fixedNow, b.counter_start_date, b.meal_time);
-          if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();
-        } else if (aHasPlan) {
-          return -1;
-        } else if (bHasPlan) {
-          return 1;
-        }
-      } else {
-        const dateA = getTargetDate(null, fixedNow, null, a.meal_time);
-        const dateB = getTargetDate(null, fixedNow, null, b.meal_time);
-        if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();
-      }
-
-      return (a.sort_order - b.sort_order) || (a.meals?.name ?? '').localeCompare(b.meals?.name ?? '');
-    });
+    return [...items].sort((a, b) => comparePossiblePlanningOrder(a, b, fixedNow));
   };
 
   const getRandomPossible = (cat: string): PossibleMeal | null => {

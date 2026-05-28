@@ -1093,14 +1093,19 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           considerCandidate(siblingTarget, pmMs);
         }
 
-        // Ne pas ramener une date de créneau planifié (futur, mode « prog. ») à « maintenant »
-        // juste parce que le lot est entamé : sinon la planification d’un repas possible n’écrit jamais
-        // la date du repas sur food_items et le compteur reste « déjà ouvert » au lieu de programmé.
-
         // Mettre à jour seulement si on a trouvé une date valide
         if (hasAnyMatchingMeal && earliestDateStr) {
-          const isSettingFutureDate = new Date(earliestDateStr).getTime() > new Date().getTime();
-          if (fullPlanningSlot && isSettingFutureDate) continue;
+          const nowMsCheck = new Date().getTime();
+          const isSettingFutureDate = new Date(earliestDateStr).getTime() > nowMsCheck;
+
+          // Règle générale : ne pas repousser dans le futur (mode « prog. ») un lot déjà
+          // entamé manuellement. Exception : si le compteur courant correspond à la création
+          // récente d'un possible_meal (≤ 60 s), c'est une ouverture artificielle posée par
+          // la planification elle-même — on l'autorise à se déplacer vers le créneau prévu.
+          const currentCounterMs = fi.counter_start_date ? new Date(fi.counter_start_date).getTime() : NaN;
+          const counterFromPmCreation = Number.isFinite(currentCounterMs)
+            && allPossibleMeals.some(pm => pm.created_at && Math.abs(currentCounterMs - new Date(pm.created_at).getTime()) < 60_000);
+          if (fullPlanningSlot && isSettingFutureDate && !counterFromPmCreation) continue;
 
           // Protéger les compteurs manuels seulement hors planification complète (jour + créneau).
           if (!fullPlanningSlot && !isSettingFutureDate && fi.counter_start_date) {
