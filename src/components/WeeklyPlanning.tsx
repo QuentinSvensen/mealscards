@@ -147,6 +147,7 @@ const JS_DAY_TO_KEY: Record<number, string> = {
 
 const DEFAULT_DAILY_GOAL = 2750;
 const DEFAULT_WEEKLY_MULTIPLIER = 7;
+const DRINK_CALORIES = 150;
 
 /** Clé de préférence utilisée pour mémoriser une surcharge calorique par carte (hors usage direct actuel). */
 function calOverrideKey(pmId: string) { return `planning_cal_override_${pmId}`; }
@@ -1200,7 +1201,7 @@ export function WeeklyPlanning({
       dayPro += (bBP[iso] || bBP[key] || 0);
 
       for (const time of TIMES) {
-        if (bDC[`${iso}-${time}`] || bDC[`${key}-${time}`]) dayCal += 150;
+        if (bDC[`${iso}-${time}`] || bDC[`${key}-${time}`]) dayCal += DRINK_CALORIES;
       }
 
       totalCal += dayCal;
@@ -1978,8 +1979,8 @@ export function WeeklyPlanning({
           const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
           const gouterManualCal = manualCalories[`${iso}-gouter`] || 0;
           const gouterManualPro = manualProteins[`${iso}-gouter`] || 0;
-          const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`]);
-          const gouterTotalCals = gouterManualCal + gouterAssigned.cal + (gouterDrink ? 150 : 0);
+          const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`] || drinkChecks[`${key}-gouter`]);
+          const gouterTotalCals = gouterManualCal + gouterAssigned.cal + (gouterDrink ? DRINK_CALORIES : 0);
           const gouterTotalPro = gouterManualPro + gouterAssigned.pro;
 
           const breakfastDropKey = `${iso}-matin`;
@@ -2366,7 +2367,8 @@ export function WeeklyPlanning({
                   const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
                   const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotAssigned = sumExtrasFromSelectionIds(slotAssignedIds, foodItems);
-                  const slotCals = slotCalsMeals + slotAssigned.cal;
+                  const slotDrink = Boolean(drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]);
+                  const slotCals = slotCalsMeals + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
                   const slotPro = slotProMeals + slotAssigned.pro;
                   return (
                     <div
@@ -2395,13 +2397,13 @@ export function WeeklyPlanning({
                               else updated[`${iso}-${time}`] = true;
                               setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                             }}
-                            className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${drinkChecks[`${iso}-${time}`]
+                            className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${slotDrink
                               ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold'
                               : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'
                               }`}
-                            title="+ Boisson sucrée (+150 cal)"
+                            title={`+ Boisson sucrée (+${DRINK_CALORIES} cal)`}
                           >
-                            🥤 {drinkChecks[`${iso}-${time}`] ? '+150' : ''}
+                            🥤 {slotDrink ? `+${DRINK_CALORIES}` : ''}
                           </button>
                         </div>
                         {(slotCals > 0 || slotPro > 0) && (
@@ -3252,9 +3254,9 @@ export function WeeklyPlanning({
                       setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                     }}
                     className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${gouterDrink ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}
-                    title="+ Boisson sucrée (+150 cal)"
+                    title={`+ Boisson sucrée (+${DRINK_CALORIES} cal)`}
                   >
-                    🥤 {gouterDrink ? '+150' : ''}
+                    🥤 {gouterDrink ? `+${DRINK_CALORIES}` : ''}
                   </button>
                   <PlanningInput
                     storageKey={`manual-${iso}-gouter`}
@@ -3482,13 +3484,13 @@ export function WeeklyPlanning({
                 midiSlotCal = resMidi.cals + midiAssigned.cal;
                 midiSlotPro = resMidi.pros + midiAssigned.pro;
                 if (midiCards.length === 0) { midiSlotCal += (bMC[`${iso}-midi`] || bMC[`${key}-midi`] || 0); midiSlotPro += (bMP[`${iso}-midi`] || bMP[`${key}-midi`] || 0); }
-                if (bDC[`${iso}-midi`] || bDC[`${key}-midi`]) midiSlotCal += 150;
+                if (bDC[`${iso}-midi`] || bDC[`${key}-midi`]) midiSlotCal += DRINK_CALORIES;
 
                 const resSoir = processCards(soirCards);
                 soirSlotCal = resSoir.cals + soirAssigned.cal;
                 soirSlotPro = resSoir.pros + soirAssigned.pro;
                 if (soirCards.length === 0) { soirSlotCal += (bMC[`${iso}-soir`] || bMC[`${key}-soir`] || 0); soirSlotPro += (bMP[`${iso}-soir`] || bMP[`${key}-soir`] || 0); }
-                if (bDC[`${iso}-soir`] || bDC[`${key}-soir`]) soirSlotCal += 150;
+                if (bDC[`${iso}-soir`] || bDC[`${key}-soir`]) soirSlotCal += DRINK_CALORIES;
 
                 const resGouter = processCards(gouterCards);
                 gouterSlotCal = resGouter.cals + gouterAssigned.cal;
@@ -3497,7 +3499,7 @@ export function WeeklyPlanning({
                   gouterSlotCal += (bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0);
                   gouterSlotPro += (bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0);
                 }
-                if (bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) gouterSlotCal += 150;
+                if (bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) gouterSlotCal += DRINK_CALORIES;
 
                 let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal + gouterSlotCal;
                 let dayPro = bfSlotPro + midiSlotPro + soirSlotPro + gouterSlotPro;
@@ -3578,7 +3580,7 @@ export function WeeklyPlanning({
                               <div className="flex items-center gap-1">
                                 <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
                                 {(bDC[kIso] || bDC[kKey]) && (
-                                  <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +150</span>
+                                  <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +{DRINK_CALORIES}</span>
                                 )}
                               </div>
                               {(() => {
@@ -3656,7 +3658,7 @@ export function WeeklyPlanning({
                       <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
                         <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
                         {(bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) && (
-                          <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +150</span>
+                          <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +{DRINK_CALORIES}</span>
                         )}
                         {gouterCards.length === 0 && (
                           <>
@@ -3781,7 +3783,7 @@ export function WeeklyPlanning({
               const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
               const baseManualCal = manualSnap?.cal || 0;
               dayTotal += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? baseManualCal;
-              if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) dayTotal += 150;
+              if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) dayTotal += DRINK_CALORIES;
               // Inclure les cartes programmées
               const slotMeals = getMealsForSlot(key, time, iso);
               dayTotal += slotMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
@@ -3975,7 +3977,7 @@ export function WeeklyPlanning({
                               const u = { ...nextDrinkChecks }; if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) { delete u[kIso]; delete u[kKey]; } else { u[kIso] = true; }
                               setPreference.mutate({ key: 'next_week_drink_checks', value: u });
                             }} className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}>
-                              🥤 {(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) ? '+150' : ''}
+                              🥤 {(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) ? `+${DRINK_CALORIES}` : ''}
                             </button>
                           </div>
                         </div>
@@ -4141,7 +4143,7 @@ export function WeeklyPlanning({
                 const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
                 total += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? manualSnap?.cal ?? 0;
                 totalPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? manualSnap?.prot ?? 0;
-                if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) total += 150;
+                if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) total += DRINK_CALORIES;
               }
               const extraSnap = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
               total += nextExtraCalories[iso] ?? nextExtraCalories[key] ?? extraSnap?.cal ?? 0;

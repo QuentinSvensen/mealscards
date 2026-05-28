@@ -543,6 +543,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       for (const alt of altBundle) {
         const { qty: neededGrams, count: neededCount, name } = alt;
         if (neededGrams <= 0 && neededCount <= 0) continue;
+        const hasInfiniteMatch = currentFoodItems.some((fi) => strictNameMatch(fi.name, name) && fi.is_infinite);
+        if (hasInfiniteMatch) continue;
         const matchingItems = currentFoodItems.filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite).sort(sortStockDeductionPriority);
 
         if (matchingItems.length === 0) {
