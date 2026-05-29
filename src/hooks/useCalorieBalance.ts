@@ -17,6 +17,7 @@ import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from '@/hooks/use
 import { usePreferences } from '@/hooks/usePreferences';
 import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
 import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedCalories, getDisplayedProtein, buildFoodItemIndex } from '@/lib/stockUtils';
+import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 
@@ -272,7 +273,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       const custom = parseCustomExtraId(id);
       if (custom) return sum + custom.cal;
       const item = foodItems.find(fi => fi.id === id);
-      return sum + parseCalories(item?.calories);
+      return sum + (item ? getExtraPortionMacros(item).cal : 0);
     }, 0);
 
     const drinkCal = [...TIMES, 'gouter'].reduce((sum, time) => {
@@ -326,7 +327,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       const custom = parseCustomExtraId(id);
       if (custom) return sum + custom.prot;
       const item = foodItems.find(fi => fi.id === id);
-      return sum + parseProtein(item?.protein);
+      return sum + (item ? getExtraPortionMacros(item).pro : 0);
     }, 0);
 
     return mealPro + breakfastPro + extraManual + extraSelectedPro;

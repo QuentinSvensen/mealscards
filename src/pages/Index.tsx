@@ -50,6 +50,7 @@ import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSn
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
+import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 
 /**
  * Enveloppe un import dynamique : en cas d'erreur de chunk, tente un rechargement (cache SW, sessionStorage).
@@ -105,6 +106,8 @@ const importPossibleList = () => import("@/components/PossibleList").then((m) =>
 const importAvailableList = () => import("@/components/AvailableList").then((m) => ({ default: m.AvailableList }));
 /** Import dynamique de la section « un par un ». */
 const importUnParUnSection = () => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection }));
+/** Import dynamique du référentiel des macros d'ingrédients. */
+const importMacroIngredients = () => import("@/components/MacroIngredients").then((m) => ({ default: m.MacroIngredients }));
 
 const LazyShoppingList = lazyRetry(importShoppingList, "ShoppingList");
 const LazyMealPlanGenerator = lazyRetry(importMealPlanGenerator, "MealPlanGenerator");
@@ -114,6 +117,7 @@ const LazyMasterList = lazyRetry(importMasterList, "MasterList");
 const LazyPossibleList = lazyRetry(importPossibleList, "PossibleList");
 const LazyAvailableList = lazyRetry(importAvailableList, "AvailableList");
 const LazyUnParUnSection = lazyRetry(importUnParUnSection, "UnParUnSection");
+const LazyMacroIngredients = lazyRetry(importMacroIngredients, "MacroIngredients");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Catégories de repas disponibles dans l'application
@@ -139,12 +143,13 @@ function validateMealName(name: string): string | null {
 }
 
 import type { SortMode, MasterSortMode, AvailableSortMode, UnParUnSortMode } from "@/hooks/useSortModes";
-type MainPage = "aliments" | "repas" | "planning" | "courses";
+type MainPage = "aliments" | "repas" | "macros" | "planning" | "courses";
 
 
 const ROUTE_TO_PAGE: Record<string, MainPage> = {
   "/aliments": "aliments",
   "/repas": "repas",
+  "/macros": "macros",
   "/planning": "planning",
   "/courses": "courses"
 };
@@ -152,6 +157,7 @@ const ROUTE_TO_PAGE: Record<string, MainPage> = {
 const PAGE_TO_ROUTE: Record<MainPage, string> = {
   aliments: "/aliments",
   repas: "/repas",
+  macros: "/macros",
   planning: "/planning",
   courses: "/courses"
 };
@@ -173,7 +179,7 @@ const Index = () => {
   const unlocked = !!session;
 
   // ─── Hooks de données (activés seulement après authentification) ──────────
-  const { items: foodItems, deleteItem: deleteFoodItemMutation } = useFoodItems({ enabled: unlocked });
+  const { items: foodItems, deleteItem: deleteFoodItemMutation, updateItem: updateFoodItemMutation } = useFoodItems({ enabled: unlocked });
   const deleteFoodItem = (id: string) => deleteFoodItemMutation.mutate(id);
 
   const {
@@ -211,6 +217,7 @@ const Index = () => {
       importPossibleList();
       importAvailableList();
       importUnParUnSection();
+      importMacroIngredients();
     };
     if ('requestIdleCallback' in window) {
       (window as any).requestIdleCallback(preload);
@@ -732,7 +739,7 @@ const Index = () => {
       )}
 
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
-        <div className="max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
+        <div className="relative max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-1 shrink-0">
             <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
             {blockedCount !== null &&
@@ -743,7 +750,17 @@ const Index = () => {
             }
           </div>
 
-          <div className="flex items-center flex-1 min-w-0 justify-center">
+          <div className="absolute left-1/2 -translate-x-[calc(100%+198px)] md:-translate-x-[calc(100%+262px)]">
+            <button
+              onClick={() => setMainPage("macros")}
+              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 md:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+            >
+              <Wheat className="h-2.5 w-2.5 md:h-3 md:w-3 shrink-0" />
+              <span className={`text-[8px] md:text-xs truncate leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
+            </button>
+          </div>
+
+          <div className="pointer-events-none absolute inset-x-0 flex justify-center">
             <div className="bg-muted rounded-full p-0.5 w-full max-w-xs md:max-w-md py-[6px] my-0 px-0 flex items-center justify-center gap-[2px]">
               {([
                 { page: "aliments" as MainPage, icon: <Apple className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
@@ -752,7 +769,7 @@ const Index = () => {
                 { page: "courses" as MainPage, icon: <ShoppingCart className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
               ] as const).map(({ page, icon, label, activeColor }) => (
                 <button key={page} onClick={() => setMainPage(page)}
-                  className={`flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-1 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
+                  className={`pointer-events-auto flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-1 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
                   {icon}
                   <span className={`text-[9px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
                 </button>
@@ -761,7 +778,7 @@ const Index = () => {
           </div>
 
           <button onClick={() => setChronoOpen(true)}
-            className="text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2.5 py-1">
+            className="ml-auto text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2.5 py-1">
             <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
             <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
           </button>
@@ -774,6 +791,20 @@ const Index = () => {
           {mainPage === "aliments" && (
             <ErrorBoundary section="Aliments">
               <LazyFoodItems />
+            </ErrorBoundary>
+          )}
+          {mainPage === "macros" && (
+            <ErrorBoundary section="Macro ingrédients">
+              <LazyMacroIngredients
+                meals={meals}
+                possibleMeals={possibleMeals}
+                foodItems={foodItems}
+                macroLibrary={getPreference<IngredientMacroLibraryItem[]>('ingredient_macro_library', [])}
+                onSaveMacroLibrary={(library) => setPreference.mutate({ key: 'ingredient_macro_library', value: library })}
+                onUpdateMealIngredients={(id, ingredients) => updateIngredients.mutate({ id, ingredients })}
+                onUpdatePossibleIngredients={(id, ingredients_override) => updatePossibleIngredients.mutate({ id, ingredients_override })}
+                onUpdateFoodItemMacro={(id, updates) => updateFoodItemMutation.mutate({ id, ...updates })}
+              />
             </ErrorBoundary>
           )}
           {mainPage === "courses" && (

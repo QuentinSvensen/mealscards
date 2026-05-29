@@ -46,6 +46,7 @@ import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekProm
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
+import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
@@ -226,8 +227,9 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
     }
     const fi = foodItems.find((f) => f.id === id);
     if (fi) {
-      cal += parseCalories(fi.calories);
-      pro += parseProtein(fi.protein);
+      const macros = getExtraPortionMacros(fi);
+      cal += macros.cal;
+      pro += macros.pro;
     }
   }
   return { cal, pro };
@@ -2813,7 +2815,7 @@ export function WeeklyPlanning({
                               const selectedBottomIds = selectedOrderedIds.filter((id) => !topIds.includes(id) && !middleIds.includes(id));
                               const others = sortedExtras.filter(fi => !currentIds.includes(fi.id) && !assignedIds.has(fi.id));
                               const remainingCal = Math.max(0, DAILY_GOAL - getDayCalories(key, iso));
-                              const calOf = (fi: FoodItem) => parseCalories(fi.calories);
+                              const calOf = (fi: FoodItem) => getExtraPortionMacros(fi).cal;
                               const fitsBudget = others.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingCal);
                               const overBudget = others.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingCal);
                               // Rend un extra sélectionné (normal ou custom) avec drag & drop, compte et macros.
@@ -2827,8 +2829,9 @@ export function WeeklyPlanning({
                                 const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(id) ?? 0) : null;
                                 const count = currentIds.filter((cid) => cid === id).length;
                                 const label = c ? c.name : (fi?.name || id);
-                                const prot = c ? c.prot : parseProtein(fi?.protein);
-                                const cal = c ? c.cal : parseCalories(fi?.calories);
+                                const portionMacros = fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0 };
+                                const prot = c ? c.prot : portionMacros.pro;
+                                const cal = c ? c.cal : portionMacros.cal;
                                 return (
                                   <div
                                     key={`${selectedSection}-${id}-${occurrenceIndex}`}
@@ -3005,14 +3008,14 @@ export function WeeklyPlanning({
                                         className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
                                         title="Ajouter un"
                                       >+</button>
-                                      {fi.protein && (
+                                      {getExtraPortionMacros(fi).pro > 0 && (
                                         <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
-                                          🍗 {fi.protein}
+                                          🍗 {getExtraPortionMacros(fi).pro}
                                         </div>
                                       )}
-                                      {fi.calories && (
+                                      {getExtraPortionMacros(fi).cal > 0 && (
                                         <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                          <Flame className="w-2.5 h-2.5" />{fi.calories}
+                                          <Flame className="w-2.5 h-2.5" />{getExtraPortionMacros(fi).cal}
                                         </div>
                                       )}
                                     </div>
@@ -4031,7 +4034,7 @@ export function WeeklyPlanning({
                                 const selected = sortedItems.filter(fi => effExtraSel.includes(fi.id));
                                 const others = sortedItems.filter(fi => !effExtraSel.includes(fi.id));
                                 const ordered = [...selected, ...others];
-                                const calOf = (fi: FoodItem) => parseCalories(fi.calories);
+                                const calOf = (fi: FoodItem) => getExtraPortionMacros(fi).cal;
                                 const fitsBudget = ordered.filter(fi => calOf(fi) > 0 && calOf(fi) <= remainingNextCal);
                                 const overBudget = ordered.filter(fi => calOf(fi) <= 0 || calOf(fi) > remainingNextCal);
                                 const renderRow = (fi: FoodItem) => {
@@ -4050,15 +4053,15 @@ export function WeeklyPlanning({
                                           <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
                                         </>)}
                                         <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), fi.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
-                                        {fi.protein && (
+                                        {getExtraPortionMacros(fi).pro > 0 && (
                                           <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
-                                            🍗 {fi.protein}
+                                            🍗 {getExtraPortionMacros(fi).pro}
                                           </div>
                                         )}
-                                        {fi.calories && (
+                                        {getExtraPortionMacros(fi).cal > 0 && (
                                           <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
                                             <Flame className="w-2.5 h-2.5" />
-                                            {fi.calories}
+                                            {getExtraPortionMacros(fi).cal}
                                           </div>
                                         )}
                                       </div>

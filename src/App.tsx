@@ -48,6 +48,7 @@ const App = () => (
               <Route path="/" element={<Navigate to="/repas" replace />} />
               <Route path="/aliments" element={<Index />} />
               <Route path="/repas" element={<Index />} />
+              <Route path="/macros" element={<Index />} />
               <Route path="/planning" element={<Index />} />
               <Route path="/courses" element={<Index />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

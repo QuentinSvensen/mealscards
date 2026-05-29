@@ -112,5 +112,26 @@ export function useFoodItems(options?: { enabled?: boolean }) {
     onError: onMutationError,
   });
 
-  return { items, isLoading, deleteItem };
+  /** Met à jour une fiche aliment et reflète immédiatement les changements dans le cache local. */
+  const updateItem = useMutation({
+    mutationFn: async ({ id, ...updates }: Partial<FoodItem> & { id: string }) => {
+      const { error } = await supabase.from("food_items").update(updates as any).eq("id", id);
+      if (error) throw error;
+    },
+    onMutate: async ({ id, ...updates }) => {
+      await qc.cancelQueries({ queryKey: ["food_items"] });
+      const previous = qc.getQueryData<FoodItem[]>(["food_items"]);
+      qc.setQueryData<FoodItem[]>(["food_items"], (old) =>
+        old?.map((item) => item.id === id ? { ...item, ...updates } as FoodItem : item) ?? [],
+      );
+      return { previous };
+    },
+    onError: (error: Error, _vars, context) => {
+      if (context?.previous) qc.setQueryData(["food_items"], context.previous);
+      onMutationError(error);
+    },
+    onSettled: invalidate,
+  });
+
+  return { items, isLoading, deleteItem, updateItem };
 }
