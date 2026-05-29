@@ -750,28 +750,30 @@ const Index = () => {
             }
           </div>
 
-          <div className="absolute left-1/2 -translate-x-[calc(100%+198px)] md:-translate-x-[calc(100%+262px)]">
+          <div className="absolute left-1/2 -translate-x-[calc(100%+140px)] md:-translate-x-[calc(100%+262px)]">
             <button
               onClick={() => setMainPage("macros")}
-              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 md:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-2 md:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+              title="Macro ingrédients"
             >
-              <Wheat className="h-2.5 w-2.5 md:h-3 md:w-3 shrink-0" />
-              <span className={`text-[8px] md:text-xs truncate leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
+              <span className="text-[11px] leading-tight md:hidden">🌾</span>
+              <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
+              <span className={`hidden md:inline text-[8px] md:text-xs truncate leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
             </button>
           </div>
 
           <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-            <div className="bg-muted rounded-full p-0.5 w-full max-w-xs md:max-w-md py-[6px] my-0 px-0 flex items-center justify-center gap-[2px]">
+            <div className="bg-muted rounded-full p-0.5 w-full max-w-[16.75rem] md:max-w-md py-1 md:py-[6px] my-0 px-0 flex items-center justify-center gap-px md:gap-[2px]">
               {([
-                { page: "aliments" as MainPage, icon: <Apple className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
-                { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
-                { page: "planning" as MainPage, icon: <CalendarRange className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Planning", activeColor: "text-blue-500" },
-                { page: "courses" as MainPage, icon: <ShoppingCart className="h-3 w-3 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
+                { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
+                { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
+                { page: "planning" as MainPage, icon: <CalendarRange className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Planning", activeColor: "text-blue-500" },
+                { page: "courses" as MainPage, icon: <ShoppingCart className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
               ] as const).map(({ page, icon, label, activeColor }) => (
                 <button key={page} onClick={() => setMainPage(page)}
-                  className={`pointer-events-auto flex-1 py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-1 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
+                  className={`pointer-events-auto flex-1 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-0.5 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
                   {icon}
-                  <span className={`text-[9px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
+                  <span className={`text-[8px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
                 </button>
               ))}
             </div>
