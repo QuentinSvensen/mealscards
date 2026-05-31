@@ -142,6 +142,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
   const useRemainingCalories = getAvailPref<boolean>(`available_use_remaining_calories_${category.value}`, category.value !== "petit_dejeuner");
+  const showOnlyFullRemainingRecipes = getAvailPref<boolean>(`available_full_remaining_recipes_${category.value}`, false);
   const [avDragIndex, setAvDragIndex] = useState<number | null>(null);
   const [customRatios, setCustomRatios] = useState<Record<string, number>>({});
   const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
@@ -477,8 +478,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     | { type: 'partial'; key: string; item: typeof partialAvailable[0] };
 
   const buildUnifiedItems = (): UnifiedAvail[] => {
+    const sortedIsMealItemsWithDates: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
+    const allSortedIsMealItems = [...sortedIsMealItems, ...sortedIsMealItemsWithDates];
     let items: UnifiedAvail[] = [
-      ...sortedIsMealItems.map(fi => ({ type: 'isMeal' as const, key: `fi-${fi.id}`, fi })),
+      ...allSortedIsMealItems.map(fi => ({ type: 'isMeal' as const, key: `fi-${fi.id}`, fi })),
       ...sortedNameMatches.map((nm, i) => ({ type: 'nm' as const, key: `nm-${nm.meal.id}-${nm.fi.id}`, nm, nmIdx: i })),
       ...sortedAvailable.map(item => ({ type: 'av' as const, key: item.meal.id, item })),
       ...partialAvailable.map(item => ({ type: 'partial' as const, key: `partial-${item.meal.id}`, item }))
@@ -495,6 +498,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
     if (useRemainingCalories) {
       items = items.filter(u => {
+        if (showOnlyFullRemainingRecipes) {
+          if (u.type === 'isMeal') return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
+          if (u.type === 'av') return tryFitMeal(u.item.meal, 1, false).show;
+          return false;
+        }
         if (u.type === 'isMeal') {
           return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
         }
@@ -1691,62 +1699,82 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
       {!collapsed && (
         <div className="flex items-center gap-3 mt-3 px-3 py-1.5 bg-muted/40 rounded-2xl border border-muted/50">
-          <Checkbox
-            id={`filter-calories-${category.value}`}
-            checked={useRemainingCalories}
-            onCheckedChange={(checked) => {
-              setAvailPref.mutate({ key: `available_use_remaining_calories_${category.value}`, value: !!checked });
-              if (!checked) {
-                setCustomRatios({});
-                setTempCalorieOverride(null);
-              }
-            }}
-          />
-          <div className="flex flex-col">
-            <label htmlFor={`filter-calories-${category.value}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-foreground">
-              Carte en fonction des calories restantes
-            </label>
-            {useRemainingCalories && (
-              <div className="flex items-center gap-1.5 mt-0.5">
-                 <span className="text-[10px] text-muted-foreground">
-                   Seuil max :
-                 </span>
-                 <input
-                   type="number"
-                   inputMode="numeric"
-                   defaultValue={Math.round(tempCalorieOverride ?? baseCalorieThreshold)}
-                   key={`temp-cal-${tempCalorieOverride ?? 'base'}-${Math.round(baseCalorieThreshold)}`}
-                   onBlur={(e) => {
-                     const val = parseInt(e.target.value);
-                     if (val && val > 0 && val !== Math.round(baseCalorieThreshold)) {
-                       setTempCalorieOverride(val);
-                     } else {
-                       setTempCalorieOverride(null);
-                     }
-                   }}
-                   onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                   className="w-16 h-5 text-sm font-bold bg-transparent border-none rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-orange-400/30 text-center hover:text-orange-500 transition-colors"
-                 />
-                <span className="text-[10px] text-muted-foreground">kcal</span>
-                {tempCalorieOverride !== null && (
-                  <button
-                    onClick={() => setTempCalorieOverride(null)}
-                    className="text-[9px] text-muted-foreground/60 hover:text-muted-foreground"
-                    title="Réinitialiser au seuil calculé"
-                  >✕</button>
-                )}
-                <span className="text-[10px] text-muted-foreground mx-1">·</span>
-                <span className="text-sm font-bold text-blue-400">{Math.round(remainingProtein)}</span>
-                <span className="text-[10px] text-muted-foreground">g prot</span>
-              </div>
-            )}
+          <div className="flex items-center gap-3 min-w-0">
+            <Checkbox
+              id={`filter-calories-${category.value}`}
+              checked={useRemainingCalories}
+              onCheckedChange={(checked) => {
+                setAvailPref.mutate({ key: `available_use_remaining_calories_${category.value}`, value: !!checked });
+                setAvailPref.mutate({ key: `available_full_remaining_recipes_${category.value}`, value: false });
+                if (!checked) {
+                  setCustomRatios({});
+                  setTempCalorieOverride(null);
+                }
+              }}
+            />
+            <div className="flex flex-col min-w-0">
+              <label htmlFor={`filter-calories-${category.value}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer text-foreground">
+                Carte en fonction des calories restantes
+              </label>
+              {useRemainingCalories && (
+                <div className="flex items-center gap-1.5 mt-0.5">
+                   <span className="text-[10px] text-muted-foreground">
+                     Seuil max :
+                   </span>
+                   <input
+                     type="number"
+                     inputMode="numeric"
+                     defaultValue={Math.round(tempCalorieOverride ?? baseCalorieThreshold)}
+                     key={`temp-cal-${tempCalorieOverride ?? 'base'}-${Math.round(baseCalorieThreshold)}`}
+                     onBlur={(e) => {
+                       const val = parseInt(e.target.value);
+                       if (val && val > 0 && val !== Math.round(baseCalorieThreshold)) {
+                         setTempCalorieOverride(val);
+                       } else {
+                         setTempCalorieOverride(null);
+                       }
+                     }}
+                     onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                     className="w-16 h-5 text-sm font-bold bg-transparent border-none rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-orange-400/30 text-center hover:text-orange-500 transition-colors"
+                   />
+                  <span className="text-[10px] text-muted-foreground">kcal</span>
+                  {tempCalorieOverride !== null && (
+                    <button
+                      onClick={() => setTempCalorieOverride(null)}
+                      className="text-[9px] text-muted-foreground/60 hover:text-muted-foreground"
+                      title="Réinitialiser au seuil calculé"
+                    >✕</button>
+                  )}
+                  <span className="text-[10px] text-muted-foreground mx-1">·</span>
+                  <span className="text-sm font-bold text-blue-400">{Math.round(remainingProtein)}</span>
+                  <span className="text-[10px] text-muted-foreground">g prot</span>
+                </div>
+              )}
+            </div>
           </div>
+          {useRemainingCalories && (
+            <label
+              htmlFor={`filter-full-recipes-${category.value}`}
+              className="ml-auto flex items-center gap-2 rounded-xl bg-background/40 px-2 py-1 text-[10px] font-bold text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+              title="Afficher uniquement les recettes complètes à 100% qui rentrent dans les calories restantes"
+            >
+              <Checkbox
+                id={`filter-full-recipes-${category.value}`}
+                checked={showOnlyFullRemainingRecipes}
+                onCheckedChange={(checked) => {
+                  setAvailPref.mutate({ key: `available_full_remaining_recipes_${category.value}`, value: !!checked });
+                  if (checked) setCustomRatios({});
+                }}
+              />
+              <span className="whitespace-nowrap">100%</span>
+            </label>
+          )}
         </div>
       )}
 
       {!collapsed &&
         <div className="flex flex-col gap-2 mt-3">
-          {isPlat && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
+          {isPlat && !(useRemainingCalories && showOnlyFullRemainingRecipes) && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
 
           {(() => {
             const isMealWithDate: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
@@ -1795,6 +1823,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               }) : unified;
               if (useRemainingCalories) {
                 filteredUnified = filteredUnified.filter(u => {
+                  if (showOnlyFullRemainingRecipes) {
+                    if (u.type === 'isMeal') return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
+                    if (u.type === 'av') return tryFitMeal(u.item.meal, 1, false).show;
+                    return false;
+                  }
                   if (u.type === 'isMeal') {
                     return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
                   }

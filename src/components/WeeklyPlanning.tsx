@@ -406,7 +406,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
   const [calValue, setCalValue] = useState("");
   const [editingPro, setEditingPro] = useState(false);
   const [proValue, setProValue] = useState("");
-  const cardColorIngredients = pm.ingredients_override ?? meal.ingredients;
+  const cardColorIngredients = meal.ingredients?.trim() ? meal.ingredients : pm.ingredients_override;
 
   const macroControls = !compact ? (
     <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
@@ -3395,7 +3395,7 @@ export function WeeklyPlanning({
             const m = allMealsById.get(c.meal_id);
             if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
             return (
-              <div key={i} className="rounded-xl px-2 py-1 text-white text-[10px] font-semibold" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
+              <div key={i} className="rounded-xl px-2 py-1 text-white text-[10px] font-semibold" style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}>
                 {getCategoryEmoji(m.category)} {m.name}
                 {bCO[c.id] && <span className="ml-1 opacity-80">🔥{bCO[c.id]}</span>}
                 {bPO[c.id] && <span className="ml-1 opacity-80">🍗{bPO[c.id]}</span>}
@@ -3619,7 +3619,7 @@ export function WeeklyPlanning({
                                   const m = allMealsById.get(c.meal_id);
                                   if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
                                   return (
-                                    <div key={i} className="w-full min-w-0 overflow-hidden rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex flex-col gap-0.5 transition-all" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
+                                    <div key={i} className="w-full min-w-0 overflow-hidden rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex flex-col gap-0.5 transition-all" style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}>
                                       <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
                                         {getCategoryEmoji(m.category)} {m.name}
                                       </span>
@@ -3672,7 +3672,7 @@ export function WeeklyPlanning({
                           const m = allMealsById.get(c.meal_id);
                           if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
                           return (
-                            <div key={i} className="inline-block mr-1 min-w-[132px] rounded-xl px-3 py-1.5 text-white text-center text-[9px] sm:text-[10px] font-semibold transition-all" style={{ backgroundColor: getMealColor(c.ingredients_override ?? m.ingredients, m.name) }}>
+                            <div key={i} className="inline-block mr-1 min-w-[132px] rounded-xl px-3 py-1.5 text-white text-center text-[9px] sm:text-[10px] font-semibold transition-all" style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}>
                               {getCategoryEmoji(m.category)} {m.name}
                             </div>
                           );

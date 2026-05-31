@@ -42,6 +42,7 @@ import {
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
+import { attachPortionDeduction } from "@/lib/stockDeductionSnapshot";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
@@ -549,7 +550,14 @@ const Index = () => {
       oldestCounterFromDeduction = deductionResult.oldestCounter || null;
       consumedIngredientsFromDeduction = deductionResult.consumedIngredients || null;
       nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
-      if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) snapshots.push({ ...nameMatch });
+      if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) {
+        if (!meal.ingredients?.trim()) {
+          const portion = await deductNameMatchStock(meal);
+          snapshots.push(attachPortionDeduction(nameMatch, portion));
+        } else {
+          snapshots.push({ ...nameMatch });
+        }
+      }
     }
 
     // 3. Calculer les calories/protéines AVANT déduction pour les « figer » sur la nouvelle carte
@@ -1059,11 +1067,20 @@ const Index = () => {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: scaledIng });
                               }
                             } else {
-                              const snapshot = [{ ...fi }];
-                              await deductNameMatchStock(meal, undefined, r);
-                              
+                              const portion = await deductNameMatchStock(meal, undefined, r);
                               const shouldStartOnMove = fi.storage_type !== 'surgele' && !fi.no_counter;
                               const finalCd = fi.counter_start_date || (shouldStartOnMove ? new Date().toISOString() : null);
+                              const liveAfterDeduct = qc.getQueryData<FoodItem[]>(["food_items"])?.find((x) => x.id === fi.id);
+                              const snapshot = [
+                                attachPortionDeduction(
+                                  {
+                                    ...fi,
+                                    counter_start_date:
+                                      liveAfterDeduct?.counter_start_date ?? finalCd ?? fi.counter_start_date,
+                                  },
+                                  portion,
+                                ),
+                              ];
 
                               // Si ratio != 1 ou macros calculées, on crée un repas "indépendant" au lieu de juste lier au master
                               if (r !== 1 || !hasCal || !hasPro) {
@@ -1084,7 +1101,22 @@ const Index = () => {
                             }
                           }}
                           onMoveFoodItemToPossible={async (fi) => {
-                            const snapshot = [{ ...fi }];
+                            const perUnit = parseQty(fi.grams);
+                            let portionGrams = 0;
+                            let portionQty = 0;
+                            if (!fi.is_infinite) {
+                              if (perUnit > 0) {
+                                portionGrams =
+                                  fi.quantity && fi.quantity > 1
+                                    ? perUnit
+                                    : getFoodItemTotalGrams(fi);
+                              } else {
+                                portionQty = 1;
+                              }
+                            }
+                            const snapshot = [
+                              attachPortionDeduction(fi, { grams: portionGrams, quantity: portionQty }),
+                            ];
                             if (!fi.is_infinite) {
                               const currentQty = fi.quantity ?? 1;
                               if (currentQty <= 1) { await supabase.from("food_items").delete().eq("id", fi.id); }
@@ -1163,7 +1195,11 @@ const Index = () => {
                             if (pm) {
                               const remainingMeals = possibleMeals.filter(p => p.id !== id);
                               const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-                              updateFoodItemCountersForPlanning(null, ing, null, null, null, null, remainingMeals);
+                              const fallbackCounter =
+                                snapshots?.[0]?.counter_start_date ?? pm.counter_start_date ?? null;
+                              updateFoodItemCountersForPlanning(
+                                null, ing, null, null, fallbackCounter, null, remainingMeals,
+                              );
                             }
                           }}
                           onReturnToMaster={(id) => {
@@ -1233,7 +1269,11 @@ const Index = () => {
                             if (pm) {
                               const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
                               const effectiveCounter = isOccupied ? null : counter;
-                              const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+                              const fallbackUnParUnIngredients =
+                                unParUnSourcePmIds.has(id) && pm.meals
+                                  ? (parseQty(pm.meals.grams) > 0 ? `${pm.meals.grams} ${pm.meals.name}` : `${pm.quantity || 1} ${pm.meals.name}`)
+                                  : null;
+                              const ing = pm.ingredients_override ?? pm.meals?.ingredients ?? fallbackUnParUnIngredients;
                               const nextPossibleMeals = possibleMeals.map((candidate) =>
                                 candidate.id === id ? { ...candidate, day_of_week: day, meal_time: time } : candidate
                               );
@@ -1452,7 +1492,8 @@ const Index = () => {
                               setUnParUnSort(cat.value, next);
                             }}
                             onMoveToPossible={async (fi, consumeQty, consumeGrams) => {
-                              const snapshot = [{ ...fi }];
+                              const shouldStartCounter = fi.storage_type !== 'surgele' && !fi.no_counter;
+                              const movedCounterDate = fi.counter_start_date || (shouldStartCounter ? new Date().toISOString() : null);
                               if (!fi.is_infinite) {
                                 const perUnit = parseQty(fi.grams);
                                 if (perUnit > 0) {
@@ -1465,10 +1506,10 @@ const Index = () => {
                                   else if (fi.quantity && fi.quantity >= 1) {
                                     const fullUnits = Math.floor(remaining / perUnit);
                                     const rem = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
-                                    if (rem > 0) { await supabase.from("food_items").update({ quantity: Math.max(1, fullUnits + 1), grams: encodeStoredGrams(perUnit, rem) } as any).eq("id", fi.id); }
+                                    if (rem > 0) { await supabase.from("food_items").update({ quantity: Math.max(1, fullUnits + 1), grams: encodeStoredGrams(perUnit, rem), ...(movedCounterDate ? { counter_start_date: movedCounterDate } : {}) } as any).eq("id", fi.id); }
                                     else if (fullUnits > 0) { await supabase.from("food_items").update({ quantity: fullUnits, grams: formatNumeric(perUnit), counter_start_date: null } as any).eq("id", fi.id); }
                                     else { await supabase.from("food_items").delete().eq("id", fi.id); }
-                                  } else { await supabase.from("food_items").update({ grams: formatNumeric(remaining) } as any).eq("id", fi.id); }
+                                  } else { await supabase.from("food_items").update({ grams: formatNumeric(remaining), ...(movedCounterDate ? { counter_start_date: movedCounterDate } : {}) } as any).eq("id", fi.id); }
                                 } else {
                                   if (consumeQty === 0) return; // Explicitly 0
                                   const deductQty = consumeQty || 1;
@@ -1484,6 +1525,18 @@ const Index = () => {
                               // Pour les aliments en quantité seule (unitG = 0), on ne doit PAS bloquer ici.
                               if (unitG > 0 && totalMovedG <= 0 && (consumeQty !== undefined || consumeGrams !== undefined)) return;
                               const actualMovedG = totalMovedG > 0 ? totalMovedG : (unitG > 0 ? unitG : 0);
+                              const deductQty =
+                                unitG > 0
+                                  ? 0
+                                  : consumeQty !== undefined
+                                    ? consumeQty || 1
+                                    : 1;
+                              const snapshot = [
+                                attachPortionDeduction(fi, {
+                                  grams: actualMovedG,
+                                  quantity: deductQty,
+                                }),
+                              ];
 
                               const displayGrams = actualMovedG > 0 ? String(actualMovedG) : (fi.grams ? String(parseQty(fi.grams)) : null);
                               const displayQty = consumeQty || (consumeGrams ? Math.ceil(consumeGrams / (unitG || 1)) : 1);
@@ -1526,10 +1579,12 @@ const Index = () => {
 
                               const calories = finalCal !== null ? formatNumeric(Math.round(finalCal)) : null;
                               const protein = finalPro !== null ? formatNumeric(Math.round(finalPro)) : null;
+                              const ingredients = actualMovedG > 0 ? `${displayGrams}g ${fi.name}` : `${displayQty} ${fi.name}`;
                               const pmResult = await addMealToPossibleDirectly.mutateAsync({
                                 name: fi.name, category: cat.value, calories, protein, grams: displayGrams,
+                                ingredients,
                                 expiration_date: fi.expiration_date, possible_quantity: displayQty,
-                                counter_start_date: fi.counter_start_date,
+                                counter_start_date: movedCounterDate,
                               });
                               if (pmResult?.id) {
                                 updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));

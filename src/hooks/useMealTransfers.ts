@@ -28,6 +28,12 @@ import {
   buildStockMap, findStockKey, pickBestAlternative,
   sortStockDeductionPriority,
 } from "@/lib/stockUtils";
+import {
+  attachPortionDeduction,
+  getPortionDeduction,
+  hasPortionDeductionMeta,
+  stripPortionDeductionMeta,
+} from "@/lib/stockDeductionSnapshot";
 
 /** Table de correspondance jour français → index (0=Lun) */
 const DAY_KEY_TO_INDEX: Record<string, number> = {
@@ -234,6 +240,16 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     !fi.is_infinite && fi.storage_type !== "surgele" && !fi.no_counter;
 
   /**
+   * Retourne la date de compteur la plus ancienne entre deux dates (ignore les valeurs nulles).
+   * Sert à conserver la date d'ouverture d'origine (ex. « ouvert vendredi midi ») lors d'un retour de portion.
+   */
+  const earlierCounterDate = (a?: string | null, b?: string | null): string | null => {
+    if (!a) return b ?? null;
+    if (!b) return a;
+    return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+  };
+
+  /**
    * Vérifie si le compteur doit être mis à jour (pas déjà en cours ou forcé).
    * Protège les compteurs manuels existants qui sont déjà dans le passé.
    */
@@ -266,8 +282,17 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const pickedAlternatives: ParsedIngredient[][] = [];
     const stockMap = buildStockMap(liveFoodItems);
     const snapshotsById = new Map<string, FoodItem>();
+    /** Grammes / unités retirés par aliment pour cette carte Possible (restauration additive). */
+    const portionDeltasById = new Map<string, { grams: number; quantity: number }>();
     const updatesById = new Map<string, { id: string; grams?: string | null; quantity?: number | null; delete?: boolean; counter_start_date?: string | null }>();
     const rememberSnapshot = (fi: FoodItem) => { if (!snapshotsById.has(fi.id)) snapshotsById.set(fi.id, { ...fi }); };
+    const addPortionDelta = (fiId: string, grams: number, quantity: number) => {
+      const prev = portionDeltasById.get(fiId) ?? { grams: 0, quantity: 0 };
+      portionDeltasById.set(fiId, {
+        grams: prev.grams + grams,
+        quantity: prev.quantity + quantity,
+      });
+    };
     let oldestCounter: string | null = null;
     /** Date ISO d’ouverture réellement appliquée sur le stock pendant cette déduction (ex. « maintenant »). */
     let openedAtDeduction: string | null = null;
@@ -323,6 +348,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             const remaining = fiCount - deduct;
             toDeduct -= deduct;
             rememberSnapshot(fi);
+            addPortionDelta(fi.id, 0, deduct);
 
             const counterToSet = forcedCounterDate;
             const effectiveCounterDate = counterToSet || new Date().toISOString();
@@ -356,6 +382,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             const remaining = totalAvailable - deduct;
             toDeduct -= deduct;
             rememberSnapshot(fi);
+            addPortionDelta(fi.id, deduct, 0);
 
             const counterToSet = forcedCounterDate;
             const effectiveCounterDate = counterToSet || new Date().toISOString();
@@ -475,7 +502,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     suppressStockRealtimeBriefly();
     const consumedIngredients = buildConsumedIngredientsOverride(pickedAlternatives, meal.ingredients);
     return {
-      snapshots: Array.from(snapshotsById.values()),
+      snapshots: Array.from(snapshotsById.values()).map((fi) => {
+        const delta = portionDeltasById.get(fi.id);
+        return delta ? attachPortionDeduction(fi, delta) : fi;
+      }),
       consumedIds: Array.from(updatesById.values()).filter(u => u.delete).map(u => u.id),
       oldestCounter: oldestCounter || openedAtDeduction,
       consumedIngredients,
@@ -487,27 +517,175 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   // ═════════════════════════════════════════════════════════════════════════
 
   /**
+   * Rend au stock uniquement la portion déduite pour une carte Possible (grammes ou unités).
+   */
+  const addPortionBackToStockItem = async (
+    snap: FoodItem,
+    portion: { grams: number; quantity: number },
+    currentFoodItems: FoodItem[]
+  ) => {
+    const { grams: neededGrams, quantity: neededCount } = portion;
+    if (neededGrams <= 0 && neededCount <= 0) return;
+
+    const name = snap.name;
+    const matchingItems = currentFoodItems
+      .filter((fi) => (snap.id ? fi.id === snap.id : strictNameMatch(fi.name, name)) && !fi.is_infinite)
+      .sort(sortStockDeductionPriority);
+
+    if (matchingItems.length === 0) {
+      const template = stripPortionDeductionMeta(snap);
+      const { id: _id, created_at: _ca, ...rest } = template as Record<string, unknown>;
+      if (neededCount > 0) {
+        await safeMutate("Restauration portion (recréation count)", () =>
+          (supabase as any).from("food_items").insert({
+            ...rest,
+            quantity: neededCount,
+          })
+        );
+      } else if (neededGrams > 0) {
+        const unitGrams = parseQty(template.grams);
+        if (unitGrams > 0) {
+          const fullUnits = Math.floor(neededGrams / unitGrams);
+          const rem = Math.round((neededGrams - fullUnits * unitGrams) * 10) / 10;
+          await safeMutate("Restauration portion (recréation grams)", () =>
+            (supabase as any).from("food_items").insert({
+              ...rest,
+              quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
+              grams: encodeStoredGrams(unitGrams, rem > 0 ? rem : null),
+            })
+          );
+        } else {
+          await safeMutate("Restauration portion (recréation simple)", () =>
+            (supabase as any).from("food_items").insert({
+              ...rest,
+              grams: formatNumeric(neededGrams),
+            })
+          );
+        }
+      }
+      return;
+    }
+
+    const fi = matchingItems[0];
+    // Conserver l'ouverture d'origine : on prend la date de compteur la plus ancienne entre
+    // l'aliment en stock et le snapshot (ex. retour d'une portion ouverte vendredi midi).
+    const restoredCounter = earlierCounterDate(fi.counter_start_date, snap.counter_start_date);
+    if (neededCount > 0) {
+      const newQty = (fi.quantity ?? 1) + neededCount;
+        const synthetic = { ...fi, quantity: newQty } as FoodItem;
+        const clearCtr = isFoodFullySealed(synthetic);
+        const counterUpdate = restoredCounter
+          ? { counter_start_date: restoredCounter }
+          : clearCtr
+            ? { counter_start_date: null }
+            : {};
+        await safeMutate("Restauration portion (count)", () =>
+        supabase.from("food_items").update({ quantity: Math.ceil(newQty), ...counterUpdate } as any).eq("id", fi.id)
+      );
+    }
+    if (neededGrams > 0) {
+      const fiGrams = parseQty(fi.grams);
+      if (fi.quantity && fi.quantity >= 1 && fiGrams > 0) {
+        const currentTotal = getFoodItemTotalGrams(fi);
+        const newTotal = currentTotal + neededGrams;
+        const fullUnits = Math.floor(newTotal / fiGrams);
+        const remainder = Math.round((newTotal - fullUnits * fiGrams) * 10) / 10;
+        const newQty = remainder > 0 ? fullUnits + 1 : fullUnits;
+        const newGramsStr = encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null);
+        const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
+        const clearCtr = isFoodFullySealed(synthetic);
+        const counterUpdate = restoredCounter
+          ? { counter_start_date: restoredCounter }
+          : clearCtr
+            ? { counter_start_date: null }
+            : {};
+        await safeMutate("Restauration portion (grams)", () =>
+          supabase.from("food_items").update({
+            quantity: newQty,
+            grams: newGramsStr,
+            ...counterUpdate,
+          } as any).eq("id", fi.id)
+        );
+      } else {
+        const currentTotal = fiGrams;
+        const newG = formatNumeric(currentTotal + neededGrams);
+        const synthetic = { ...fi, grams: newG } as FoodItem;
+        const clearCtr = isFoodFullySealed(synthetic);
+        const counterUpdate = restoredCounter
+          ? { counter_start_date: restoredCounter }
+          : clearCtr
+            ? { counter_start_date: null }
+            : {};
+        await safeMutate("Restauration portion (simple)", () =>
+          supabase.from("food_items").update({
+            grams: newG,
+            ...(clearCtr ? { counter_start_date: null } : {}),
+          } as any).eq("id", fi.id)
+        );
+      }
+    }
+  };
+
+  /**
    * Restaure les ingrédients dans le stock.
    * 
    * Deux modes :
-   * 1. Avec snapshots → upsert exact de l'état sauvegardé (préféré, précis)
+   * 1. Avec snapshots → portion déduite (delta) si métadonnées présentes, sinon upsert legacy
    * 2. Sans snapshots → estimation en ajoutant les quantités de la recette
    */
   const restoreIngredientsToStock = async (meal: Meal, snapshots?: FoodItem[]) => {
-    // Mode 1 : restauration depuis les snapshots (état exact)
     if (snapshots && snapshots.length > 0) {
+      const usePortionRestore = snapshots.some(hasPortionDeductionMeta);
+      if (usePortionRestore) {
+        const { data: freshItems } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
+        let currentFoodItems: FoodItem[] = (freshItems ?? []).map((d: any) => ({
+          ...d,
+          is_meal: d.is_meal ?? false,
+          is_infinite: d.is_infinite ?? false,
+          is_dry: d.is_dry ?? false,
+          is_indivisible: d.is_indivisible ?? false,
+          no_counter: d.no_counter ?? false,
+          storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
+          quantity: d.quantity ?? null,
+          food_type: d.food_type ?? null,
+          protein: d.protein ?? null,
+        })) as FoodItem[];
+
+        for (const snap of snapshots) {
+          const portion = getPortionDeduction(snap);
+          await addPortionBackToStockItem(snap, portion, currentFoodItems);
+          const { data: refreshed } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
+          currentFoodItems = (refreshed ?? []).map((d: any) => ({
+            ...d,
+            is_meal: d.is_meal ?? false,
+            is_infinite: d.is_infinite ?? false,
+            is_dry: d.is_dry ?? false,
+            is_indivisible: d.is_indivisible ?? false,
+            no_counter: d.no_counter ?? false,
+            storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
+            quantity: d.quantity ?? null,
+            food_type: d.food_type ?? null,
+            protein: d.protein ?? null,
+          })) as FoodItem[];
+        }
+        await invalidateStock();
+        return;
+      }
+
+      // Mode legacy : upsert de l'état complet (anciens snapshots sans delta)
       await safeMutate("Restauration du stock", () =>
         Promise.all(snapshots.map((fi) => {
-          const sealed = isFoodFullySealed(fi);
+          const clean = stripPortionDeductionMeta(fi);
+          const sealed = isFoodFullySealed(clean);
           return (supabase as any).from("food_items").upsert({
-            id: fi.id, name: fi.name, grams: fi.grams, calories: fi.calories,
-            protein: fi.protein, is_indivisible: fi.is_indivisible,
-            expiration_date: fi.expiration_date,
-            counter_start_date: sealed ? null : fi.counter_start_date,
-            no_counter: fi.no_counter,
-            sort_order: fi.sort_order, created_at: fi.created_at, is_meal: fi.is_meal,
-            is_infinite: fi.is_infinite, is_dry: fi.is_dry, storage_type: fi.storage_type,
-            quantity: fi.quantity, food_type: fi.food_type,
+            id: clean.id, name: clean.name, grams: clean.grams, calories: clean.calories,
+            protein: clean.protein, is_indivisible: clean.is_indivisible,
+            expiration_date: clean.expiration_date,
+            counter_start_date: sealed ? null : clean.counter_start_date,
+            no_counter: clean.no_counter,
+            sort_order: clean.sort_order, created_at: clean.created_at, is_meal: clean.is_meal,
+            is_infinite: clean.is_infinite, is_dry: clean.is_dry, storage_type: clean.storage_type,
+            quantity: clean.quantity, food_type: clean.food_type,
           });
         }))
       );
@@ -895,11 +1073,17 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   /**
    * Déduit du stock par correspondance de nom (pour les repas sans liste d'ingrédients).
    * Cherche un aliment portant le même nom que le repas et déduit les grammes ou 1 unité.
+   * Retourne la portion retirée pour la restauration au retour depuis Possible.
    */
-  const deductNameMatchStock = async (meal: Meal, forcedCounterDate?: string, ratio: number = 1) => {
+  const deductNameMatchStock = async (
+    meal: Meal,
+    forcedCounterDate?: string,
+    ratio: number = 1
+  ): Promise<{ gramsDeducted: number; quantityDeducted: number }> => {
+    const none = { gramsDeducted: 0, quantityDeducted: 0 };
     const liveFoodItems = getLiveFoodItems();
     const nameMatch = liveFoodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
-    if (!nameMatch) return;
+    if (!nameMatch) return none;
 
     // Calculer le poids de base à déduire. Si le repas n'a pas de poids, on prend celui de l'aliment.
     let baseG = parseQty(meal.grams);
@@ -921,7 +1105,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({ quantity: currentQty - 1, ...(clearCtr ? { counter_start_date: null } : {}) } as any).eq("id", nameMatch.id));
       }
       await invalidateStock();
-      return;
+      return { gramsDeducted: 0, quantityDeducted: 1 };
     }
 
     // Déduction par grammes
@@ -935,10 +1119,12 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const fullUnits = Math.floor(remaining / perUnit);
         const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
         if (remainder > 0) {
+          // Ne pas écraser un compteur déjà lancé (passé) : on garde la date d'ouverture d'origine.
+          const bumpCounter = canStartCounter && needsCounterUpdate(nameMatch, counterToSet, forcedCounterDate);
           await safeMutate("Déduction nom", () => supabase.from("food_items").update({
             quantity: Math.max(1, fullUnits + 1),
             grams: encodeStoredGrams(perUnit, remainder),
-            ...(canStartCounter ? { counter_start_date: counterToSet } : {})
+            ...(bumpCounter ? { counter_start_date: counterToSet } : {})
           } as any).eq("id", nameMatch.id));
         } else if (fullUnits > 0) {
           await safeMutate("Déduction nom", () => supabase.from("food_items").update({
@@ -957,13 +1143,16 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
       } else {
         const isNewUnit = remaining > 0 && remaining < current;
+        // Ne pas réinitialiser un compteur déjà lancé (passé) lors d'une consommation partielle.
+        const bumpCounter = canStartCounter && isNewUnit && needsCounterUpdate(nameMatch, counterToSet, forcedCounterDate);
         await safeMutate("Déduction nom", () => supabase.from("food_items").update({
           grams: formatNumeric(remaining),
-          ...(canStartCounter && isNewUnit ? { counter_start_date: counterToSet } : {})
+          ...(bumpCounter ? { counter_start_date: counterToSet } : {})
         } as any).eq("id", nameMatch.id));
       }
     }
     await invalidateStock();
+    return { gramsDeducted: mealGrams, quantityDeducted: 0 };
   };
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -1119,6 +1308,15 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           }
 
           pendingUpdates.set(fi.id, earliestDateStr);
+        } else if (!hasAnyMatchingMeal && Number.isFinite(currentCounterMs) && currentCounterMs > nowMsRef) {
+          // Dernière carte future supprimée : retirer le mode « Prog. ».
+          // Si une date passée de repli existe (snapshot au retour au choix), la conserver.
+          const fallbackMs = fallbackDate ? new Date(fallbackDate).getTime() : NaN;
+          if (Number.isFinite(fallbackMs) && fallbackMs <= nowMsRef) {
+            pendingUpdates.set(fi.id, fallbackDate!);
+          } else {
+            pendingUpdates.set(fi.id, null);
+          }
         }
       }
           }

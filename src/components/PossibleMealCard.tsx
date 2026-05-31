@@ -209,7 +209,9 @@ export function PossibleMealCard({
         : displayIngredients,
     [displayIngredients, meal.ingredients, pm.ingredients_override],
   );
-  const cardColorIngredients = displayIngredientsWithReferenceNames;
+  const cardColorIngredients = meal.ingredients?.trim()
+    ? meal.ingredients
+    : displayIngredientsWithReferenceNames;
   const cardDisplayIngredients = useMemo(
     () => ingredientsForPossibleCardDisplay(displayIngredientsWithReferenceNames),
     [displayIngredientsWithReferenceNames],
@@ -373,13 +375,16 @@ export function PossibleMealCard({
 
   // Ouvre l'éditeur avec les marqueurs ou/? de la recette master si l'override Possible a été réduit.
   const openIngredients = () => {
-    const lines = buildPossibleEditorLines(
+    let lines = buildPossibleEditorLines(
       meal.ingredients,
       pm.ingredients_override,
       detectedRatio,
       scaleEditorLines,
     );
-    if (lines.length === 0) return;
+    if (lines.length === 0) {
+      const fallbackSource = pm.ingredients_override ?? meal.ingredients;
+      lines = parseIngredientsToLines(fallbackSource?.trim() ? fallbackSource : null);
+    }
     setIngLines(lines);
     setEditingIngredients(true);
   };
@@ -762,7 +767,7 @@ export function PossibleMealCard({
         </div>
       </div>
 
-      {/* Ligne 3 : ingrédients (cliquer pour éditer) — afficher si la base ou l'override a des ingrédients */}
+      {/* Ligne 3 : ingrédients (cliquer pour éditer) — masquée si la carte n'en a pas encore */}
       {!editing && !editingIngredients && cardDisplayIngredients && (
         <button onClick={openIngredients} className="mt-1 text-[10px] text-white/60 flex flex-wrap gap-x-1 text-left hover:text-white/80 transition-colors">
           <StructuredIngredientInline

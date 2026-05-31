@@ -289,7 +289,7 @@ export function PossibleList({
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
 
             return (
-              <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(displayIngredients, meal.name) }}>
+              <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients?.trim() ? meal.ingredients : displayIngredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">{getCategoryEmoji(meal.category)} {meal.name}</h3>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {displayCal && (
