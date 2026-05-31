@@ -1267,6 +1267,11 @@ const Index = () => {
                           onUpdatePlanning={(id, day, time, counter) => {
                             const pm = possibleMeals.find(p => p.id === id);
                             if (pm) {
+                              const currentSlotOverrides = getPreference<Record<string, { day: string; time: string }>>('planning_slot_overrides', {});
+                              if (currentSlotOverrides[id]) {
+                                const { [id]: _removedSlotOverride, ...nextSlotOverrides } = currentSlotOverrides;
+                                setPreference.mutate({ key: 'planning_slot_overrides', value: nextSlotOverrides });
+                              }
                               const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
                               const effectiveCounter = isOccupied ? null : counter;
                               const fallbackUnParUnIngredients =

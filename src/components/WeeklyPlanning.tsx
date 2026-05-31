@@ -1029,7 +1029,11 @@ export function WeeklyPlanning({
   // Détermine le slot visuel effectif d'une carte (slot planifié ou override temporaire d'affichage).
   const getVisualSlotForPm = (pm: PossibleMeal) => {
     const override = planningSlotOverrides[pm.id];
-    if (override?.day && override?.time) return { day: override.day, time: override.time };
+    // Un override "goûter" ne vaut que pour la date actuellement planifiée.
+    // Si la carte est replanifiée depuis Possible, on force l'affichage sur le nouveau vrai créneau.
+    if (override?.day && override?.time && override.day === pm.day_of_week) {
+      return { day: override.day, time: override.time };
+    }
     return { day: pm.day_of_week ?? null, time: pm.meal_time ?? null };
   };
 
