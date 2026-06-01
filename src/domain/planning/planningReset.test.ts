@@ -52,6 +52,34 @@ describe("mergeSnapshotsIntoLivePrefMap", () => {
     const merged = mergeSnapshotsIntoLivePrefMap(prefMap, { foo: { cal: 1 } } as any);
     expect(merged.planning_manual_calories).toEqual({});
   });
+
+  it("remappe les snapshots sauvegardés vers les dates ISO de la semaine cible", () => {
+    const targetWeek = [
+      { key: "lundi", iso: "2026-06-01", display: "" },
+      { key: "mardi", iso: "2026-06-02", display: "" },
+      { key: "mercredi", iso: "2026-06-03", display: "" },
+      { key: "jeudi", iso: "2026-06-04", display: "" },
+      { key: "vendredi", iso: "2026-06-05", display: "" },
+      { key: "samedi", iso: "2026-06-06", display: "" },
+      { key: "dimanche", iso: "2026-06-07", display: "" },
+    ] as any;
+    const merged = mergeSnapshotsIntoLivePrefMap(
+      {},
+      {
+        "manual-2026-05-26-midi": { cal: 300, prot: 20 },
+        "extra-vendredi": { cal: 50, prot: 4, itemIds: ["x"] },
+        "breakfast-2026-05-31": { cal: 100, prot: 8, mealId: "meal:pdej" },
+      },
+      targetWeek,
+    );
+
+    expect(merged.planning_manual_calories["2026-06-02-midi"]).toBe(300);
+    expect(merged.planning_manual_proteins["2026-06-02-midi"]).toBe(20);
+    expect(merged.planning_extra_calories["2026-06-05"]).toBe(50);
+    expect(merged.planning_extra_selections["2026-06-05"]).toEqual(["x"]);
+    expect(merged.planning_breakfast_manual_calories["2026-06-07"]).toBe(100);
+    expect(merged.planning_breakfast["2026-06-07"]).toBe("meal:pdej");
+  });
 });
 
 describe("applyNextWeekPromotionOnTop", () => {
@@ -122,6 +150,52 @@ describe("applyNextWeekPromotionOnTop", () => {
     const out = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
     expect(out.planning_manual_calories["2025-04-14-midi"]).toBe(999);
     expect(out.planning_manual_proteins["2025-04-14-midi"]).toBe(99);
+  });
+
+  it("promeut les brouillons semaine suivante sur les dates ISO de la semaine cible", () => {
+    const targetWeek = [
+      { key: "lundi", iso: "2026-06-01", display: "" },
+      { key: "mardi", iso: "2026-06-02", display: "" },
+      { key: "mercredi", iso: "2026-06-03", display: "" },
+      { key: "jeudi", iso: "2026-06-04", display: "" },
+      { key: "vendredi", iso: "2026-06-05", display: "" },
+      { key: "samedi", iso: "2026-06-06", display: "" },
+      { key: "dimanche", iso: "2026-06-07", display: "" },
+    ] as any;
+    const out = applyNextWeekPromotionOnTop(
+      {
+        planning_manual_calories: {},
+        planning_manual_proteins: {},
+        planning_extra_calories: {},
+        planning_extra_proteins: {},
+        planning_extra_selections: {},
+        planning_breakfast_manual_calories: {},
+        planning_breakfast_manual_proteins: {},
+        planning_breakfast: {},
+        planning_drink_checks: {},
+      },
+      {
+        next_week_manual_calories: { "mardi-midi": 450 },
+        next_week_manual_proteins: { "mardi-midi": 35 },
+        next_week_extra_calories: { vendredi: 80 },
+        next_week_extra_proteins: { vendredi: 6 },
+        next_week_extra_selections: { vendredi: ["extra-a"] },
+        next_week_breakfast: { dimanche: "meal:pdej" },
+        next_week_breakfast_manual_calories: { dimanche: 120 },
+        next_week_breakfast_manual_proteins: { dimanche: 10 },
+        next_week_drink_checks: { "mardi-midi": true },
+      },
+      {},
+      targetWeek,
+    );
+
+    expect(out.planning_manual_calories["2026-06-02-midi"]).toBe(450);
+    expect(out.planning_manual_proteins["2026-06-02-midi"]).toBe(35);
+    expect(out.planning_extra_calories["2026-06-05"]).toBe(80);
+    expect(out.planning_extra_selections["2026-06-05"]).toEqual(["extra-a"]);
+    expect(out.planning_breakfast["2026-06-07"]).toBe("meal:pdej");
+    expect(out.planning_breakfast_manual_calories["2026-06-07"]).toBe(120);
+    expect(out.planning_drink_checks["2026-06-02-midi"]).toBe(true);
   });
 });
 

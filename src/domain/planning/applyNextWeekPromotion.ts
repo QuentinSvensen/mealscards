@@ -1,10 +1,12 @@
 import type { MergedPlanningLiveState, PlanningPrefMap, PlanningSnapshotEntry } from "./types";
+import type { PlanningWeekDayInfo } from "@/lib/planningWeekUtils";
 import {
   asBoolRecord,
   asNumberRecord,
   asStringArrayRecord,
   asStringRecord,
 } from "./jsonCoerce";
+import { remapPlanningKeyToTargetWeek, remapPlanningRecordToTargetWeek } from "./remapPlanningKeys";
 
 /**
  * Après fusion snapshots 💾 → planning, applique par-dessus tout ce qui a été
@@ -15,6 +17,7 @@ export function applyNextWeekPromotionOnTop(
   merged: MergedPlanningLiveState,
   prefMap: PlanningPrefMap,
   _snapshots?: Record<string, PlanningSnapshotEntry>,
+  targetWeek?: PlanningWeekDayInfo[],
 ): MergedPlanningLiveState {
   const out: MergedPlanningLiveState = {
     planning_manual_calories: { ...merged.planning_manual_calories },
@@ -30,9 +33,10 @@ export function applyNextWeekPromotionOnTop(
 
   const overlayNumbers = (next: Record<string, number>, target: Record<string, number>) => {
     for (const [k, v] of Object.entries(next)) {
+      const targetKey = remapPlanningKeyToTargetWeek(k, targetWeek);
       if (typeof v !== "number" || Number.isNaN(v)) continue;
-      if (v > 0) target[k] = v;
-      else delete target[k];
+      if (v > 0) target[targetKey] = v;
+      else delete target[targetKey];
     }
   };
 
@@ -41,12 +45,15 @@ export function applyNextWeekPromotionOnTop(
   overlayNumbers(asNumberRecord(prefMap["next_week_extra_calories"]), out.planning_extra_calories);
   overlayNumbers(asNumberRecord(prefMap["next_week_extra_proteins"]), out.planning_extra_proteins);
 
-  const nES = asStringArrayRecord(prefMap["next_week_extra_selections"]);
+  const nES = remapPlanningRecordToTargetWeek(
+    asStringArrayRecord(prefMap["next_week_extra_selections"]),
+    targetWeek,
+  );
   for (const [k, v] of Object.entries(nES)) {
     out.planning_extra_selections[k] = Array.isArray(v) ? [...v] : [];
   }
 
-  const nBf = asStringRecord(prefMap["next_week_breakfast"]);
+  const nBf = remapPlanningRecordToTargetWeek(asStringRecord(prefMap["next_week_breakfast"]), targetWeek);
   for (const [k, v] of Object.entries(nBf)) {
     if (v && String(v).trim()) out.planning_breakfast[k] = v;
     else delete out.planning_breakfast[k];
@@ -63,8 +70,9 @@ export function applyNextWeekPromotionOnTop(
 
   const nDr = asBoolRecord(prefMap["next_week_drink_checks"]);
   for (const [k, v] of Object.entries(nDr)) {
-    if (v) out.planning_drink_checks[k] = true;
-    else delete out.planning_drink_checks[k];
+    const targetKey = remapPlanningKeyToTargetWeek(k, targetWeek);
+    if (v) out.planning_drink_checks[targetKey] = true;
+    else delete out.planning_drink_checks[targetKey];
   }
 
   return out;

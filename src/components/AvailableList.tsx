@@ -139,7 +139,10 @@ interface AvailableListProps {
 
 export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onAfterMoveToPossible }: AvailableListProps) {
   const isPlat = category.value === "plat";
+  const showMealItemsInAvailable = category.value === "plat" || category.value === "petit_dejeuner";
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
+  const morningMealFoodItemIds = getAvailPref<string[]>('morning_meal_food_item_ids', []);
+  const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
   const useRemainingCalories = getAvailPref<boolean>(`available_use_remaining_calories_${category.value}`, category.value !== "petit_dejeuner");
   const showOnlyFullRemainingRecipes = getAvailPref<boolean>(`available_full_remaining_recipes_${category.value}`, false);
@@ -260,14 +263,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   // 2. Correspondance par nom
   type NameMatch = { meal: Meal; fi: FoodItem; portionsAvailable: number | null };
 
-  /** Construit un repas factice avec les calories réellement affichées pour un aliment-repas. */
+  /** Construit un repas factice avec les calories de la portion unitaire affichée pour un aliment-repas. */
   const buildIsMealCalorieMeal = (fi: FoodItem): Meal => {
     let displayCal = fi.calories;
     if (fi.grams) {
-      const totalG = getFoodItemTotalGrams(fi);
+      const unitG = parseQty(fi.grams);
       const calPer100 = displayCal ? parseFloat(displayCal.replace(",", ".")) : 0;
-      if (totalG > 0 && Number.isFinite(calPer100) && calPer100 > 0) {
-        displayCal = String(Math.round(calPer100 * totalG / 100));
+      if (unitG > 0 && Number.isFinite(calPer100) && calPer100 > 0) {
+        displayCal = String(Math.round(calPer100 * unitG / 100));
       }
     }
     return { ...fi as unknown as Meal, calories: displayCal, ingredients: null };
@@ -317,8 +320,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   }
 
   // 3. Articles alimentaires de type 'is_meal'
-  const isMealItems = isPlat ? foodItems.filter((fi) => {
+  const isMealItems = showMealItemsInAvailable ? foodItems.filter((fi) => {
     if (!fi.is_meal) return false;
+    const isMorningMeal = morningMealFoodItemIdSet.has(fi.id);
+    if (category.value === "petit_dejeuner" && !isMorningMeal) return false;
+    if (category.value === "plat" && isMorningMeal) return false;
     if (nameMatchedFiIds.has(fi.id)) return false;
     const hasRecipeMatch = meals.some(m => strictNameMatch(m.name, fi.name));
     if (hasRecipeMatch) return false;
@@ -542,7 +548,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
     if (sortMode === "manual" && storedOrder.length > 0) {
       const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
-      items.sort((a, b) => (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity));
+      items.sort((a, b) => {
+        const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+        const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+        if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+        return (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity);
+      });
     }
     if (sortMode === "calories" || sortMode === "protein") {
       const dir = sortAsc ? 1 : -1;
@@ -599,17 +610,15 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         return 0;
       };
       items.sort((a, b) => {
-        // Les articles is_meal sont toujours en bas (sauf pour Plat)
-        if (!isPlat) {
-          const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-          const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-          if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
-        }
+        // Les articles is_meal sont toujours regroupés en bas, sous le séparateur "Repas seuls".
+        const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+        const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+        if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
         return dir * (getVal(a) - getVal(b));
       });
     } else if (sortMode === "manual") {
-      // For manual sort, also push is_meal to bottom when no stored order (except for Plat)
-      if (storedOrder.length === 0 && !isPlat) {
+      // En tri manuel sans ordre enregistré, garder les repas seuls groupés en bas.
+      if (storedOrder.length === 0) {
         items.sort((a, b) => {
           const aIsMeal = a.type === 'isMeal' ? 1 : 0;
           const bIsMeal = b.type === 'isMeal' ? 1 : 0;
@@ -704,23 +713,21 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const expLabel = formatExpirationLabel(fi.expiration_date);
     const isExpiredFi = fi.expiration_date && new Date(new Date(fi.expiration_date).toDateString()) < new Date(new Date().toDateString());
     const expIsTodayFi = isToday(fi.expiration_date);
-    const displayGrams = fi.quantity && fi.quantity > 1 && fi.grams
-      ? `${parseQty(fi.grams) * fi.quantity}g`
-      : (fi.is_infinite ? "∞" : fi.grams ?? null);
+    const displayGrams = fi.is_infinite ? "∞" : fi.grams ?? null;
     
     let displayCal = fi.calories;
     let displayPro = fi.protein ?? null;
     if (fi.grams) {
-      const totalG = getFoodItemTotalGrams(fi);
-      if (totalG > 0) {
-        if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * totalG / 100));
-        if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * totalG / 100));
+      const unitG = parseQty(fi.grams);
+      if (unitG > 0) {
+        if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
+        if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * unitG / 100));
       }
     }
 
     const counterDays = computeCounterDays(fi.counter_start_date);
     const fakeMeal: Meal = {
-      id: `fi-${fi.id}`, name: fi.name, category: "plat", calories: displayCal,
+      id: `fi-${fi.id}`, name: fi.name, category: category.value, calories: displayCal,
       protein: displayPro,
       grams: displayGrams, ingredients: null,
       sort_order: 0, created_at: fi.created_at, is_available: true, is_favorite: false,
@@ -1855,12 +1862,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               }
 
               filteredUnified.sort((a, b) => {
-                // is_meal items always at bottom (except for Plat)
-                if (!isPlat) {
-                  const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-                  const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-                  if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
-                }
+                // Les repas seuls restent groupés sous leur séparateur, même en tri péremption.
+                const aIsMeal = a.type === 'isMeal' ? 1 : 0;
+                const bIsMeal = b.type === 'isMeal' ? 1 : 0;
+                if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
 
                 const baseCmp = compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
                 if (baseCmp !== 0) return baseCmp;
@@ -1880,7 +1885,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               // Find where past/today ends and future begins
               const todayStr = new Date().toISOString().slice(0, 10);
               let dateSeparatorInserted = false;
-              const firstIsMealIdx = isPlat ? filteredUnified.findIndex(u => u.type === 'isMeal') : -1;
+              const firstIsMealIdx = showMealItemsInAvailable ? filteredUnified.findIndex(u => u.type === 'isMeal') : -1;
 
               return filteredUnified.map((u, idx) => {
                 const elements: React.ReactNode[] = [];
@@ -1919,7 +1924,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
             // manual or calories: use unified items
             const unifiedItems = buildUnifiedItems();
-            const firstIsMealIdx = isPlat ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
+            const firstIsMealIdx = showMealItemsInAvailable ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
             return unifiedItems.map((u, idx) => {
               const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
                 <div key={`sep-ismeal-m`} className="flex items-center gap-2 my-2">
@@ -1942,7 +1947,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
             </p>
           }
 
-          {!isPlat && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
+          {!isPlat && category.value !== "petit_dejeuner" && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
         </div>
       }
     </div>

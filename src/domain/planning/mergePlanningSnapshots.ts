@@ -1,4 +1,6 @@
 import type { PlanningSnapshotEntry, MergedPlanningLiveState, PlanningPrefMap } from "./types";
+import type { PlanningWeekDayInfo } from "@/lib/planningWeekUtils";
+import { remapPlanningKeyToTargetWeek } from "./remapPlanningKeys";
 import {
   asNumberRecord,
   asStringArrayRecord,
@@ -11,7 +13,8 @@ import {
  */
 export function mergeSnapshotsIntoLivePrefMap(
   _prefMap: PlanningPrefMap,
-  snapshots: Record<string, PlanningSnapshotEntry>
+  snapshots: Record<string, PlanningSnapshotEntry>,
+  targetWeek?: PlanningWeekDayInfo[],
 ): MergedPlanningLiveState {
   // Reset hebdo : on repart d'un état vierge.
   // Seules les entrées explicitement sauvegardées (snapshots 💾) sont réinjectées.
@@ -27,16 +30,16 @@ export function mergeSnapshotsIntoLivePrefMap(
   for (const [key, snap] of Object.entries(snapshots)) {
     const s = snap;
     if (key.startsWith("manual-")) {
-      const k = key.replace("manual-", "");
+      const k = remapPlanningKeyToTargetWeek(key.replace("manual-", ""), targetWeek);
       if (s.cal != null) rMC[k] = s.cal;
       if (s.prot != null) rMP[k] = s.prot;
     } else if (key.startsWith("extra-")) {
-      const k = key.replace("extra-", "");
+      const k = remapPlanningKeyToTargetWeek(key.replace("extra-", ""), targetWeek);
       if (s.cal != null) rEC[k] = s.cal;
       if (s.prot != null) rEP[k] = s.prot;
       if (s.itemIds) rES[k] = s.itemIds;
     } else if (key.startsWith("breakfast-")) {
-      const k = key.replace("breakfast-", "");
+      const k = remapPlanningKeyToTargetWeek(key.replace("breakfast-", ""), targetWeek);
       if (s.cal != null) rBC[k] = s.cal;
       if (s.prot != null) rBP[k] = s.prot;
       if (s.mealId) keptBreakfast[k] = s.mealId;

@@ -283,6 +283,8 @@ export function useFoodItems() {
 interface FoodItemCardProps {
   item: FoodItem;
   onUpdate: (updates: Partial<FoodItem>) => void;
+  isMorningMeal: boolean;
+  onCycleMealMode: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onMoveToExtras?: () => void;
@@ -293,7 +295,7 @@ interface FoodItemCardProps {
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -607,13 +609,19 @@ function FoodItemCard({ item, onUpdate, onDelete, onDuplicate, onMoveToExtras, o
             </button>
           )}
 
-          {/* Bascule is_meal */}
+          {/* Bascule repas : off -> repas entier -> repas matin -> off */}
           <button
-            onClick={() => onUpdate({ is_meal: !item.is_meal })}
-            className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${item.is_meal ? 'bg-white/30 text-white border-white/50 font-bold' : 'bg-white/10 text-white/50 border-white/20'}`}
-            title={item.is_meal ? "Se mange seul (désactiver)" : "Marquer comme repas à part entière"}
+            onClick={onCycleMealMode}
+            className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${isMorningMeal
+              ? 'bg-sky-400/30 text-sky-100 border-sky-400/60 font-bold'
+              : item.is_meal
+                ? 'bg-white/30 text-white border-white/50 font-bold'
+                : 'bg-white/10 text-white/50 border-white/20'
+              }`}
+            title={isMorningMeal ? "Repas matin (cliquer pour désactiver)" : item.is_meal ? "Repas entier (cliquer: Repas matin)" : "Marquer comme repas à part entière"}
           >
             <UtensilsCrossed className="h-2.5 w-2.5" />
+            {isMorningMeal ? 'Matin' : item.is_meal ? 'Repas' : ''}
           </button>
 
           {/* Bascule food_type : cycle null -> féculent -> viande -> null */}
@@ -814,6 +822,8 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
   { type: 'toujours', label: 'Toujours présent', emoji: <span className="text-base">📌</span> },
 ];
 
+const MORNING_MEAL_PREF_KEY = 'morning_meal_food_item_ids';
+
 /** Écran principal des aliments : sections de stockage, ajout, tri et recherche. */
 export function FoodItems() {
   const { items, isLoading: itemsLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
@@ -828,6 +838,8 @@ export function FoodItems() {
   const isLoading = itemsLoading || prefsLoading;
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
+  const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
+  const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
 
   const [newName, setNewName] = useState("");
   const [newQuantity, setNewQuantity] = useState("");
@@ -961,6 +973,34 @@ export function FoodItems() {
       }
     }
   }, [items, updateItem, upsertEntry, rememberInitialFoodLibraryAmount]);
+
+  /** Retire un aliment de la catégorie "repas matin" stockée en préférence. */
+  const removeMorningMealId = useCallback((id: string) => {
+    if (!morningMealFoodItemIdSet.has(id)) return;
+    setPreference.mutate({
+      key: MORNING_MEAL_PREF_KEY,
+      value: morningMealFoodItemIds.filter((storedId) => storedId !== id),
+    });
+  }, [morningMealFoodItemIdSet, morningMealFoodItemIds, setPreference]);
+
+  /** Fait tourner le mode repas : désactivé -> repas entier -> repas matin -> désactivé. */
+  const cycleMealMode = useCallback((item: FoodItem) => {
+    const isMorningMeal = morningMealFoodItemIdSet.has(item.id);
+    if (!item.is_meal) {
+      handleUpdate(item.id, { is_meal: true });
+      removeMorningMealId(item.id);
+      return;
+    }
+    if (!isMorningMeal) {
+      setPreference.mutate({
+        key: MORNING_MEAL_PREF_KEY,
+        value: [...morningMealFoodItemIds.filter((id) => id !== item.id), item.id],
+      });
+      return;
+    }
+    handleUpdate(item.id, { is_meal: false });
+    removeMorningMealId(item.id);
+  }, [handleUpdate, morningMealFoodItemIdSet, morningMealFoodItemIds, removeMorningMealId, setPreference]);
 
   // Fermer les suggestions quand on clique ailleurs
   useEffect(() => {
@@ -1392,6 +1432,9 @@ export function FoodItems() {
             setDragIndex={setDragIndex}
             allItems={items}
             onChangeStorage={handleChangeStorage}
+            morningMealFoodItemIdSet={morningMealFoodItemIdSet}
+            cycleMealMode={cycleMealMode}
+            removeMorningMealId={removeMorningMealId}
           />
         ))}
       </div>
@@ -1416,6 +1459,9 @@ export function FoodItems() {
               setDragIndex={setDragIndex}
               allItems={items}
               onChangeStorage={handleChangeStorage}
+              morningMealFoodItemIdSet={morningMealFoodItemIdSet}
+              cycleMealMode={cycleMealMode}
+              removeMorningMealId={removeMorningMealId}
             />
           ))}
         </div>
@@ -1445,10 +1491,13 @@ interface FoodSectionProps {
   setDragIndex: (i: number | null) => void;
   allItems: FoodItem[];
   onChangeStorage: (id: string, storageType: StorageType) => void;
+  morningMealFoodItemIdSet: Set<string>;
+  cycleMealMode: (item: FoodItem) => void;
+  removeMorningMealId: (id: string) => void;
 }
 
 /** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
-function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, onChangeStorage }: FoodSectionProps) {
+function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId }: FoodSectionProps) {
   const SortIcon = sortMode === "expiration" ? CalendarDays : sortMode === "name" ? ArrowUpDown : sortMode === "calories" ? Flame : sortMode === "protein" ? UtensilsCrossed : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : sortMode === "name" ? "Nom" : sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
@@ -1626,7 +1675,12 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                 <FoodItemCard
                   item={item}
                   onUpdate={(updates) => onUpdate(item.id, updates)}
-                  onDelete={() => onDelete(item.id)}
+                  isMorningMeal={morningMealFoodItemIdSet.has(item.id)}
+                  onCycleMealMode={() => cycleMealMode(item)}
+                  onDelete={() => {
+                    removeMorningMealId(item.id);
+                    onDelete(item.id);
+                  }}
                   onDuplicate={() => onDuplicate(item.id)}
                   onMoveToExtras={storageType === 'test' ? () => onChangeStorage(item.id, 'extras') : undefined}
                   draggableEnabled={!isTouchDevice}

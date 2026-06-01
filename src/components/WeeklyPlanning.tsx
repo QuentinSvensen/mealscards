@@ -1888,8 +1888,8 @@ export function WeeklyPlanning({
       const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM);
       await deletePossibleMealsByIds(ids);
 
-      const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
-      const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
+      const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots, weekDates);
+      const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, weekDates);
       const goals = resolvePostResetGoals(prefMap);
       pushWeeklyResetClientPreferences(
         setPreference,

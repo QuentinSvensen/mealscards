@@ -51,6 +51,7 @@ import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSn
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
+import { buildWeekDates } from "@/lib/planningWeekUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 
 /**
@@ -461,8 +462,9 @@ const Index = () => {
         const mealsToDelete = filterPossibleMealsToDeleteForWeeklyClear(freshPossible, cutoffISO);
         await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
 
-        const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots);
-        const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots);
+        const targetWeek = buildWeekDates(0, now);
+        const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots, targetWeek);
+        const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, targetWeek);
         const goals = resolvePostResetGoals(prefMap);
         pushWeeklyResetClientPreferences(setPreference, promoted, goals, now.toISOString(), "auto_sunday");
 
