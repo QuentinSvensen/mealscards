@@ -79,6 +79,8 @@ const SUGGESTION_STYLE_PLAT = "font-semibold not-italic text-emerald-900 dark:te
 const SUGGESTION_STYLE_ALIMENT_INUTILISE =
   "font-semibold tabular-nums not-italic text-amber-950 dark:text-amber-300";
 
+const MIN_NEAR_FULL_REMAINING_RATIO = 0.9;
+
 /**
  * Ligne alternative « Ou ajouter » : verts plus sourds (moins « néon ») que le bloc principal,
  * tout en restant lisibles sur fond sombre.
@@ -505,9 +507,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     if (useRemainingCalories) {
       items = items.filter(u => {
         if (showOnlyFullRemainingRecipes) {
-          if (u.type === 'isMeal') return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
-          if (u.type === 'av') return tryFitMeal(u.item.meal, 1, false).show;
-          return false;
+          return matchesShowOnlyFullRemainingRecipes(u, localCalculatedRatios);
         }
         if (u.type === 'isMeal') {
           return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
@@ -692,6 +692,45 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        return { show: false, newRatio: null };
     }
   };
+
+  /**
+   * Filtre « 100 % » : garde les recettes faisables à 100 % et celles ramenées à 90–99 %
+   * par le budget calorique restant (même logique qu’sans la case 100 %).
+   */
+  const matchesShowOnlyFullRemainingRecipes = (
+    u: { type: string; fi?: FoodItem; item?: { meal: Meal; ratio?: number } },
+    localCalculatedRatios: Record<string, number>
+  ): boolean => {
+    if (u.type === 'isMeal' && u.fi) {
+      return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
+    }
+    if (u.type === 'av' && u.item) {
+      const mealId = u.item.meal.id;
+      if (tryFitMeal(u.item.meal, 1, false).show) return true;
+      const ratioToTry = customRatios[mealId] ?? 1;
+      const fitResult = tryFitMeal(u.item.meal, ratioToTry);
+      const nearlyFullRatio = fitResult.newRatio ?? 0;
+      if (fitResult.show && nearlyFullRatio >= MIN_NEAR_FULL_REMAINING_RATIO && nearlyFullRatio < 1) {
+        localCalculatedRatios[mealId] = nearlyFullRatio;
+        return true;
+      }
+      return false;
+    }
+    if (u.type === 'partial' && u.item) {
+      const partialKey = `partial-${u.item.meal.id}`;
+      if (tryFitMeal(u.item.meal, 1, false).show) return true;
+      const ratioToTry = customRatios[partialKey] ?? u.item.ratio ?? 1;
+      const fitResult = tryFitMeal(u.item.meal, ratioToTry);
+      const nearlyFullRatio = fitResult.newRatio ?? 0;
+      if (fitResult.show && nearlyFullRatio >= MIN_NEAR_FULL_REMAINING_RATIO && nearlyFullRatio < 1) {
+        localCalculatedRatios[partialKey] = nearlyFullRatio;
+        return true;
+      }
+      return false;
+    }
+    return false;
+  };
+
   const unifiedItems = buildUnifiedItems();
 
   const totalIsMealCount = unifiedItems.filter(u => u.type === 'isMeal').length;
@@ -1829,11 +1868,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                 return false;
               }) : unified;
               if (useRemainingCalories) {
+                const expirationCalculatedRatios: Record<string, number> = {};
                 filteredUnified = filteredUnified.filter(u => {
                   if (showOnlyFullRemainingRecipes) {
-                    if (u.type === 'isMeal') return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
-                    if (u.type === 'av') return tryFitMeal(u.item.meal, 1, false).show;
-                    return false;
+                    return matchesShowOnlyFullRemainingRecipes(u, expirationCalculatedRatios);
                   }
                   if (u.type === 'isMeal') {
                     return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
@@ -1859,6 +1897,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                   }
                   return true;
                 });
+                if (showOnlyFullRemainingRecipes) {
+                  filteredUnified = filteredUnified.map(u => {
+                    if (u.type === 'av' && expirationCalculatedRatios[u.item.meal.id] !== undefined) {
+                      u.item = { ...u.item, calculatedRatio: expirationCalculatedRatios[u.item.meal.id] } as any;
+                    }
+                    if (u.type === 'partial' && expirationCalculatedRatios[`partial-${u.item.meal.id}`] !== undefined) {
+                      u.item = { ...u.item, calculatedRatio: expirationCalculatedRatios[`partial-${u.item.meal.id}`] } as any;
+                    }
+                    return u;
+                  });
+                }
               }
 
               filteredUnified.sort((a, b) => {
