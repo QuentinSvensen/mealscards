@@ -199,6 +199,18 @@ export function PossibleMealCard({
   const meal = pm.meals;
   if (!meal) return null;
 
+  /** Recalcule une macro depuis l'aliment-repas source (valeur au 100 g × grammes de la portion Possible). */
+  const getFoodMealPortionMacro = (field: "calories" | "protein"): number | null => {
+    const grams = parseFloat((meal.grams || "").replace(",", ".").replace(/[^0-9.]/g, ""));
+    if (!Number.isFinite(grams) || grams <= 0) return null;
+    const sourceFood = foodItems?.find((fi) => fi.is_meal && normalizeKey(fi.name) === normalizeKey(meal.name));
+    const rawValue = field === "calories" ? sourceFood?.calories : sourceFood?.protein;
+    if (!rawValue) return null;
+    const per100 = parseFloat(String(rawValue).replace(",", ".").replace(/[^0-9.]/g, ""));
+    if (!Number.isFinite(per100) || per100 <= 0) return null;
+    return Math.round((per100 * grams) / 100);
+  };
+
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
     pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
@@ -648,7 +660,8 @@ export function PossibleMealCard({
           {/* le badge de ratio a été déplacé en haut à droite absolu */}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayCal = getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+            const rawDisplayCal = getFoodMealPortionMacro("calories")
+              ?? getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
             const isComputed = caloriesLookComputedOnPossibleCard(
               pm.ingredients_override != null,
@@ -672,7 +685,8 @@ export function PossibleMealCard({
           })()}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayPro = getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const rawDisplayPro = getFoodMealPortionMacro("protein")
+              ?? getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayPro = rawDisplayPro != null ? Math.round(rawDisplayPro) : null;
             const isComputedPro = proteinLooksComputedOnPossibleCard(
               pm.ingredients_override != null,

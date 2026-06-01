@@ -1131,14 +1131,12 @@ const Index = () => {
                             let protein = fi.protein || fiMacro?.pro || null;
 
                             if (fi.grams) {
-                              const totalG = getFoodItemTotalGrams(fi);
-                              if (totalG > 0) {
-                                if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * totalG / 100));
-                                if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * totalG / 100));
+                              // Un déplacement depuis "Au choix" consomme une seule portion, pas tout le stock disponible.
+                              const movedGrams = portionGrams > 0 ? portionGrams : perUnit;
+                              if (movedGrams > 0) {
+                                if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * movedGrams / 100));
+                                if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * movedGrams / 100));
                               }
-                            } else if (fi.quantity && fi.quantity > 1) {
-                              if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * fi.quantity));
-                              if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * fi.quantity));
                             }
 
                             const shouldStart = fi.storage_type !== 'surgele' && !fi.no_counter;
