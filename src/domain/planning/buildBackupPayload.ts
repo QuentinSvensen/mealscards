@@ -19,6 +19,14 @@ export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): 
     counter_start_date: pm.counter_start_date,
     sort_order: pm.sort_order,
     ingredients_override: pm.ingredients_override,
+    meal_name: pm.meals?.name ?? null,
+    meal_category: pm.meals?.category ?? null,
+    meal_calories: pm.meals?.calories ?? null,
+    meal_protein: pm.meals?.protein ?? null,
+    meal_grams: pm.meals?.grams ?? null,
+    meal_ingredients: pm.meals?.ingredients ?? null,
+    meal_oven_temp: pm.meals?.oven_temp ?? null,
+    meal_oven_minutes: pm.meals?.oven_minutes ?? null,
   }));
 }
 

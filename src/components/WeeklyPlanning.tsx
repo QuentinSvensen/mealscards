@@ -918,6 +918,8 @@ export function WeeklyPlanning({
   const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
 
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
+  const [popupCalOverride, setPopupCalOverride] = useState<string | undefined>(undefined);
+  const [popupProOverride, setPopupProOverride] = useState<string | undefined>(undefined);
   const [popupBreakfast, setPopupBreakfast] = useState<{ meal: any; day: string } | null>(null);
   const [additiveModes, setAdditiveModes] = useState<Record<string, { active: boolean; value: string }>>({});
   const [openExtrasDay, setOpenExtrasDay] = useState<string | null>(null);
@@ -929,6 +931,7 @@ export function WeeklyPlanning({
   const [customExtraName, setCustomExtraName] = useState('');
   const [customExtraCal, setCustomExtraCal] = useState('');
   const [customExtraProt, setCustomExtraProt] = useState('');
+  const backupCardTapRef = useRef<{ key: string; at: number } | null>(null);
 
   useEffect(() => {
     if (todayRef.current) {
@@ -1115,6 +1118,92 @@ export function WeeklyPlanning({
     for (const m of meals) map.set(m.id, m);
     return map;
   }, [meals]);
+
+  // Ouvre la popup de détail d'une carte Possible, avec overrides optionnels (ex. semaine précédente).
+  const openPlanningCardPopup = (
+    pm: PossibleMeal,
+    overrides?: { cal?: string | number; pro?: string | number },
+  ) => {
+    setPopupCalOverride(
+      overrides?.cal != null && String(overrides.cal).trim() !== ""
+        ? String(overrides.cal)
+        : undefined,
+    );
+    setPopupProOverride(
+      overrides?.pro != null && String(overrides.pro).trim() !== ""
+        ? String(overrides.pro)
+        : undefined,
+    );
+    setPopupPm(pm);
+  };
+
+  // Retrouve le repas lié à une carte de sauvegarde (catalogue actuel ou instantané embarqué).
+  const resolveBackupCardMeal = (card: any): Meal | null => {
+    if (card?.meals) return card.meals as Meal;
+    const fromCatalog = card?.meal_id ? allMealsById.get(card.meal_id) : null;
+    if (fromCatalog) return fromCatalog;
+    if (!card?.meal_name) return null;
+    return {
+      id: card.meal_id || card.id,
+      name: card.meal_name,
+      category: card.meal_category ?? "plat",
+      calories: card.meal_calories ?? null,
+      protein: card.meal_protein ?? null,
+      grams: card.meal_grams ?? null,
+      ingredients: card.ingredients_override ?? card.meal_ingredients ?? null,
+      sort_order: card.sort_order ?? 0,
+      created_at: card.created_at ?? new Date(0).toISOString(),
+      is_available: true,
+      is_favorite: false,
+      oven_temp: card.meal_oven_temp ?? null,
+      oven_minutes: card.meal_oven_minutes ?? null,
+    };
+  };
+
+  // Reconstruit une carte Possible depuis la sauvegarde hebdo pour afficher la même popup en lecture seule.
+  const openBackupPlanningCardPopup = (
+    card: any,
+    calOverride?: string | number,
+    proOverride?: string | number,
+  ) => {
+    const meal = resolveBackupCardMeal(card);
+    if (!meal) {
+      toast({
+        title: "Détail indisponible",
+        description: "Ce repas n'a plus assez d'informations dans la sauvegarde.",
+        variant: "destructive",
+      });
+      return;
+    }
+    openPlanningCardPopup(
+      {
+        id: card.id,
+        meal_id: card.meal_id,
+        quantity: card.quantity ?? 1,
+        expiration_date: card.expiration_date ?? null,
+        day_of_week: card.day_of_week ?? null,
+        meal_time: card.meal_time ?? null,
+        counter_start_date: card.counter_start_date ?? null,
+        sort_order: card.sort_order ?? 0,
+        created_at: card.created_at ?? new Date(0).toISOString(),
+        meals: meal,
+        ingredients_override: card.ingredients_override ?? null,
+      },
+      { cal: calOverride, pro: proOverride },
+    );
+  };
+
+  // Déclenche la popup sur double-clic desktop ou double-tap mobile pour une carte de sauvegarde.
+  const handleBackupCardOpen = (cardKey: string, open: () => void) => {
+    const now = Date.now();
+    const last = backupCardTapRef.current;
+    if (last && last.key === cardKey && now - last.at < 450) {
+      backupCardTapRef.current = null;
+      open();
+      return;
+    }
+    backupCardTapRef.current = { key: cardKey, at: now };
+  };
 
   const backupTotals = useMemo(() => {
     if (weekOffset !== -1) return null;
@@ -1754,7 +1843,7 @@ export function WeeklyPlanning({
           else delete updated[pm.id];
           setPreference.mutate({ key: 'planning_pro_overrides', value: updated });
         }}
-        onDoubleClick={() => setPopupPm(pm)}
+        onDoubleClick={() => openPlanningCardPopup(pm)}
         stockMap={stockMap}
       />
     );
@@ -3398,11 +3487,22 @@ export function WeeklyPlanning({
           const renderBackupCards = (slotCards: any[]) => slotCards.map((c: any, i: number) => {
             const m = allMealsById.get(c.meal_id);
             if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
+            const openBackupPopup = () => openBackupPlanningCardPopup(c, bCO[c.id], bPO[c.id]);
+            const cardKey = `${c.id}-${i}`;
             return (
-              <div key={i} className="rounded-xl px-2 py-1 text-white text-[10px] font-semibold" style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}>
-                {getCategoryEmoji(m.category)} {m.name}
-                {bCO[c.id] && <span className="ml-1 opacity-80">🔥{bCO[c.id]}</span>}
-                {bPO[c.id] && <span className="ml-1 opacity-80">🍗{bPO[c.id]}</span>}
+              <div
+                key={i}
+                onDoubleClick={openBackupPopup}
+                onClick={() => handleBackupCardOpen(cardKey, openBackupPopup)}
+                className="w-full min-w-0 overflow-hidden rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex flex-col gap-0.5 cursor-pointer transition-all hover:scale-[1.01]"
+                style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}
+                title="Double-clic pour voir le détail"
+              >
+                <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
+                  {getCategoryEmoji(m.category)} {m.name}
+                </span>
+                {bCO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
+                {bPO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🍗{bPO[c.id]}</span>}
               </div>
             );
           });
@@ -3515,13 +3615,37 @@ export function WeeklyPlanning({
 
                 dailyTotals.push(dayTotal);
                 dailyProteins.push(dayPro);
+                const backupBreakfastCard = matinCards.length === 1
+                  ? matinCards[0]
+                  : bfSel?.startsWith('pm:')
+                    ? cards.find((c: any) => c.id === bfSel.slice(3))
+                    : null;
+                const backupBreakfastMeal = backupBreakfastCard
+                  ? resolveBackupCardMeal(backupBreakfastCard)
+                  : bfSel?.startsWith('meal:')
+                    ? allMealsById.get(bfSel.slice(5)) ?? null
+                    : null;
+                const openBackupBreakfastPopup = () => {
+                  if (backupBreakfastCard) {
+                    openBackupPlanningCardPopup(backupBreakfastCard, bCO[backupBreakfastCard.id], bPO[backupBreakfastCard.id]);
+                    return;
+                  }
+                  if (backupBreakfastMeal) setPopupBreakfast({ meal: backupBreakfastMeal, day: iso });
+                };
 
                 return (
                   <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <h3 className="text-sm sm:text-base font-bold text-foreground">{display}</h3>
                       <div className="flex items-center gap-1">
-                        <span className="text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold">
+                        <span
+                          onDoubleClick={backupBreakfastMeal ? openBackupBreakfastPopup : undefined}
+                          onClick={() => {
+                            if (backupBreakfastMeal) handleBackupCardOpen(`bf-${iso}`, openBackupBreakfastPopup);
+                          }}
+                          className={`text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold ${backupBreakfastMeal ? 'cursor-pointer hover:bg-muted/80' : ''}`}
+                          title={backupBreakfastMeal ? "Double-clic pour voir le détail" : undefined}
+                        >
                           {(() => {
                             const count = matinCards.length + (bfSel ? 1 : 0);
                             if (count > 1) return 'Plusieurs petits déj';
@@ -3619,18 +3743,7 @@ export function WeeklyPlanning({
                                   <div className="text-[10px] text-blue-400 px-1">{bMP[kIso] || bMP[kKey] || 0} prot</div>
                                 </div>
                               ) : (
-                                slotCards.map((c: any, i: number) => {
-                                  const m = allMealsById.get(c.meal_id);
-                                  if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
-                                  return (
-                                    <div key={i} className="w-full min-w-0 overflow-hidden rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex flex-col gap-0.5 transition-all" style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}>
-                                      <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
-                                        {getCategoryEmoji(m.category)} {m.name}
-                                      </span>
-                                      {bCO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
-                                    </div>
-                                  );
-                                })
+                                renderBackupCards(slotCards)
                               )}
                             </div>
                           </div>
@@ -3672,15 +3785,7 @@ export function WeeklyPlanning({
                             <div className="text-[10px] text-blue-400 px-1 opacity-60">{bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0} prot</div>
                           </>
                         )}
-                        {gouterCards.map((c: any, i: number) => {
-                          const m = allMealsById.get(c.meal_id);
-                          if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
-                          return (
-                            <div key={i} className="inline-block mr-1 min-w-[132px] rounded-xl px-3 py-1.5 text-white text-center text-[9px] sm:text-[10px] font-semibold transition-all" style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}>
-                              {getCategoryEmoji(m.category)} {m.name}
-                            </div>
-                          );
-                        })}
+                        {renderBackupCards(gouterCards)}
                         {gouterAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1">
                             {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
@@ -4174,7 +4279,13 @@ export function WeeklyPlanning({
         </div>
       )}
 
-      <Dialog open={!!popupPm} onOpenChange={(open) => { if (!open) setPopupPm(null); }}>
+      <Dialog open={!!popupPm} onOpenChange={(open) => {
+        if (!open) {
+          setPopupPm(null);
+          setPopupCalOverride(undefined);
+          setPopupProOverride(undefined);
+        }
+      }}>
         <DialogContent className="max-w-md p-0 overflow-hidden" aria-describedby={undefined}>
           <DialogTitle className="sr-only">Détails du repas</DialogTitle>
           {popupPm && popupPm.meals && (() => {
@@ -4196,12 +4307,16 @@ export function WeeklyPlanning({
               popupPm.counter_start_date ??
               null;
             const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
-            const popupCal = calOverrides[popupPm.id]
-              ? parseFloat(calOverrides[popupPm.id]) || 0
-              : getDisplayedPMCalories(popupPm, popupRatio ?? undefined, isAvailableCb);
-            const popupPro = proOverrides[popupPm.id]
-              ? parseFloat(proOverrides[popupPm.id]) || 0
-              : getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const popupCal = popupCalOverride !== undefined
+              ? parseFloat(popupCalOverride) || 0
+              : calOverrides[popupPm.id]
+                ? parseFloat(calOverrides[popupPm.id]) || 0
+                : getDisplayedPMCalories(popupPm, popupRatio ?? undefined, isAvailableCb);
+            const popupPro = popupProOverride !== undefined
+              ? parseFloat(popupProOverride) || 0
+              : proOverrides[popupPm.id]
+                ? parseFloat(proOverrides[popupPm.id]) || 0
+                : getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayCal = popupCal ? String(Math.round(popupCal)) : null;
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);

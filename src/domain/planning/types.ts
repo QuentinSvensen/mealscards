@@ -20,6 +20,14 @@ export interface PossibleMealBackupCard {
   counter_start_date: string | null;
   sort_order: number;
   ingredients_override: string | null;
+  meal_name?: string | null;
+  meal_category?: string | null;
+  meal_calories?: string | null;
+  meal_protein?: string | null;
+  meal_grams?: string | null;
+  meal_ingredients?: string | null;
+  meal_oven_temp?: string | null;
+  meal_oven_minutes?: string | null;
 }
 
 /**
