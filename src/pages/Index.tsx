@@ -993,7 +993,8 @@ const Index = () => {
                           }}
                           onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
                           onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
-                          onReorder={(from, to) => handleReorderMeals(cat.value, from, to)} />
+                          onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
+                          ingredientMacroAutofillSources={ingredientMacroAutofillSources} />
 
                         <LazyAvailableList
                           category={cat}
