@@ -23,6 +23,7 @@ import { StructuredIngredientInline } from "@/components/StructuredIngredientInl
 import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
+import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { getAdaptedCounterDays, getCounterDaysBadgeTooltip } from "@/lib/ingredientUtils";
@@ -55,6 +56,7 @@ const MemoizedPossibleMealCard = React.memo(
       prevProps.isHighlighted === nextProps.isHighlighted &&
       prevProps.stockMap === nextProps.stockMap &&
       prevProps.foodItems === nextProps.foodItems &&
+      prevProps.ingredientMacroSources === nextProps.ingredientMacroSources &&
       prevProps.onReturnWithoutDeductionLabel === nextProps.onReturnWithoutDeductionLabel &&
       !!prevProps.onReturnToMaster === !!nextProps.onReturnToMaster &&
       !!prevProps.onReturnWithoutDeduction === !!nextProps.onReturnWithoutDeduction &&
@@ -95,6 +97,7 @@ interface PossibleListProps {
   onExternalDrop: (mealId: string, source: string, pmId?: string | null) => void;
   highlightedId: string | null;
   foodItems: FoodItem[];
+  ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
   onAddDirectly: () => void;
   masterSourcePmIds: Set<string>;
   unParUnSourcePmIds: Set<string>;
@@ -109,6 +112,7 @@ export function PossibleList({
   onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateGrams,
   onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes,
   onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems,
+  ingredientMacroAutofillSources,
   onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
@@ -198,6 +202,7 @@ export function PossibleList({
                 </div>
               )}
               <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
+                ingredientMacroSources={ingredientMacroAutofillSources}
                 expiredIngredientNames={expiredIngs}
                 expiringSoonIngredientNames={soonIngs}
                 onRemove={() => onRemove(pm.id)}

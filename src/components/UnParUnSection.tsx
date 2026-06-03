@@ -20,7 +20,7 @@ import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { buildStockMap, findStockKey, getMealMultiple } from "@/lib/stockUtils";
-import { normalizeForMatch, strictNameMatch, parseIngredientGroups, formatNumeric, getFoodItemTotalGrams, extractIngredientMacros, normalizeKey, computeCounterDays } from "@/lib/ingredientUtils";
+import { normalizeForMatch, strictNameMatch, parseIngredientGroups, formatNumeric, getFoodItemTotalGrams, extractIngredientMacros, normalizeKey, computeCounterDays, parseQty } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -274,14 +274,11 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
               let proDisplay: number | null = rawPro ? parseFloat(rawPro.replace(',', '.')) : null;
 
               if (fi.grams) {
-                const totalG = getFoodItemTotalGrams(fi);
-                if (totalG > 0) {
-                  calDisplay = calDisplay !== null ? (calDisplay * totalG) / 100 : null;
-                  proDisplay = proDisplay !== null ? (proDisplay * totalG) / 100 : null;
+                const portionG = parseQty(fi.grams);
+                if (portionG > 0) {
+                  calDisplay = calDisplay !== null ? (calDisplay * portionG) / 100 : null;
+                  proDisplay = proDisplay !== null ? (proDisplay * portionG) / 100 : null;
                 }
-              } else if (fi.quantity && fi.quantity > 1) {
-                calDisplay = calDisplay !== null ? calDisplay * fi.quantity : null;
-                proDisplay = proDisplay !== null ? proDisplay * fi.quantity : null;
               }
 
               return (

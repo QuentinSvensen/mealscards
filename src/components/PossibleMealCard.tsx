@@ -38,6 +38,7 @@ import { StructuredIngredientInline } from "@/components/StructuredIngredientInl
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, buildFoodItemIndex } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
+import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { fr } from "date-fns/locale";
 
 interface PossibleMealCardProps {
@@ -71,6 +72,7 @@ interface PossibleMealCardProps {
   realtimeCounterStartDate?: string | null;
   /** Fiches aliments (garde-manger) : complète les protéines quand les lignes n’ont que des kcal ou pas de [pro]. */
   foodItems?: FoodItem[];
+  ingredientMacroSources?: IngredientMacroAutofillSources;
 }
 
 const DAY_LABELS: Record<string, string> = {
@@ -180,7 +182,7 @@ export function PossibleMealCard({
   onUpdateOvenTemp, onUpdateOvenMinutes,
   onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
-  realtimeCounterStartDate, foodItems
+  realtimeCounterStartDate, foodItems, ingredientMacroSources
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
@@ -193,6 +195,10 @@ export function PossibleMealCard({
 
   const foodMacroIndex = useMemo(
     () => (foodItems?.length ? buildFoodItemIndex(foodItems) : undefined),
+    [foodItems],
+  );
+  const ingredientSuggestions = useMemo(
+    () => foodItems?.map((item) => item.name).filter(Boolean) ?? [],
     [foodItems],
   );
 
@@ -397,7 +403,11 @@ export function PossibleMealCard({
       const fallbackSource = pm.ingredients_override ?? meal.ingredients;
       lines = parseIngredientsToLines(fallbackSource?.trim() ? fallbackSource : null);
     }
-    setIngLines(lines);
+    setIngLines(
+      ingredientMacroSources
+        ? autofillIngredientLinesMacros(lines, ingredientMacroSources)
+        : lines,
+    );
     setEditingIngredients(true);
   };
 
@@ -607,7 +617,13 @@ export function PossibleMealCard({
           className="mt-1.5 h-6 border-white/30 bg-white/20 text-white placeholder:text-white/60 text-xs" />
       ) : editingIngredients ? (
         <div className="mt-1.5">
-          <IngredientEditor lines={ingLines} onUpdate={setIngLines} onCommit={commitIngredients} />
+          <IngredientEditor
+            lines={ingLines}
+            onUpdate={setIngLines}
+            onCommit={commitIngredients}
+            ingredientSuggestions={ingredientSuggestions}
+            ingredientMacroSources={ingredientMacroSources}
+          />
         </div>
       ) : null}
 

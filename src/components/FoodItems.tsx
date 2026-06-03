@@ -36,6 +36,10 @@ import { useMeals } from "@/hooks/useMeals";
 import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
 import { BarcodeScanner } from "./BarcodeScanner";
 import MaxMealGenerator from "@/components/MaxMealGenerator";
+import {
+  upsertFoodItemMacroLibraryItem,
+  type IngredientMacroLibraryItem,
+} from "@/domain/macros/ingredientMacroDatabase";
 
 export { colorFromName };
 
@@ -774,6 +778,7 @@ const foodItemSchema = z.object({
 });
 
 const FOOD_LIBRARY_AMOUNT_PREF_KEY = "food_library_amounts";
+const INGREDIENT_MACRO_LIBRARY_PREF_KEY = "ingredient_macro_library";
 
 type FoodLibraryAmountMemory = Record<string, { grams: string; quantity?: string; is_indivisible?: boolean }>;
 
@@ -907,6 +912,14 @@ export function FoodItems() {
     });
   }, [getPreference, setPreference]);
 
+  /** Synchronise le référentiel Macro quand un aliment reçoit des calories ou protéines. */
+  const syncFoodItemMacroLibrary = useCallback((name: string, calories: string | null | undefined, protein: string | null | undefined) => {
+    const current = getPreference<IngredientMacroLibraryItem[]>(INGREDIENT_MACRO_LIBRARY_PREF_KEY, []);
+    const next = upsertFoodItemMacroLibraryItem(current, name, calories, protein);
+    if (next === current) return;
+    setPreference.mutate({ key: INGREDIENT_MACRO_LIBRARY_PREF_KEY, value: next });
+  }, [getPreference, setPreference]);
+
   // Mise à jour des suggestions à chaque frappe
   const handleNameChange = useCallback((value: string) => {
     setNewName(value);
@@ -972,7 +985,14 @@ export function FoodItems() {
         rememberInitialFoodLibraryAmount(item.name, item.quantity, item.grams, updates.is_indivisible);
       }
     }
-  }, [items, updateItem, upsertEntry, rememberInitialFoodLibraryAmount]);
+    if (item && (updates.name !== undefined || updates.calories !== undefined || updates.protein !== undefined)) {
+      syncFoodItemMacroLibrary(
+        updates.name !== undefined ? updates.name : item.name,
+        updates.calories !== undefined ? updates.calories : item.calories,
+        updates.protein !== undefined ? updates.protein : item.protein,
+      );
+    }
+  }, [items, updateItem, upsertEntry, rememberInitialFoodLibraryAmount, syncFoodItemMacroLibrary]);
 
   /** Retire un aliment de la catégorie "repas matin" stockée en préférence. */
   const removeMorningMealId = useCallback((id: string) => {
@@ -1086,6 +1106,7 @@ export function FoodItems() {
           protein,
         });
         rememberInitialFoodLibraryAmount(pendingName, pendingQuantity, grams, finalIsIndivisible);
+        syncFoodItemMacroLibrary(pendingName, calories, protein);
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
         }

@@ -6,8 +6,13 @@ import {
   buildIngredientMacroUpdatePlan,
   collectIngredientMacroEntries,
   createIngredientMacroLibraryItem,
+  areIngredientMacroLibrariesEqual,
+  persistMissingIngredientMacroEntries,
   removeIngredientMacroLibraryItem,
+  upsertFoodItemMacroLibraryItem,
   upsertIngredientMacroLibraryItem,
+  resolveIngredientLineMacros,
+  autofillIngredientLinesMacros,
 } from "./ingredientMacroDatabase";
 
 const baseMeal: Omit<Meal, "id" | "name" | "ingredients"> = {
@@ -141,6 +146,43 @@ describe("ingredientMacroDatabase", () => {
     });
   });
 
+  it("crée une entrée Macro persistante depuis les macros d'un aliment", () => {
+    const library = upsertFoodItemMacroLibraryItem([], "Patatoes Lidl", "131", "2");
+
+    expect(library).toEqual([
+      {
+        key: "patatoes lidl",
+        displayName: "Patatoes Lidl",
+        calories: "131",
+        protein: "2",
+      },
+    ]);
+  });
+
+  it("détecte l'égalité de contenu entre deux référentiels Macro", () => {
+    const left = [createIngredientMacroLibraryItem("Patatoes Lidl", "131", "2")!];
+    const right = [{ ...left[0] }];
+    expect(areIngredientMacroLibrariesEqual(left, right)).toBe(true);
+    expect(areIngredientMacroLibrariesEqual(left, [])).toBe(false);
+  });
+
+  it("garde une ligne Macro après disparition de sa recette source", () => {
+    const entries = collectIngredientMacroEntries([
+      makeMeal("1", "Plat source", "100g Dinde{105} [24]"),
+    ]);
+
+    const library = persistMissingIngredientMacroEntries([], entries);
+    const persistedEntries = collectIngredientMacroEntries([], [], library);
+
+    expect(persistedEntries).toHaveLength(1);
+    expect(persistedEntries[0]).toMatchObject({
+      displayName: "Dinde",
+      calories: "105",
+      protein: "24",
+      recipeCount: 0,
+    });
+  });
+
   it("déduit la base depuis l'onglet Aliments quand la macro vient d'un repas", () => {
     const meals = [
       makeMeal("1", "Bol", "Teriyaki{70} [2], Nouille protéinée{350} [14]"),
@@ -175,5 +217,28 @@ describe("ingredientMacroDatabase", () => {
     expect(plan.possibleUpdates[0].ingredients_override).toBe("50g Filet de poulet");
     expect(plan.foodUpdates[0]).toMatchObject({ id: "food1", calories: null, protein: null });
     expect(nextLibrary).toEqual([]);
+  });
+
+  it("calcule les macros d'une ligne depuis le référentiel Macro au 100 g", () => {
+    const library = [createIngredientMacroLibraryItem("Patatoes Lidl", "131", "2,1")!];
+    const line = {
+      qty: "250",
+      count: "",
+      name: "Patatoes Lidl",
+      cal: "",
+      pro: "",
+      isOr: false,
+      isAnd: false,
+      isOptional: false,
+    };
+
+    expect(resolveIngredientLineMacros(line, { macroLibrary: library })).toEqual({
+      cal: "131",
+      pro: "2,1",
+    });
+
+    const filled = autofillIngredientLinesMacros([line], { macroLibrary: library });
+    expect(filled[0].cal).toBe("131");
+    expect(filled[0].pro).toBe("2,1");
   });
 });

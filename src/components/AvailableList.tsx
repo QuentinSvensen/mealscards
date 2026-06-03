@@ -18,7 +18,7 @@
  * tryFitMeal() : vérifie si un repas rentre dans le budget calorique restant
  * buildUnifiedItems() : fusionne toutes les sources en liste unifiée triée
  */
-import { useState, Fragment, useEffect } from "react";
+import { useState, Fragment, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
@@ -28,6 +28,7 @@ import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
+import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { usePreferences } from "@/hooks/usePreferences";
 import {
   buildStockMap, findStockKey, getMealMultiple, getMealFractionalRatio,
@@ -137,9 +138,10 @@ interface AvailableListProps {
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
   onAfterMoveToPossible?: () => void;
+  ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
 }
 
-export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onAfterMoveToPossible }: AvailableListProps) {
+export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onAfterMoveToPossible, ingredientMacroAutofillSources }: AvailableListProps) {
   const isPlat = category.value === "plat";
   const showMealItemsInAvailable = category.value === "plat" || category.value === "petit_dejeuner";
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
@@ -153,6 +155,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
   const [ratioInput, setRatioInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const ingredientSuggestions = useMemo(
+    () => foodItems.map((item) => item.name).filter(Boolean),
+    [foodItems],
+  );
   const tapModeForUnusedSuggestions = useUnusedSuggestionTapMode();
   const [mobileUnusedSuggestionKey, setMobileUnusedSuggestionKey] = useState<string | null>(null);
   useEffect(() => {
@@ -774,7 +780,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     };
     return (
       <div key={fi.id} className="relative">
-        <MealCard meal={fakeMeal} stockMap={stockMap}
+        <MealCard meal={fakeMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+          ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={() => { onMoveFoodItemToPossible(fi); onAfterMoveToPossible?.(); }}
           onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
           onDragStart={(e) => { e.dataTransfer.setData("mealId", fi.id); e.dataTransfer.setData("source", "available"); if (unifiedIdx !== undefined) setAvDragIndex(unifiedIdx); }}
@@ -861,7 +868,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const fakeMeal: Meal = { ...displayMeal, id: nmKey, grams: displayGrams };
     return (
       <div key={`nm-${idx}`} className="relative">
-        <MealCard meal={fakeMeal} stockMap={stockMap}
+        <MealCard meal={fakeMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+          ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={async () => {
             const cr = customRatios[nmKey];
             // On réinitialise AVANT pour un effet immédiat
@@ -943,7 +951,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const expiringIng = analysis.expiringIngredientName;
     return (
       <div key={meal.id} className="relative">
-        <MealCard meal={displayMeal} stockMap={stockMap}
+        <MealCard meal={displayMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+          ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={async () => {
             const cr = customRatios[meal.id];
             setCustomRatios(prev => { const next = { ...prev }; delete next[meal.id]; return next; });
@@ -1034,7 +1043,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const partialKey = `partial-${meal.id}`;
     return (
       <div key={partialKey} className="relative">
-        <MealCard meal={partialMeal} stockMap={stockMap}
+        <MealCard meal={partialMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+          ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={async () => {
             setCustomRatios(prev => { const next = { ...prev }; delete next[partialKey]; return next; });
             await onMovePartialToPossible(meal, effectiveRatio);

@@ -1,7 +1,12 @@
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { normalizeKey, parseIngredientsToLines, serializeIngredients } from "@/lib/ingredientUtils";
-import { getExtraMacroBasisLabel, getExtraMacroReferenceMacros, getExtraStoredMacrosFromReference } from "@/lib/extraMacroUtils";
+import { normalizeKey, parseIngredientsToLines, serializeIngredients, type IngLine } from "@/lib/ingredientUtils";
+import {
+  getExtraMacroBasisLabel,
+  getExtraMacroReferenceMacros,
+  getExtraStoredMacrosFromReference,
+  parseFoodMacroValue,
+} from "@/lib/extraMacroUtils";
 
 export interface IngredientMacroEntry {
   key: string;
@@ -22,6 +27,12 @@ export interface IngredientMacroLibraryItem {
   displayName: string;
   calories: string;
   protein: string;
+}
+
+export interface IngredientMacroAutofillSources {
+  foodItems?: FoodItem[];
+  macroLibrary?: IngredientMacroLibraryItem[];
+  mealMacros?: Map<string, { cal: string; pro: string }>;
 }
 
 export interface IngredientMacroUpdatePlan {
@@ -67,6 +78,71 @@ export function upsertIngredientMacroLibraryItem(
 ): IngredientMacroLibraryItem[] {
   const others = library.filter((entry) => entry.key !== item.key);
   return [...others, item].sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
+}
+
+// Ajoute au référentiel Macro un aliment dont les calories ou protéines ont été saisies dans l'onglet Aliments.
+export function upsertFoodItemMacroLibraryItem(
+  library: IngredientMacroLibraryItem[],
+  foodName: string,
+  calories: string | null | undefined,
+  protein: string | null | undefined,
+): IngredientMacroLibraryItem[] {
+  const item = createIngredientMacroLibraryItem(foodName, calories ?? "", protein ?? "");
+  if (!item || (!item.calories && !item.protein)) return library;
+
+  const existing = library.find((entry) => entry.key === item.key);
+  if (
+    existing?.displayName === item.displayName &&
+    existing.calories === item.calories &&
+    existing.protein === item.protein
+  ) {
+    return library;
+  }
+
+  return upsertIngredientMacroLibraryItem(library, item);
+}
+
+// Persiste les lignes Macro découvertes automatiquement pour qu'elles survivent à la disparition des sources.
+export function persistMissingIngredientMacroEntries(
+  library: IngredientMacroLibraryItem[],
+  entries: IngredientMacroEntry[],
+  ignoredKeys: Set<string> = new Set(),
+): IngredientMacroLibraryItem[] {
+  let nextLibrary = library;
+  const existingKeys = new Set(library.map((entry) => entry.key));
+
+  for (const entry of entries) {
+    if (existingKeys.has(entry.key) || ignoredKeys.has(entry.key)) continue;
+    if (!entry.calories.trim() && !entry.protein.trim()) continue;
+
+    const item = createIngredientMacroLibraryItem(entry.displayName, entry.calories, entry.protein);
+    if (!item) continue;
+    nextLibrary = upsertIngredientMacroLibraryItem(nextLibrary, item);
+    existingKeys.add(item.key);
+  }
+
+  return nextLibrary;
+}
+
+// Compare deux référentiels Macro pour éviter des sauvegardes en boucle quand seule la référence change.
+export function areIngredientMacroLibrariesEqual(
+  left: IngredientMacroLibraryItem[],
+  right: IngredientMacroLibraryItem[],
+): boolean {
+  if (left.length !== right.length) return false;
+  const rightByKey = new Map(right.map((entry) => [entry.key, entry]));
+  for (const entry of left) {
+    const other = rightByKey.get(entry.key);
+    if (!other) return false;
+    if (
+      entry.displayName !== other.displayName ||
+      entry.calories !== other.calories ||
+      entry.protein !== other.protein
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // Retire un ingrédient du référentiel macros persisté.
@@ -309,4 +385,115 @@ export function buildIngredientMacroUpdatePlan(
   });
 
   return { mealUpdates, possibleUpdates, foodUpdates };
+}
+
+// Formate une valeur numérique de macro pour l'affichage dans l'éditeur d'ingrédients.
+function formatLineMacroValue(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "";
+  const rounded = Math.round(value * 10) / 10;
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
+    return String(Math.round(rounded));
+  }
+  return String(rounded).replace(".", ",");
+}
+
+// Trouve la fiche aliment correspondant au nom normalisé d'une ligne d'ingrédient.
+function findFoodItemForIngredientName(foodItems: FoodItem[] | undefined, key: string): FoodItem | undefined {
+  if (!foodItems?.length || !key) return undefined;
+  return foodItems.find((item) => normalizeKey(item.name) === key);
+}
+
+// Indique si les macros d'une ligne peuvent être recalculées depuis le garde-manger ou le référentiel Macro.
+export function hasScalableIngredientMacroSource(
+  line: Pick<IngLine, "name">,
+  sources: IngredientMacroAutofillSources,
+): boolean {
+  const key = normalizeKey(line.name);
+  if (!key) return false;
+
+  const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
+  if (foodItem) {
+    const ref = getExtraMacroReferenceMacros(foodItem);
+    if (parseFoodMacroValue(ref.cal) > 0 || parseFoodMacroValue(ref.pro) > 0) return true;
+  }
+
+  const libraryItem = sources.macroLibrary?.find((entry) => entry.key === key);
+  if (libraryItem && (parseFoodMacroValue(libraryItem.calories) > 0 || parseFoodMacroValue(libraryItem.protein) > 0)) {
+    return true;
+  }
+
+  return false;
+}
+
+// Résout les calories et protéines d'une ligne à partir du garde-manger, du référentiel Macro ou des recettes existantes.
+export function resolveIngredientLineMacros(
+  line: Pick<IngLine, "name" | "qty" | "count">,
+  sources: IngredientMacroAutofillSources,
+): { cal: string; pro: string } {
+  const key = normalizeKey(line.name);
+  if (!key) return { cal: "", pro: "" };
+
+  const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
+
+  if (foodItem) {
+    const ref = getExtraMacroReferenceMacros(foodItem);
+    const calRef = parseFoodMacroValue(ref.cal);
+    const proRef = parseFoodMacroValue(ref.pro);
+    if (calRef > 0 || proRef > 0) {
+      return {
+        cal: calRef > 0 ? formatLineMacroValue(calRef) : "",
+        pro: proRef > 0 ? formatLineMacroValue(proRef) : "",
+      };
+    }
+  }
+
+  const libraryItem = sources.macroLibrary?.find((entry) => entry.key === key);
+  if (libraryItem) {
+    const calRef = parseFoodMacroValue(libraryItem.calories);
+    const proRef = parseFoodMacroValue(libraryItem.protein);
+    if (calRef > 0 || proRef > 0) {
+      return {
+        cal: calRef > 0 ? formatLineMacroValue(calRef) : "",
+        pro: proRef > 0 ? formatLineMacroValue(proRef) : "",
+      };
+    }
+  }
+
+  const mealMacro = sources.mealMacros?.get(key);
+  if (mealMacro && (mealMacro.cal || mealMacro.pro)) {
+    return { cal: mealMacro.cal || "", pro: mealMacro.pro || "" };
+  }
+
+  return { cal: "", pro: "" };
+}
+
+// Complète les macros manquantes sur chaque ligne sans écraser une saisie manuelle existante.
+export function autofillIngredientLinesMacros(
+  lines: IngLine[],
+  sources: IngredientMacroAutofillSources,
+): IngLine[] {
+  return lines.map((line) => {
+    if (!line.name.trim()) return line;
+
+    const hasCal = Boolean(line.cal?.trim());
+    const hasPro = Boolean(line.pro?.trim());
+    if (hasCal && hasPro) return line;
+
+    const resolved = resolveIngredientLineMacros(line, sources);
+    if (!resolved.cal && !resolved.pro) return line;
+
+    if (hasScalableIngredientMacroSource(line, sources)) {
+      return {
+        ...line,
+        cal: resolved.cal || line.cal,
+        pro: resolved.pro || line.pro,
+      };
+    }
+
+    return {
+      ...line,
+      cal: hasCal ? line.cal : (resolved.cal || line.cal),
+      pro: hasPro ? line.pro : (resolved.pro || line.pro),
+    };
+  });
 }

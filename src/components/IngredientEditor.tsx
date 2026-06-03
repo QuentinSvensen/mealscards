@@ -11,28 +11,99 @@
  * - Ajout automatique d'une ligne vide quand on tape dans la dernière
  * - Commit sur perte de focus (onBlur) ou bouton "✓ Valider"
  */
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import type { IngLine } from "@/lib/ingredientUtils";
+import { normalizeForMatch, type IngLine } from "@/lib/ingredientUtils";
+import {
+  hasScalableIngredientMacroSource,
+  resolveIngredientLineMacros,
+  type IngredientMacroAutofillSources,
+} from "@/domain/macros/ingredientMacroDatabase";
 
 interface IngredientEditorProps {
   lines: IngLine[];
   onUpdate: (lines: IngLine[]) => void;
   onCommit: () => void;
+  ingredientSuggestions?: string[];
+  ingredientMacroSources?: IngredientMacroAutofillSources;
 }
 
 /**
  * Shared ingredient editing grid used by MealCard and PossibleMealCard.
  * Supports drag & drop reordering of ingredient lines.
  */
-export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditorProps) {
+export function IngredientEditor({
+  lines,
+  onUpdate,
+  onCommit,
+  ingredientSuggestions = [],
+  ingredientMacroSources,
+}: IngredientEditorProps) {
   const qtyRefs = useRef<(HTMLInputElement | null)[]>([]);
   const countRefs = useRef<(HTMLInputElement | null)[]>([]);
   const nameRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [suggestionLineIdx, setSuggestionLineIdx] = useState<number | null>(null);
+  const [activeSuggestionIdx, setActiveSuggestionIdx] = useState(0);
   const handleRef = useRef(false);
+
+  const normalizedIngredientSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    return ingredientSuggestions
+      .map((name) => name.trim())
+      .filter((name) => {
+        const key = normalizeForMatch(name);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => a.localeCompare(b, "fr"));
+  }, [ingredientSuggestions]);
+
+  /** Retourne les aliments proposés pour accélérer la saisie d'un nom d'ingrédient. */
+  const getSuggestions = (idx: number): string[] => {
+    const query = lines[idx]?.name?.trim() ?? "";
+    if (!query) return [];
+
+    const normalizedQuery = normalizeForMatch(query);
+    return normalizedIngredientSuggestions
+      .filter((name) => {
+        const normalizedName = normalizeForMatch(name);
+        return normalizedName !== normalizedQuery && normalizedName.includes(normalizedQuery);
+      })
+      .slice(0, 6);
+  };
+
+  /** Complète ou recalcule les macros d'une ligne à partir du référentiel Macro et des fiches aliments. */
+  const applyMacroAutofill = (
+    line: IngLine,
+    mode: "emptyOnly" | "recalculate",
+  ): IngLine => {
+    if (!ingredientMacroSources) return line;
+
+    const resolved = resolveIngredientLineMacros(line, ingredientMacroSources);
+    if (!resolved.cal && !resolved.pro) return line;
+
+    if (mode === "recalculate" && !hasScalableIngredientMacroSource(line, ingredientMacroSources)) {
+      return line;
+    }
+
+    if (mode === "emptyOnly") {
+      return {
+        ...line,
+        cal: line.cal?.trim() ? line.cal : (resolved.cal || line.cal),
+        pro: line.pro?.trim() ? line.pro : (resolved.pro || line.pro),
+      };
+    }
+
+    return {
+      ...line,
+      cal: resolved.cal || line.cal,
+      pro: resolved.pro || line.pro,
+    };
+  };
 
   const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "pro", value: string) => {
     const next = [...lines];
@@ -40,7 +111,30 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
     if (field === "name" && idx === next.length - 1 && value.trim()) {
       next.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
     }
+    if (field === "name") {
+      setSuggestionLineIdx(value.trim() ? idx : null);
+      setActiveSuggestionIdx(0);
+      if (value.trim()) {
+        next[idx] = applyMacroAutofill(next[idx], "emptyOnly");
+      }
+    }
+    if ((field === "qty" || field === "count") && next[idx].name.trim()) {
+      next[idx] = applyMacroAutofill(next[idx], "recalculate");
+    }
     onUpdate(next);
+  };
+
+  /** Applique une suggestion d'aliment à la ligne en cours et remplit les macros si connues. */
+  const selectSuggestion = (idx: number, name: string) => {
+    const next = [...lines];
+    next[idx] = applyMacroAutofill({ ...next[idx], name }, "recalculate");
+    if (idx === next.length - 1) {
+      next.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
+    }
+    onUpdate(next);
+    setSuggestionLineIdx(null);
+    setActiveSuggestionIdx(0);
+    setTimeout(() => nameRefs.current[idx]?.focus(), 0);
   };
 
   const toggleOr = (idx: number) => {
@@ -66,6 +160,31 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
   };
 
   const handleKeyDown = (idx: number, field: "qty" | "count" | "name", e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (field === "name") {
+      const suggestions = suggestionLineIdx === idx ? getSuggestions(idx) : [];
+      if (suggestions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setActiveSuggestionIdx((current) => (current + 1) % suggestions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveSuggestionIdx((current) => (current - 1 + suggestions.length) % suggestions.length);
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          selectSuggestion(idx, suggestions[activeSuggestionIdx] ?? suggestions[0]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSuggestionLineIdx(null);
+          return;
+        }
+      }
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       if (field === "qty") countRefs.current[idx]?.focus();
@@ -209,14 +328,41 @@ export function IngredientEditor({ lines, onUpdate, onCommit }: IngredientEditor
             onKeyDown={e => handleKeyDown(idx, "count", e)}
             className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
           />
-          <Input
-            ref={el => { nameRefs.current[idx] = el; }}
-            placeholder={`Ingrédient ${idx + 1}`}
-            value={line.name}
-            onChange={e => updateLine(idx, "name", e.target.value)}
-            onKeyDown={e => handleKeyDown(idx, "name", e)}
-            className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
-          />
+          <div className="relative">
+            <Input
+              ref={el => { nameRefs.current[idx] = el; }}
+              placeholder={`Ingrédient ${idx + 1}`}
+              value={line.name}
+              onFocus={() => { if (line.name.trim()) setSuggestionLineIdx(idx); }}
+              onChange={e => updateLine(idx, "name", e.target.value)}
+              onKeyDown={e => handleKeyDown(idx, "name", e)}
+              className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
+            />
+            {suggestionLineIdx === idx && getSuggestions(idx).length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border border-white/20 bg-slate-900/95 py-1 shadow-xl backdrop-blur">
+                {getSuggestions(idx).map((name, suggestionIdx) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      handleRef.current = true;
+                      selectSuggestion(idx, name);
+                      setTimeout(() => { handleRef.current = false; }, 100);
+                    }}
+                    onMouseEnter={() => setActiveSuggestionIdx(suggestionIdx)}
+                    className={`block w-full px-2 py-1.5 text-left text-[11px] transition-colors ${
+                      suggestionIdx === activeSuggestionIdx
+                        ? "bg-white/20 text-white"
+                        : "text-white/80 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Input
             placeholder="cal"
             inputMode="text"

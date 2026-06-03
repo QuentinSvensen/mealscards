@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useMemo } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, ShieldAlert, Apple, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { DevMenu } from "@/components/DevMenu";
@@ -52,7 +52,7 @@ import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates } from "@/lib/planningWeekUtils";
-import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 
 /**
  * Enveloppe un import dynamique : en cas d'erreur de chunk, tente un rechargement (cache SW, sessionStorage).
@@ -164,6 +164,9 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
   courses: "/courses"
 };
 
+const EMPTY_MACRO_LIBRARY: IngredientMacroLibraryItem[] = [];
+const EMPTY_DEDUCTION_SNAPSHOTS: Record<string, FoodItem[]> = {};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL : Index
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -198,6 +201,13 @@ const Index = () => {
 
   const { groups: shoppingGroups, items: shoppingItems, toggleSecondaryCheck: toggleShoppingSecondaryCheck, updateItemQuantity: updateShoppingItemQuantity } = useShoppingList({ enabled: unlocked });
   const { getPreference, setPreference, isLoading: isPreferencesLoading } = usePreferences({ enabled: unlocked });
+  const macroLibrary = getPreference<IngredientMacroLibraryItem[]>("ingredient_macro_library", EMPTY_MACRO_LIBRARY);
+  const saveMacroLibrary = useCallback(
+    (library: IngredientMacroLibraryItem[]) => {
+      setPreference.mutate({ key: "ingredient_macro_library", value: library });
+    },
+    [setPreference],
+  );
 
   // ─── Données dérivées (memoized) ────────────────────────────────────────
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
@@ -349,18 +359,30 @@ const Index = () => {
 
   const macroLookup = useMemo(() => {
     const map = new Map<string, { cal: string; pro: string }>();
-    for (const meal of meals) {
-      if (!meal.ingredients) continue;
-      const macros = extractIngredientMacros(meal.ingredients);
-      for (const [key, val] of macros) {
+    const merge = (ingredients: string | null | undefined) => {
+      if (!ingredients) return;
+      for (const [key, val] of extractIngredientMacros(ingredients)) {
         const existing = map.get(key);
         if (!existing || (!existing.cal && val.cal) || (!existing.pro && val.pro)) {
           map.set(key, { cal: val.cal || existing?.cal || "", pro: val.pro || existing?.pro || "" });
         }
       }
+    };
+    for (const meal of meals) merge(meal.ingredients);
+    for (const pm of possibleMeals) {
+      merge(pm.ingredients_override ?? pm.meals?.ingredients ?? null);
     }
     return map;
-  }, [meals]);
+  }, [meals, possibleMeals]);
+
+  const ingredientMacroAutofillSources = useMemo<IngredientMacroAutofillSources>(
+    () => ({
+      foodItems,
+      macroLibrary,
+      mealMacros: macroLookup,
+    }),
+    [foodItems, macroLibrary, macroLookup],
+  );
 
   useEffect(() => {
     if (!unlocked) return;
@@ -502,7 +524,7 @@ const Index = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const SNAPSHOT_PREF_KEY = 'deduction_snapshots_v1';
-  const persistedSnapshots = getPreference<Record<string, FoodItem[]>>(SNAPSHOT_PREF_KEY, {});
+  const persistedSnapshots = getPreference<Record<string, FoodItem[]>>(SNAPSHOT_PREF_KEY, EMPTY_DEDUCTION_SNAPSHOTS);
   const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
   const snapshotsSynced = useRef(false);
   const snapshotsJsonRef = useRef('');
@@ -811,8 +833,8 @@ const Index = () => {
                 meals={meals}
                 possibleMeals={possibleMeals}
                 foodItems={foodItems}
-                macroLibrary={getPreference<IngredientMacroLibraryItem[]>('ingredient_macro_library', [])}
-                onSaveMacroLibrary={(library) => setPreference.mutate({ key: 'ingredient_macro_library', value: library })}
+                macroLibrary={macroLibrary}
+                onSaveMacroLibrary={saveMacroLibrary}
                 onUpdateMealIngredients={(id, ingredients) => updateIngredients.mutate({ id, ingredients })}
                 onUpdatePossibleIngredients={(id, ingredients_override) => updatePossibleIngredients.mutate({ id, ingredients_override })}
                 onUpdateFoodItemMacro={(id, updates) => updateFoodItemMutation.mutate({ id, ...updates })}
@@ -977,6 +999,7 @@ const Index = () => {
                           category={cat}
                           meals={getMealsByCategory(cat.value)}
                           foodItems={foodItems}
+                          ingredientMacroAutofillSources={ingredientMacroAutofillSources}
                           allMeals={meals}
                           stockMap={stockMap}
                           sortMode={availableSortModes[cat.value] || "manual"}
@@ -1477,6 +1500,7 @@ const Index = () => {
                           onExternalDrop={(mealId, source, pmId) => handleMoveToPossibleGeneral(mealId, source, pmId)}
                           highlightedId={highlightedId}
                           foodItems={foodItems}
+                          ingredientMacroAutofillSources={ingredientMacroAutofillSources}
                           onAddDirectly={() => openDialog("possible")}
                           masterSourcePmIds={masterSourcePmIds}
                           unParUnSourcePmIds={unParUnSourcePmIds} />

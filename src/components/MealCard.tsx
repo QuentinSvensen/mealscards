@@ -20,6 +20,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Meal } from "@/hooks/useMeals";
+import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   type IngLine,
   parseIngredientsToLines, serializeIngredients,
@@ -58,6 +59,8 @@ interface MealCardProps {
   stockMap?: Map<string, StockInfo>;
   earliestCounterDate?: string | null;
   hideCounter?: boolean;
+  ingredientSuggestions?: string[];
+  ingredientMacroSources?: IngredientMacroAutofillSources;
 }
 
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
@@ -68,7 +71,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate,
   expirationIsToday, expiringIngredientName, expiredIngredientNames, expiringSoonIngredientNames,
   maxIngredientCounter, missingIngredientNames, counterIngredientNames, stockMap,
-  earliestCounterDate, hideCounter
+  earliestCounterDate, hideCounter, ingredientSuggestions, ingredientMacroSources
 }, _ref) {
   const [editing, setEditing] = useState<"name" | "calories" | "protein" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -88,7 +91,11 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
 
   const openIngredients = () => {
     const parsed = parseIngredientsToLines(meal.ingredients);
-    setIngLines(parsed);
+    setIngLines(
+      ingredientMacroSources
+        ? autofillIngredientLinesMacros(parsed, ingredientMacroSources)
+        : parsed,
+    );
     setEditingIngredients(true);
   };
 
@@ -132,7 +139,13 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
           className="h-8 border-white/30 bg-white/20 text-white placeholder:text-white/60 flex-1"
         />
       ) : editingIngredients ? (
-        <IngredientEditor lines={ingLines} onUpdate={setIngLines} onCommit={commitIngredients} />
+        <IngredientEditor
+          lines={ingLines}
+          onUpdate={setIngLines}
+          onCommit={commitIngredients}
+          ingredientSuggestions={ingredientSuggestions}
+          ingredientMacroSources={ingredientMacroSources}
+        />
       ) : (
         <>
           {/* Ligne de titre */}
@@ -281,6 +294,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     prevProps.meal.is_favorite === nextProps.meal.is_favorite &&
     prevProps.isHighlighted === nextProps.isHighlighted &&
     prevProps.hideDelete === nextProps.hideDelete &&
+    prevProps.ingredientSuggestions === nextProps.ingredientSuggestions &&
+    prevProps.ingredientMacroSources === nextProps.ingredientMacroSources &&
     prevProps.expirationLabel === nextProps.expirationLabel &&
     prevProps.expirationDate === nextProps.expirationDate &&
     prevProps.expirationIsToday === nextProps.expirationIsToday &&

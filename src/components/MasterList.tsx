@@ -8,7 +8,7 @@
  * Chaque carte affiche les ingrédients manquants, les dates de péremption,
  * les compteurs d'ouverture et les macros nutritionnelles.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Flame, Star, List, ArrowUpDown, Search, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { MealList } from "@/components/MealList";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
+import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { buildStockMap, getMissingIngredients, analyzeMealIngredients, formatExpirationLabel } from "@/lib/stockUtils";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
 import { isToday } from "date-fns";
@@ -43,12 +44,17 @@ interface MasterListProps {
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
+  ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
 }
 
-export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder }: MasterListProps) {
+export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder, ingredientMacroAutofillSources }: MasterListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const stockMap = buildStockMap(foodItems);
+  const ingredientSuggestions = useMemo(
+    () => foodItems.map((item) => item.name).filter(Boolean),
+    [foodItems],
+  );
 
   const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "favorites" ? Star : sortMode === "ingredients" ? List : ArrowUpDown;
   const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
@@ -114,6 +120,8 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
 
             return (
               <MealCard key={meal.id} meal={meal} stockMap={stockMap}
+                ingredientSuggestions={ingredientSuggestions}
+                ingredientMacroSources={ingredientMacroAutofillSources}
                 onMoveToPossible={() => onMoveToPossible(meal.id)}
                 onRename={(name) => onRename(meal.id, name)}
                 onDelete={() => onDelete(meal.id)}

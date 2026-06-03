@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Drumstick, Flame, Plus, Search, Save, Trash2, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,8 @@ import {
   buildIngredientMacroUpdatePlan,
   collectIngredientMacroEntries,
   createIngredientMacroLibraryItem,
+  areIngredientMacroLibrariesEqual,
+  persistMissingIngredientMacroEntries,
   removeIngredientMacroLibraryItem,
   upsertIngredientMacroLibraryItem,
   type IngredientMacroEntry,
@@ -59,6 +61,7 @@ export function MacroIngredients({
   const [newIngredientName, setNewIngredientName] = useState("");
   const [newIngredientCalories, setNewIngredientCalories] = useState("");
   const [newIngredientProtein, setNewIngredientProtein] = useState("");
+  const [manuallyDeletedKeys, setManuallyDeletedKeys] = useState<Set<string>>(() => new Set());
 
   const entries = useMemo(
     () => collectIngredientMacroEntries(meals, possibleMeals, macroLibrary, foodItems),
@@ -72,6 +75,13 @@ export function MacroIngredients({
       entry.displayName.toLowerCase().includes(query),
     );
   }, [entries, searchQuery]);
+
+  useEffect(() => {
+    const nextLibrary = persistMissingIngredientMacroEntries(macroLibrary, entries, manuallyDeletedKeys);
+    if (!areIngredientMacroLibrariesEqual(nextLibrary, macroLibrary)) {
+      onSaveMacroLibrary(nextLibrary);
+    }
+  }, [entries, macroLibrary, manuallyDeletedKeys, onSaveMacroLibrary]);
 
   // Met à jour le brouillon local d'une cellule calories/protéines.
   const updateDraft = (entry: IngredientMacroEntry, field: keyof DraftMacro, value: string) => {
@@ -129,6 +139,12 @@ export function MacroIngredients({
     });
 
     if (libraryItem) {
+      setManuallyDeletedKeys((current) => {
+        if (!current.has(libraryItem.key)) return current;
+        const next = new Set(current);
+        next.delete(libraryItem.key);
+        return next;
+      });
       onSaveMacroLibrary(upsertIngredientMacroLibraryItem(macroLibrary, libraryItem));
     }
 
@@ -157,6 +173,7 @@ export function MacroIngredients({
       delete next[entry.key];
       return next;
     });
+    setManuallyDeletedKeys((current) => new Set(current).add(entry.key));
     onSaveMacroLibrary(removeIngredientMacroLibraryItem(macroLibrary, entry.key));
 
     toast({
