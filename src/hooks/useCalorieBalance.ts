@@ -52,6 +52,12 @@ function parseProtein(prot: string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
+/** Convertit une surcharge manuelle en nombre utile, ou l'ignore si elle vaut 0/vide. */
+function parsePositiveOverride(value: string | null | undefined): number | null {
+  const parsed = parseCalories(value);
+  return parsed > 0 ? parsed : null;
+}
+
 /** Décode un id d’extra personnalisé au format `custom::…` (nom, kcal, prot). */
 function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
   if (!id.startsWith('custom::')) return null;
@@ -129,7 +135,8 @@ export function getCardDisplayCalories(
   if (!meal) return 0;
 
   // 1. Surchage manuelle sur la carte de planification
-  if (calOverride) return parseCalories(calOverride);
+  const override = parsePositiveOverride(calOverride);
+  if (override !== null) return override;
 
   // 2. Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
   const displayCal = getDisplayedPMCalories(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
@@ -150,7 +157,8 @@ export function getCardDisplayProtein(
   const meal = pm.meals;
   if (!meal) return 0;
 
-  if (proOverride) return parseProtein(proOverride);
+  const override = parsePositiveOverride(proOverride);
+  if (override !== null) return override;
 
   // Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
   const displayPro = getDisplayedPMProtein(

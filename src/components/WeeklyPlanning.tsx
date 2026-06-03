@@ -198,6 +198,15 @@ function parseProtein(prot: string | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
+/** Convertit une surcharge planning en nombre, ou l'ignore si elle vaut 0/vide. */
+function parsePositivePlanningOverride(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number"
+    ? value
+    : parseFloat(value.replace(",", ".").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Décode un extra « personnalisé » encodé dans un id de sélection (`custom::…`). */
 function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
   if (!id.startsWith('custom::')) return null;
@@ -1763,7 +1772,7 @@ export function WeeklyPlanning({
     const expiredIngs = analysis.expiredIngredientNames;
     const soonIngs = analysis.expiringSoonIngredientNames;
 
-    const overrideCal = calOverrides[pm.id];
+    const overrideCal = parsePositivePlanningOverride(calOverrides[pm.id]);
     const expired = isExpiredOnDay(pm.expiration_date, pm.day_of_week);
 
     // Utiliser la détection de ratio partagée
@@ -1777,10 +1786,10 @@ export function WeeklyPlanning({
     }
 
     // Utiliser le même calcul que la carte "possible" : macros de la portion visible, pas du total #quantity.
-    const rawCalNum = overrideCal ? (parseFloat(overrideCal) || 0) : getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+    const rawCalNum = overrideCal ?? getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
     const displayCal = rawCalNum ? String(Math.round(rawCalNum)) : null;
-    const overridePro = proOverrides[pm.id];
-    const rawProNum = overridePro ? (parseFloat(overridePro) || 0) : getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+    const overridePro = parsePositivePlanningOverride(proOverrides[pm.id]);
+    const rawProNum = overridePro ?? getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
     const displayPro = rawProNum ? String(Math.round(rawProNum)) : null;
 
     const isComputedCal = !overrideCal && computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
@@ -1833,13 +1842,13 @@ export function WeeklyPlanning({
         onRemove={() => handleRemoveFromSlot(pm)}
         onCalorieChange={(val) => {
           const updated = { ...calOverrides };
-          if (val) updated[pm.id] = val;
+          if (parsePositivePlanningOverride(val) !== null) updated[pm.id] = val;
           else delete updated[pm.id];
           setPreference.mutate({ key: 'planning_cal_overrides', value: updated });
         }}
         onProteinChange={(val) => {
           const updated = { ...proOverrides };
-          if (val) updated[pm.id] = val;
+          if (parsePositivePlanningOverride(val) !== null) updated[pm.id] = val;
           else delete updated[pm.id];
           setPreference.mutate({ key: 'planning_pro_overrides', value: updated });
         }}
@@ -4307,16 +4316,14 @@ export function WeeklyPlanning({
               popupPm.counter_start_date ??
               null;
             const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
-            const popupCal = popupCalOverride !== undefined
-              ? parseFloat(popupCalOverride) || 0
-              : calOverrides[popupPm.id]
-                ? parseFloat(calOverrides[popupPm.id]) || 0
-                : getDisplayedPMCalories(popupPm, popupRatio ?? undefined, isAvailableCb);
-            const popupPro = popupProOverride !== undefined
-              ? parseFloat(popupProOverride) || 0
-              : proOverrides[popupPm.id]
-                ? parseFloat(proOverrides[popupPm.id]) || 0
-                : getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const popupCal =
+              parsePositivePlanningOverride(popupCalOverride) ??
+              parsePositivePlanningOverride(calOverrides[popupPm.id]) ??
+              getDisplayedPMCalories(popupPm, popupRatio ?? undefined, isAvailableCb);
+            const popupPro =
+              parsePositivePlanningOverride(popupProOverride) ??
+              parsePositivePlanningOverride(proOverrides[popupPm.id]) ??
+              getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayCal = popupCal ? String(Math.round(popupCal)) : null;
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
