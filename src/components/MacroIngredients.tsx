@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Drumstick, Flame, Plus, Search, Save, Trash2, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,15 @@ function hasDraftChanged(entry: IngredientMacroEntry, drafts: Record<string, Dra
   return draft.calories.trim() !== entry.calories || draft.protein.trim() !== entry.protein;
 }
 
+// Produit une signature stable du référentiel pour éviter de relancer deux fois la même sauvegarde automatique.
+function getMacroLibrarySignature(library: IngredientMacroLibraryItem[]): string {
+  return JSON.stringify(
+    [...library]
+      .sort((a, b) => a.key.localeCompare(b.key, "fr"))
+      .map((entry) => [entry.key, entry.displayName, entry.calories, entry.protein]),
+  );
+}
+
 // Affiche le référentiel central des macros d'ingrédients et propage chaque modification aux recettes.
 export function MacroIngredients({
   meals,
@@ -62,6 +71,7 @@ export function MacroIngredients({
   const [newIngredientCalories, setNewIngredientCalories] = useState("");
   const [newIngredientProtein, setNewIngredientProtein] = useState("");
   const [manuallyDeletedKeys, setManuallyDeletedKeys] = useState<Set<string>>(() => new Set());
+  const pendingAutoPersistSignature = useRef<string | null>(null);
 
   const entries = useMemo(
     () => collectIngredientMacroEntries(meals, possibleMeals, macroLibrary, foodItems),
@@ -78,9 +88,16 @@ export function MacroIngredients({
 
   useEffect(() => {
     const nextLibrary = persistMissingIngredientMacroEntries(macroLibrary, entries, manuallyDeletedKeys);
-    if (!areIngredientMacroLibrariesEqual(nextLibrary, macroLibrary)) {
-      onSaveMacroLibrary(nextLibrary);
+    if (areIngredientMacroLibrariesEqual(nextLibrary, macroLibrary)) {
+      pendingAutoPersistSignature.current = null;
+      return;
     }
+
+    const nextSignature = getMacroLibrarySignature(nextLibrary);
+    if (pendingAutoPersistSignature.current === nextSignature) return;
+
+    pendingAutoPersistSignature.current = nextSignature;
+    onSaveMacroLibrary(nextLibrary);
   }, [entries, macroLibrary, manuallyDeletedKeys, onSaveMacroLibrary]);
 
   // Met à jour le brouillon local d'une cellule calories/protéines.
