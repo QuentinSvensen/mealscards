@@ -495,10 +495,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const sortedIsMealItemsWithDates: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
     const allSortedIsMealItems = [...sortedIsMealItems, ...sortedIsMealItemsWithDates];
     let items: UnifiedAvail[] = [
-      ...allSortedIsMealItems.map(fi => ({ type: 'isMeal' as const, key: `fi-${fi.id}`, fi })),
       ...sortedNameMatches.map((nm, i) => ({ type: 'nm' as const, key: `nm-${nm.meal.id}-${nm.fi.id}`, nm, nmIdx: i })),
       ...sortedAvailable.map(item => ({ type: 'av' as const, key: item.meal.id, item })),
-      ...partialAvailable.map(item => ({ type: 'partial' as const, key: `partial-${item.meal.id}`, item }))
+      ...partialAvailable.map(item => ({ type: 'partial' as const, key: `partial-${item.meal.id}`, item })),
+      ...allSortedIsMealItems.map(fi => ({ type: 'isMeal' as const, key: `fi-${fi.id}`, fi }))
     ];
 
     // Apply search filter

@@ -42,7 +42,6 @@ import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
-import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
@@ -83,6 +82,7 @@ function PlanningInput({ storageKey, currentValue, onSave, placeholder, classNam
 
   const commitEdit = () => {
     const raw = parseInt(editVal) || 0;
+    if (raw === currentValue) return;
     onSave(raw);
   };
 
@@ -1987,11 +1987,10 @@ export function WeeklyPlanning({
       await deletePossibleMealsByIds(ids);
 
       const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots, weekDates);
-      const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, weekDates);
       const goals = resolvePostResetGoals(prefMap);
       pushWeeklyResetClientPreferences(
         setPreference,
-        promoted,
+        merged,
         goals,
         new Date().toISOString(),
         "manual_button"
@@ -2676,26 +2675,16 @@ export function WeeklyPlanning({
                       storageKey={`extra-${iso}`}
                       currentValue={(() => {
                         const manual = extraCalories[iso] || 0;
-                        const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || [];
+                        const ids = extraSelections[iso] || [];
                         const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
-                        const selected = ids.reduce((sum, id) => {
-                          if (assignedSet.has(id)) return sum;
-                          const custom = parseCustomExtraId(id);
-                          if (custom) return sum + custom.cal;
-                          return sum + parseCalories(foodItems.find(fi => fi.id === id)?.calories);
-                        }, 0);
-                        return manual + selected;
+                        const unassignedIds = ids.filter((id) => !assignedSet.has(id));
+                        const selected = sumExtrasFromSelectionIds(unassignedIds, foodItems);
+                        return manual + selected.cal;
                       })()}
                       onSave={(val) => {
-                        const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || [];
-                        const selected = ids.reduce((sum, id) => {
-                          const custom = parseCustomExtraId(id);
-                          if (custom) return sum + custom.cal;
-                          return sum + parseCalories(foodItems.find(fi => fi.id === id)?.calories);
-                        }, 0);
-                        const manual = Math.max(0, val - selected);
+                        const ids = extraSelections[iso] || [];
+                        const selected = sumExtrasFromSelectionIds(ids, foodItems);
+                        const manual = Math.max(0, val - selected.cal);
                         const updated = { ...extraCalories };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
@@ -2708,26 +2697,16 @@ export function WeeklyPlanning({
                       storageKey={`extra-prot-${iso}`}
                       currentValue={(() => {
                         const manual = extraProteins[iso] || 0;
-                        const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || [];
+                        const ids = extraSelections[iso] || [];
                         const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
-                        const selected = ids.reduce((sum, id) => {
-                          if (assignedSet.has(id)) return sum;
-                          const custom = parseCustomExtraId(id);
-                          if (custom) return sum + custom.prot;
-                          return sum + parseProtein(foodItems.find(fi => fi.id === id)?.protein);
-                        }, 0);
-                        return manual + selected;
+                        const unassignedIds = ids.filter((id) => !assignedSet.has(id));
+                        const selected = sumExtrasFromSelectionIds(unassignedIds, foodItems);
+                        return manual + selected.pro;
                       })()}
                       onSave={(val) => {
-                        const allExtraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                        const ids = allExtraSels[iso] || [];
-                        const selected = ids.reduce((sum, id) => {
-                          const custom = parseCustomExtraId(id);
-                          if (custom) return sum + custom.prot;
-                          return sum + parseProtein(foodItems.find(fi => fi.id === id)?.protein);
-                        }, 0);
-                        const manual = Math.max(0, val - selected);
+                        const ids = extraSelections[iso] || [];
+                        const selected = sumExtrasFromSelectionIds(ids, foodItems);
+                        const manual = Math.max(0, val - selected.pro);
                         const updated = { ...extraProteins };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }

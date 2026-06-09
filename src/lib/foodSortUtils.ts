@@ -31,10 +31,6 @@ export const getSortedFoodItems = (
 
   if (mode === "expiration") {
     sorted.sort((a, b) => {
-      // Règle spéciale pour les repas sans dates — les garder en haut si demandé (comportement hérité)
-      if (a.is_meal && !a.expiration_date && !(b.is_meal && !b.expiration_date)) return -1;
-      if (b.is_meal && !b.expiration_date && !(a.is_meal && !a.expiration_date)) return 1;
-
       const getActiveCounter = (fi: FoodItem) => {
         if (!fi.counter_start_date) return null;
         const c = computeCounterDays(fi.counter_start_date);
