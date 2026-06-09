@@ -180,6 +180,7 @@ describe("ingredientMacroDatabase", () => {
       calories: "105",
       protein: "24",
       recipeCount: 0,
+      basisLabel: "100g",
     });
   });
 

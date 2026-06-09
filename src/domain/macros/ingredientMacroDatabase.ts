@@ -308,6 +308,8 @@ export function collectIngredientMacroEntries(
     const entry = entries.get(key) ?? createMacroAccumulator(key, item.displayName);
     entry.calories = item.calories?.trim() || entry.calories;
     entry.protein = item.protein?.trim() || entry.protein;
+    // Les entrées persistées seules viennent du référentiel Macro, dont les valeurs sont au 100 g.
+    if (!entry.basisLabel) entry.basisLabel = "100g";
     entry.hasConflictingCalories = false;
     entry.hasConflictingProtein = false;
     entries.set(key, entry);
