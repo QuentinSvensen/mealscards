@@ -288,11 +288,12 @@ export function MacroIngredients({
               const draft = getDraftValue(entry, drafts);
               const changed = hasDraftChanged(entry, drafts);
               const hasConflict = entry.hasConflictingCalories || entry.hasConflictingProtein || entry.hasConflictingFiber;
+              const hasMissingMacro = !draft.calories.trim() || !draft.protein.trim() || !draft.fiber.trim();
 
               return (
                 <div key={entry.key} className="grid grid-cols-[180px_88px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
                   <div className="min-w-0 pr-2">
-                    <p className="truncate text-xs sm:text-sm font-semibold">{entry.displayName}</p>
+                    <p className={`truncate text-xs sm:text-sm font-semibold ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
                     <p className="truncate text-[10px] text-muted-foreground">
                       {entry.recipeCount} recette(s){entry.foodCount ? ` · ${entry.foodCount} aliment(s)` : ""}{entry.overrideCount ? ` · ${entry.overrideCount} possible(s)` : ""}
                     </p>
