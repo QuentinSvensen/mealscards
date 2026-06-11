@@ -20,6 +20,7 @@ export type Database = {
           counter_start_date: string | null
           created_at: string
           expiration_date: string | null
+          fiber: string | null
           food_type: string | null
           grams: string | null
           id: string
@@ -40,6 +41,7 @@ export type Database = {
           counter_start_date?: string | null
           created_at?: string
           expiration_date?: string | null
+          fiber?: string | null
           food_type?: string | null
           grams?: string | null
           id?: string
@@ -60,6 +62,7 @@ export type Database = {
           counter_start_date?: string | null
           created_at?: string
           expiration_date?: string | null
+          fiber?: string | null
           food_type?: string | null
           grams?: string | null
           id?: string
@@ -90,6 +93,7 @@ export type Database = {
           updated_at: string
           calories: string | null
           protein: string | null
+          fiber: string | null
         }
         Insert: {
           id?: string
@@ -103,6 +107,7 @@ export type Database = {
           updated_at?: string
           calories?: string | null
           protein?: string | null
+          fiber?: string | null
         }
         Update: {
           id?: string
@@ -116,6 +121,7 @@ export type Database = {
           updated_at?: string
           calories?: string | null
           protein?: string | null
+          fiber?: string | null
         }
         Relationships: []
       }
@@ -125,6 +131,7 @@ export type Database = {
           category: string
           color: string
           created_at: string
+          fiber: string | null
           grams: string | null
           id: string
           ingredients: string | null
@@ -142,6 +149,7 @@ export type Database = {
           category?: string
           color?: string
           created_at?: string
+          fiber?: string | null
           grams?: string | null
           id?: string
           ingredients?: string | null
@@ -159,6 +167,7 @@ export type Database = {
           category?: string
           color?: string
           created_at?: string
+          fiber?: string | null
           grams?: string | null
           id?: string
           ingredients?: string | null

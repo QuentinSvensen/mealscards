@@ -18,7 +18,7 @@ import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientLine, parseIngredientLineRaw, parseIngredientGroups,
-  extractMetrics, computeIngredientCalories, computeIngredientProtein,
+  extractMetrics, computeIngredientCalories, computeIngredientProtein, computeIngredientFiber,
   extractIngredientMacros, applyIngredientMacros,
   computeCounterDays,
   getTargetDate,
@@ -932,6 +932,31 @@ export function getDisplayedProtein(
   return scaledBasePro !== null ? Math.round(scaledBasePro) : null;
 }
 
+/** Calcule les fibres affichées pour un repas (même logique que getDisplayedProtein, sans prorata protéines). */
+export function getDisplayedFiber(
+  meal: { fiber?: string | null; ingredients?: string | null },
+  ingredientsOverride?: string | null,
+  ratio?: number,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
+  const baseFiber = parseMacroDisplay(meal.fiber);
+  const scaledBaseFiber = (baseFiber !== null && ratio) ? baseFiber * ratio : baseFiber;
+
+  const ingredients = ingredientsOverride ?? meal.ingredients;
+  const r = ingredientsOverride ? 1 : (ratio ?? 1);
+  const ingFiber = computeIngredientFiber(ingredients ?? null, isAvailable, r, foodItems, foodItemIndex);
+
+  if (ingredientsOverride && !meal.ingredients && baseFiber !== null) {
+    const total = (scaledBaseFiber || 0) + (ingFiber || 0);
+    return Math.round(total);
+  }
+
+  if (ingFiber !== null && Number.isFinite(ingFiber)) return Math.round(ingFiber);
+  return scaledBaseFiber !== null ? Math.round(scaledBaseFiber) : null;
+}
+
 /** Calories affichées pour une instance PossibleMeal (utilise ingredients_override si présent) */
 export function getDisplayedPMCalories(pm: { ingredients_override?: string | null; meals?: { calories?: string | null; ingredients?: string | null } | null }, ratio?: number, isAvailable?: (name: string) => boolean): number | null {
   return getDisplayedCalories(pm.meals || {}, pm.ingredients_override, ratio, isAvailable);
@@ -946,6 +971,17 @@ export function getDisplayedPMProtein(
   foodItemIndex?: FoodItemMacroIndex,
 ): number | null {
   return getDisplayedProtein(pm.meals || {}, pm.ingredients_override, ratio, isAvailable, foodItems, foodItemIndex);
+}
+
+/** Fibres affichées pour une instance PossibleMeal (utilise ingredients_override si présent). */
+export function getDisplayedPMFiber(
+  pm: { ingredients_override?: string | null; meals?: { fiber?: string | null; ingredients?: string | null } | null },
+  ratio?: number,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
+  return getDisplayedFiber(pm.meals || {}, pm.ingredients_override, ratio, isAvailable, foodItems, foodItemIndex);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

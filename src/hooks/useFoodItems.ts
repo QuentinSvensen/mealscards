@@ -22,6 +22,7 @@ export interface FoodItem {
   grams: string | null;
   calories: string | null;
   protein: string | null;
+  fiber: string | null;
   expiration_date: string | null;
   counter_start_date: string | null;
   sort_order: number;
@@ -95,6 +96,7 @@ export function useFoodItems(options?: { enabled?: boolean }) {
           quantity: d.quantity ?? null,
           food_type: d.food_type ?? null,
           protein: d.protein ?? null,
+          fiber: d.fiber ?? null,
         })) as FoodItem[];
     },
     retry: 3,

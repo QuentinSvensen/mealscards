@@ -16,8 +16,11 @@ export interface PlanningHeaderProps {
   nextDailyGoal: number;
   dailyProteinGoal: number;
   nextProteinGoal: number;
+  dailyFiberGoal: number;
+  nextFiberGoal: number;
   onGlobalCalBlur: (value: number) => void;
   onGlobalProtBlur: (value: number) => void;
+  onGlobalFiberBlur: (value: number) => void;
   backupTotals: PlanningHeaderBackupTotals | null;
 }
 
@@ -33,8 +36,11 @@ export function PlanningHeader({
   nextDailyGoal,
   dailyProteinGoal,
   nextProteinGoal,
+  dailyFiberGoal,
+  nextFiberGoal,
   onGlobalCalBlur,
   onGlobalProtBlur,
+  onGlobalFiberBlur,
   backupTotals,
 }: PlanningHeaderProps) {
   return (
@@ -98,6 +104,24 @@ export function PlanningHeader({
               className="w-14 h-6 text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 focus:outline-none focus:border-blue-400/50 text-center"
             />
             <span className="text-[9px] text-muted-foreground">prot/j</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs">🌾</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              defaultValue={weekOffset === 1 ? nextFiberGoal : dailyFiberGoal}
+              key={`global-fiber-${weekOffset === 1 ? nextFiberGoal : dailyFiberGoal}`}
+              onBlur={e => {
+                const val = parseInt(e.target.value);
+                if (val && val > 0) onGlobalFiberBlur(val);
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              className="w-14 h-6 text-xs bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 focus:outline-none focus:border-emerald-400/50 text-center"
+            />
+            <span className="text-[9px] text-muted-foreground">fib/j</span>
           </div>
         </>
       )}

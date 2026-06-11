@@ -23,7 +23,7 @@ import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from "@/hooks/use
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
-import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories } from "@/hooks/useCalorieBalance";
+import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
 import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
@@ -223,10 +223,11 @@ function buildDessertExtraId(name: string, cal: number, prot: number): string {
   return `custom::${name}::${Math.round(cal)}::${Math.round(prot)}`;
 }
 
-/** Somme kcal / prot des extras (aliments stock ou entrées `custom::…`). */
-function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodItem[]): { cal: number; pro: number } {
+/** Somme kcal / prot / fibres des extras (aliments stock ou entrées `custom::…`). */
+function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodItem[]): { cal: number; pro: number; fiber: number } {
   let cal = 0;
   let pro = 0;
+  let fiber = 0;
   for (const id of ids ?? []) {
     const custom = parseCustomExtraId(id);
     if (custom) {
@@ -239,9 +240,10 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
       const macros = getExtraPortionMacros(fi);
       cal += macros.cal;
       pro += macros.pro;
+      fiber += macros.fiber;
     }
   }
-  return { cal, pro };
+  return { cal, pro, fiber };
 }
 
 /** Formate l'étiquette d'un extra placé en incluant ses grammes et sa quantité s'ils existent. */
@@ -385,6 +387,7 @@ function getAssignedExtraLabel(
 }
 
 const DAILY_PROTEIN_GOAL = 110;
+const DAILY_FIBER_GOAL = 30;
 
 interface TouchDragState {
   pmId: string;
@@ -676,7 +679,7 @@ export function WeeklyPlanning({
 
   // Sélections de petit déjeuner par jour
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
-  const { getDayCalories, getDayProtein, DAILY_GOAL, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
+  const { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_FIBER_GOAL: DAILY_FIBER_GOAL_PREF_FROM_HOOK, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const possiblePetitDej = possibleMeals.filter(pm => pm.meals?.category === 'petit_dejeuner');
   /** Transforme une fiche repas en payload complet utilisable par les transferts de stock. */
@@ -1078,6 +1081,7 @@ export function WeeklyPlanning({
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
+  const manualFibers = getPreference<Record<string, number>>('planning_manual_fibers', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
@@ -1101,12 +1105,16 @@ export function WeeklyPlanning({
   const [flashedKeys, setFlashedKeys] = useState<Record<string, boolean>>({});
   const WEEKLY_GOAL = DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
   const DAILY_PROTEIN_GOAL_PREF = getPreference<number>('planning_protein_goal', DAILY_PROTEIN_GOAL);
+  const DAILY_FIBER_GOAL_PREF = getPreference<number>('planning_fiber_goal', DAILY_FIBER_GOAL_PREF_FROM_HOOK || DAILY_FIBER_GOAL);
   const NEXT_DAILY_GOAL = getPreference<number>('next_week_daily_goal', DAILY_GOAL);
   const NEXT_PROTEIN_GOAL = getPreference<number>('next_week_protein_goal', DAILY_PROTEIN_GOAL_PREF);
+  const NEXT_FIBER_GOAL = getPreference<number>('next_week_fiber_goal', DAILY_FIBER_GOAL_PREF);
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState("");
   const [editingProteinGoal, setEditingProteinGoal] = useState(false);
   const [proteinGoalInput, setProteinGoalInput] = useState("");
+  const [editingFiberGoal, setEditingFiberGoal] = useState(false);
+  const [fiberGoalInput, setFiberGoalInput] = useState("");
   const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
   const autoConsumeBreakfast = getPreference<Record<string, boolean>>('planning_auto_consume_breakfast', {});
 
@@ -1114,6 +1122,7 @@ export function WeeklyPlanning({
   const nextBreakfastSelections = getPreference<Record<string, string>>('next_week_breakfast', {});
   const nextManualCalories = getPreference<Record<string, number>>('next_week_manual_calories', {});
   const nextManualProteins = getPreference<Record<string, number>>('next_week_manual_proteins', {});
+  const nextManualFibers = getPreference<Record<string, number>>('next_week_manual_fibers', {});
   const nextExtraCalories = getPreference<Record<string, number>>('next_week_extra_calories', {});
   const nextExtraProteins = getPreference<Record<string, number>>('next_week_extra_proteins', {});
   const nextExtraSelections = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
@@ -1962,6 +1971,15 @@ export function WeeklyPlanning({
     }
   };
 
+  /** Enregistre l'objectif fibre global pour la semaine courante et le brouillon semaine prochaine. */
+  const handleGlobalFiberBlur = (val: number) => {
+    if (weekOffset === 1) setPreference.mutate({ key: "next_week_fiber_goal", value: val });
+    else {
+      setPreference.mutate({ key: "planning_fiber_goal", value: val });
+      setPreference.mutate({ key: "next_week_fiber_goal", value: val });
+    }
+  };
+
   const handleManualReset = async () => {
     if (!confirm('Réinitialiser le planning ? Les cartes seront supprimées et les valeurs sauvegardées (💾) seront restaurées.')) return;
     if (manualResetLockRef.current) return;
@@ -2021,8 +2039,11 @@ export function WeeklyPlanning({
         nextDailyGoal={NEXT_DAILY_GOAL}
         dailyProteinGoal={DAILY_PROTEIN_GOAL_PREF}
         nextProteinGoal={NEXT_PROTEIN_GOAL}
+        dailyFiberGoal={DAILY_FIBER_GOAL_PREF}
+        nextFiberGoal={NEXT_FIBER_GOAL}
         onGlobalCalBlur={handleGlobalCalBlur}
         onGlobalProtBlur={handleGlobalProtBlur}
+        onGlobalFiberBlur={handleGlobalFiberBlur}
         backupTotals={backupTotals}
       />
 
@@ -2030,6 +2051,7 @@ export function WeeklyPlanning({
         {weekDates.map(({ key, iso, display }) => {
           const isToday_ = iso === todayISO;
           const dayCalories = getDayCalories(key, iso);
+          const dayFiber = getDayFiber(key, iso);
           const matinMeals = getMealsForSlot(key, 'matin', iso);
           const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
           const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
@@ -2445,6 +2467,36 @@ export function WeeklyPlanning({
                       <span className="text-[9px] text-muted-foreground">🍗/j</span>
                     </div>
                   )}
+                  <button
+                    onClick={() => { setEditingFiberGoal(true); setFiberGoalInput(String(DAILY_FIBER_GOAL_PREF)); }}
+                    className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 rounded-full px-2 py-0.5 whitespace-nowrap hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                    title="Cliquer pour modifier l'objectif fibres"
+                  >
+                    🌾 {Math.round(dayFiber)} <span className="text-emerald-400/50 font-normal">/ {DAILY_FIBER_GOAL_PREF}</span>
+                  </button>
+                  {!editingFiberGoal && (
+                    <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_FIBER_GOAL_PREF - dayFiber > 0 ? 'text-emerald-400/60' : 'text-emerald-500'}`}>
+                      {DAILY_FIBER_GOAL_PREF - dayFiber > 0 ? `reste ${Math.round(DAILY_FIBER_GOAL_PREF - dayFiber)}` : `+${Math.round(dayFiber - DAILY_FIBER_GOAL_PREF)}`}
+                    </span>
+                  )}
+                  {editingFiberGoal && (
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        type="number"
+                        value={fiberGoalInput}
+                        onChange={(e) => setFiberGoalInput(e.target.value)}
+                        onBlur={() => {
+                          const val = parseInt(fiberGoalInput);
+                          if (val && val > 0) handleGlobalFiberBlur(val);
+                          setEditingFiberGoal(false);
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingFiberGoal(false); }}
+                        className="w-16 h-5 text-[10px] bg-muted border border-border rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <span className="text-[9px] text-muted-foreground">🌾/j</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1 sm:gap-3">
@@ -2456,10 +2508,12 @@ export function WeeklyPlanning({
                   const isOver = dragOverSlot === slotKey || touchHighlight === slotKey || dragOverSlot === `${key}-${time}` || touchHighlight === `${key}-${time}`;
                   const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
                   const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
+                  const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotAssigned = sumExtrasFromSelectionIds(slotAssignedIds, foodItems);
                   const slotDrink = Boolean(drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]);
                   const slotCals = slotCalsMeals + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
                   const slotPro = slotProMeals + slotAssigned.pro;
+                  const slotFiber = slotFiberMeals + slotAssigned.fiber;
                   return (
                     <div
                       key={time}
@@ -2496,7 +2550,7 @@ export function WeeklyPlanning({
                             🥤 {slotDrink ? `+${DRINK_CALORIES}` : ''}
                           </button>
                         </div>
-                        {(slotCals > 0 || slotPro > 0) && (
+                        {(slotCals > 0 || slotPro > 0 || slotFiber > 0) && (
                           <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
                             {slotCals > 0 && (
                               <span className="flex items-center gap-0.5">
@@ -2504,11 +2558,18 @@ export function WeeklyPlanning({
                                 {Math.round(slotCals)}
                               </span>
                             )}
-                            {slotCals > 0 && slotPro > 0 && <span className="opacity-30">•</span>}
+                            {slotCals > 0 && (slotPro > 0 || slotFiber > 0) && <span className="opacity-30">•</span>}
                             {slotPro > 0 && (
                               <span className="flex items-center gap-0.5">
                                 <span className="text-[9px] opacity-60">🍗</span>
                                 {Math.round(slotPro)}
+                              </span>
+                            )}
+                            {slotPro > 0 && slotFiber > 0 && <span className="opacity-30">•</span>}
+                            {slotFiber > 0 && (
+                              <span className="flex items-center gap-0.5">
+                                <span className="text-[9px] opacity-60">🌾</span>
+                                {Math.round(slotFiber)}
                               </span>
                             )}
                           </div>
@@ -2541,13 +2602,26 @@ export function WeeklyPlanning({
                               placeholder="prot"
                               className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
                             />
+                            <PlanningInput
+                              storageKey={`manual-fiber-${iso}-${time}`}
+                              currentValue={manualFibers[`${iso}-${time}`] || 0}
+                              onSave={(val) => {
+                                const updated = { ...manualFibers };
+                                if (val > 0) updated[`${iso}-${time}`] = val;
+                                else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
+                                setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                              }}
+                              placeholder="fib"
+                              className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
+                            />
                             <div className="w-14 flex justify-center">
                               <button
                                 onClick={() => {
                                   const snapKey = `manual-${iso}-${time}`;
                                   const cal = manualCalories[`${iso}-${time}`] || 0;
                                   const prot = manualProteins[`${iso}-${time}`] || 0;
-                                  const updated = { ...savedSnapshots, [snapKey]: { cal, prot } };
+                                  const fiber = manualFibers[`${iso}-${time}`] || 0;
+                                  const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber } };
                                   setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                                   // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
@@ -2562,6 +2636,11 @@ export function WeeklyPlanning({
                                       const nxtPro = { ...nextManualProteins };
                                       nxtPro[kKeySlot] = prot;
                                       setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                                    }
+                                    if (fiber > 0) {
+                                      const nxtFiber = { ...nextManualFibers };
+                                      nxtFiber[kKeySlot] = fiber;
+                                      setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
                                     }
                                     if (drinkChecks[`${iso}-${time}`]) {
                                       const nxtDrk = { ...nextDrinkChecks };
@@ -2588,6 +2667,8 @@ export function WeeklyPlanning({
                                     setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
                                     const nxtPro = { ...nextManualProteins }; delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot];
                                     setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                                    const nxtFiber = { ...nextManualFibers }; delete nxtFiber[kKeySlot]; delete nxtFiber[kIsoSlot];
+                                    setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
                                     const nxtDrk = { ...nextDrinkChecks }; delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot];
                                     setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
                                   }

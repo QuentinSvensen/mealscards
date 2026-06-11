@@ -762,11 +762,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     
     let displayCal = fi.calories;
     let displayPro = fi.protein ?? null;
+    let displayFiber = fi.fiber ?? null;
     if (fi.grams) {
       const unitG = parseQty(fi.grams);
       if (unitG > 0) {
         if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
         if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * unitG / 100));
+        if (displayFiber) displayFiber = String(Math.round(parseFloat(displayFiber.replace(',', '.')) * unitG / 100));
       }
     }
 
@@ -774,6 +776,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const fakeMeal: Meal = {
       id: `fi-${fi.id}`, name: fi.name, category: category.value, calories: displayCal,
       protein: displayPro,
+      fiber: displayFiber,
       grams: displayGrams, ingredients: null,
       sort_order: 0, created_at: fi.created_at, is_available: true, is_favorite: false,
       oven_temp: null, oven_minutes: null,

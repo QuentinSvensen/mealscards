@@ -32,16 +32,18 @@ export function getExtraMacroBasisLabel(foodItem: Pick<FoodItem, "grams" | "quan
   return "Produit";
 }
 
-// Calcule les calories/protéines consommées pour une occurrence d'extra sélectionnée dans le planning.
-export function getExtraPortionMacros(foodItem: Pick<FoodItem, "grams" | "quantity" | "calories" | "protein">): { cal: number; pro: number } {
+// Calcule les calories/protéines/fibres consommées pour une occurrence d'extra sélectionnée dans le planning.
+export function getExtraPortionMacros(foodItem: Pick<FoodItem, "grams" | "quantity" | "calories" | "protein"> & { fiber?: string | null }): { cal: number; pro: number; fiber: number } {
   const cal = parseFoodMacroValue(foodItem.calories);
   const pro = parseFoodMacroValue(foodItem.protein);
+  const fiber = parseFoodMacroValue(foodItem.fiber);
   const grams = getExtraReferenceGrams(foodItem.grams);
 
   if (grams !== null) {
     return {
       cal: Math.round((cal * grams) / 100),
       pro: Math.round((pro * grams) / 100),
+      fiber: Math.round((fiber * grams) / 100),
     };
   }
 
@@ -49,19 +51,21 @@ export function getExtraPortionMacros(foodItem: Pick<FoodItem, "grams" | "quanti
     return {
       cal: Math.round(cal * foodItem.quantity),
       pro: Math.round(pro * foodItem.quantity),
+      fiber: Math.round(fiber * foodItem.quantity),
     };
   }
 
-  return { cal: Math.round(cal), pro: Math.round(pro) };
+  return { cal: Math.round(cal), pro: Math.round(pro), fiber: Math.round(fiber) };
 }
 
 // Retourne les macros de référence saisies sur la fiche aliment pour les afficher dans l'onglet Macro.
 export function getExtraMacroReferenceMacros(
-  foodItem: Pick<FoodItem, "storage_type" | "grams" | "quantity" | "calories" | "protein">,
-): { cal: string; pro: string } {
+  foodItem: Pick<FoodItem, "storage_type" | "grams" | "quantity" | "calories" | "protein"> & { fiber?: string | null },
+): { cal: string; pro: string; fiber: string } {
   return {
     cal: foodItem.calories?.trim() || "",
     pro: foodItem.protein?.trim() || "",
+    fiber: foodItem.fiber?.trim() || "",
   };
 }
 
@@ -70,12 +74,15 @@ export function getExtraStoredMacrosFromReference(
   foodItem: Pick<FoodItem, "storage_type" | "grams" | "quantity">,
   caloriesReference: string,
   proteinReference: string,
-): { calories: string | null; protein: string | null } {
+  fiberReference: string = "",
+): { calories: string | null; protein: string | null; fiber: string | null } {
   const calRef = caloriesReference.trim();
   const proRef = proteinReference.trim();
+  const fiberRef = fiberReference.trim();
 
   return {
     calories: calRef || null,
     protein: proRef || null,
+    fiber: fiberRef || null,
   };
 }

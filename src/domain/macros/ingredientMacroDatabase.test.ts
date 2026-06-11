@@ -147,7 +147,7 @@ describe("ingredientMacroDatabase", () => {
   });
 
   it("crée une entrée Macro persistante depuis les macros d'un aliment", () => {
-    const library = upsertFoodItemMacroLibraryItem([], "Patatoes Lidl", "131", "2");
+    const library = upsertFoodItemMacroLibraryItem([], "Patatoes Lidl", "131", "2", "3");
 
     expect(library).toEqual([
       {
@@ -155,6 +155,7 @@ describe("ingredientMacroDatabase", () => {
         displayName: "Patatoes Lidl",
         calories: "131",
         protein: "2",
+        fiber: "3",
       },
     ]);
   });
@@ -216,18 +217,19 @@ describe("ingredientMacroDatabase", () => {
 
     expect(plan.mealUpdates[0].ingredients).toBe("100g Filet de poulet, 50g Riz");
     expect(plan.possibleUpdates[0].ingredients_override).toBe("50g Filet de poulet");
-    expect(plan.foodUpdates[0]).toMatchObject({ id: "food1", calories: null, protein: null });
+    expect(plan.foodUpdates[0]).toMatchObject({ id: "food1", calories: null, protein: null, fiber: null });
     expect(nextLibrary).toEqual([]);
   });
 
   it("calcule les macros d'une ligne depuis le référentiel Macro au 100 g", () => {
-    const library = [createIngredientMacroLibraryItem("Patatoes Lidl", "131", "2,1")!];
+    const library = [createIngredientMacroLibraryItem("Patatoes Lidl", "131", "2,1", "4")!];
     const line = {
       qty: "250",
       count: "",
       name: "Patatoes Lidl",
       cal: "",
       pro: "",
+      fiber: "",
       isOr: false,
       isAnd: false,
       isOptional: false,
@@ -236,10 +238,12 @@ describe("ingredientMacroDatabase", () => {
     expect(resolveIngredientLineMacros(line, { macroLibrary: library })).toEqual({
       cal: "131",
       pro: "2,1",
+      fiber: "4",
     });
 
     const filled = autofillIngredientLinesMacros([line], { macroLibrary: library });
     expect(filled[0].cal).toBe("131");
     expect(filled[0].pro).toBe("2,1");
+    expect(filled[0].fiber).toBe("4");
   });
 });

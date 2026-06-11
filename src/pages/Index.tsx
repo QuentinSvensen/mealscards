@@ -190,7 +190,7 @@ const Index = () => {
   const {
     isLoading,
     meals, possibleMeals,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateIngredients,
+    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
     updateOvenTemp, updateOvenMinutes,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
@@ -977,6 +977,7 @@ const Index = () => {
                           onDelete={(id) => deleteMeal.mutate(id)}
                           onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
                           onUpdateProtein={(id, prot) => updateProtein.mutate({ id, protein: prot })}
+                          onUpdateFiber={(id, fiber) => updateFiber.mutate({ id, fiber })}
                           onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                           onUpdateIngredients={(id, ing) => {
                             if (ing) {
@@ -1167,7 +1168,7 @@ const Index = () => {
                             const finalCd = fi.counter_start_date || (shouldStart ? new Date().toISOString() : null);
                             const pmResult = await addMealToPossibleDirectly.mutateAsync({
                               name: fi.name, category: cat.value,
-                              calories, protein, grams: fi.grams,
+                              calories, protein, fiber: fi.fiber, grams: fi.grams,
                               expiration_date: fi.expiration_date,
                               counter_start_date: finalCd
                             });
@@ -1361,6 +1362,9 @@ const Index = () => {
                               const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
                               setPreference.mutate({ key: 'planning_pro_overrides', value: { ...currentPros, [pmId]: pro || "0" } });
                             }
+                          }}
+                          onUpdateFiber={(id, fiber) => {
+                            updateFiber.mutate({ id, fiber });
                           }}
                           onUpdateGrams={async (id, g, pmId) => {
                             const pm = pmId ? possibleMeals.find(p => p.id === pmId) : possibleMeals.find(p => p.meal_id === id);

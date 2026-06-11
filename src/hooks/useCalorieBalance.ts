@@ -1,7 +1,7 @@
 /**
- * useCalorieBalance — Hook de suivi de l'équilibre calorique et protéique.
+ * useCalorieBalance — Hook de suivi de l'équilibre calorique, protéique et fibreux.
  *
- * Calcule les totaux journaliers (calories, protéines) à partir du planning
+ * Calcule les totaux journaliers (calories, protéines, fibres) à partir du planning
  * et des overrides manuels. Fournit le seuil calorique restant pour filtrer
  * les repas disponibles.
  *
@@ -16,7 +16,7 @@ import { format, startOfWeek, addDays } from 'date-fns';
 import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from '@/hooks/useMeals';
 import { usePreferences } from '@/hooks/usePreferences';
 import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
-import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedCalories, getDisplayedProtein, buildFoodItemIndex } from '@/lib/stockUtils';
+import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
@@ -50,6 +50,11 @@ function parseProtein(prot: string | null | undefined): number {
   if (!prot) return 0;
   const n = parseFloat(prot.replace(",", ".").replace(/[^0-9.]/g, ""));
   return isNaN(n) ? 0 : n;
+}
+
+/** Extrait les grammes de fibres depuis une chaîne affichée ou saisie. */
+function parseFiber(fiber: string | null | undefined): number {
+  return parseProtein(fiber);
 }
 
 /** Convertit une surcharge manuelle en nombre utile, ou l'ignore si elle vaut 0/vide. */
@@ -172,6 +177,33 @@ export function getCardDisplayProtein(
 }
 
 /**
+ * Calcule les fibres affichées pour une seule carte de planification.
+ * Suit les mêmes règles que les protéines : override manuel, ingrédients, puis valeur de base.
+ */
+export function getCardDisplayFiber(
+  pm: PossibleMeal,
+  fiberOverride?: string | null,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number {
+  const meal = pm.meals;
+  if (!meal) return 0;
+
+  const override = parsePositiveOverride(fiberOverride);
+  if (override !== null) return override;
+
+  const displayFiber = getDisplayedPMFiber(
+    pm,
+    getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined,
+    isAvailable,
+    foodItems,
+    foodItemIndex,
+  );
+  return displayFiber || 0;
+}
+
+/**
  * Agrège les totaux journaliers du planning (calories, protéines, petit-déj, extras, boissons)
  * et expose les helpers pour comparer aux objectifs.
  */
@@ -190,11 +222,16 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
   const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
+  const fiberOverrides = getPreference<Record<string, string>>('planning_fiber_overrides', {});
   const DAILY_GOAL = getPreference<number>('planning_daily_goal', DEFAULT_DAILY_GOAL);
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const DAILY_PROTEIN_GOAL = getPreference<number>('planning_protein_goal', getPreference<number>('planning_daily_protein_goal', 110));
+  const manualFibers = getPreference<Record<string, number>>('planning_manual_fibers', {});
+  const extraFibers = getPreference<Record<string, number>>('planning_extra_fibers', {});
+  const breakfastManualFibers = getPreference<Record<string, number>>('planning_breakfast_manual_fibers', {});
+  const DAILY_FIBER_GOAL = getPreference<number>('planning_fiber_goal', 30);
 
   const planningMeals = useMemo(() => possibleMeals.filter((pm) => {
     if (pm.meals?.category === "plat") return true;
@@ -341,6 +378,53 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     return mealPro + breakfastPro + extraManual + extraSelectedPro;
   };
 
+  const getDayFiber = (dayKey: string, isoDate?: string): number => {
+    const slotTimes = ['matin', ...TIMES, 'gouter'] as string[];
+    const mealFiber = slotTimes.reduce((total, time) => {
+      const slotMeals = getMealsForSlot(dayKey, time, isoDate);
+      if (slotMeals.length > 0) {
+        return total + slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, fiberOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
+      }
+      const manualKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
+      return total + (manualFibers[manualKey] || 0);
+    }, 0);
+
+    const breakfast = getBreakfastForDay(dayKey, isoDate);
+    let breakfastFiber = 0;
+    if (breakfast) {
+      const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
+      if (selId?.startsWith('pm:')) {
+        const pmId = selId.slice(3);
+        const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
+        if (possiblePdj && (possiblePdj.day_of_week === dayKey || (isoDate && possiblePdj.day_of_week === isoDate)) && possiblePdj.meal_time === 'matin') {
+          breakfastFiber = 0;
+        } else {
+          breakfastFiber = possiblePdj ? getCardDisplayFiber(possiblePdj, undefined, isAvailable, foodItems, foodItemMacroIndex) : parseFiber(breakfast.fiber);
+        }
+      } else {
+        breakfastFiber = getDisplayedFiber(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
+      }
+    } else {
+      const manualKey = isoDate || dayKey;
+      breakfastFiber = breakfastManualFibers[manualKey] || 0;
+    }
+
+    const manualExtraKey = isoDate || dayKey;
+    const extraManual = extraFibers[manualExtraKey] || 0;
+
+    const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
+    const selectionKey = isoDate || dayKey;
+    const selectedExtraIds = extraSelections[selectionKey] || [];
+    const extraSelectedFiber = selectedExtraIds.reduce((sum, id) => {
+      const custom = parseCustomExtraId(id);
+      if (custom) return sum;
+      const item = foodItems.find(fi => fi.id === id);
+      return sum + (item ? getExtraPortionMacros(item).fiber : 0);
+    }, 0);
+
+    return mealFiber + breakfastFiber + extraManual + extraSelectedFiber;
+  };
+
   const getTargetCalorieThreshold = () => {
     const todayNum = new Date().getDay();
     const todayKey = JS_DAY_TO_KEY[todayNum];
@@ -376,5 +460,5 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     return Math.max(0, DAILY_PROTEIN_GOAL - todayConsumed);
   };
 
-  return { getDayCalories, getDayProtein, DAILY_GOAL, DAILY_PROTEIN_GOAL, getRecordSelectedExtraIds: (day: string) => (getPreference<Record<string, string[]>>('planning_extra_selections', {})[day] || []), getBreakfastForDay, getTargetCalorieThreshold, getRemainingProtein };
+  return { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_PROTEIN_GOAL, DAILY_FIBER_GOAL, getRecordSelectedExtraIds: (day: string) => (getPreference<Record<string, string[]>>('planning_extra_selections', {})[day] || []), getBreakfastForDay, getTargetCalorieThreshold, getRemainingProtein };
 }

@@ -29,6 +29,7 @@ export interface Meal {
   category: string;
   calories: string | null;
   protein: string | null;
+  fiber: string | null;
   grams: string | null;
   ingredients: string | null;
   sort_order: number;
@@ -177,7 +178,7 @@ export function useMeals(options?: { enabled?: boolean }) {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category, calories, protein, grams, ingredients, expiration_date, possible_quantity, counter_start_date, oven_temp, oven_minutes }: { name: string; category: string; calories?: string | null; protein?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null; oven_temp?: string | null; oven_minutes?: string | null }) => {
+    mutationFn: async ({ name, category, calories, protein, fiber, grams, ingredients, expiration_date, possible_quantity, counter_start_date, oven_temp, oven_minutes }: { name: string; category: string; calories?: string | null; protein?: string | null; fiber?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null; oven_temp?: string | null; oven_minutes?: string | null }) => {
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
         .insert({
@@ -187,6 +188,7 @@ export function useMeals(options?: { enabled?: boolean }) {
           is_available: false,
           ...(calories !== undefined ? { calories } : {}),
           ...(protein !== undefined ? { protein } : {}),
+          ...(fiber !== undefined ? { fiber } : {}),
           ...(grams !== undefined ? { grams } : {}),
           ...(ingredients !== undefined ? { ingredients } : {}),
           ...(oven_temp !== undefined ? { oven_temp } : {}),
@@ -245,6 +247,14 @@ export function useMeals(options?: { enabled?: boolean }) {
       if (error) throw error;
     },
     ...withMealOptimistic('protein'),
+  });
+
+  const updateFiber = useMutation({
+    mutationFn: async ({ id, fiber }: { id: string; fiber: string | null }) => {
+      const { error } = await supabase.from("meals").update({ fiber } as any).eq("id", id);
+      if (error) throw error;
+    },
+    ...withMealOptimistic('fiber'),
   });
 
   const updateIngredients = useMutation({
@@ -721,7 +731,7 @@ export function useMeals(options?: { enabled?: boolean }) {
 
   return {
     meals, possibleMeals, isLoading,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateIngredients,
+    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
     updateOvenTemp, updateOvenMinutes,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, splitPossibleMealQuantity, removeFromPossible,

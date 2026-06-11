@@ -4,7 +4,7 @@
  * Affiche un repas planifié avec toutes ses options :
  * - Dates : péremption, jour de la semaine, créneau (matin/midi/soir)
  * - Compteur d'ouverture (jours depuis l'ouverture de l'ingrédient)
- * - Macros : calories et protéines (calculées ou manuelles)
+ * - Macros : calories, protéines et fibres (calculées ou manuelles)
  * - Multiplicateur de ratio (détecté automatiquement depuis les ingrédients)
  * - Édition inline des calories, grammes, quantité, ratio
  * - Édition des ingrédients via IngredientEditor
@@ -29,13 +29,13 @@ import { format, parseISO } from "date-fns";
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
-  computeIngredientProtein, cleanIngredientText, normalizeKey,
+  computeIngredientProtein, computeIngredientFiber, cleanIngredientText, normalizeKey,
   hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, buildFoodItemIndex } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -54,6 +54,7 @@ interface PossibleMealCardProps {
   onUpdateCounter: (date: string | null) => void;
   onUpdateCalories: (cal: string | null) => void;
   onUpdateProtein?: (pro: string | null) => void;
+  onUpdateFiber?: (fiber: string | null) => void;
   onUpdateGrams: (g: string | null) => void;
   onUpdateQuantity?: (qty: number) => void;
   onSplitQuantity?: (ratio: number, baseIngredients: string | null) => void;
@@ -121,6 +122,22 @@ function proteinLooksComputedOnPossibleCard(
   return computeIngredientProtein(masterIngredients, isAvailable, 1, foodItems, foodMacroIndex) !== null;
 }
 
+/** Indique si les fibres affichées sur une carte « possible » relèvent du calcul par lignes ou fiches aliments. */
+function fiberLooksComputedOnPossibleCard(
+  ingredientsOverrideDefined: boolean,
+  displayIngredients: string | null | undefined,
+  masterIngredients: string | null | undefined,
+  scaleR: number,
+  isAvailable: ((name: string) => boolean) | undefined,
+  foodItems: FoodItem[] | undefined,
+  foodMacroIndex: ReturnType<typeof buildFoodItemIndex> | undefined,
+): boolean {
+  const fromDisplay = computeIngredientFiber(displayIngredients ?? null, isAvailable, scaleR, foodItems, foodMacroIndex);
+  if (fromDisplay !== null) return true;
+  if (!ingredientsOverrideDefined || !masterIngredients?.trim()) return false;
+  return computeIngredientFiber(masterIngredients, isAvailable, 1, foodItems, foodMacroIndex) !== null;
+}
+
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
 
 /** Indique si une recette contient des marqueurs d'édition structurés : alternative, liaison ou optionnel. */
@@ -169,6 +186,7 @@ function buildPossibleEditorLines(
       name: matching.name || line.name,
       cal: matching.cal || line.cal,
       pro: matching.pro || line.pro,
+      fiber: matching.fiber || line.fiber,
     };
   });
 }
@@ -177,7 +195,7 @@ function buildPossibleEditorLines(
 export function PossibleMealCard({
   pm, stockMap, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel,
   onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
-  onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateQuantity,
+  onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateQuantity,
   onUpdateIngredients, onUpdatePossibleIngredients, 
   onUpdateOvenTemp, onUpdateOvenMinutes,
   onDragStart, onDragOver,
@@ -186,7 +204,7 @@ export function PossibleMealCard({
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const [editing, setEditing] = useState<"calories" | "protein" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
+  const [editing, setEditing] = useState<"calories" | "protein" | "fiber" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calMobileOpen, setCalMobileOpen] = useState(false);
@@ -206,11 +224,11 @@ export function PossibleMealCard({
   if (!meal) return null;
 
   /** Recalcule une macro depuis l'aliment-repas source (valeur au 100 g × grammes de la portion Possible). */
-  const getFoodMealPortionMacro = (field: "calories" | "protein"): number | null => {
+  const getFoodMealPortionMacro = (field: "calories" | "protein" | "fiber"): number | null => {
     const grams = parseFloat((meal.grams || "").replace(",", ".").replace(/[^0-9.]/g, ""));
     if (!Number.isFinite(grams) || grams <= 0) return null;
     const sourceFood = foodItems?.find((fi) => fi.is_meal && normalizeKey(fi.name) === normalizeKey(meal.name));
-    const rawValue = field === "calories" ? sourceFood?.calories : sourceFood?.protein;
+    const rawValue = field === "calories" ? sourceFood?.calories : field === "protein" ? sourceFood?.protein : sourceFood?.fiber;
     if (!rawValue) return null;
     const per100 = parseFloat(String(rawValue).replace(",", ".").replace(/[^0-9.]/g, ""));
     if (!Number.isFinite(per100) || per100 <= 0) return null;
@@ -335,6 +353,7 @@ export function PossibleMealCard({
     const val = editValue.trim() || null;
     if (editing === "calories") onUpdateCalories(val);
     if (editing === "protein" && onUpdateProtein) onUpdateProtein(val);
+    if (editing === "fiber" && onUpdateFiber) onUpdateFiber(val);
     if (editing === "grams") onUpdateGrams(val);
     if (editing === "oven_temp" && onUpdateOvenTemp) onUpdateOvenTemp(val);
     if (editing === "oven_minutes" && onUpdateOvenMinutes) onUpdateOvenMinutes(val);
@@ -607,6 +626,7 @@ export function PossibleMealCard({
           editing === "ratio" ? "75% ou x2" :
             editing === "calories" ? "Ex: 350 kcal" :
               editing === "protein" ? "Ex: 28 g" :
+                editing === "fiber" ? "Ex: 8 g" :
                 editing === "oven_temp" ? "Ex: 180" :
                   editing === "oven_minutes" ? "Ex: 25" :
                     "Ex: 150g"
@@ -725,6 +745,32 @@ export function PossibleMealCard({
               </button>
             ) : null;
           })()}
+          {(() => {
+            const scaleR = detectedRatio ?? 1;
+            const rawDisplayFiber = getFoodMealPortionMacro("fiber")
+              ?? getDisplayedPMFiber(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const displayFiber = rawDisplayFiber != null ? Math.round(rawDisplayFiber) : null;
+            const isComputedFiber = fiberLooksComputedOnPossibleCard(
+              pm.ingredients_override != null,
+              displayIngredients,
+              meal.ingredients,
+              scaleR,
+              isAvailableCb,
+              foodItems,
+              foodMacroIndex,
+            );
+            return displayFiber != null && displayFiber > 0 ? (
+              <button
+                onClick={() => { setEditValue(meal.fiber || ""); setEditing("fiber"); }}
+                className={`text-[10px] px-1 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${isComputedFiber
+                  ? 'bg-emerald-600/60 text-white hover:bg-emerald-600/80'
+                  : 'bg-black/30 text-white/90 hover:bg-black/40'
+                  }`}
+              >
+                🌾 {displayFiber}
+              </button>
+            ) : null;
+          })()}
 
           <Button size="icon" variant="ghost" onClick={onDuplicate} className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20" title="Dupliquer">
             <Copy className="h-3 w-3" />
@@ -768,6 +814,11 @@ export function PossibleMealCard({
               {onUpdateProtein && (
                 <DropdownMenuItem onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}>
                   <span className="mr-2 text-sm">🍗</span> Protéines
+                </DropdownMenuItem>
+              )}
+              {onUpdateFiber && (
+                <DropdownMenuItem onClick={() => { setEditValue(meal.fiber || ""); setEditing("fiber"); }}>
+                  <span className="mr-2 text-sm">🌾</span> Fibres
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>

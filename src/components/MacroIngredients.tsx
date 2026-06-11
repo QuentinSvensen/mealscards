@@ -25,24 +25,25 @@ interface MacroIngredientsProps {
   onSaveMacroLibrary: (library: IngredientMacroLibraryItem[]) => void;
   onUpdateMealIngredients: (id: string, ingredients: string) => void;
   onUpdatePossibleIngredients: (id: string, ingredients_override: string | null) => void;
-  onUpdateFoodItemMacro: (id: string, updates: { calories: string | null; protein: string | null }) => void;
+  onUpdateFoodItemMacro: (id: string, updates: { calories: string | null; protein: string | null; fiber: string | null }) => void;
 }
 
 interface DraftMacro {
   calories: string;
   protein: string;
+  fiber: string;
 }
 
 // Renvoie les valeurs actuellement visibles, en tenant compte des edits non sauvegardés.
 function getDraftValue(entry: IngredientMacroEntry, drafts: Record<string, DraftMacro>): DraftMacro {
-  return drafts[entry.key] ?? { calories: entry.calories, protein: entry.protein };
+  return drafts[entry.key] ?? { calories: entry.calories, protein: entry.protein, fiber: entry.fiber };
 }
 
 // Indique si la ligne a été modifiée par rapport aux macros de référence chargées.
 function hasDraftChanged(entry: IngredientMacroEntry, drafts: Record<string, DraftMacro>): boolean {
   const draft = drafts[entry.key];
   if (!draft) return false;
-  return draft.calories.trim() !== entry.calories || draft.protein.trim() !== entry.protein;
+  return draft.calories.trim() !== entry.calories || draft.protein.trim() !== entry.protein || draft.fiber.trim() !== entry.fiber;
 }
 
 // Produit une signature stable du référentiel pour éviter de relancer deux fois la même sauvegarde automatique.
@@ -50,7 +51,7 @@ function getMacroLibrarySignature(library: IngredientMacroLibraryItem[]): string
   return JSON.stringify(
     [...library]
       .sort((a, b) => a.key.localeCompare(b.key, "fr"))
-      .map((entry) => [entry.key, entry.displayName, entry.calories, entry.protein]),
+      .map((entry) => [entry.key, entry.displayName, entry.calories, entry.protein, entry.fiber ?? ""]),
   );
 }
 
@@ -70,6 +71,7 @@ export function MacroIngredients({
   const [newIngredientName, setNewIngredientName] = useState("");
   const [newIngredientCalories, setNewIngredientCalories] = useState("");
   const [newIngredientProtein, setNewIngredientProtein] = useState("");
+  const [newIngredientFiber, setNewIngredientFiber] = useState("");
   const [manuallyDeletedKeys, setManuallyDeletedKeys] = useState<Set<string>>(() => new Set());
   const pendingAutoPersistSignature = useRef<string | null>(null);
 
@@ -100,7 +102,7 @@ export function MacroIngredients({
     onSaveMacroLibrary(nextLibrary);
   }, [entries, macroLibrary, manuallyDeletedKeys, onSaveMacroLibrary]);
 
-  // Met à jour le brouillon local d'une cellule calories/protéines.
+  // Met à jour le brouillon local d'une cellule calories/protéines/fibres.
   const updateDraft = (entry: IngredientMacroEntry, field: keyof DraftMacro, value: string) => {
     setDrafts((current) => {
       const draft = getDraftValue(entry, current);
@@ -113,13 +115,13 @@ export function MacroIngredients({
 
   // Ajoute un ingrédient libre au référentiel macros persistant.
   const addIngredient = () => {
-    const item = createIngredientMacroLibraryItem(newIngredientName, newIngredientCalories, newIngredientProtein);
+    const item = createIngredientMacroLibraryItem(newIngredientName, newIngredientCalories, newIngredientProtein, newIngredientFiber);
     if (!item) {
       toast({ title: "Nom requis", description: "Indique le nom de l'ingrédient à ajouter.", variant: "destructive" });
       return;
     }
-    if (!item.calories && !item.protein) {
-      toast({ title: "Macros requises", description: "Ajoute au moins des calories ou des protéines.", variant: "destructive" });
+    if (!item.calories && !item.protein && !item.fiber) {
+      toast({ title: "Macros requises", description: "Ajoute au moins une valeur de macro.", variant: "destructive" });
       return;
     }
 
@@ -127,6 +129,7 @@ export function MacroIngredients({
     setNewIngredientName("");
     setNewIngredientCalories("");
     setNewIngredientProtein("");
+    setNewIngredientFiber("");
     setSearchQuery(item.displayName);
     toast({ title: "Ingrédient ajouté", description: `${item.displayName} est maintenant dans le référentiel macros.` });
   };
@@ -136,8 +139,9 @@ export function MacroIngredients({
     const draft = getDraftValue(entry, drafts);
     const calories = draft.calories.trim();
     const protein = draft.protein.trim();
-    const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, calories, protein);
-    const libraryItem = createIngredientMacroLibraryItem(entry.displayName, calories, protein);
+    const fiber = draft.fiber.trim();
+    const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, calories, protein, fiber);
+    const libraryItem = createIngredientMacroLibraryItem(entry.displayName, calories, protein, fiber);
 
     for (const update of plan.mealUpdates) {
       onUpdateMealIngredients(update.id, update.ingredients);
@@ -146,7 +150,7 @@ export function MacroIngredients({
       onUpdatePossibleIngredients(update.id, update.ingredients_override);
     }
     for (const update of plan.foodUpdates) {
-      onUpdateFoodItemMacro(update.id, { calories: update.calories, protein: update.protein });
+      onUpdateFoodItemMacro(update.id, { calories: update.calories, protein: update.protein, fiber: update.fiber });
     }
 
     setDrafts((current) => {
@@ -173,7 +177,7 @@ export function MacroIngredients({
 
   // Supprime une ligne du référentiel et efface ses macros dans recettes, possibles et aliments.
   const deleteEntry = (entry: IngredientMacroEntry) => {
-    const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, "", "");
+    const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, "", "", "");
 
     for (const update of plan.mealUpdates) {
       onUpdateMealIngredients(update.id, update.ingredients);
@@ -182,7 +186,7 @@ export function MacroIngredients({
       onUpdatePossibleIngredients(update.id, update.ingredients_override);
     }
     for (const update of plan.foodUpdates) {
-      onUpdateFoodItemMacro(update.id, { calories: update.calories, protein: update.protein });
+      onUpdateFoodItemMacro(update.id, { calories: update.calories, protein: update.protein, fiber: update.fiber });
     }
 
     setDrafts((current) => {
@@ -224,7 +228,7 @@ export function MacroIngredients({
           />
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_auto]">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_90px_auto]">
           <Input
             value={newIngredientName}
             onChange={(event) => setNewIngredientName(event.target.value)}
@@ -248,6 +252,14 @@ export function MacroIngredients({
             placeholder="Prot."
             className="rounded-xl text-center text-sm"
           />
+          <Input
+            value={newIngredientFiber}
+            onChange={(event) => setNewIngredientFiber(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && addIngredient()}
+            inputMode="decimal"
+            placeholder="Fib."
+            className="rounded-xl text-center text-sm"
+          />
           <Button onClick={addIngredient} className="rounded-xl gap-1 text-xs">
             <Plus className="h-3.5 w-3.5" />
             Ajouter
@@ -256,11 +268,12 @@ export function MacroIngredients({
       </div>
 
       <div className="mx-auto w-fit max-w-full overflow-x-auto rounded-2xl border bg-card shadow-sm">
-        <div className="grid grid-cols-[180px_88px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_80px_56px] gap-0 border-b bg-muted/70 px-2 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[180px_88px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_96px_80px_56px] gap-0 border-b bg-muted/70 px-2 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <span>Ingrédient</span>
           <span className="text-center">Base</span>
           <span className="flex items-center justify-center gap-1"><Flame className="h-3 w-3 text-orange-500" />Kcal</span>
           <span className="flex items-center justify-center gap-1"><Drumstick className="h-3 w-3 text-blue-500" />Prot.</span>
+          <span className="flex items-center justify-center gap-1"><Wheat className="h-3 w-3 text-emerald-500" />Fib.</span>
           <span className="text-center">Save</span>
           <span className="text-center">Suppr.</span>
         </div>
@@ -274,10 +287,10 @@ export function MacroIngredients({
             {filteredEntries.map((entry) => {
               const draft = getDraftValue(entry, drafts);
               const changed = hasDraftChanged(entry, drafts);
-              const hasConflict = entry.hasConflictingCalories || entry.hasConflictingProtein;
+              const hasConflict = entry.hasConflictingCalories || entry.hasConflictingProtein || entry.hasConflictingFiber;
 
               return (
-                <div key={entry.key} className="grid grid-cols-[180px_88px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
+                <div key={entry.key} className="grid grid-cols-[180px_88px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
                   <div className="min-w-0 pr-2">
                     <p className="truncate text-xs sm:text-sm font-semibold">{entry.displayName}</p>
                     <p className="truncate text-[10px] text-muted-foreground">
@@ -306,6 +319,15 @@ export function MacroIngredients({
                   <Input
                     value={draft.protein}
                     onChange={(event) => updateDraft(entry, "protein", event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && saveEntry(entry)}
+                    inputMode="decimal"
+                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs"
+                    placeholder="0"
+                  />
+
+                  <Input
+                    value={draft.fiber}
+                    onChange={(event) => updateDraft(entry, "fiber", event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && saveEntry(entry)}
                     inputMode="decimal"
                     className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs"

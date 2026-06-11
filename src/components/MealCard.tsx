@@ -1,12 +1,12 @@
 /**
  * MealCard — Carte individuelle de repas dans le catalogue.
  *
- * Affiche le nom du repas, ses macros (calories, protéines), grammage,
+ * Affiche le nom du repas, ses macros (calories, protéines, fibres), grammage,
  * température/durée de cuisson, statut favori, et la liste d'ingrédients
  * avec mise en évidence des périmés/manquants/compteurs.
  *
  * Fonctionnalités :
- * - Édition inline du nom, calories, protéines, grammes, cuisson
+ * - Édition inline du nom, calories, protéines, fibres, grammes, cuisson
  * - Édition des ingrédients via IngredientEditor
  * - Mémorisation React.memo avec comparaison personnalisée pour la performance
  * - StructuredIngredientInline : affiche les ingrédients avec OU, optionnels, manquants
@@ -24,10 +24,10 @@ import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } fr
 import {
   type IngLine,
   parseIngredientsToLines, serializeIngredients,
-  computeIngredientCalories, computeIngredientProtein, cleanIngredientText,
+  computeIngredientCalories, computeIngredientProtein, computeIngredientFiber, cleanIngredientText,
   getMealColor, computeCounterHours
 } from "@/lib/ingredientUtils";
-import { findStockKey, type StockInfo, getDisplayedCalories, getDisplayedProtein } from "@/lib/stockUtils";
+import { findStockKey, type StockInfo, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber } from "@/lib/stockUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 
 interface MealCardProps {
@@ -37,6 +37,7 @@ interface MealCardProps {
   onDelete: () => void;
   onUpdateCalories: (calories: string | null) => void;
   onUpdateProtein?: (protein: string | null) => void;
+  onUpdateFiber?: (fiber: string | null) => void;
   onUpdateGrams: (grams: string | null) => void;
   onUpdateIngredients: (ingredients: string | null) => void;
   onToggleFavorite?: () => void;
@@ -66,14 +67,14 @@ interface MealCardProps {
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
 
 export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(function MealCard({
-  meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams,
+  meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams,
   onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart,
   onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate,
   expirationIsToday, expiringIngredientName, expiredIngredientNames, expiringSoonIngredientNames,
   maxIngredientCounter, missingIngredientNames, counterIngredientNames, stockMap,
   earliestCounterDate, hideCounter, ingredientSuggestions, ingredientMacroSources
 }, _ref) {
-  const [editing, setEditing] = useState<"name" | "calories" | "protein" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
+  const [editing, setEditing] = useState<"name" | "calories" | "protein" | "fiber" | "grams" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
@@ -83,6 +84,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     if (editing === "name" && val && val !== meal.name) onRename(val);
     if (editing === "calories") onUpdateCalories(val || null);
     if (editing === "protein") onUpdateProtein?.(val || null);
+    if (editing === "fiber") onUpdateFiber?.(val || null);
     if (editing === "grams") onUpdateGrams(val || null);
     if (editing === "oven_temp") onUpdateOvenTemp?.(val || null);
     if (editing === "oven_minutes") onUpdateOvenMinutes?.(val || null);
@@ -130,7 +132,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
       {editing ? (
         <Input
           autoFocus
-          placeholder={editing === "name" ? "Nom" : editing === "calories" ? "Ex: 350 kcal" : editing === "grams" ? "Ex: 150g" : editing === "oven_temp" ? "Ex: 180" : "Ex: 25"}
+          placeholder={editing === "name" ? "Nom" : editing === "calories" ? "Ex: 350 kcal" : editing === "fiber" ? "Ex: 8" : editing === "grams" ? "Ex: 150g" : editing === "oven_temp" ? "Ex: 180" : "Ex: 25"}
           value={editValue}
           onChange={(e) => setEditValue(e.target.value)}
           onBlur={handleSave}
@@ -190,6 +192,16 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                   </span>
                 ) : null;
               })()}
+              {(() => {
+                const displayFiber = getDisplayedFiber(meal, undefined, undefined, isAvailableCb);
+                const isComputedFiber = computeIngredientFiber(meal.ingredients, isAvailableCb) !== null;
+                return displayFiber && displayFiber !== 0 ? (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${isComputedFiber ? 'bg-emerald-600/60 text-white' : 'text-white/70 bg-emerald-500/30'
+                    }`}>
+                    🌾 {displayFiber}
+                  </span>
+                ) : null;
+              })()}
               {hasCuisson && (
                 <span className="text-xs text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0">
                   <Thermometer className="h-3 w-3" />
@@ -224,6 +236,11 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                   {onUpdateProtein && (
                     <DropdownMenuItem onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}>
                       <Weight className="mr-2 h-4 w-4" /> Protéines
+                    </DropdownMenuItem>
+                  )}
+                  {onUpdateFiber && (
+                    <DropdownMenuItem onClick={() => { setEditValue(meal.fiber || ""); setEditing("fiber"); }}>
+                      <Weight className="mr-2 h-4 w-4" /> Fibres
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
@@ -287,6 +304,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   return prevProps.meal.id === nextProps.meal.id &&
     prevProps.meal.name === nextProps.meal.name &&
     prevProps.meal.calories === nextProps.meal.calories &&
+    prevProps.meal.fiber === nextProps.meal.fiber &&
     prevProps.meal.grams === nextProps.meal.grams &&
     prevProps.meal.ingredients === nextProps.meal.ingredients &&
     prevProps.meal.oven_temp === nextProps.meal.oven_temp &&

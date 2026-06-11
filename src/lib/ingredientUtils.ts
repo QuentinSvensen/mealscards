@@ -501,7 +501,7 @@ export interface ParsedIngredient { qty: number; count: number; name: string; op
 export interface ParsedIngredientRaw { qty: number; count: number; name: string; rawName: string; optional: boolean; }
 
 // Regex pré-compilées pour éviter la recompilation à chaque appel
-const _RE_METRIC_STRIP = /(?:\{-?\d+(?:[.,]\d+)?\})?(?:\s*\[-?\d+(?:[.,]\d+)?\])?\s*$/;
+const _RE_METRIC_STRIP = /(?:\{-?\d+(?:[.,]\d+)?\})?(?:\s*\[-?\d+(?:[.,]\d+)?\])?(?:\s*<-?\d+(?:[.,]\d+)?>)?\s*$/;
 const _UNIT = "(?:g|gr|grammes?|kg|ml|cl|l)";
 const _RE_FULL = new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${_UNIT}\\s+(\\d+(?:[.,]\\d+)?)\\s+(.+)$`, "i");
 const _RE_UNIT = new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*${_UNIT}\\s+(.+)$`, "i");
@@ -603,34 +603,36 @@ export interface IngLine {
   name: string; 
   cal: string; 
   pro: string; 
+  fiber: string;
   isOr: boolean; 
   isAnd: boolean; // Nouveau : lié au précédent par un ET
   isOptional: boolean; 
 }
 
-/** Extrait les suffixes {cal} et [pro] d'un token d'ingrédient brut */
-export function extractMetrics(raw: string): { text: string; cal: string; pro: string } {
-  const match = raw.match(/(.*?)(?:\{(-?\d+(?:[.,]\d+)?)\})?(?:\s*\[(-?\d+(?:[.,]\d+)?)\])?\s*$/);
+/** Extrait les suffixes {cal}, [pro] et <fibres> d'un token d'ingrédient brut. */
+export function extractMetrics(raw: string): { text: string; cal: string; pro: string; fiber: string } {
+  const match = raw.match(/(.*?)(?:\{(-?\d+(?:[.,]\d+)?)\})?(?:\s*\[(-?\d+(?:[.,]\d+)?)\])?(?:\s*<(-?\d+(?:[.,]\d+)?)>)?\s*$/);
   if (match) {
     return {
       text: match[1].trim(),
       cal: match[2] ? match[2].replace(",", ".") : "",
-      pro: match[3] ? match[3].replace(",", ".") : ""
+      pro: match[3] ? match[3].replace(",", ".") : "",
+      fiber: match[4] ? match[4].replace(",", ".") : "",
     };
   }
-  return { text: raw, cal: "", pro: "" };
+  return { text: raw, cal: "", pro: "", fiber: "" };
 }
 
-/** Vérifie si un token d'ingrédient a une valeur cal ou pro négative (marqueur interne à filtrer) */
+/** Vérifie si un token d'ingrédient a une valeur macro négative (marqueur interne à filtrer). */
 export function hasNegativeMetric(raw: string): boolean {
-  const { cal, pro } = extractMetrics(raw);
-  return (cal !== "" && parseFloat(cal) < 0) || (pro !== "" && parseFloat(pro) < 0);
+  const { cal, pro, fiber } = extractMetrics(raw);
+  return (cal !== "" && parseFloat(cal) < 0) || (pro !== "" && parseFloat(pro) < 0) || (fiber !== "" && parseFloat(fiber) < 0);
 }
 
-/** Nettoie une chaîne d'ingrédients en retirant tous les marqueurs {cal} et [pro] pour l'affichage */
+/** Nettoie une chaîne d'ingrédients en retirant tous les marqueurs macros pour l'affichage. */
 export function cleanIngredientText(text: string | null | undefined): string {
   if (!text) return "";
-  return text.replace(/\{[^}]*\}/g, "").replace(/\[[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
+  return text.replace(/\{[^}]*\}/g, "").replace(/\[[^\]]*\]/g, "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 }
 
 // Regex pré-compilées pour parseIngredientLineDisplay
@@ -642,22 +644,22 @@ const _RE_DISP_NUM = /^(\d+(?:[.,]\d+)?)\s+(.+)$/;
 /** Parse une ligne d'ingrédient pour l'affichage dans l'éditeur (conserve les strings) */
 export function parseIngredientLineDisplay(raw: string): IngLine {
   let trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return { qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false };
+  if (!trimmed) return { qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false };
   const isOptional = trimmed.startsWith("?");
   if (isOptional) trimmed = trimmed.slice(1).trim();
-  const { text: withoutMetrics, cal, pro } = extractMetrics(trimmed);
+  const { text: withoutMetrics, cal, pro, fiber } = extractMetrics(trimmed);
   trimmed = withoutMetrics;
 
   const matchFull = trimmed.match(_RE_DISP_FULL);
-  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, pro, isOr: false, isAnd: false, isOptional };
+  if (matchFull) return { qty: matchFull[1], count: matchFull[2], name: matchFull[3].trim(), cal, pro, fiber, isOr: false, isAnd: false, isOptional };
 
   const matchUnit = trimmed.match(_RE_DISP_UNIT);
-  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, pro, isOr: false, isAnd: false, isOptional };
+  if (matchUnit) return { qty: matchUnit[1], count: "", name: matchUnit[2].trim(), cal, pro, fiber, isOr: false, isAnd: false, isOptional };
 
   const matchNum = trimmed.match(_RE_DISP_NUM);
-  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, pro, isOr: false, isAnd: false, isOptional };
+  if (matchNum) return { qty: "", count: matchNum[1], name: matchNum[2].trim(), cal, pro, fiber, isOr: false, isAnd: false, isOptional };
 
-  return { qty: "", count: "", name: trimmed, cal, pro, isOr: false, isAnd: false, isOptional };
+  return { qty: "", count: "", name: trimmed, cal, pro, fiber, isOr: false, isAnd: false, isOptional };
 }
 
 /** Formate une quantité pour l'affichage : ajoute "g" si c'est juste un nombre */
@@ -670,7 +672,7 @@ export function formatQtyDisplay(qty: string): string {
 
 /** Convertit une chaîne d'ingrédients brute en tableau de IngLine pour l'éditeur */
 export function parseIngredientsToLines(raw: string | null): IngLine[] {
-  if (!raw) return [{ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false }];
+  if (!raw) return [{ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false }];
   const groups = raw.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
   const lines: IngLine[] = [];
   for (const groupStr of groups) {
@@ -685,7 +687,7 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
       });
     });
   }
-  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
+  if (lines.length < 2) lines.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
   return lines;
 }
 
@@ -698,7 +700,8 @@ export function isNegativeIngredientLine(l: IngLine): boolean {
   if (normName === "negatif" || normName === "négatif") return true;
   const cal = l.cal?.trim() ? parseFloat(l.cal.trim().replace(",", ".")) : 0;
   const pro = l.pro?.trim() ? parseFloat(l.pro.trim().replace(",", ".")) : 0;
-  return (!Number.isNaN(cal) && cal < 0) || (!Number.isNaN(pro) && pro < 0);
+  const fiber = l.fiber?.trim() ? parseFloat(l.fiber.trim().replace(",", ".")) : 0;
+  return (!Number.isNaN(cal) && cal < 0) || (!Number.isNaN(pro) && pro < 0) || (!Number.isNaN(fiber) && fiber < 0);
 }
 
 /**
@@ -774,6 +777,7 @@ export function serializeIngredients(lines: IngLine[]): string | null {
     let token = [qtyStr, countStr, nameStr].filter(Boolean).join(" ");
     if (l.cal?.trim()) token += `{${l.cal.trim()}}`;
     if (l.pro?.trim()) token += ` [${l.pro.trim()}]`;
+    if (l.fiber?.trim()) token += ` <${l.fiber.trim()}>`;
     const finalToken = l.isOptional ? `?${token}` : token;
     
     if (l.isAnd) {
@@ -860,6 +864,7 @@ export function restoreIngredientDisplayNamesFromReference(
  */
 const _calCache = new Map<string, number | null>();
 const _proCache = new Map<string, number | null>();
+const _fiberCache = new Map<string, number | null>();
 const MACRO_CACHE_MAX = 500;
 
 /**
@@ -888,20 +893,21 @@ function lookupFoodItemsForMacro(name: string, foodItems: FoodItem[], index?: Fo
 }
 
 /**
- * Extrait les grammes de protéines pour 100 g depuis une fiche aliment (chaîne potentiellement annotée).
+ * Extrait une macro pour 100 g depuis une fiche aliment (chaîne potentiellement annotée).
  */
-function parseFoodItemProteinPer100(fi: FoodItem): number | null {
-  if (!fi.protein?.trim()) return null;
-  const n = parseFloat(fi.protein.replace(",", ".").replace(/[^0-9.]/g, ""));
+function parseFoodItemMacroPer100(fi: FoodItem, field: "protein" | "fiber"): number | null {
+  const raw = field === "protein" ? fi.protein : fi.fiber;
+  if (!raw?.trim()) return null;
+  const n = parseFloat(raw.replace(",", ".").replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
- * Retourne les protéines pour 100 g du premier aliment matché qui définit une valeur exploitable, sinon null.
+ * Retourne une macro pour 100 g du premier aliment matché qui définit une valeur exploitable, sinon null.
  */
-function resolveProteinPer100FromFoodItems(name: string, foodItems: FoodItem[], index?: FoodItemMacroIndex): number | null {
+function resolveMacroPer100FromFoodItems(name: string, field: "protein" | "fiber", foodItems: FoodItem[], index?: FoodItemMacroIndex): number | null {
   for (const fi of lookupFoodItemsForMacro(name, foodItems, index)) {
-    const p = parseFoodItemProteinPer100(fi);
+    const p = parseFoodItemMacroPer100(fi, field);
     if (p !== null) return p;
   }
   return null;
@@ -910,7 +916,7 @@ function resolveProteinPer100FromFoodItems(name: string, foodItems: FoodItem[], 
 /** Calcule calories ou protéines agrégées sur une chaîne d’ingrédients (avec cache LRU). */
 function _computeMacro(
   ingredientStr: string | null,
-  field: 'cal' | 'pro',
+  field: 'cal' | 'pro' | 'fiber',
   cache: Map<string, number | null>,
   isAvailable?: (name: string) => boolean,
   ratio: number = 1,
@@ -918,8 +924,8 @@ function _computeMacro(
   foodItemIndex?: FoodItemMacroIndex,
 ): number | null {
   if (!ingredientStr?.trim()) return null;
-  const useFoodProFallback = field === "pro" && !!foodItems?.length;
-  if (!isAvailable && ratio === 1 && !useFoodProFallback) {
+  const useFoodMacroFallback = (field === "pro" || field === "fiber") && !!foodItems?.length;
+  if (!isAvailable && ratio === 1 && !useFoodMacroFallback) {
     const cached = cache.get(ingredientStr);
     if (cached !== undefined) return cached;
   }
@@ -962,10 +968,10 @@ function _computeMacro(
     
     // Sommer les composants du bundle choisi
     for (const item of chosenAlt) {
-      const rawVal = field === 'cal' ? item.cal : item.pro;
+      const rawVal = field === 'cal' ? item.cal : field === 'pro' ? item.pro : item.fiber;
       let val = parseFloat(rawVal.replace(",", "."));
-      if ((!val || isNaN(val)) && useFoodProFallback) {
-        const fromFood = resolveProteinPer100FromFoodItems(item.name, foodItems!, foodItemIndex);
+      if ((!val || isNaN(val)) && useFoodMacroFallback) {
+        const fromFood = resolveMacroPer100FromFoodItems(item.name, field === "fiber" ? "fiber" : "protein", foodItems!, foodItemIndex);
         if (fromFood !== null) val = fromFood;
       }
       if (!val || isNaN(val)) continue;
@@ -978,7 +984,7 @@ function _computeMacro(
     }
   }
   const result = hasValue ? Math.round(total * ratio) : null;
-  if (!isAvailable && ratio === 1 && !useFoodProFallback) {
+  if (!isAvailable && ratio === 1 && !useFoodMacroFallback) {
     if (cache.size > MACRO_CACHE_MAX) cache.clear();
     cache.set(ingredientStr!, result);
   }
@@ -1004,6 +1010,20 @@ export function computeIngredientProtein(
   return _computeMacro(ingredientStr, 'pro', _proCache, isAvailable, ratio, foodItems, foodItemIndex);
 }
 
+/**
+ * Calcule les fibres totales depuis une chaîne d'ingrédients ; peut compléter les <fibres> absentes
+ * avec les fibres pour 100 g des fiches aliments correspondantes.
+ */
+export function computeIngredientFiber(
+  ingredientStr: string | null,
+  isAvailable?: (name: string) => boolean,
+  ratio: number = 1,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
+  return _computeMacro(ingredientStr, 'fiber', _fiberCache, isAvailable, ratio, foodItems, foodItemIndex);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 8 : Propagation des macros entre repas
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1012,16 +1032,17 @@ export function computeIngredientProtein(
  * Extrait une map nom_ingrédient → { cal, pro } depuis une chaîne d'ingrédients.
  * Ne retourne que les ingrédients ayant au moins une valeur cal ou pro définie.
  */
-export function extractIngredientMacros(ingredientStr: string | null): Map<string, { cal: string; pro: string }> {
-  const map = new Map<string, { cal: string; pro: string }>();
+export function extractIngredientMacros(ingredientStr: string | null): Map<string, { cal: string; pro: string; fiber: string }> {
+  const map = new Map<string, { cal: string; pro: string; fiber: string }>();
   if (!ingredientStr?.trim()) return map;
   const lines = parseIngredientsToLines(ingredientStr);
   for (const line of lines) {
     if (!line.name.trim()) continue;
     const cal = line.cal?.trim() || "";
     const pro = line.pro?.trim() || "";
-    if (cal || pro) {
-      map.set(normalizeKey(line.name), { cal, pro });
+    const fiber = line.fiber?.trim() || "";
+    if (cal || pro || fiber) {
+      map.set(normalizeKey(line.name), { cal, pro, fiber });
     }
   }
   return map;
@@ -1032,7 +1053,7 @@ export function extractIngredientMacros(ingredientStr: string | null): Map<strin
  * Pour chaque ingrédient correspondant, écrase cal/pro avec les valeurs de la map.
  * Retourne la chaîne mise à jour, ou null si rien n'a changé.
  */
-export function applyIngredientMacros(ingredientStr: string | null, macros: Map<string, { cal: string; pro: string }>): string | null {
+export function applyIngredientMacros(ingredientStr: string | null, macros: Map<string, { cal: string; pro: string; fiber?: string }>): string | null {
   if (!ingredientStr?.trim() || macros.size === 0) return null;
   const lines = parseIngredientsToLines(ingredientStr);
   let changed = false;
@@ -1043,6 +1064,7 @@ export function applyIngredientMacros(ingredientStr: string | null, macros: Map<
     if (macro) {
       if (macro.cal && line.cal !== macro.cal) { line.cal = macro.cal; changed = true; }
       if (macro.pro && line.pro !== macro.pro) { line.pro = macro.pro; changed = true; }
+      if (macro.fiber && line.fiber !== macro.fiber) { line.fiber = macro.fiber; changed = true; }
     }
   }
   return changed ? serializeIngredients(lines) : null;

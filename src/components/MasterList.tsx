@@ -38,6 +38,7 @@ interface MasterListProps {
   onDelete: (id: string) => void;
   onUpdateCalories: (id: string, cal: string | null) => void;
   onUpdateProtein: (id: string, prot: string | null) => void;
+  onUpdateFiber: (id: string, fiber: string | null) => void;
   onUpdateGrams: (id: string, g: string | null) => void;
   onUpdateIngredients: (id: string, ing: string | null) => void;
   onToggleFavorite: (id: string) => void;
@@ -47,7 +48,7 @@ interface MasterListProps {
   ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
 }
 
-export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder, ingredientMacroAutofillSources }: MasterListProps) {
+export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder, ingredientMacroAutofillSources }: MasterListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const stockMap = buildStockMap(foodItems);
@@ -127,6 +128,7 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
                 onDelete={() => onDelete(meal.id)}
                 onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
                 onUpdateProtein={(prot) => onUpdateProtein(meal.id, prot)}
+                onUpdateFiber={(fiber) => onUpdateFiber(meal.id, fiber)}
                 onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
                 onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
                 onToggleFavorite={() => onToggleFavorite(meal.id)}

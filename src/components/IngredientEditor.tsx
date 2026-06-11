@@ -3,7 +3,7 @@
  *
  * Utilisé par MealCard et PossibleMealCard pour modifier les ingrédients.
  * Chaque ligne contient : poignée de tri, bouton "Ou" (alternative),
- * bouton "?" (optionnel), champs grammes, quantité, nom, calories, protéines.
+ * bouton "?" (optionnel), champs grammes, quantité, nom, calories, protéines, fibres.
  *
  * Fonctionnalités :
  * - Drag & drop pour réordonner les lignes d'ingrédients
@@ -84,7 +84,7 @@ export function IngredientEditor({
     if (!ingredientMacroSources) return line;
 
     const resolved = resolveIngredientLineMacros(line, ingredientMacroSources);
-    if (!resolved.cal && !resolved.pro) return line;
+    if (!resolved.cal && !resolved.pro && !resolved.fiber) return line;
 
     if (mode === "recalculate" && !hasScalableIngredientMacroSource(line, ingredientMacroSources)) {
       return line;
@@ -95,6 +95,7 @@ export function IngredientEditor({
         ...line,
         cal: line.cal?.trim() ? line.cal : (resolved.cal || line.cal),
         pro: line.pro?.trim() ? line.pro : (resolved.pro || line.pro),
+        fiber: line.fiber?.trim() ? line.fiber : (resolved.fiber || line.fiber),
       };
     }
 
@@ -102,14 +103,15 @@ export function IngredientEditor({
       ...line,
       cal: resolved.cal || line.cal,
       pro: resolved.pro || line.pro,
+      fiber: resolved.fiber || line.fiber,
     };
   };
 
-  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "pro", value: string) => {
+  const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "pro" | "fiber", value: string) => {
     const next = [...lines];
     next[idx] = { ...next[idx], [field]: value };
     if (field === "name" && idx === next.length - 1 && value.trim()) {
-      next.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
+      next.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
     }
     if (field === "name") {
       setSuggestionLineIdx(value.trim() ? idx : null);
@@ -129,7 +131,7 @@ export function IngredientEditor({
     const next = [...lines];
     next[idx] = applyMacroAutofill({ ...next[idx], name }, "recalculate");
     if (idx === next.length - 1) {
-      next.push({ qty: "", count: "", name: "", cal: "", pro: "", isOr: false, isAnd: false, isOptional: false });
+      next.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
     }
     onUpdate(next);
     setSuggestionLineIdx(null);
@@ -234,7 +236,7 @@ export function IngredientEditor({
       }}
       className="flex flex-col gap-1"
     >
-      <div className="grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 mb-0.5 pl-0 pr-0">
+      <div className="grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 mb-0.5 pl-0 pr-0">
         <span className="text-[8px] text-white/50 text-center"></span>
         <span className="text-[8px] text-white/50 text-center">Ou</span>
         <span className="text-[8px] text-white/50 text-center">Et</span>
@@ -244,6 +246,7 @@ export function IngredientEditor({
         <span className="text-[8px] text-white/50">Nom</span>
         <span className="text-[8px] text-white/50 text-center">Cal</span>
         <span className="text-[8px] text-white/50 text-center">P</span>
+        <span className="text-[8px] text-white/50 text-center">Fib</span>
       </div>
       {lines.map((line, idx) => (
         <div
@@ -253,7 +256,7 @@ export function IngredientEditor({
           onDragOver={(e) => handleDragOver(e, idx)}
           onDrop={(e) => handleDrop(e, idx)}
           onDragEnd={handleDragEnd}
-          className={`grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0 transition-opacity ${
+          className={`grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0 transition-opacity ${
             dragIdx === idx ? 'opacity-30' : ''
           } ${dragOverIdx === idx && dragIdx !== idx ? 'border-t-2 border-yellow-300/60' : ''}`}
         >
@@ -378,6 +381,14 @@ export function IngredientEditor({
             onChange={e => updateLine(idx, "pro", e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") onCommit(); if (e.key === "Escape") onCommit(); }}
             className="h-7 border-white/30 bg-blue-500/20 text-white placeholder:text-white/40 text-[10px] px-1"
+          />
+          <Input
+            placeholder="fib"
+            inputMode="text"
+            value={line.fiber}
+            onChange={e => updateLine(idx, "fiber", e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") onCommit(); if (e.key === "Escape") onCommit(); }}
+            className="h-7 border-white/30 bg-emerald-500/20 text-white placeholder:text-white/40 text-[10px] px-1"
           />
         </div>
       ))}

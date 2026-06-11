@@ -6,7 +6,7 @@
  * 2. Hook useFoodItems() — CRUD complet sur les aliments (ajout, modification,
  *    suppression, duplication, réordonnancement) via la base de données
  * 3. FoodItemCard — Carte individuelle d'aliment avec édition inline de :
- *    nom, grammage (avec reste partiel), calories, protéines, quantité,
+ *    nom, grammage (avec reste partiel), calories, protéines, fibres, quantité,
  *    péremption, compteur, type (viande/féculent), indivisible, is_meal
  * 4. FoodItems — Composant principal qui organise les aliments par section
  *    de stockage (Frigo, Placard sec, Surgelés, Extras, Toujours présent)
@@ -147,6 +147,7 @@ export function useFoodItems() {
           quantity: d.quantity ?? null,
           food_type: d.food_type ?? null,
           protein: d.protein ?? null,
+          fiber: d.fiber ?? null,
         })) as FoodItem[];
     },
     retry: 3,
@@ -154,7 +155,7 @@ export function useFoodItems() {
   });
 
   const addItem = useMutation({
-    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date, calories, protein, is_meal, no_counter, is_indivisible }: {
+    mutationFn: async ({ name, storage_type, quantity, grams, food_type, expiration_date, calories, protein, fiber, is_meal, no_counter, is_indivisible }: {
       name: string;
       storage_type: StorageType;
       quantity?: number | null;
@@ -163,6 +164,7 @@ export function useFoodItems() {
       expiration_date?: string | null;
       calories?: string | null;
       protein?: string | null;
+      fiber?: string | null;
       is_meal?: boolean;
       no_counter?: boolean;
       is_indivisible?: boolean;
@@ -184,6 +186,7 @@ export function useFoodItems() {
           ...(expiration_date ? { expiration_date } : {}),
           ...(calories ? { calories } : {}),
           ...(protein ? { protein } : {}),
+          ...(fiber ? { fiber } : {}),
         } as any)
         .select("id")
         .single();
@@ -248,6 +251,7 @@ export function useFoodItems() {
         name: source.name,
         grams: source.grams,
         calories: source.calories,
+        fiber: source.fiber,
         expiration_date: source.expiration_date,
         counter_start_date: source.counter_start_date,
         is_meal: source.is_meal,
@@ -301,7 +305,7 @@ interface FoodItemCardProps {
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
 function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
-  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "quantity" | "partial" | null>(null);
+  const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
 
@@ -360,6 +364,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
     }
     if (editing === "calories") onUpdate({ calories: val || null });
     if (editing === "protein") onUpdate({ protein: val || null });
+    if (editing === "fiber") onUpdate({ fiber: val || null });
     if (editing === "quantity") {
       const nextQty = val ? parseInt(val) || null : null;
       const clearCtr = counterShouldStop(item.grams, nextQty);
@@ -392,7 +397,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
     setEditing(null);
   };
 
-  const startEdit = (field: "name" | "grams" | "calories" | "protein" | "quantity" | "partial") => {
+  const startEdit = (field: "name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial") => {
     if (field === "quantity") {
       setEditValue(item.quantity ? String(item.quantity) : "");
     } else if (field === "grams") {
@@ -401,6 +406,8 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
       setEditValue(item.calories ?? "");
     } else if (field === "protein") {
       setEditValue(item.protein ?? "");
+    } else if (field === "fiber") {
+      setEditValue(item.fiber ?? "");
     } else if (field === "partial") {
       setEditValue(gramsData.remainder !== null ? formatNumericFR(gramsData.remainder) : "");
     } else {
@@ -602,6 +609,15 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
             </button>
           ) : null}
 
+          {/* Fibres */}
+          {editing === "fiber" ? (
+            <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 8" inputMode="decimal" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
+          ) : item.fiber ? (
+            <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/70 bg-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-emerald-500/40 shrink-0 font-semibold">
+              🌾 {Math.round(parseFloat(item.fiber!.replace(',', '.')) || 0)}
+            </button>
+          ) : null}
+
           {/* Bascule Indivisible */}
           {item.grams && !item.is_infinite && (
             <button
@@ -693,6 +709,11 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
         {!item.protein && editing !== "protein" && (
           <button onClick={() => startEdit("protein")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🍗 + protéines
+          </button>
+        )}
+        {!item.fiber && editing !== "fiber" && (
+          <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+            🌾 + fibres
           </button>
         )}
 
@@ -851,6 +872,7 @@ export function FoodItems() {
   const [newGrams, setNewGrams] = useState("");
   const [newCalories, setNewCalories] = useState("");
   const [newProtein, setNewProtein] = useState("");
+  const [newFiber, setNewFiber] = useState("");
   const [newFoodType, setNewFoodType] = useState<FoodType>(null);
   const [newIsIndivisible, setNewIsIndivisible] = useState(false);
   const [newExpiration, setNewExpiration] = useState<Date | undefined>(undefined);
@@ -873,6 +895,7 @@ export function FoodItems() {
   const [pendingGrams, setPendingGrams] = useState("");
   const [pendingCalories, setPendingCalories] = useState("");
   const [pendingProtein, setPendingProtein] = useState("");
+  const [pendingFiber, setPendingFiber] = useState("");
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
   const [pendingIsIndivisible, setPendingIsIndivisible] = useState(false);
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
@@ -912,10 +935,10 @@ export function FoodItems() {
     });
   }, [getPreference, setPreference]);
 
-  /** Synchronise le référentiel Macro quand un aliment reçoit des calories ou protéines. */
-  const syncFoodItemMacroLibrary = useCallback((name: string, calories: string | null | undefined, protein: string | null | undefined) => {
+  /** Synchronise le référentiel Macro quand un aliment reçoit des macros nutritionnelles. */
+  const syncFoodItemMacroLibrary = useCallback((name: string, calories: string | null | undefined, protein: string | null | undefined, fiber: string | null | undefined) => {
     const current = getPreference<IngredientMacroLibraryItem[]>(INGREDIENT_MACRO_LIBRARY_PREF_KEY, []);
-    const next = upsertFoodItemMacroLibraryItem(current, name, calories, protein);
+    const next = upsertFoodItemMacroLibraryItem(current, name, calories, protein, fiber);
     if (next === current) return;
     setPreference.mutate({ key: INGREDIENT_MACRO_LIBRARY_PREF_KEY, value: next });
   }, [getPreference, setPreference]);
@@ -948,6 +971,7 @@ export function FoodItems() {
     setSuggestedIsIndivisible(storedAmount?.is_indivisible ?? null);
     if (entry.calories) setNewCalories(entry.calories);
     if (entry.protein) setNewProtein(entry.protein);
+    if (entry.fiber) setNewFiber(entry.fiber);
     setSuggestions([]);
     setShowSuggestions(false);
     // Focus le champ suivant (quantité) pour fluidité
@@ -970,7 +994,8 @@ export function FoodItems() {
       updates.food_type !== undefined ||
       updates.storage_type !== undefined ||
       updates.calories !== undefined ||
-      updates.protein !== undefined
+      updates.protein !== undefined ||
+      updates.fiber !== undefined
     )) {
       upsertEntry.mutate({
         name: item.name,
@@ -980,16 +1005,18 @@ export function FoodItems() {
         no_counter: updates.no_counter !== undefined ? updates.no_counter : item.no_counter,
         calories: updates.calories !== undefined ? updates.calories : item.calories,
         protein: updates.protein !== undefined ? updates.protein : item.protein,
+        fiber: updates.fiber !== undefined ? updates.fiber : item.fiber,
       });
       if (updates.is_indivisible !== undefined) {
         rememberInitialFoodLibraryAmount(item.name, item.quantity, item.grams, updates.is_indivisible);
       }
     }
-    if (item && (updates.name !== undefined || updates.calories !== undefined || updates.protein !== undefined)) {
+    if (item && (updates.name !== undefined || updates.calories !== undefined || updates.protein !== undefined || updates.fiber !== undefined)) {
       syncFoodItemMacroLibrary(
         updates.name !== undefined ? updates.name : item.name,
         updates.calories !== undefined ? updates.calories : item.calories,
         updates.protein !== undefined ? updates.protein : item.protein,
+        updates.fiber !== undefined ? updates.fiber : item.fiber,
       );
     }
   }, [items, updateItem, upsertEntry, rememberInitialFoodLibraryAmount, syncFoodItemMacroLibrary]);
@@ -1065,6 +1092,7 @@ export function FoodItems() {
     setPendingGrams(newGrams);
     setPendingCalories(newCalories);
     setPendingProtein(newProtein);
+    setPendingFiber(newFiber);
     setPendingFoodType(newFoodType);
     setPendingIsIndivisible(newIsIndivisible);
     setPendingExpiration(newExpiration ? format(newExpiration, 'yyyy-MM-dd') : null);
@@ -1076,6 +1104,7 @@ export function FoodItems() {
     const grams = pendingGrams.trim() || null;
     const calories = pendingCalories.trim() || null;
     const protein = pendingProtein.trim() || null;
+    const fiber = pendingFiber.trim() || null;
     const finalNoCounter = suggestedNoCounter !== null ? suggestedNoCounter : ((storageType === 'extras' || storageType === 'test') ? true : !grams);
     const finalIsMeal = suggestedIsMeal !== null ? suggestedIsMeal : false;
     const finalIsIndivisible = Boolean(grams) && (suggestedIsIndivisible !== null ? suggestedIsIndivisible : pendingIsIndivisible);
@@ -1090,6 +1119,7 @@ export function FoodItems() {
       expiration_date: pendingExpiration,
       calories,
       protein,
+      fiber,
       is_meal: finalIsMeal,
       no_counter: finalNoCounter,
       is_indivisible: finalIsIndivisible,
@@ -1104,14 +1134,15 @@ export function FoodItems() {
           storage_type: persistedStorageType,
           calories,
           protein,
+          fiber,
         });
         rememberInitialFoodLibraryAmount(pendingName, pendingQuantity, grams, finalIsIndivisible);
-        syncFoodItemMacroLibrary(pendingName, calories, protein);
+        syncFoodItemMacroLibrary(pendingName, calories, protein, fiber);
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
         }
-        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFoodType(null); setNewIsIndivisible(false); setNewExpiration(undefined);
-        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingExpiration(null);
+        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewFoodType(null); setNewIsIndivisible(false); setNewExpiration(undefined);
+        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFiber(""); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingExpiration(null);
         setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); setSuggestedIsIndivisible(null);
         setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 });
       },
@@ -1297,6 +1328,7 @@ export function FoodItems() {
             if (data.grams) setNewGrams(data.grams);
             if (data.calories) setNewCalories(data.calories);
             if (data.protein) setNewProtein(data.protein);
+            if ((data as any).fiber) setNewFiber((data as any).fiber);
           }}
         />
       )}
@@ -1326,6 +1358,12 @@ export function FoodItems() {
           placeholder="Prot"
           value={newProtein}
           onChange={e => setNewProtein(e.target.value)}
+          className="w-16 rounded-xl h-8 text-sm text-center"
+        />
+        <Input
+          placeholder="Fib"
+          value={newFiber}
+          onChange={e => setNewFiber(e.target.value)}
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
         <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>

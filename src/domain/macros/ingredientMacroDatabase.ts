@@ -13,6 +13,7 @@ export interface IngredientMacroEntry {
   displayName: string;
   calories: string;
   protein: string;
+  fiber: string;
   recipeCount: number;
   overrideCount: number;
   foodCount: number;
@@ -20,6 +21,7 @@ export interface IngredientMacroEntry {
   recipeNames: string[];
   hasConflictingCalories: boolean;
   hasConflictingProtein: boolean;
+  hasConflictingFiber: boolean;
 }
 
 export interface IngredientMacroLibraryItem {
@@ -27,18 +29,19 @@ export interface IngredientMacroLibraryItem {
   displayName: string;
   calories: string;
   protein: string;
+  fiber?: string;
 }
 
 export interface IngredientMacroAutofillSources {
   foodItems?: FoodItem[];
   macroLibrary?: IngredientMacroLibraryItem[];
-  mealMacros?: Map<string, { cal: string; pro: string }>;
+  mealMacros?: Map<string, { cal: string; pro: string; fiber?: string }>;
 }
 
 export interface IngredientMacroUpdatePlan {
   mealUpdates: { id: string; ingredients: string }[];
   possibleUpdates: { id: string; ingredients_override: string | null }[];
-  foodUpdates: { id: string; calories: string | null; protein: string | null }[];
+  foodUpdates: { id: string; calories: string | null; protein: string | null; fiber: string | null }[];
 }
 
 type MacroAccumulator = IngredientMacroEntry & {
@@ -59,6 +62,7 @@ export function createIngredientMacroLibraryItem(
   name: string,
   calories: string,
   protein: string,
+  fiber: string = "",
 ): IngredientMacroLibraryItem | null {
   const displayName = formatIngredientDisplayName(name);
   const key = normalizeKey(displayName);
@@ -68,6 +72,7 @@ export function createIngredientMacroLibraryItem(
     displayName,
     calories: calories.trim(),
     protein: protein.trim(),
+    fiber: fiber.trim(),
   };
 }
 
@@ -86,15 +91,17 @@ export function upsertFoodItemMacroLibraryItem(
   foodName: string,
   calories: string | null | undefined,
   protein: string | null | undefined,
+  fiber: string | null | undefined = "",
 ): IngredientMacroLibraryItem[] {
-  const item = createIngredientMacroLibraryItem(foodName, calories ?? "", protein ?? "");
-  if (!item || (!item.calories && !item.protein)) return library;
+  const item = createIngredientMacroLibraryItem(foodName, calories ?? "", protein ?? "", fiber ?? "");
+  if (!item || (!item.calories && !item.protein && !item.fiber)) return library;
 
   const existing = library.find((entry) => entry.key === item.key);
   if (
     existing?.displayName === item.displayName &&
     existing.calories === item.calories &&
-    existing.protein === item.protein
+    existing.protein === item.protein &&
+    (existing.fiber ?? "") === item.fiber
   ) {
     return library;
   }
@@ -113,9 +120,9 @@ export function persistMissingIngredientMacroEntries(
 
   for (const entry of entries) {
     if (existingKeys.has(entry.key) || ignoredKeys.has(entry.key)) continue;
-    if (!entry.calories.trim() && !entry.protein.trim()) continue;
+    if (!entry.calories.trim() && !entry.protein.trim() && !entry.fiber.trim()) continue;
 
-    const item = createIngredientMacroLibraryItem(entry.displayName, entry.calories, entry.protein);
+    const item = createIngredientMacroLibraryItem(entry.displayName, entry.calories, entry.protein, entry.fiber);
     if (!item) continue;
     nextLibrary = upsertIngredientMacroLibraryItem(nextLibrary, item);
     existingKeys.add(item.key);
@@ -137,7 +144,8 @@ export function areIngredientMacroLibrariesEqual(
     if (
       entry.displayName !== other.displayName ||
       entry.calories !== other.calories ||
-      entry.protein !== other.protein
+      entry.protein !== other.protein ||
+      (entry.fiber ?? "") !== (other.fiber ?? "")
     ) {
       return false;
     }
@@ -160,6 +168,7 @@ function createMacroAccumulator(key: string, displayName: string): MacroAccumula
     displayName: formatIngredientDisplayName(displayName),
     calories: "",
     protein: "",
+    fiber: "",
     recipeCount: 0,
     overrideCount: 0,
     foodCount: 0,
@@ -167,6 +176,7 @@ function createMacroAccumulator(key: string, displayName: string): MacroAccumula
     recipeNames: [],
     hasConflictingCalories: false,
     hasConflictingProtein: false,
+    hasConflictingFiber: false,
     recipeIds: new Set<string>(),
     overrideIds: new Set<string>(),
     foodIds: new Set<string>(),
@@ -196,6 +206,7 @@ function mergeMacroValue(
   sourceType: "recipe" | "override",
   calories: string,
   protein: string,
+  fiber: string,
   basisLabel: string | null,
 ) {
   if (sourceType === "recipe") {
@@ -213,6 +224,11 @@ function mergeMacroValue(
   if (protein) {
     entry.protein = protein;
     entry.hasConflictingProtein = false;
+  }
+
+  if (fiber) {
+    entry.fiber = fiber;
+    entry.hasConflictingFiber = false;
   }
 
   if (basisLabel) entry.basisLabel = basisLabel;
@@ -234,6 +250,11 @@ function mergeFoodItemMacro(entry: MacroAccumulator, foodItem: FoodItem) {
   if (referenceMacros.pro) {
     entry.protein = referenceMacros.pro;
     entry.hasConflictingProtein = false;
+  }
+
+  if (referenceMacros.fiber) {
+    entry.fiber = referenceMacros.fiber;
+    entry.hasConflictingFiber = false;
   }
 }
 
@@ -271,13 +292,14 @@ export function collectIngredientMacroEntries(
 
       const calories = line.cal?.trim() || "";
       const protein = line.pro?.trim() || "";
-      if (!calories && !protein) continue;
+      const fiber = line.fiber?.trim() || "";
+      if (!calories && !protein && !fiber) continue;
 
       const key = normalizeKey(name);
       if (!key) continue;
 
       const entry = entries.get(key) ?? createMacroAccumulator(key, name);
-      mergeMacroValue(entry, sourceId, sourceName, sourceType, calories, protein, getMealLineBasisLabel(line));
+      mergeMacroValue(entry, sourceId, sourceName, sourceType, calories, protein, fiber, getMealLineBasisLabel(line));
       entries.set(key, entry);
     }
   };
@@ -308,10 +330,12 @@ export function collectIngredientMacroEntries(
     const entry = entries.get(key) ?? createMacroAccumulator(key, item.displayName);
     entry.calories = item.calories?.trim() || entry.calories;
     entry.protein = item.protein?.trim() || entry.protein;
+    entry.fiber = item.fiber?.trim() || entry.fiber;
     // Les entrées persistées seules viennent du référentiel Macro, dont les valeurs sont au 100 g.
     if (!entry.basisLabel) entry.basisLabel = "100g";
     entry.hasConflictingCalories = false;
     entry.hasConflictingProtein = false;
+    entry.hasConflictingFiber = false;
     entries.set(key, entry);
   }
 
@@ -332,12 +356,14 @@ export function applyIngredientMacroToText(
   ingredientKey: string,
   calories: string,
   protein: string,
+  fiber: string = "",
 ): string | null {
   if (!ingredients?.trim() || !ingredientKey) return null;
 
   const lines = parseIngredientsToLines(ingredients);
   const nextCalories = calories.trim();
   const nextProtein = protein.trim();
+  const nextFiber = fiber.trim();
   let changed = false;
 
   for (const line of lines) {
@@ -350,6 +376,10 @@ export function applyIngredientMacroToText(
     }
     if ((line.pro || "") !== nextProtein) {
       line.pro = nextProtein;
+      changed = true;
+    }
+    if ((line.fiber || "") !== nextFiber) {
+      line.fiber = nextFiber;
       changed = true;
     }
   }
@@ -365,25 +395,24 @@ export function buildIngredientMacroUpdatePlan(
   ingredientKey: string,
   calories: string,
   protein: string,
+  fiber: string = "",
 ): IngredientMacroUpdatePlan {
   const mealUpdates = meals.flatMap((meal) => {
-    const ingredients = applyIngredientMacroToText(meal.ingredients, ingredientKey, calories, protein);
+    const ingredients = applyIngredientMacroToText(meal.ingredients, ingredientKey, calories, protein, fiber);
     return ingredients === null ? [] : [{ id: meal.id, ingredients }];
   });
 
   const possibleUpdates = possibleMeals.flatMap((pm) => {
     if (pm.ingredients_override == null) return [];
-    const ingredients_override = applyIngredientMacroToText(pm.ingredients_override, ingredientKey, calories, protein);
+    const ingredients_override = applyIngredientMacroToText(pm.ingredients_override, ingredientKey, calories, protein, fiber);
     return ingredients_override === null ? [] : [{ id: pm.id, ingredients_override }];
   });
 
-  const nextCalories = calories.trim() || null;
-  const nextProtein = protein.trim() || null;
   const foodUpdates = foodItems.flatMap((foodItem) => {
     if (normalizeKey(foodItem.name || "") !== ingredientKey) return [];
-    const storedMacros = getExtraStoredMacrosFromReference(foodItem, calories, protein);
-    if ((foodItem.calories ?? null) === storedMacros.calories && (foodItem.protein ?? null) === storedMacros.protein) return [];
-    return [{ id: foodItem.id, calories: storedMacros.calories, protein: storedMacros.protein }];
+    const storedMacros = getExtraStoredMacrosFromReference(foodItem, calories, protein, fiber);
+    if ((foodItem.calories ?? null) === storedMacros.calories && (foodItem.protein ?? null) === storedMacros.protein && (foodItem.fiber ?? null) === storedMacros.fiber) return [];
+    return [{ id: foodItem.id, calories: storedMacros.calories, protein: storedMacros.protein, fiber: storedMacros.fiber }];
   });
 
   return { mealUpdates, possibleUpdates, foodUpdates };
@@ -416,24 +445,24 @@ export function hasScalableIngredientMacroSource(
   const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
   if (foodItem) {
     const ref = getExtraMacroReferenceMacros(foodItem);
-    if (parseFoodMacroValue(ref.cal) > 0 || parseFoodMacroValue(ref.pro) > 0) return true;
+    if (parseFoodMacroValue(ref.cal) > 0 || parseFoodMacroValue(ref.pro) > 0 || parseFoodMacroValue(ref.fiber) > 0) return true;
   }
 
   const libraryItem = sources.macroLibrary?.find((entry) => entry.key === key);
-  if (libraryItem && (parseFoodMacroValue(libraryItem.calories) > 0 || parseFoodMacroValue(libraryItem.protein) > 0)) {
+  if (libraryItem && (parseFoodMacroValue(libraryItem.calories) > 0 || parseFoodMacroValue(libraryItem.protein) > 0 || parseFoodMacroValue(libraryItem.fiber) > 0)) {
     return true;
   }
 
   return false;
 }
 
-// Résout les calories et protéines d'une ligne à partir du garde-manger, du référentiel Macro ou des recettes existantes.
+// Résout les calories, protéines et fibres d'une ligne à partir du garde-manger, du référentiel Macro ou des recettes existantes.
 export function resolveIngredientLineMacros(
   line: Pick<IngLine, "name" | "qty" | "count">,
   sources: IngredientMacroAutofillSources,
-): { cal: string; pro: string } {
+): { cal: string; pro: string; fiber: string } {
   const key = normalizeKey(line.name);
-  if (!key) return { cal: "", pro: "" };
+  if (!key) return { cal: "", pro: "", fiber: "" };
 
   const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
 
@@ -441,10 +470,12 @@ export function resolveIngredientLineMacros(
     const ref = getExtraMacroReferenceMacros(foodItem);
     const calRef = parseFoodMacroValue(ref.cal);
     const proRef = parseFoodMacroValue(ref.pro);
-    if (calRef > 0 || proRef > 0) {
+    const fiberRef = parseFoodMacroValue(ref.fiber);
+    if (calRef > 0 || proRef > 0 || fiberRef > 0) {
       return {
         cal: calRef > 0 ? formatLineMacroValue(calRef) : "",
         pro: proRef > 0 ? formatLineMacroValue(proRef) : "",
+        fiber: fiberRef > 0 ? formatLineMacroValue(fiberRef) : "",
       };
     }
   }
@@ -453,20 +484,22 @@ export function resolveIngredientLineMacros(
   if (libraryItem) {
     const calRef = parseFoodMacroValue(libraryItem.calories);
     const proRef = parseFoodMacroValue(libraryItem.protein);
-    if (calRef > 0 || proRef > 0) {
+    const fiberRef = parseFoodMacroValue(libraryItem.fiber);
+    if (calRef > 0 || proRef > 0 || fiberRef > 0) {
       return {
         cal: calRef > 0 ? formatLineMacroValue(calRef) : "",
         pro: proRef > 0 ? formatLineMacroValue(proRef) : "",
+        fiber: fiberRef > 0 ? formatLineMacroValue(fiberRef) : "",
       };
     }
   }
 
   const mealMacro = sources.mealMacros?.get(key);
-  if (mealMacro && (mealMacro.cal || mealMacro.pro)) {
-    return { cal: mealMacro.cal || "", pro: mealMacro.pro || "" };
+  if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber)) {
+    return { cal: mealMacro.cal || "", pro: mealMacro.pro || "", fiber: mealMacro.fiber || "" };
   }
 
-  return { cal: "", pro: "" };
+  return { cal: "", pro: "", fiber: "" };
 }
 
 // Complète les macros manquantes sur chaque ligne sans écraser une saisie manuelle existante.
@@ -479,16 +512,18 @@ export function autofillIngredientLinesMacros(
 
     const hasCal = Boolean(line.cal?.trim());
     const hasPro = Boolean(line.pro?.trim());
-    if (hasCal && hasPro) return line;
+    const hasFiber = Boolean(line.fiber?.trim());
+    if (hasCal && hasPro && hasFiber) return line;
 
     const resolved = resolveIngredientLineMacros(line, sources);
-    if (!resolved.cal && !resolved.pro) return line;
+    if (!resolved.cal && !resolved.pro && !resolved.fiber) return line;
 
     if (hasScalableIngredientMacroSource(line, sources)) {
       return {
         ...line,
         cal: resolved.cal || line.cal,
         pro: resolved.pro || line.pro,
+        fiber: resolved.fiber || line.fiber,
       };
     }
 
@@ -496,6 +531,7 @@ export function autofillIngredientLinesMacros(
       ...line,
       cal: hasCal ? line.cal : (resolved.cal || line.cal),
       pro: hasPro ? line.pro : (resolved.pro || line.pro),
+      fiber: hasFiber ? line.fiber : (resolved.fiber || line.fiber),
     };
   });
 }

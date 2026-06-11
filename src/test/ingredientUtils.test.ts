@@ -145,15 +145,19 @@ describe("cleanIngredientText", () => {
   it("strips multiple markers", () => {
     expect(cleanIngredientText("100g Riz{130}, 2 Oeufs{78} [6]")).toBe("100g Riz, 2 Oeufs");
   });
+
+  it("strips fiber markers", () => {
+    expect(cleanIngredientText("100g Avoine{370} [13] <10>")).toBe("100g Avoine");
+  });
 });
 
 // ─── MACRO EXTRACTION/APPLICATION ───────────────────────────────────────────
 
 describe("extractIngredientMacros", () => {
-  it("extracts cal and pro from ingredients", () => {
-    const macros = extractIngredientMacros("200g Poulet{165} [31], 100g Riz{130}");
-    expect(macros.get(normalizeKey("Poulet"))).toEqual({ cal: "165", pro: "31" });
-    expect(macros.get(normalizeKey("Riz"))).toEqual({ cal: "130", pro: "" });
+  it("extracts cal, pro and fiber from ingredients", () => {
+    const macros = extractIngredientMacros("200g Poulet{165} [31] <0>, 100g Riz{130} <1,4>");
+    expect(macros.get(normalizeKey("Poulet"))).toEqual({ cal: "165", pro: "31", fiber: "0" });
+    expect(macros.get(normalizeKey("Riz"))).toEqual({ cal: "130", pro: "", fiber: "1.4" });
   });
 
   it("returns empty map for null input", () => {
@@ -164,7 +168,7 @@ describe("extractIngredientMacros", () => {
 describe("applyIngredientMacros", () => {
   it("applies macros to matching ingredients", () => {
     const macros = new Map([
-      [normalizeKey("Poulet"), { cal: "165", pro: "31" }],
+      [normalizeKey("Poulet"), { cal: "165", pro: "31", fiber: "0" }],
     ]);
     const result = applyIngredientMacros("200g Poulet, 100g Riz", macros);
     expect(result).toContain("{165}");
