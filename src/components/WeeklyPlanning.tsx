@@ -743,12 +743,14 @@ export function WeeklyPlanning({
       .map((meal) => {
         const cal = getMealCal(meal) ?? 0;
         const prot = getMealPro(meal) ?? 0;
+        const fiber = getMealFiber(meal, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0;
         const mealPayload = buildMealTransferPayload(meal as Meal);
         return {
           id: buildDessertExtraId(meal.name, cal, prot),
           name: meal.name,
           cal,
           prot,
+          fiber,
           mealPayload,
         };
       })
@@ -759,7 +761,7 @@ export function WeeklyPlanning({
       });
 
     return Array.from(extrasByCustomId.values());
-  }, [buildMealTransferPayload, getMealsByCategory, meals]);
+  }, [buildMealTransferPayload, foodItems, foodMacroIndex, getMealsByCategory, meals]);
   /** Desserts à ingrédient unique actuellement ajoutables (stock > 0). */
   const singleIngredientDessertExtras = useMemo(() => {
     const withExpiry = allSingleIngredientDessertExtras
@@ -1096,6 +1098,7 @@ export function WeeklyPlanning({
   const manualFibers = getPreference<Record<string, number>>('planning_manual_fibers', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
+  const extraFibers = getPreference<Record<string, number>>('planning_extra_fibers', {});
   const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
   const testItemIds = getPreference<string[]>('food_test_ids', []);
   const testItemIdSet = new Set(testItemIds);
@@ -2112,9 +2115,11 @@ export function WeeklyPlanning({
           const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
           const gouterManualCal = manualCalories[`${iso}-gouter`] || 0;
           const gouterManualPro = manualProteins[`${iso}-gouter`] || 0;
+          const gouterManualFiber = manualFibers[`${iso}-gouter`] || 0;
           const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`] || drinkChecks[`${key}-gouter`]);
           const gouterTotalCals = gouterManualCal + gouterAssigned.cal + (gouterDrink ? DRINK_CALORIES : 0);
           const gouterTotalPro = gouterManualPro + gouterAssigned.pro;
+          const gouterTotalFiber = gouterManualFiber + gouterAssigned.fiber;
 
           const breakfastDropKey = `${iso}-matin`;
           const isBreakfastDragOver = dragOverSlot === breakfastDropKey || dragOverSlot === `${key}-matin`;
@@ -2819,6 +2824,28 @@ export function WeeklyPlanning({
                       placeholder="prot"
                       className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
                     />
+                    <PlanningInput
+                      storageKey={`extra-fib-${iso}`}
+                      currentValue={(() => {
+                        const manual = extraFibers[iso] || 0;
+                        const ids = extraSelections[iso] || [];
+                        const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
+                        const unassignedIds = ids.filter((id) => !assignedSet.has(id));
+                        const selected = sumExtrasFromSelectionIds(unassignedIds, foodItems);
+                        return manual + selected.fiber;
+                      })()}
+                      onSave={(val) => {
+                        const ids = extraSelections[iso] || [];
+                        const selected = sumExtrasFromSelectionIds(ids, foodItems);
+                        const manual = Math.max(0, val - selected.fiber);
+                        const updated = { ...extraFibers };
+                        if (manual > 0) updated[iso] = manual;
+                        else { delete updated[iso]; delete updated[key]; }
+                        setPreference.mutate({ key: 'planning_extra_fibers', value: updated });
+                      }}
+                      placeholder="fib"
+                      className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
+                    />
                     <div className="flex items-center gap-1 mt-1">
                       <Popover open={openExtrasDay === (iso || key)} onOpenChange={(open) => {
                         setOpenExtrasDay(open ? (iso || key) : null);
@@ -3014,9 +3041,11 @@ export function WeeklyPlanning({
                                 const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(id) ?? 0) : null;
                                 const count = currentIds.filter((cid) => cid === id).length;
                                 const label = c ? c.name : (fi?.name || id);
-                                const portionMacros = fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0 };
+                                const dessertExtra = singleIngredientDessertById.get(id);
+                                const portionMacros = fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0, fiber: 0 };
                                 const prot = c ? c.prot : portionMacros.pro;
                                 const cal = c ? c.cal : portionMacros.cal;
+                                const fiber = c ? (dessertExtra?.fiber ?? 0) : portionMacros.fiber;
                                 return (
                                   <div
                                     key={`${selectedSection}-${id}-${occurrenceIndex}`}
@@ -3115,6 +3144,11 @@ export function WeeklyPlanning({
                                           🍗 {prot}
                                         </div>
                                       )}
+                                      {fiber > 0 && (
+                                        <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20">
+                                          <Wheat className="w-2.5 h-2.5" />{Math.round(fiber)}
+                                        </div>
+                                      )}
                                       <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
                                         <Flame className="w-2.5 h-2.5" />{cal}
                                       </div>
@@ -3124,6 +3158,7 @@ export function WeeklyPlanning({
                               };
                               const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
+                                const macros = getExtraPortionMacros(fi);
                                 return (
                                   <div
                                     key={fi.id}
@@ -3193,14 +3228,19 @@ export function WeeklyPlanning({
                                         className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
                                         title="Ajouter un"
                                       >+</button>
-                                      {getExtraPortionMacros(fi).pro > 0 && (
+                                      {macros.pro > 0 && (
                                         <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
-                                          🍗 {getExtraPortionMacros(fi).pro}
+                                          🍗 {macros.pro}
                                         </div>
                                       )}
-                                      {getExtraPortionMacros(fi).cal > 0 && (
+                                      {macros.fiber > 0 && (
+                                        <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20">
+                                          <Wheat className="w-2.5 h-2.5" />{macros.fiber}
+                                        </div>
+                                      )}
+                                      {macros.cal > 0 && (
                                         <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                          <Flame className="w-2.5 h-2.5" />{getExtraPortionMacros(fi).cal}
+                                          <Flame className="w-2.5 h-2.5" />{macros.cal}
                                         </div>
                                       )}
                                     </div>
@@ -3311,6 +3351,7 @@ export function WeeklyPlanning({
                                               }
                                             }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold" title="Ajouter un">+</button>
                                             {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">🍗 {Math.round(d.prot)}</div>}
+                                            {d.fiber > 0 && <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20"><Wheat className="w-2.5 h-2.5" />{Math.round(d.fiber)}</div>}
                                             <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
                                           </div>
                                         </div>
@@ -3459,6 +3500,18 @@ export function WeeklyPlanning({
                     placeholder="prot"
                     className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
                   />
+                  <PlanningInput
+                    storageKey={`manual-fiber-${iso}-gouter`}
+                    currentValue={gouterManualFiber}
+                    onSave={(val) => {
+                      const updated = { ...manualFibers };
+                      if (val > 0) updated[`${iso}-gouter`] = val;
+                      else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                      setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                    }}
+                    placeholder="fib"
+                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
+                  />
                   {getMealsForSlot(key, 'gouter', iso).map((pm) => (
                     <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
                       {renderMiniCard(pm, true)}
@@ -3494,11 +3547,13 @@ export function WeeklyPlanning({
                       })}
                     </div>
                   )}
-                  {(gouterTotalCals > 0 || gouterTotalPro > 0) && (
+                  {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && (
                     <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
                       {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
-                      {gouterTotalCals > 0 && gouterTotalPro > 0 && <span className="opacity-30">•</span>}
+                      {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className="opacity-30">•</span>}
                       {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
+                      {gouterTotalPro > 0 && gouterTotalFiber > 0 && <span className="opacity-30">•</span>}
+                      {gouterTotalFiber > 0 && <span className="flex items-center gap-0.5"><Wheat className="w-2 h-2 text-emerald-500/70" />{Math.round(gouterTotalFiber)}</span>}
                     </div>
                   )}
                 </div>
