@@ -24,7 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
-import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check } from "lucide-react";
+import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat } from "lucide-react";
 import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -36,7 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedPMCalories, getDisplayedPMProtein, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -2055,10 +2055,12 @@ export function WeeklyPlanning({
           const matinMeals = getMealsForSlot(key, 'matin', iso);
           const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
           const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
+          const matinFiber = matinMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
 
           const breakfast = getBreakfastForDay(key, iso);
           let baseBreakfastCals = 0;
           let baseBreakfastPro = 0;
+          let baseBreakfastFiber = 0;
           if (breakfast) {
             const selId = (iso && breakfastSelections[iso]) || undefined;
             if (selId?.startsWith('pm:')) {
@@ -2068,13 +2070,16 @@ export function WeeklyPlanning({
               if (isAlsoMatin) {
                 baseBreakfastCals = 0;
                 baseBreakfastPro = 0;
+                baseBreakfastFiber = 0;
               } else {
                 baseBreakfastCals = possiblePdj ? getCardDisplayCalories(possiblePdj, calOverrides[possiblePdj.id], isAvailableCb) : parseCalories(breakfast.calories);
                 baseBreakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, proOverrides[possiblePdj.id], isAvailableCb, foodItems, foodMacroIndex) : parseProtein(breakfast.protein);
+                baseBreakfastFiber = possiblePdj ? getCardDisplayFiber(possiblePdj, undefined, isAvailableCb, foodItems, foodMacroIndex) : getMealFiber(breakfast, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0;
               }
             } else {
               baseBreakfastCals = getMealCal(breakfast);
               baseBreakfastPro = getMealPro(breakfast);
+              baseBreakfastFiber = getMealFiber(breakfast, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0;
             }
           } else {
             baseBreakfastCals = (iso && breakfastManualCalories[iso]) || 0;
@@ -2086,6 +2091,7 @@ export function WeeklyPlanning({
           const breakfastAssigned = sumExtrasFromSelectionIds(breakfastAssignedIds, foodItems);
           const breakfastTotalCals = baseBreakfastCals + matinCals + breakfastAssigned.cal;
           const breakfastTotalPro = baseBreakfastPro + matinPro + breakfastAssigned.pro;
+          const breakfastTotalFiber = baseBreakfastFiber + matinFiber + breakfastAssigned.fiber;
           const gouterAssignedIds =
             extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
           const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
@@ -2342,7 +2348,7 @@ export function WeeklyPlanning({
                       })()}
                     >💾</button>
                   )}
-                {(breakfastTotalCals > 0 || breakfastTotalPro > 0) && (
+                {(breakfastTotalCals > 0 || breakfastTotalPro > 0 || breakfastTotalFiber > 0) && (
                   <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full ml-2 border border-border/40 shadow-sm">
                     {breakfastTotalCals > 0 && (
                       <span className="flex items-center gap-1">
@@ -2350,11 +2356,18 @@ export function WeeklyPlanning({
                         {Math.round(breakfastTotalCals)}
                       </span>
                     )}
-                    {breakfastTotalCals > 0 && breakfastTotalPro > 0 && <span className="opacity-30">•</span>}
+                    {breakfastTotalCals > 0 && (breakfastTotalPro > 0 || breakfastTotalFiber > 0) && <span className="opacity-30">•</span>}
                     {breakfastTotalPro > 0 && (
                       <span className="flex items-center gap-0.5">
                         <span className="text-[10px] opacity-60">🍗</span>
                         {Math.round(breakfastTotalPro)}
+                      </span>
+                    )}
+                    {breakfastTotalPro > 0 && breakfastTotalFiber > 0 && <span className="opacity-30">•</span>}
+                    {breakfastTotalFiber > 0 && (
+                      <span className="flex items-center gap-0.5">
+                        <Wheat className="w-2.5 h-2.5 text-emerald-500/70" />
+                        {Math.round(breakfastTotalFiber)}
                       </span>
                     )}
                   </div>
@@ -2474,11 +2487,6 @@ export function WeeklyPlanning({
                   >
                     🌾 {Math.round(dayFiber)} <span className="text-emerald-400/50 font-normal">/ {DAILY_FIBER_GOAL_PREF}</span>
                   </button>
-                  {!editingFiberGoal && (
-                    <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_FIBER_GOAL_PREF - dayFiber > 0 ? 'text-emerald-400/60' : 'text-emerald-500'}`}>
-                      {DAILY_FIBER_GOAL_PREF - dayFiber > 0 ? `reste ${Math.round(DAILY_FIBER_GOAL_PREF - dayFiber)}` : `+${Math.round(dayFiber - DAILY_FIBER_GOAL_PREF)}`}
-                    </span>
-                  )}
                   {editingFiberGoal && (
                     <div className="flex items-center gap-1">
                       <input

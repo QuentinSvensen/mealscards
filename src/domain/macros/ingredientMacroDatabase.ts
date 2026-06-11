@@ -269,7 +269,7 @@ export function collectIngredientMacroEntries(
 
   for (const foodItem of foodItems) {
     if (!foodItem.name?.trim()) continue;
-    if (!foodItem.calories?.trim() && !foodItem.protein?.trim()) continue;
+    if (!foodItem.calories?.trim() && !foodItem.protein?.trim() && !foodItem.fiber?.trim()) continue;
     const key = normalizeKey(foodItem.name);
     if (!key) continue;
     const entry = entries.get(key) ?? createMacroAccumulator(key, foodItem.name);
@@ -387,7 +387,7 @@ export function applyIngredientMacroToText(
   return changed ? serializeIngredients(lines) : null;
 }
 
-// Prépare toutes les mises à jour nécessaires pour synchroniser un ingrédient partout.
+// Prépare les mises à jour Macro en laissant les fiches Aliment standards intactes.
 export function buildIngredientMacroUpdatePlan(
   meals: Meal[],
   possibleMeals: PossibleMeal[],
@@ -409,6 +409,7 @@ export function buildIngredientMacroUpdatePlan(
   });
 
   const foodUpdates = foodItems.flatMap((foodItem) => {
+    if (foodItem.storage_type !== "extras") return [];
     if (normalizeKey(foodItem.name || "") !== ingredientKey) return [];
     const storedMacros = getExtraStoredMacrosFromReference(foodItem, calories, protein, fiber);
     if ((foodItem.calories ?? null) === storedMacros.calories && (foodItem.protein ?? null) === storedMacros.protein && (foodItem.fiber ?? null) === storedMacros.fiber) return [];

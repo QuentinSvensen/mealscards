@@ -171,11 +171,11 @@ export function MacroIngredients({
 
     toast({
       title: "Macros synchronisées",
-      description: `${entry.displayName} mis à jour dans ${plan.mealUpdates.length} recette(s), ${plan.foodUpdates.length} aliment(s)${plan.possibleUpdates.length ? ` et ${plan.possibleUpdates.length} possible(s)` : ""}.`,
+      description: `${entry.displayName} mis à jour dans ${plan.mealUpdates.length} recette(s)${plan.possibleUpdates.length ? `, ${plan.possibleUpdates.length} possible(s)` : ""}${plan.foodUpdates.length ? ` et ${plan.foodUpdates.length} extra(s)` : ""}.`,
     });
   };
 
-  // Supprime une ligne du référentiel et efface ses macros dans recettes, possibles et aliments.
+  // Supprime une ligne du référentiel et efface ses macros dans recettes, possibles et extras.
   const deleteEntry = (entry: IngredientMacroEntry) => {
     const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, "", "", "");
 

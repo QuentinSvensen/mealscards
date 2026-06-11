@@ -108,7 +108,7 @@ describe("ingredientMacroDatabase", () => {
     expect(plan.mealUpdates[0].ingredients).toContain("Filet de poulet{110} [25]");
     expect(plan.mealUpdates[1].ingredients).toContain("Filet de poulet{110} [25]");
     expect(plan.possibleUpdates[0].ingredients_override).toContain("Filet de poulet{110} [25]");
-    expect(plan.foodUpdates[0]).toMatchObject({ id: "food1", calories: "110", protein: "25" });
+    expect(plan.foodUpdates).toHaveLength(0);
   });
 
   it("peut retirer une macro en sauvegardant une valeur vide", () => {
@@ -206,7 +206,7 @@ describe("ingredientMacroDatabase", () => {
     });
   });
 
-  it("prépare la suppression d'une ligne en vidant les macros partout", () => {
+  it("prépare la suppression d'une ligne en vidant les macros dans les recettes sans toucher aux aliments standards", () => {
     const meals = [makeMeal("1", "Poulet riz", "100g Filet de poulet{106} [23], 50g Riz")];
     const possibleMeals = [makePossible("pm1", meals[0], "50g Filet de poulet{106} [23]")];
     const foodItems = [makeFoodItem("food1", "Filet de poulet", "106", "23")];
@@ -217,8 +217,21 @@ describe("ingredientMacroDatabase", () => {
 
     expect(plan.mealUpdates[0].ingredients).toBe("100g Filet de poulet, 50g Riz");
     expect(plan.possibleUpdates[0].ingredients_override).toBe("50g Filet de poulet");
-    expect(plan.foodUpdates[0]).toMatchObject({ id: "food1", calories: null, protein: null, fiber: null });
+    expect(plan.foodUpdates).toEqual([]);
     expect(nextLibrary).toEqual([]);
+  });
+
+  it("synchronise les macros vers les aliments de la section Extras uniquement", () => {
+    const foodItems = [
+      makeFoodItem("food1", "Barres Koro", null, null, "extras", "100", null),
+      makeFoodItem("food2", "Barres Koro", null, null, "frigo", "100", null),
+    ];
+
+    const plan = buildIngredientMacroUpdatePlan([], [], foodItems, "barres koro", "280", "40", "8");
+
+    expect(plan.foodUpdates).toEqual([
+      { id: "food1", calories: "280", protein: "40", fiber: "8" },
+    ]);
   });
 
   it("calcule les macros d'une ligne depuis le référentiel Macro au 100 g", () => {

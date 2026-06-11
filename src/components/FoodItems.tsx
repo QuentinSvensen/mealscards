@@ -84,6 +84,12 @@ function encodeStoredGramsFR(unit: number, remainder: number | null): string {
   return `${unitText}|${formatNumericFR(remainder)}`;
 }
 
+/** Indique si une macro doit être affichée sur la carte Aliment, en masquant la valeur exacte "0". */
+function isVisibleFoodMacro(value: string | null | undefined): boolean {
+  const trimmed = value?.trim();
+  return Boolean(trimmed && trimmed !== "0");
+}
+
 // isExpiredDate est importé depuis @/lib/ingredientUtils
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -594,7 +600,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
           {/* Calories */}
           {editing === "calories" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 200 kcal" className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : item.calories ? (
+          ) : isVisibleFoodMacro(item.calories) ? (
             <button onClick={() => startEdit("calories")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
               <Flame className="h-2.5 w-2.5" />{item.calories}
             </button>
@@ -603,7 +609,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
           {/* Protéines */}
           {editing === "protein" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 25" inputMode="numeric" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : item.protein ? (
+          ) : isVisibleFoodMacro(item.protein) ? (
             <button onClick={() => startEdit("protein")} className="text-[10px] text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-blue-500/40 shrink-0 font-semibold">
               🍗 {Math.round(parseFloat(item.protein!.replace(',', '.')) || 0)}
             </button>
@@ -612,7 +618,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
           {/* Fibres */}
           {editing === "fiber" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 8" inputMode="decimal" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : item.fiber ? (
+          ) : isVisibleFoodMacro(item.fiber) ? (
             <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/70 bg-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-emerald-500/40 shrink-0 font-semibold">
               🌾 {Math.round(parseFloat(item.fiber!.replace(',', '.')) || 0)}
             </button>
@@ -701,17 +707,17 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
             <InfinityIcon className="h-2.5 w-2.5" />∞
           </button>
         )}
-        {!item.calories && editing !== "calories" && (
+        {!isVisibleFoodMacro(item.calories) && editing !== "calories" && (
           <button onClick={() => startEdit("calories")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             <Flame className="h-2.5 w-2.5" />+ calories
           </button>
         )}
-        {!item.protein && editing !== "protein" && (
+        {!isVisibleFoodMacro(item.protein) && editing !== "protein" && (
           <button onClick={() => startEdit("protein")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🍗 + protéines
           </button>
         )}
-        {!item.fiber && editing !== "fiber" && (
+        {!isVisibleFoodMacro(item.fiber) && editing !== "fiber" && (
           <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🌾 + fibres
           </button>
@@ -969,9 +975,11 @@ export function FoodItems() {
     setNewQuantity(storedAmount?.quantity || "");
     setNewIsIndivisible(storedAmount?.is_indivisible ?? false);
     setSuggestedIsIndivisible(storedAmount?.is_indivisible ?? null);
-    if (entry.calories) setNewCalories(entry.calories);
-    if (entry.protein) setNewProtein(entry.protein);
-    if (entry.fiber) setNewFiber(entry.fiber);
+    if (entry.storage_type === "extras") {
+      if (entry.calories) setNewCalories(entry.calories);
+      if (entry.protein) setNewProtein(entry.protein);
+      if (entry.fiber) setNewFiber(entry.fiber);
+    }
     setSuggestions([]);
     setShowSuggestions(false);
     // Focus le champ suivant (quantité) pour fluidité
