@@ -619,7 +619,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         await safeMutate("Restauration portion (simple)", () =>
           supabase.from("food_items").update({
             grams: newG,
-            ...(clearCtr ? { counter_start_date: null } : {}),
+            ...counterUpdate,
           } as any).eq("id", fi.id)
         );
       }
@@ -1211,8 +1211,15 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
       for (const fi of matchingItems) {
         const currentCounterMs = fi.counter_start_date ? new Date(fi.counter_start_date).getTime() : NaN;
-        if (fullPlanningSlot && Number.isFinite(currentCounterMs) && currentCounterMs > new Date().getTime()) {
-          pendingUpdates.set(fi.id, null);
+        const nowMsAtItem = new Date().getTime();
+        if (fullPlanningSlot && Number.isFinite(currentCounterMs) && currentCounterMs > nowMsAtItem) {
+          // Compteur « prog. » résiduel : restaurer une ouverture réelle passée si disponible.
+          const fallbackMs = fallbackDate ? new Date(fallbackDate).getTime() : NaN;
+          if (Number.isFinite(fallbackMs) && fallbackMs <= nowMsAtItem) {
+            pendingUpdates.set(fi.id, fallbackDate!);
+          } else {
+            pendingUpdates.set(fi.id, null);
+          }
           continue;
         }
 
@@ -1292,8 +1299,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           // récente d'un possible_meal (≤ 60 s), c'est une ouverture artificielle posée par
           // la planification elle-même — on l'autorise à se déplacer vers le créneau prévu.
           const currentCounterMs = fi.counter_start_date ? new Date(fi.counter_start_date).getTime() : NaN;
+          const isAlreadyOpened =
+            Number.isFinite(currentCounterMs) && currentCounterMs <= nowMsCheck;
           const counterFromPmCreation = Number.isFinite(currentCounterMs)
             && allPossibleMeals.some(pm => pm.created_at && Math.abs(currentCounterMs - new Date(pm.created_at).getTime()) < 60_000);
+          if (isSettingFutureDate && isAlreadyOpened) continue;
           if (fullPlanningSlot && isSettingFutureDate && !counterFromPmCreation) continue;
 
           // Protéger les compteurs manuels seulement hors planification complète (jour + créneau).

@@ -558,8 +558,11 @@ describe("resolveCounterStartForPossibleBadge", () => {
     expect(out).toBeUndefined();
   });
 
-  it("aligne sur le créneau planifié quand aucune autre carte ne partage l’ingrédient compteur", () => {
-    const foodItems = [makeFoodItem({ name: "Tenders", grams: "500" })];
+  it("aligne sur le créneau planifié seulement si l’ouverture est encore future", () => {
+    const futureOpen = "2026-04-22T08:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: futureOpen }),
+    ];
     const pm = {
       id: "pm-burger",
       day_of_week: "2026-04-23",
@@ -567,19 +570,42 @@ describe("resolveCounterStartForPossibleBadge", () => {
       ingredients_override: null as string | null,
       meals: { ingredients: "200g Tenders" },
     };
-    const fixedNow = new Date("2026-04-22T10:00:00.000Z");
-    const base = "2026-04-21T10:00:00.000Z";
+    const fixedNow = new Date("2026-04-21T20:00:00.000Z");
     const out = resolveCounterStartForPossibleBadge(
       pm,
       [],
-      base,
+      futureOpen,
       undefined,
       foodItems,
       undefined,
       fixedNow,
     );
     expect(out).toBeDefined();
-    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(base).getTime());
+    const plannedSlot = new Date("2026-04-23T10:00:00.000Z").getTime();
+    expect(new Date(out!).getTime()).toBe(plannedSlot);
+  });
+
+  it("conserve le compteur de la carte quand le lot est déjà ouvert (sans compteur food_items)", () => {
+    const activeDate = "2026-06-11T19:35:00.000Z";
+    const foodItems = [makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: null })];
+    const pm = {
+      id: "burrito",
+      day_of_week: "2026-06-13",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "1 Galette, 200g Tenders" },
+    };
+    const fixedNow = new Date("2026-06-11T19:37:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      pm,
+      [],
+      null,
+      activeDate,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBe(activeDate);
   });
 
   it("conserve base quand un sibling non planifié partage l’ingrédient critique (consommation immédiate)", () => {
@@ -614,6 +640,135 @@ describe("resolveCounterStartForPossibleBadge", () => {
       fixedNow,
     );
     expect(out).toBe(baseDate);
+  });
+
+  it("conserve le compteur stock déjà lancé quand on choisit un créneau futur", () => {
+    const baseDate = "2026-06-11T19:35:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: baseDate }),
+    ];
+    const burrito = {
+      id: "burrito",
+      day_of_week: "2026-06-13",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "1 Galette, 200g Tenders, 25g Sauce" },
+    };
+    const fixedNow = new Date("2026-06-11T19:37:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burrito,
+      [],
+      baseDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBe(baseDate);
+  });
+
+  it("conserve le compteur actif quand on passe de Midi seul au jour (midi puis jour)", () => {
+    const activeDate = "2026-06-11T19:35:00.000Z";
+    const programmedDate = "2026-06-13T10:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: activeDate }),
+    ];
+    const midiOnly = {
+      id: "burrito",
+      day_of_week: null as string | null,
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "1 Galette, 200g Tenders, 25g Sauce" },
+    };
+    const withDay = { ...midiOnly, day_of_week: "2026-06-13" };
+    const fixedNow = new Date("2026-06-11T19:37:00.000Z");
+    const outMidiOnly = resolveCounterStartForPossibleBadge(
+      midiOnly,
+      [],
+      programmedDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+      activeDate,
+    );
+    const outWithDay = resolveCounterStartForPossibleBadge(
+      withDay,
+      [withDay],
+      programmedDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+      activeDate,
+    );
+    expect(outMidiOnly).toBe(activeDate);
+    expect(outWithDay).toBe(activeDate);
+  });
+
+  it("conserve le compteur actif quand on passe de jour seul à Midi (scénario burrito)", () => {
+    const activeDate = "2026-06-11T19:35:00.000Z";
+    const programmedDate = "2026-06-13T10:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: activeDate }),
+    ];
+    const withoutMealTime = {
+      id: "burrito",
+      day_of_week: "2026-06-13",
+      meal_time: null as string | null,
+      ingredients_override: null as string | null,
+      meals: { ingredients: "1 Galette, 200g Tenders, 25g Sauce" },
+    };
+    const withMidi = { ...withoutMealTime, meal_time: "midi" };
+    const fixedNow = new Date("2026-06-11T19:37:00.000Z");
+    const outBefore = resolveCounterStartForPossibleBadge(
+      withoutMealTime,
+      [],
+      programmedDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+      activeDate,
+    );
+    const outAfter = resolveCounterStartForPossibleBadge(
+      withMidi,
+      [withMidi],
+      programmedDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+      activeDate,
+    );
+    expect(outBefore).toBe(activeDate);
+    expect(outAfter).toBe(activeDate);
+  });
+
+  it("conserve le compteur actif même si l'analyse renvoie une date future programmée", () => {
+    const activeDate = "2026-06-11T19:35:00.000Z";
+    const programmedDate = "2026-06-13T10:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Tenders", grams: "500", counter_start_date: activeDate }),
+    ];
+    const burrito = {
+      id: "burrito",
+      day_of_week: "2026-06-13",
+      meal_time: "midi",
+      ingredients_override: null as string | null,
+      meals: { ingredients: "1 Galette, 200g Tenders, 25g Sauce" },
+    };
+    const fixedNow = new Date("2026-06-11T19:37:00.000Z");
+    const out = resolveCounterStartForPossibleBadge(
+      burrito,
+      [],
+      programmedDate,
+      undefined,
+      foodItems,
+      undefined,
+      fixedNow,
+    );
+    expect(out).toBe(activeDate);
   });
 
   it("masque le compteur quand l’ingrédient est no_counter ou surgelé", () => {
@@ -708,10 +863,10 @@ describe("resolveCounterStartForPossibleBadge", () => {
     expect(out).toBe(nowDate);
   });
 
-  it("ignore un sibling qui partage un ingrédient compteur non critique (pas celui qui dicte base)", () => {
+  it("conserve le stock déjà ouvert même si le sibling partage un ingrédient compteur non critique", () => {
     // Scénario réel observé : Burger tenders (jeudi midi) a Tenders déjà entamés (base),
     // un sandwich (mercredi midi) partage Gruyère/Chorizo mais n'ouvre pas les Tenders.
-    // Le sibling mercredi ne doit PAS bloquer le passage en mode prog. de Burger jeudi.
+    // Le sibling mercredi ne doit PAS dicter le départ, mais les Tenders déjà ouverts restent prioritaires.
     const baseDate = "2026-04-21T20:35:00.000Z";
     const foodItems = [
       makeFoodItem({
@@ -750,11 +905,10 @@ describe("resolveCounterStartForPossibleBadge", () => {
       undefined,
       fixedNow,
     );
-    expect(out).toBeDefined();
-    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(baseDate).getTime());
+    expect(out).toBe(baseDate);
   });
 
-  it("ignore un sibling partageant l’ingrédient si son créneau est déjà passé", () => {
+  it("conserve l’ouverture réelle même si le sibling partageant est sur un créneau passé", () => {
     const foodItems = [makeFoodItem({ name: "Tenders", grams: "500" })];
     const burger = {
       id: "a",
@@ -781,7 +935,6 @@ describe("resolveCounterStartForPossibleBadge", () => {
       undefined,
       fixedNow,
     );
-    expect(out).toBeDefined();
-    expect(new Date(out!).getTime()).toBeGreaterThan(new Date(base).getTime());
+    expect(out).toBe(base);
   });
 });

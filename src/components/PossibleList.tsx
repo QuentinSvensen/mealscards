@@ -182,6 +182,8 @@ export function PossibleList({
                   pm.counter_start_date ?? undefined,
                   foodItems,
                   foodItemIndex,
+                  undefined,
+                  analysis.earliestActiveCounterDate,
                 );
 
           const isTodayPM = pm.day_of_week === todayISO;
@@ -250,7 +252,7 @@ export function PossibleList({
                 realtimeCounterStartDate={
                   resolvedCounterStart === null
                     ? undefined
-                    : (resolvedCounterStart ?? analysis.earliestCounterDate ?? pm.counter_start_date ?? undefined)
+                    : (resolvedCounterStart ?? analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date ?? undefined)
                 } />
 
               {showBottomSeparator && (
@@ -283,7 +285,10 @@ export function PossibleList({
                 popupPm.counter_start_date ?? undefined,
                 foodItems,
                 foodItemIndex,
+                undefined,
+                analysis.earliestActiveCounterDate,
               ) ??
+              analysis.earliestActiveCounterDate ??
               analysis.earliestCounterDate ??
               popupPm.counter_start_date ??
               null;

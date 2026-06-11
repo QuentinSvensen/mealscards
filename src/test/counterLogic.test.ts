@@ -60,6 +60,16 @@ describe("getAdaptedCounterDays", () => {
     expect(d).not.toBeNull();
     expect(d!).toBeGreaterThanOrEqual(1);
   });
+
+  it("garde le badge après sélection explicite de Midi (ouverture jeudi → repas samedi midi)", () => {
+    const fixedNow = new Date("2026-06-11T19:37:00.000Z");
+    const startPast = "2026-06-11T19:35:00.000Z";
+    const withoutMealTime = getAdaptedCounterDays(startPast, "2026-06-13", "2026-01-01T10:00:00.000Z", null, fixedNow);
+    const withMidi = getAdaptedCounterDays(startPast, "2026-06-13", "2026-01-01T10:00:00.000Z", "midi", fixedNow);
+    expect(withoutMealTime).not.toBeNull();
+    expect(withMidi).not.toBeNull();
+    expect(withMidi).toBeGreaterThanOrEqual(1);
+  });
 });
 
 // ─── computeCounterDays ─────────────────────────────────────────────────────

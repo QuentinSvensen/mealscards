@@ -487,6 +487,8 @@ export interface MealAnalysis {
   maxCounterName: string | null;
   /** Date de début du compteur le plus ancien */
   earliestCounterDate: string | null;
+  /** Date de compteur la plus ancienne déjà démarrée (≤ maintenant), pour l’affichage badge */
+  earliestActiveCounterDate: string | null;
   /** Noms des ingrédients ayant un compteur actif */
   counterIngredientNames: Set<string>;
   /** Vrai si au moins un ingrédient peut avoir un compteur (stock fini, non surgelé, non no_counter) */
@@ -516,6 +518,7 @@ export function analyzeMealIngredients(
     maxIngredientCounter: null,
     maxCounterName: null,
     earliestCounterDate: null,
+    earliestActiveCounterDate: null,
     counterIngredientNames: new Set(),
     hasCounterableIngredient: false,
   };
@@ -523,6 +526,7 @@ export function analyzeMealIngredients(
   if (!meal.ingredients?.trim()) return result;
 
   const now = new Date();
+  const nowMs = now.getTime();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayMs = today.getTime();
   const soonDate = new Date(today);
@@ -559,6 +563,12 @@ export function analyzeMealIngredients(
 
           // --- Analyse du compteur d'ouverture (uniquement stock fini compteur) ---
           if (isFoodItemCounterEligible(fi) && fi.counter_start_date) {
+            const csdMs = parseISO(fi.counter_start_date).getTime();
+            if (!Number.isNaN(csdMs) && csdMs <= nowMs) {
+              if (!result.earliestActiveCounterDate || fi.counter_start_date < result.earliestActiveCounterDate) {
+                result.earliestActiveCounterDate = fi.counter_start_date;
+              }
+            }
             const days = computeCounterDays(fi.counter_start_date);
             if (days !== null) {
               if (result.maxIngredientCounter === null || days > result.maxIngredientCounter) {
@@ -652,9 +662,9 @@ type PossibleMealForBadge = {
  * autre repas possible (toutes catégories confondues) qui consomme le même lot n’est planifié **avant** elle.
  * Les siblings non planifiés sont ignorés (ils seront consommés après / ne passent pas devant la planification).
  *
- * Si cette carte est « la première » et que la date de départ du stock est antérieure au créneau planifié,
- * on aligne l’affichage sur le créneau planifié (mode prog.) — évite un badge « Xj » trompeur quand les tenders
- * portent une date résiduelle d’une opération précédente.
+ * Si cette carte est « la première » et que la date de départ n'est pas portée par un stock déjà ouvert,
+ * on aligne l’affichage sur le créneau planifié (mode prog.). Un compteur stock déjà lancé reste prioritaire :
+ * il doit survivre au choix du créneau (ex. Tenders ouverts jeudi soir, burrito planifié samedi midi).
  */
 export function resolveCounterStartForPossibleBadge(
   pm: PossibleMealForBadge,
@@ -664,16 +674,18 @@ export function resolveCounterStartForPossibleBadge(
   foodItems: FoodItem[],
   index?: FoodItemIndex,
   fixedNow?: Date,
+  earliestActiveFromAnalysis?: string | null | undefined,
 ): string | undefined {
   const now = fixedNow ?? new Date();
+  const nowMs = now.getTime();
   const currentIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
   const mine = counterableIngredientKeysFromRecipe(currentIngredients, foodItems, index);
   if (mine.size === 0) return undefined;
 
-  let base =
-    (earliestFromAnalysis && earliestFromAnalysis.trim()) ||
-    (cardCounterFallback && cardCounterFallback.trim()) ||
-    undefined;
+  const activeStockOpen = findEarliestActiveCounterDate(currentIngredients, foodItems, index, now);
+  let base = activeStockOpen
+    || (earliestActiveFromAnalysis && earliestActiveFromAnalysis.trim())
+    || undefined;
 
   // Si on n'a pas de base côté stock/carte, mais qu'un sibling non planifié partage un ingrédient
   // de la recette, il est en consommation immédiate : on hérite de SA date pour refléter que l'ingrédient
@@ -693,6 +705,17 @@ export function resolveCounterStartForPossibleBadge(
     }
   }
 
+  if (!base) {
+    const cardDate = cardCounterFallback?.trim();
+    const analysisDate = earliestFromAnalysis?.trim();
+    const pickIfActive = (iso?: string) => {
+      if (!iso) return undefined;
+      const ms = parseISO(iso).getTime();
+      return !Number.isNaN(ms) && ms <= nowMs ? iso : undefined;
+    };
+    base = pickIfActive(cardDate) || pickIfActive(analysisDate) || cardDate || analysisDate;
+  }
+
   if (!base) return undefined;
 
   if (!pm.day_of_week || !pm.meal_time?.trim()) return base;
@@ -700,9 +723,16 @@ export function resolveCounterStartForPossibleBadge(
   const plannedSlot = getTargetDate(pm.day_of_week, now, null, pm.meal_time);
   if (plannedSlot.getTime() <= now.getTime()) return base;
 
+  const start = parseISO(base);
+  if (Number.isNaN(start.getTime())) return base;
+
+  // Lot déjà entamé en stock : ne jamais basculer en mode « prog. » au choix du créneau (ex. Midi).
+  if (activeStockOpen) return activeStockOpen;
+
   // Identifier précisément le(s) ingrédient(s) responsable(s) de la date `base`.
   // Seuls les siblings qui partagent CE(S) ingrédient(s) peuvent « bloquer » la carte en mode compteur.
   const criticalKeys = findCriticalCounterKeys(currentIngredients, foodItems, base, index);
+
   // Si on n'a identifié aucune clé critique (ex. base venant d'un cardCounterFallback orphelin,
   // ou hérité d'un sibling non planifié), on retombe sur toutes les clés compteurs de la recette.
   const checkKeys = criticalKeys.size > 0 ? criticalKeys : mine;
@@ -736,11 +766,48 @@ export function resolveCounterStartForPossibleBadge(
 
   if (hasEarlierConsumingSibling) return base;
 
-  const start = parseISO(base);
-  if (Number.isNaN(start.getTime())) return base;
   if (start.getTime() >= plannedSlot.getTime()) return base;
 
+  // Ouverture déjà réelle (stock ou carte) : ne pas remplacer par le créneau planifié.
+  if (start.getTime() <= nowMs) return base;
+
   return plannedSlot.toISOString();
+}
+
+/**
+ * Retourne la date de compteur la plus ancienne déjà démarrée (≤ maintenant) parmi les ingrédients
+ * comptables d'une recette. Sert à conserver l'affichage « Xj » quand on fixe un créneau futur
+ * (ex. Tenders ouverts jeudi, burrito planifié samedi midi).
+ */
+export function findEarliestActiveCounterDate(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+): string | undefined {
+  const nowMs = (fixedNow ?? new Date()).getTime();
+  let earliest: string | undefined;
+  let earliestMs = Infinity;
+  if (!ingredients?.trim()) return undefined;
+  const groups = parseIngredientGroups(ingredients);
+  for (const group of groups) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const bundle = group[0];
+    if (!bundle) continue;
+    for (const item of bundle) {
+      if (item.optional || !item.name) continue;
+      for (const fi of lookupFoodItems(item.name, foodItems, index)) {
+        if (!isFoodItemCounterEligible(fi) || !fi.counter_start_date) continue;
+        const ms = parseISO(fi.counter_start_date).getTime();
+        if (Number.isNaN(ms) || ms > nowMs) continue;
+        if (ms < earliestMs) {
+          earliestMs = ms;
+          earliest = fi.counter_start_date;
+        }
+      }
+    }
+  }
+  return earliest;
 }
 
 /**

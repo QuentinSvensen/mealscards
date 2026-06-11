@@ -35,7 +35,7 @@ import {
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -331,9 +331,17 @@ export function PossibleMealCard({
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const todayISO = format(new Date(), 'yyyy-MM-dd');
 
-  // PRIORITÉ : On utilise le compteur stock s'il est présent (plus à jour), 
-  // sinon celui sauvegardé sur la carte (indispensable si l'aliment est consommé/supprimé du stock)
-  const effectiveCounterStart = realtimeCounterStartDate ?? pm.counter_start_date;
+  // PRIORITÉ : compteur actif en stock, puis résolution parent, puis carte.
+  const cardIngredients = pm.ingredients_override ?? meal.ingredients;
+  const activeCounterFromStock = useMemo(
+    () =>
+      cardIngredients && foodItems?.length
+        ? findEarliestActiveCounterDate(cardIngredients, foodItems, foodMacroIndex)
+        : undefined,
+    [cardIngredients, foodItems, foodMacroIndex],
+  );
+  const effectiveCounterStart =
+    activeCounterFromStock ?? realtimeCounterStartDate ?? pm.counter_start_date;
 
   const counterDays = getAdaptedCounterDays(effectiveCounterStart, pm.day_of_week, pm.created_at, pm.meal_time);
 

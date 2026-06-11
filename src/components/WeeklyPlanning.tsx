@@ -1785,7 +1785,9 @@ export function WeeklyPlanning({
           pm.counter_start_date ?? undefined,
           foodItems,
           undefined,
-        ) ?? analysis.earliestCounterDate ?? pm.counter_start_date);
+          undefined,
+          analysis.earliestActiveCounterDate,
+        ) ?? analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date);
     const counterDays = getAdaptedCounterDays(effectiveStart, pm.day_of_week, pm.created_at, pm.meal_time);
     const counterBadgeTitle =
       counterDays !== null && effectiveStart
@@ -4449,7 +4451,10 @@ export function WeeklyPlanning({
                 popupPm.counter_start_date ?? undefined,
                 foodItems,
                 undefined,
+                undefined,
+                analysis.earliestActiveCounterDate,
               ) ??
+              analysis.earliestActiveCounterDate ??
               analysis.earliestCounterDate ??
               popupPm.counter_start_date ??
               null;

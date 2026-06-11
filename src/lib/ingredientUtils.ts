@@ -197,10 +197,9 @@ export function getAdaptedCounterDays(
   const target = getTargetDate(dayKey, now, startDate, mealTime);
   const diffMs = target.getTime() - start.getTime();
 
-  // Cette carte est elle-même à l'origine de l'ouverture (start ≈ plannedSlot) :
-  // pas de badge — il n'a pas de sens d'afficher « 0j » sur la carte qui ouvre l'ingrédient.
-  // Tolérance d'une minute pour absorber les écarts ISO entre planning et compteur.
-  if (Math.abs(diffMs) <= 60_000) return null;
+  // Masquer « 0j » seulement si l'ouverture coïncide avec le créneau (cette carte ouvre le lot).
+  // Si le lot était déjà entamé avant, conserver le badge.
+  if (Math.abs(diffMs) <= 60_000 && start.getTime() + 60_000 >= target.getTime()) return null;
 
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 

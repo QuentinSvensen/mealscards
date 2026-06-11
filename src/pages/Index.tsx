@@ -38,6 +38,7 @@ import {
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
   getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
+  findEarliestActiveCounterDate,
   recipeHasFiniteCounterableIngredients,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
@@ -1311,6 +1312,9 @@ const Index = () => {
                                 pm.meals && ing
                                   ? analyzeMealIngredients({ ...pm.meals, ingredients: ing }, foodItems, foodItemIndex)
                                   : null;
+                              const activeStockFallback = ing
+                                ? findEarliestActiveCounterDate(ing, foodItems, foodItemIndex)
+                                : undefined;
                               const nextResolvedCounter =
                                 !isOccupied && pm.meals
                                   ? resolveCounterStartForPossibleBadge(
@@ -1320,31 +1324,44 @@ const Index = () => {
                                       pm.counter_start_date ?? undefined,
                                       foodItems,
                                       foodItemIndex,
-                                    ) ?? nextAnalysis?.earliestCounterDate ?? pm.counter_start_date ?? null
+                                      undefined,
+                                      nextAnalysis?.earliestActiveCounterDate,
+                                    ) ?? activeStockFallback ?? nextAnalysis?.earliestActiveCounterDate ?? nextAnalysis?.earliestCounterDate ?? pm.counter_start_date ?? null
                                   : null;
-                              // Détecter si le jour sélectionné est dans le futur (même sans créneau choisi).
-                              // Utiliser « midi » comme créneau provisoire pour basculer le compteur en
-                              // mode « prog. » dès la sélection du jour, au lieu de garder l'ancien compteur.
-                              const isFutureDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) && day > new Date().toISOString().slice(0, 10);
-                              const provisionalTime = time || (isFutureDay ? 'midi' : null);
-                              const hasEffectiveSlot = Boolean(day && provisionalTime);
+                              // Créneau réellement complet : les deux champs doivent être choisis explicitement
+                              // (ne pas inférer « midi » dès le jour seul — cela effaçait le compteur trop tôt).
+                              const hasFullPlanningSlot = Boolean(day?.trim() && time?.trim());
 
+                              // 2e clic planning (Midi puis jour, ou jour puis Midi) : ne pas effacer le compteur ni resync le stock.
+                              const isCompletingPartialSlot = Boolean(
+                                day &&
+                                (
+                                  (time?.trim() && pm.meal_time === time && !pm.day_of_week?.trim()) ||
+                                  (day && pm.day_of_week === day && !pm.meal_time?.trim())
+                                ),
+                              );
+                              const preservedCounter =
+                                effectiveCounter ??
+                                activeStockFallback ??
+                                nextResolvedCounter ??
+                                pm.counter_start_date ??
+                                undefined;
                               // Ne pas persister analysis.earliestCounterDate sur la carte quand jour+créneau sont
                               // fixés (sinon « maintenant » après déduction écrase le min jeudi d'un autre repas).
                               const counterForMutate =
-                                hasEffectiveSlot && !isOccupied ? undefined : effectiveCounter;
+                                hasFullPlanningSlot && !isOccupied && !isCompletingPartialSlot
+                                  ? undefined
+                                  : preservedCounter;
                               updatePlanning.mutate({
                                 id,
                                 day_of_week: day,
                                 meal_time: time,
                                 counter_start_date: counterForMutate,
                               });
-                              // Appeler la mise à jour du compteur dès qu'un créneau effectif existe
-                              // (jour + heure explicite, ou jour futur + « midi » provisoire).
-                              // Le 2e appel (choix de l'heure) corrigera avec la bonne heure.
-                              if (day && provisionalTime) {
-                                const fallbackDate = nextResolvedCounter ?? counter ?? pm.counter_start_date ?? null;
-                                updateFoodItemCountersForPlanning(id, ing, day, provisionalTime, fallbackDate, pm.created_at, nextPossibleMeals);
+                              if (hasFullPlanningSlot && !isCompletingPartialSlot) {
+                                const fallbackDate =
+                                  nextResolvedCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null;
+                                updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, nextPossibleMeals);
                               }
                             }
                           }}

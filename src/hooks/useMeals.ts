@@ -503,7 +503,10 @@ export function useMeals(options?: { enabled?: boolean }) {
       // et recalculée via updateFoodItemCountersForPlanning (min de tous les repas utilisant l’ingrédient).
       // `forcedCounter === null` conserve l’ancien comportement (cartes occupées : null ?? existing).
       const fullPlanningSlot = Boolean(day_of_week && meal_time);
-      const omitCardCounterStart = fullPlanningSlot && forcedCounter === undefined;
+      const existingActive =
+        Boolean(existing) && new Date(existing!).getTime() <= Date.now();
+      const omitCardCounterStart =
+        fullPlanningSlot && forcedCounter === undefined && !existingActive;
 
       let counter_start_date = day_of_week
         ? (omitCardCounterStart ? null : (forcedCounter ?? existing))
@@ -532,7 +535,10 @@ export function useMeals(options?: { enabled?: boolean }) {
       const existing = pm?.counter_start_date;
 
       const fullPlanningSlot = Boolean(day_of_week && meal_time);
-      const omitCardCounterStart = fullPlanningSlot && forcedCounter === undefined;
+      const existingActive =
+        Boolean(existing) && new Date(existing!).getTime() <= Date.now();
+      const omitCardCounterStart =
+        fullPlanningSlot && forcedCounter === undefined && !existingActive;
 
       let counter_start_date = day_of_week
         ? (omitCardCounterStart ? null : (forcedCounter ?? existing))
