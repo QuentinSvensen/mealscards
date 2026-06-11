@@ -312,7 +312,7 @@ export function MacroIngredients({
                     onChange={(event) => updateDraft(entry, "calories", event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && saveEntry(entry)}
                     inputMode="decimal"
-                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs"
+                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs placeholder:text-red-500 placeholder:opacity-100"
                     placeholder="0"
                   />
 
@@ -321,7 +321,7 @@ export function MacroIngredients({
                     onChange={(event) => updateDraft(entry, "protein", event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && saveEntry(entry)}
                     inputMode="decimal"
-                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs"
+                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs placeholder:text-red-500 placeholder:opacity-100"
                     placeholder="0"
                   />
 
@@ -330,7 +330,7 @@ export function MacroIngredients({
                     onChange={(event) => updateDraft(entry, "fiber", event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && saveEntry(entry)}
                     inputMode="decimal"
-                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs"
+                    className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs placeholder:text-red-500 placeholder:opacity-100"
                     placeholder="0"
                   />
 
