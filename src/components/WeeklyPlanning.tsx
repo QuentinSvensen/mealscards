@@ -402,8 +402,8 @@ interface TouchDragState {
 /**
  * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
  */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, compact, hideIngredients, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; compact: boolean;
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, displayFiber, compact, hideIngredients, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; displayFiber: string | null; compact: boolean;
   hideIngredients?: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
@@ -490,6 +490,18 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
           🍗
         </button>
       )}
+      {displayFiber ? (
+        <>
+          <span className="basis-full h-0 sm:hidden" />
+          <span
+            className="w-fit text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ml-auto sm:ml-0 bg-black/30"
+            title="Fibres"
+          >
+            <Wheat className="h-2.5 w-2.5 mr-0.5" />
+            {displayFiber}
+          </span>
+        </>
+      ) : null}
     </div>
   ) : null;
 
@@ -524,7 +536,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             </div>
           </div>
         </div>
-        {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || pm.ingredients_override || meal.ingredients) && (
+        {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
           <div className="mt-auto pt-0.5">
             <div className="flex items-end justify-between gap-1 min-w-0">
               <div className="flex flex-wrap items-center gap-1 min-w-0">
@@ -577,7 +589,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               </span>
             ) : null}
           </div>
-          {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || pm.ingredients_override || meal.ingredients) && (
+          {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
             <div className="pt-0.5">
               <div className="flex items-end justify-between gap-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-1 min-w-0">
@@ -1800,6 +1812,8 @@ export function WeeklyPlanning({
     const overridePro = parsePositivePlanningOverride(proOverrides[pm.id]);
     const rawProNum = overridePro ?? getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
     const displayPro = rawProNum ? String(Math.round(rawProNum)) : null;
+    const rawFiberNum = getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex);
+    const displayFiber = rawFiberNum ? String(Math.round(rawFiberNum)) : null;
 
     const isComputedCal = !overrideCal && computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
     const isComputedPro = !overridePro && computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
@@ -1826,6 +1840,7 @@ export function WeeklyPlanning({
         isComputedCal={isComputedCal}
         displayPro={displayPro}
         isComputedPro={isComputedPro}
+        displayFiber={displayFiber}
         compact={compact}
         hideIngredients={hideIngredients}
         isTouchDevice={isTouchDevice}
