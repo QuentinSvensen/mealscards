@@ -90,6 +90,19 @@ function isVisibleFoodMacro(value: string | null | undefined): boolean {
   return Boolean(trimmed && trimmed !== "0");
 }
 
+type FoodMacroField = "calories" | "protein" | "fiber";
+type FoodManualMacroFields = Record<string, Partial<Record<FoodMacroField, boolean>>>;
+
+// Indique si une macro doit être visible sur la carte Aliment (valeur saisie depuis l'onglet Aliment).
+function isManualFoodMacroVisible(
+  item: FoodItem,
+  field: FoodMacroField,
+  manualMacroFields: FoodManualMacroFields,
+): boolean {
+  const value = field === "calories" ? item.calories : field === "protein" ? item.protein : item.fiber;
+  return Boolean(manualMacroFields[item.id]?.[field]) && isVisibleFoodMacro(value);
+}
+
 // isExpiredDate est importé depuis @/lib/ingredientUtils
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
@@ -297,6 +310,7 @@ export function useFoodItems() {
 interface FoodItemCardProps {
   item: FoodItem;
   onUpdate: (updates: Partial<FoodItem>) => void;
+  manualMacroFields: FoodManualMacroFields;
   isMorningMeal: boolean;
   onCycleMealMode: () => void;
   onDelete: () => void;
@@ -309,7 +323,7 @@ interface FoodItemCardProps {
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, onUpdate, manualMacroFields, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -335,6 +349,9 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
   const effectiveQty = item.quantity === 1 ? null : item.quantity;
   const canEditPartial = !item.is_infinite && gramsData.unit !== null && (effectiveQty ? effectiveQty > 1 : true);
   const showPartialLabel = gramsData.remainder !== null;
+  const showCalories = isManualFoodMacroVisible(item, "calories", manualMacroFields);
+  const showProtein = isManualFoodMacroVisible(item, "protein", manualMacroFields);
+  const showFiber = isManualFoodMacroVisible(item, "fiber", manualMacroFields);
 
   // Indique si la prochaine version simulée de l'aliment est entièrement scellée
   // (aucune unité entamée). Utilisé pour arrêter automatiquement les compteurs.
@@ -600,7 +617,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
           {/* Calories */}
           {editing === "calories" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 200 kcal" className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : isVisibleFoodMacro(item.calories) ? (
+          ) : showCalories ? (
             <button onClick={() => startEdit("calories")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
               <Flame className="h-2.5 w-2.5" />{item.calories}
             </button>
@@ -609,7 +626,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
           {/* Protéines */}
           {editing === "protein" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 25" inputMode="numeric" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : isVisibleFoodMacro(item.protein) ? (
+          ) : showProtein ? (
             <button onClick={() => startEdit("protein")} className="text-[10px] text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-blue-500/40 shrink-0 font-semibold">
               🍗 {Math.round(parseFloat(item.protein!.replace(',', '.')) || 0)}
             </button>
@@ -618,7 +635,7 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
           {/* Fibres */}
           {editing === "fiber" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 8" inputMode="decimal" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : isVisibleFoodMacro(item.fiber) ? (
+          ) : showFiber ? (
             <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/70 bg-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-emerald-500/40 shrink-0 font-semibold">
               🌾 {Math.round(parseFloat(item.fiber!.replace(',', '.')) || 0)}
             </button>
@@ -707,17 +724,17 @@ function FoodItemCard({ item, onUpdate, isMorningMeal, onCycleMealMode, onDelete
             <InfinityIcon className="h-2.5 w-2.5" />∞
           </button>
         )}
-        {!isVisibleFoodMacro(item.calories) && editing !== "calories" && (
+        {!showCalories && editing !== "calories" && (
           <button onClick={() => startEdit("calories")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             <Flame className="h-2.5 w-2.5" />+ calories
           </button>
         )}
-        {!isVisibleFoodMacro(item.protein) && editing !== "protein" && (
+        {!showProtein && editing !== "protein" && (
           <button onClick={() => startEdit("protein")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🍗 + protéines
           </button>
         )}
-        {!isVisibleFoodMacro(item.fiber) && editing !== "fiber" && (
+        {!showFiber && editing !== "fiber" && (
           <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🌾 + fibres
           </button>
@@ -855,6 +872,7 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
 ];
 
 const MORNING_MEAL_PREF_KEY = 'morning_meal_food_item_ids';
+const FOOD_MANUAL_MACRO_FIELDS_PREF_KEY = 'food_manual_macro_fields';
 
 /** Écran principal des aliments : sections de stockage, ajout, tri et recherche. */
 export function FoodItems() {
@@ -872,6 +890,7 @@ export function FoodItems() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
   const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
   const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
+  const manualMacroFields = getPreference<FoodManualMacroFields>(FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, {});
 
   const [newName, setNewName] = useState("");
   const [newQuantity, setNewQuantity] = useState("");
@@ -879,6 +898,7 @@ export function FoodItems() {
   const [newCalories, setNewCalories] = useState("");
   const [newProtein, setNewProtein] = useState("");
   const [newFiber, setNewFiber] = useState("");
+  const [newManualMacroFields, setNewManualMacroFields] = useState<Partial<Record<FoodMacroField, boolean>>>({});
   const [newFoodType, setNewFoodType] = useState<FoodType>(null);
   const [newIsIndivisible, setNewIsIndivisible] = useState(false);
   const [newExpiration, setNewExpiration] = useState<Date | undefined>(undefined);
@@ -902,6 +922,7 @@ export function FoodItems() {
   const [pendingCalories, setPendingCalories] = useState("");
   const [pendingProtein, setPendingProtein] = useState("");
   const [pendingFiber, setPendingFiber] = useState("");
+  const [pendingManualMacroFields, setPendingManualMacroFields] = useState<Partial<Record<FoodMacroField, boolean>>>({});
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
   const [pendingIsIndivisible, setPendingIsIndivisible] = useState(false);
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
@@ -949,6 +970,28 @@ export function FoodItems() {
     setPreference.mutate({ key: INGREDIENT_MACRO_LIBRARY_PREF_KEY, value: next });
   }, [getPreference, setPreference]);
 
+  /** Mémorise les macros explicitement saisies sur une fiche Aliment pour autoriser leur affichage. */
+  const markManualFoodMacroFields = useCallback((id: string, updates: Partial<FoodItem>) => {
+    const touchedFields: FoodMacroField[] = [];
+    if (updates.calories !== undefined) touchedFields.push("calories");
+    if (updates.protein !== undefined) touchedFields.push("protein");
+    if (updates.fiber !== undefined) touchedFields.push("fiber");
+    if (touchedFields.length === 0) return;
+
+    const current = getPreference<FoodManualMacroFields>(FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, {});
+    const nextForItem = { ...(current[id] ?? {}) };
+    for (const field of touchedFields) {
+      const value = field === "calories" ? updates.calories : field === "protein" ? updates.protein : updates.fiber;
+      if (isVisibleFoodMacro(value)) nextForItem[field] = true;
+      else delete nextForItem[field];
+    }
+
+    const next = { ...current };
+    if (Object.keys(nextForItem).length > 0) next[id] = nextForItem;
+    else delete next[id];
+    setPreference.mutate({ key: FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, value: next });
+  }, [getPreference, setPreference]);
+
   // Mise à jour des suggestions à chaque frappe
   const handleNameChange = useCallback((value: string) => {
     setNewName(value);
@@ -980,6 +1023,7 @@ export function FoodItems() {
       if (entry.protein) setNewProtein(entry.protein);
       if (entry.fiber) setNewFiber(entry.fiber);
     }
+    setNewManualMacroFields({});
     setSuggestions([]);
     setShowSuggestions(false);
     // Focus le champ suivant (quantité) pour fluidité
@@ -992,6 +1036,7 @@ export function FoodItems() {
   const handleUpdate = useCallback((id: string, updates: Partial<FoodItem>) => {
     // 1. Mise à jour de l'aliment en stock
     updateItem.mutate({ id, ...updates });
+    markManualFoodMacroFields(id, updates);
 
     // 2. Synchronisation avec la bibliothèque (Mémoire globale)
     const item = items.find(i => i.id === id);
@@ -1027,7 +1072,7 @@ export function FoodItems() {
         updates.fiber !== undefined ? updates.fiber : item.fiber,
       );
     }
-  }, [items, updateItem, upsertEntry, rememberInitialFoodLibraryAmount, syncFoodItemMacroLibrary]);
+  }, [items, updateItem, markManualFoodMacroFields, upsertEntry, rememberInitialFoodLibraryAmount, syncFoodItemMacroLibrary]);
 
   /** Retire un aliment de la catégorie "repas matin" stockée en préférence. */
   const removeMorningMealId = useCallback((id: string) => {
@@ -1101,6 +1146,7 @@ export function FoodItems() {
     setPendingCalories(newCalories);
     setPendingProtein(newProtein);
     setPendingFiber(newFiber);
+    setPendingManualMacroFields(newManualMacroFields);
     setPendingFoodType(newFoodType);
     setPendingIsIndivisible(newIsIndivisible);
     setPendingExpiration(newExpiration ? format(newExpiration, 'yyyy-MM-dd') : null);
@@ -1146,11 +1192,18 @@ export function FoodItems() {
         });
         rememberInitialFoodLibraryAmount(pendingName, pendingQuantity, grams, finalIsIndivisible);
         syncFoodItemMacroLibrary(pendingName, calories, protein, fiber);
+        if (created?.id) {
+          const updates: Partial<FoodItem> = {};
+          if (pendingManualMacroFields.calories) updates.calories = calories;
+          if (pendingManualMacroFields.protein) updates.protein = protein;
+          if (pendingManualMacroFields.fiber) updates.fiber = fiber;
+          markManualFoodMacroFields(created.id, updates);
+        }
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
         }
-        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewFoodType(null); setNewIsIndivisible(false); setNewExpiration(undefined);
-        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFiber(""); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingExpiration(null);
+        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewManualMacroFields({}); setNewFoodType(null); setNewIsIndivisible(false); setNewExpiration(undefined);
+        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFiber(""); setPendingManualMacroFields({}); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingExpiration(null);
         setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); setSuggestedIsIndivisible(null);
         setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 });
       },
@@ -1337,6 +1390,7 @@ export function FoodItems() {
             if (data.calories) setNewCalories(data.calories);
             if (data.protein) setNewProtein(data.protein);
             if ((data as any).fiber) setNewFiber((data as any).fiber);
+            setNewManualMacroFields({});
           }}
         />
       )}
@@ -1359,19 +1413,28 @@ export function FoodItems() {
         <Input
           placeholder="Kcal"
           value={newCalories}
-          onChange={e => setNewCalories(e.target.value)}
+          onChange={e => {
+            setNewCalories(e.target.value);
+            setNewManualMacroFields(prev => ({ ...prev, calories: true }));
+          }}
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
         <Input
           placeholder="Prot"
           value={newProtein}
-          onChange={e => setNewProtein(e.target.value)}
+          onChange={e => {
+            setNewProtein(e.target.value);
+            setNewManualMacroFields(prev => ({ ...prev, protein: true }));
+          }}
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
         <Input
           placeholder="Fib"
           value={newFiber}
-          onChange={e => setNewFiber(e.target.value)}
+          onChange={e => {
+            setNewFiber(e.target.value);
+            setNewManualMacroFields(prev => ({ ...prev, fiber: true }));
+          }}
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
         <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>
@@ -1498,6 +1561,7 @@ export function FoodItems() {
             dragIndex={dragIndex}
             setDragIndex={setDragIndex}
             allItems={items}
+            manualMacroFields={manualMacroFields}
             onChangeStorage={handleChangeStorage}
             morningMealFoodItemIdSet={morningMealFoodItemIdSet}
             cycleMealMode={cycleMealMode}
@@ -1525,6 +1589,7 @@ export function FoodItems() {
               dragIndex={dragIndex}
               setDragIndex={setDragIndex}
               allItems={items}
+              manualMacroFields={manualMacroFields}
               onChangeStorage={handleChangeStorage}
               morningMealFoodItemIdSet={morningMealFoodItemIdSet}
               cycleMealMode={cycleMealMode}
@@ -1557,6 +1622,7 @@ interface FoodSectionProps {
   dragIndex: number | null;
   setDragIndex: (i: number | null) => void;
   allItems: FoodItem[];
+  manualMacroFields: FoodManualMacroFields;
   onChangeStorage: (id: string, storageType: StorageType) => void;
   morningMealFoodItemIdSet: Set<string>;
   cycleMealMode: (item: FoodItem) => void;
@@ -1564,7 +1630,7 @@ interface FoodSectionProps {
 }
 
 /** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
-function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId }: FoodSectionProps) {
+function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId }: FoodSectionProps) {
   const SortIcon = sortMode === "expiration" ? CalendarDays : sortMode === "name" ? ArrowUpDown : sortMode === "calories" ? Flame : sortMode === "protein" ? UtensilsCrossed : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : sortMode === "name" ? "Nom" : sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
@@ -1742,6 +1808,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                 <FoodItemCard
                   item={item}
                   onUpdate={(updates) => onUpdate(item.id, updates)}
+                  manualMacroFields={manualMacroFields}
                   isMorningMeal={morningMealFoodItemIdSet.has(item.id)}
                   onCycleMealMode={() => cycleMealMode(item)}
                   onDelete={() => {
