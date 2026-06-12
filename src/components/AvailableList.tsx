@@ -41,7 +41,7 @@ import {
   type StockInfo, type FoodItemIndex,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey
+  normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey, parseIngredientsToLines
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -99,6 +99,24 @@ const SUGGESTION_STYLE_PLAT_ALT =
  */
 const UNUSED_ALT_SUGGESTION_SHELL =
   "mt-1.5 rounded-lg border border-dashed border-border/50 bg-muted/35 px-2.5 py-1.5 opacity-[0.72] dark:border-border/40 dark:bg-muted/30";
+
+// Retrouve le nom saisi dans la recette pour afficher les apostrophes/accents au lieu de la clé normalisée.
+function getIngredientDisplayFromRecipe(
+  ingredients: string | null | undefined,
+  ingredientKey: string,
+): { qty: number; count: number; displayName: string } {
+  for (const line of parseIngredientsToLines(ingredients ?? null)) {
+    if (normalizeKey(line.name) !== ingredientKey) continue;
+    const qty = parseFloat(line.qty.replace(",", "."));
+    const count = parseFloat(line.count.replace(",", "."));
+    return {
+      qty: Number.isFinite(qty) ? qty : 0,
+      count: Number.isFinite(count) ? count : 0,
+      displayName: line.name || ingredientKey,
+    };
+  }
+  return { qty: 0, count: 0, displayName: ingredientKey };
+}
 
 /**
  * Dans « Pour utiliser … », met en avant les aliments inutilisés (quantité + nom) avec une couleur dédiée.
@@ -1240,18 +1258,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         let alternativeMissingLabel: string | undefined;
         let alternativeRecipeName: string | undefined;
         if (alternativeCandidate) {
-          const altGroups = parseIngredientGroups(alternativeCandidate.meal.ingredients!);
           const labels: string[] = [];
           for (const altMissingKey of alternativeCandidate.missingKeys) {
-            let qty = 0, count = 0, displayName = altMissingKey;
-            for (const group of altGroups) {
-              const first = group[0]?.[0];
-              if (first && normalizeKey(first.name) === altMissingKey) {
-                qty = first.qty; count = first.count;
-                displayName = first.rawName || first.name;
-                break;
-              }
-            }
+            const { qty, count, displayName } = getIngredientDisplayFromRecipe(
+              alternativeCandidate.meal.ingredients,
+              altMissingKey,
+            );
             labels.push(qty > 0 ? `${formatNumeric(qty)}g ${displayName}` : (count > 0 ? `x${count} ${displayName}` : displayName));
           }
           if (labels.length > 0) alternativeMissingLabel = labels.join(" + ");
@@ -1278,16 +1290,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           formatUnusedRecipeAmountLabel(fi, unusedQtyInRecipe, unusedCountInRecipe);
 
         for (const missingKey of missing) {
-          let qty = 0, count = 0, displayName = missingKey;
-          for (const group of groups) {
-            const first = group[0]?.[0];
-            if (first && normalizeKey(first.name) === missingKey) {
-              qty = first.qty;
-              count = first.count;
-              displayName = first.rawName || first.name;
-              break;
-            }
-          }
+          const { qty, count, displayName } = getIngredientDisplayFromRecipe(meal.ingredients, missingKey);
           const entry = byMissing.get(missingKey) || { missingName: displayName, qty: 0, count: 0, sources: [], countedRecipeIds: new Set<string>() };
           if (!entry.countedRecipeIds.has(meal.id)) {
             entry.qty += qty;
@@ -1357,15 +1360,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       }
       if (finiteStockKeys.size === 0) continue;
 
-      let mQty = 0, mCount = 0, displayName = missingKey;
-      for (const group of groups) {
-        const first = group[0]?.[0];
-        if (first && normalizeKey(first.name) === missingKey) {
-          mQty = first.qty; mCount = first.count;
-          displayName = first.rawName || first.name;
-          break;
-        }
-      }
+      const { qty: mQty, count: mCount, displayName } = getIngredientDisplayFromRecipe(meal.ingredients, missingKey);
       candidates.push({
         meal,
         missingKey,
