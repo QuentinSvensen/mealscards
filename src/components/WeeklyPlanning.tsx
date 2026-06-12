@@ -74,32 +74,42 @@ function PlanningInput({ storageKey, currentValue, onSave, placeholder, classNam
   }, [currentValue, addMode]);
 
   const commitAdd = () => {
-    const raw = parseInt(tempVal) || 0;
+    const raw = parseInt(tempVal, 10) || 0;
     if (raw !== 0) onSave(currentValue + raw);
     setAddMode(false);
     setTempVal("");
   };
 
   const commitEdit = () => {
-    const raw = parseInt(editVal) || 0;
+    const raw = parseInt(editVal, 10) || 0;
     if (raw === currentValue) return;
     onSave(raw);
   };
 
   if (addMode) {
     return (
-      <div className="relative flex items-center">
+      <div className="relative flex items-center w-full">
         <input
           ref={inputRef}
           type="number"
           value={tempVal}
           onChange={(e) => setTempVal(e.target.value)}
-          onBlur={commitAdd}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") { setAddMode(false); setTempVal(""); } }}
           placeholder={`+${placeholder || ""}`}
-          className={className}
+          className={`${className} pr-4`}
           autoFocus
         />
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            commitAdd();
+          }}
+          className="absolute right-0.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-[9px] font-bold text-green-400 hover:text-green-300 rounded"
+          title="Valider l'ajout"
+        >
+          ✓
+        </button>
       </div>
     );
   }
@@ -244,6 +254,33 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
     }
   }
   return { cal, pro, fiber };
+}
+
+/** Liste les ids d'extras déjà assignés à un créneau (matin/midi/soir/goûter) pour une journée. */
+function getAssignedExtraIdsForDay(
+  extraSlotAssignments: Record<string, string[]>,
+  iso: string,
+  key: string,
+): string[] {
+  const slots: Array<"matin" | "midi" | "soir" | "gouter"> = ["matin", "midi", "soir", "gouter"];
+  const out = new Set<string>();
+  for (const slot of slots) {
+    for (const id of extraSlotAssignments[`${iso}-${slot}`] ?? []) out.add(id);
+    for (const id of extraSlotAssignments[`${key}-${slot}`] ?? []) out.add(id);
+  }
+  return [...out];
+}
+
+/** Retourne les extras sélectionnés du jour qui ne sont pas encore placés dans un créneau. */
+function getUnassignedExtraSelectionIds(
+  extraSelections: Record<string, string[]>,
+  extraSlotAssignments: Record<string, string[]>,
+  iso: string,
+  key: string,
+): string[] {
+  const ids = extraSelections[iso] || [];
+  const assignedSet = new Set(getAssignedExtraIdsForDay(extraSlotAssignments, iso, key));
+  return ids.filter((id) => !assignedSet.has(id));
 }
 
 /** Formate l'étiquette d'un extra placé en incluant ses grammes et sa quantité s'ils existent. */
@@ -1388,15 +1425,8 @@ export function WeeklyPlanning({
   };
 
   // Liste les ids d'extras déjà posés dans les slots d'une journée (matin/midi/soir/goûter).
-  const getAssignedExtraIdsForDay = (iso: string, key: string): string[] => {
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    const out = new Set<string>();
-    for (const s of slots) {
-      for (const id of (extraSlotAssignments[`${iso}-${s}`] ?? [])) out.add(id);
-      for (const id of (extraSlotAssignments[`${key}-${s}`] ?? [])) out.add(id);
-    }
-    return [...out];
-  };
+  const getAssignedExtraIdsForDayLocal = (iso: string, key: string): string[] =>
+    getAssignedExtraIdsForDay(extraSlotAssignments, iso, key);
 
   // Retire un extra de tous les slots de la journée (retour dans la catégorie "Extras").
   const unassignExtraFromAllDaySlots = (extraId: string, iso: string, key: string) => {
@@ -2758,6 +2788,8 @@ export function WeeklyPlanning({
                 {(() => {
                   const extraDropKey = `extra-${iso}`;
                   const isExtraDragOver = dragOverSlot === extraDropKey;
+                  const unassignedExtraIds = getUnassignedExtraSelectionIds(extraSelections, extraSlotAssignments, iso, key);
+                  const unassignedExtraMacros = sumExtrasFromSelectionIds(unassignedExtraIds, foodItems);
                   return (
                 <div
                   className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isExtraDragOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3"}`}
@@ -2784,18 +2816,9 @@ export function WeeklyPlanning({
                   <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                     <PlanningInput
                       storageKey={`extra-${iso}`}
-                      currentValue={(() => {
-                        const manual = extraCalories[iso] || 0;
-                        const ids = extraSelections[iso] || [];
-                        const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
-                        const unassignedIds = ids.filter((id) => !assignedSet.has(id));
-                        const selected = sumExtrasFromSelectionIds(unassignedIds, foodItems);
-                        return manual + selected.cal;
-                      })()}
+                      currentValue={(extraCalories[iso] || 0) + unassignedExtraMacros.cal}
                       onSave={(val) => {
-                        const ids = extraSelections[iso] || [];
-                        const selected = sumExtrasFromSelectionIds(ids, foodItems);
-                        const manual = Math.max(0, val - selected.cal);
+                        const manual = Math.max(0, val - unassignedExtraMacros.cal);
                         const updated = { ...extraCalories };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
@@ -2806,18 +2829,9 @@ export function WeeklyPlanning({
                     />
                     <PlanningInput
                       storageKey={`extra-prot-${iso}`}
-                      currentValue={(() => {
-                        const manual = extraProteins[iso] || 0;
-                        const ids = extraSelections[iso] || [];
-                        const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
-                        const unassignedIds = ids.filter((id) => !assignedSet.has(id));
-                        const selected = sumExtrasFromSelectionIds(unassignedIds, foodItems);
-                        return manual + selected.pro;
-                      })()}
+                      currentValue={(extraProteins[iso] || 0) + unassignedExtraMacros.pro}
                       onSave={(val) => {
-                        const ids = extraSelections[iso] || [];
-                        const selected = sumExtrasFromSelectionIds(ids, foodItems);
-                        const manual = Math.max(0, val - selected.pro);
+                        const manual = Math.max(0, val - unassignedExtraMacros.pro);
                         const updated = { ...extraProteins };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
@@ -2828,18 +2842,9 @@ export function WeeklyPlanning({
                     />
                     <PlanningInput
                       storageKey={`extra-fib-${iso}`}
-                      currentValue={(() => {
-                        const manual = extraFibers[iso] || 0;
-                        const ids = extraSelections[iso] || [];
-                        const assignedSet = new Set(getAssignedExtraIdsForDay(iso, key));
-                        const unassignedIds = ids.filter((id) => !assignedSet.has(id));
-                        const selected = sumExtrasFromSelectionIds(unassignedIds, foodItems);
-                        return manual + selected.fiber;
-                      })()}
+                      currentValue={(extraFibers[iso] || 0) + unassignedExtraMacros.fiber}
                       onSave={(val) => {
-                        const ids = extraSelections[iso] || [];
-                        const selected = sumExtrasFromSelectionIds(ids, foodItems);
-                        const manual = Math.max(0, val - selected.fiber);
+                        const manual = Math.max(0, val - unassignedExtraMacros.fiber);
                         const updated = { ...extraFibers };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
@@ -2944,7 +2949,7 @@ export function WeeklyPlanning({
                               );
                               const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                               const currentIds = extraSels[iso] || [];
-                              const assignedIds = new Set(getAssignedExtraIdsForDay(iso, key));
+                              const assignedIds = new Set(getAssignedExtraIdsForDayLocal(iso, key));
                               const daySlotKey = iso || key;
                               const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) => !currentIds.includes(d.id));
 
