@@ -43,7 +43,11 @@ import {
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
-import { attachPortionDeduction } from "@/lib/stockDeductionSnapshot";
+import {
+  attachPortionDeduction,
+  remapMorningMealPreferenceIds,
+  wasMorningMealSnapshot,
+} from "@/lib/stockDeductionSnapshot";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
@@ -167,6 +171,7 @@ const PAGE_TO_ROUTE: Record<MainPage, string> = {
 
 const EMPTY_MACRO_LIBRARY: IngredientMacroLibraryItem[] = [];
 const EMPTY_DEDUCTION_SNAPSHOTS: Record<string, FoodItem[]> = {};
+const MORNING_MEAL_PREF_KEY = "morning_meal_food_item_ids";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL : Index
@@ -548,6 +553,33 @@ const Index = () => {
   const [masterSourcePmIds, setMasterSourcePmIds] = useState<Set<string>>(new Set());
   const [unParUnSourcePmIds, setUnParUnSourcePmIds] = useState<Set<string>>(new Set());
 
+  const wasMorningMealFoodItem = useCallback(
+    (fi: FoodItem) => getPreference<string[]>(MORNING_MEAL_PREF_KEY, []).includes(fi.id),
+    [getPreference],
+  );
+
+  const attachFoodDeductionSnapshot = useCallback(
+    (fi: FoodItem, portion: { grams: number; quantity: number }) =>
+      attachPortionDeduction(fi, portion, { wasMorningMeal: wasMorningMealFoodItem(fi) }),
+    [wasMorningMealFoodItem],
+  );
+
+  /** Réapplique « repas matin » sur la fiche aliment recréée après retour depuis Possible. */
+  const syncMorningMealPrefsAfterRestore = useCallback(
+    (snapshots: FoodItem[], restoredFoodItems: FoodItem[]) => {
+      if (!snapshots.some((snap) => wasMorningMealSnapshot(snap))) return;
+      const morningIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
+      const nextIds = remapMorningMealPreferenceIds(snapshots, restoredFoodItems, morningIds);
+      const changed =
+        nextIds.length !== morningIds.length ||
+        nextIds.some((id) => !morningIds.includes(id));
+      if (changed) {
+        setPreference.mutate({ key: MORNING_MEAL_PREF_KEY, value: nextIds });
+      }
+    },
+    [getPreference, setPreference],
+  );
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Transfert d'un repas vers la liste "Possible" (avec déduction de stock)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -578,7 +610,10 @@ const Index = () => {
       if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) {
         if (!meal.ingredients?.trim()) {
           const portion = await deductNameMatchStock(meal);
-          snapshots.push(attachPortionDeduction(nameMatch, portion));
+          snapshots.push(attachFoodDeductionSnapshot(nameMatch, {
+            grams: portion.gramsDeducted,
+            quantity: portion.quantityDeducted,
+          }));
         } else {
           snapshots.push({ ...nameMatch });
         }
@@ -1100,13 +1135,16 @@ const Index = () => {
                               const finalCd = fi.counter_start_date || (shouldStartOnMove ? new Date().toISOString() : null);
                               const liveAfterDeduct = qc.getQueryData<FoodItem[]>(["food_items"])?.find((x) => x.id === fi.id);
                               const snapshot = [
-                                attachPortionDeduction(
+                                attachFoodDeductionSnapshot(
                                   {
                                     ...fi,
                                     counter_start_date:
                                       liveAfterDeduct?.counter_start_date ?? finalCd ?? fi.counter_start_date,
                                   },
-                                  portion,
+                                  {
+                                    grams: portion.gramsDeducted,
+                                    quantity: portion.quantityDeducted,
+                                  },
                                 ),
                               ];
 
@@ -1143,7 +1181,7 @@ const Index = () => {
                               }
                             }
                             const snapshot = [
-                              attachPortionDeduction(fi, { grams: portionGrams, quantity: portionQty }),
+                              attachFoodDeductionSnapshot(fi, { grams: portionGrams, quantity: portionQty }),
                             ];
                             if (!fi.is_infinite) {
                               const currentQty = fi.quantity ?? 1;
@@ -1155,6 +1193,7 @@ const Index = () => {
                             const fiMacro = macroLookup.get(fiKey);
                             let calories = fi.calories || fiMacro?.cal || null;
                             let protein = fi.protein || fiMacro?.pro || null;
+                            let fiber = fi.fiber || fiMacro?.fiber || null;
 
                             if (fi.grams) {
                               // Un déplacement depuis "Au choix" consomme une seule portion, pas tout le stock disponible.
@@ -1162,6 +1201,7 @@ const Index = () => {
                               if (movedGrams > 0) {
                                 if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * movedGrams / 100));
                                 if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * movedGrams / 100));
+                                if (fiber) fiber = String(Math.round(parseFloat(fiber.replace(',', '.')) * movedGrams / 100));
                               }
                             }
 
@@ -1169,7 +1209,7 @@ const Index = () => {
                             const finalCd = fi.counter_start_date || (shouldStart ? new Date().toISOString() : null);
                             const pmResult = await addMealToPossibleDirectly.mutateAsync({
                               name: fi.name, category: cat.value,
-                              calories, protein, fiber: fi.fiber, grams: fi.grams,
+                              calories, protein, fiber, grams: fi.grams,
                               expiration_date: fi.expiration_date,
                               counter_start_date: finalCd
                             });
@@ -1206,13 +1246,15 @@ const Index = () => {
                           onReturnWithoutDeduction={async (id) => {
                             const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
                             const snapshots = deductionSnapshots[id];
+                            let restoredFoodItems: FoodItem[] = [];
                             if (snapshots && snapshots.length > 0) {
-                              await restoreIngredientsToStock({} as Meal, snapshots);
+                              restoredFoodItems = await restoreIngredientsToStock({} as Meal, snapshots);
+                              syncMorningMealPrefsAfterRestore(snapshots, restoredFoodItems);
                             } else if (pm?.meals) {
                               const mealForRestore = pm.ingredients_override
                                 ? { ...pm.meals, ingredients: pm.ingredients_override }
                                 : pm.meals;
-                              await restoreIngredientsToStock(mealForRestore);
+                              restoredFoodItems = await restoreIngredientsToStock(mealForRestore);
                             }
                             updateSnapshots(prev => { const next = { ...prev }; delete next[id]; return next; });
                             removeFromPossible.mutate(id);
@@ -1583,7 +1625,7 @@ const Index = () => {
                                     ? consumeQty || 1
                                     : 1;
                               const snapshot = [
-                                attachPortionDeduction(fi, {
+                                attachFoodDeductionSnapshot(fi, {
                                   grams: actualMovedG,
                                   quantity: deductQty,
                                 }),
@@ -1610,9 +1652,13 @@ const Index = () => {
                               const baseCal = parseFloat(String(baseCalStr).replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
                               const basePro = parseFloat(String(baseProStr).replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
 
-                              // If fi.grams is present, fi.calories is per-100g. Otherwise it's per unit.
+                              // Si fi.grams est présent, les macros de l'aliment sont au 100 g ; sinon elles sont à l'unité.
                               let finalCal: number | null = null;
                               let finalPro: number | null = null;
+                              let finalFiber: number | null = null;
+                              const fiberFromFi = !!fi.fiber;
+                              const baseFiberStr = fi.fiber || fiMacro?.fiber || "0";
+                              const baseFiber = parseFloat(String(baseFiberStr).replace(',', '.').replace(/[^0-9.]/g, '')) || 0;
                               if (baseCal > 0) {
                                 if (fi.grams || !calFromFi) {
                                   finalCal = (baseCal / 100) * actualMovedG;
@@ -1627,12 +1673,20 @@ const Index = () => {
                                   finalPro = basePro * ratio;
                                 }
                               }
+                              if (baseFiber > 0) {
+                                if (fi.grams || !fiberFromFi) {
+                                  finalFiber = (baseFiber / 100) * actualMovedG;
+                                } else {
+                                  finalFiber = baseFiber * ratio;
+                                }
+                              }
 
                               const calories = finalCal !== null ? formatNumeric(Math.round(finalCal)) : null;
                               const protein = finalPro !== null ? formatNumeric(Math.round(finalPro)) : null;
+                              const fiber = finalFiber !== null ? formatNumeric(Math.round(finalFiber)) : null;
                               const ingredients = actualMovedG > 0 ? `${displayGrams}g ${fi.name}` : `${displayQty} ${fi.name}`;
                               const pmResult = await addMealToPossibleDirectly.mutateAsync({
-                                name: fi.name, category: cat.value, calories, protein, grams: displayGrams,
+                                name: fi.name, category: cat.value, calories, protein, fiber, grams: displayGrams,
                                 ingredients,
                                 expiration_date: fi.expiration_date, possible_quantity: displayQty,
                                 counter_start_date: movedCounterDate,

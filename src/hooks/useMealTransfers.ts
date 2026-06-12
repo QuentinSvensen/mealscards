@@ -40,6 +40,29 @@ const DAY_KEY_TO_INDEX: Record<string, number> = {
   lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
 };
 
+/** Normalise une ligne Supabase `food_items` vers le type FoodItem du client. */
+function mapFoodItemRow(d: any): FoodItem {
+  return {
+    ...d,
+    is_meal: d.is_meal ?? false,
+    is_infinite: d.is_infinite ?? false,
+    is_dry: d.is_dry ?? false,
+    is_indivisible: d.is_indivisible ?? false,
+    no_counter: d.no_counter ?? false,
+    storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
+    quantity: d.quantity ?? null,
+    food_type: d.food_type ?? null,
+    protein: d.protein ?? null,
+    fiber: d.fiber ?? null,
+  } as FoodItem;
+}
+
+/** Charge toutes les fiches aliment depuis Supabase (après restauration de stock). */
+async function fetchAllFoodItems(): Promise<FoodItem[]> {
+  const { data } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
+  return (data ?? []).map(mapFoodItemRow);
+}
+
 /** Aligné sur getTargetDate (ingredientUtils) : matin 8h, midi 12h, soir 19h */
 function setMealTimeHours(d: Date, mealTime: string | null) {
   const low = (mealTime || "").trim().toLowerCase();
@@ -633,43 +656,19 @@ export function useMealTransfers(foodItems: FoodItem[]) {
    * 1. Avec snapshots → portion déduite (delta) si métadonnées présentes, sinon upsert legacy
    * 2. Sans snapshots → estimation en ajoutant les quantités de la recette
    */
-  const restoreIngredientsToStock = async (meal: Meal, snapshots?: FoodItem[]) => {
+  const restoreIngredientsToStock = async (meal: Meal, snapshots?: FoodItem[]): Promise<FoodItem[]> => {
     if (snapshots && snapshots.length > 0) {
       const usePortionRestore = snapshots.some(hasPortionDeductionMeta);
       if (usePortionRestore) {
-        const { data: freshItems } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
-        let currentFoodItems: FoodItem[] = (freshItems ?? []).map((d: any) => ({
-          ...d,
-          is_meal: d.is_meal ?? false,
-          is_infinite: d.is_infinite ?? false,
-          is_dry: d.is_dry ?? false,
-          is_indivisible: d.is_indivisible ?? false,
-          no_counter: d.no_counter ?? false,
-          storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
-          quantity: d.quantity ?? null,
-          food_type: d.food_type ?? null,
-          protein: d.protein ?? null,
-        })) as FoodItem[];
+        let currentFoodItems = await fetchAllFoodItems();
 
         for (const snap of snapshots) {
           const portion = getPortionDeduction(snap);
           await addPortionBackToStockItem(snap, portion, currentFoodItems);
-          const { data: refreshed } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
-          currentFoodItems = (refreshed ?? []).map((d: any) => ({
-            ...d,
-            is_meal: d.is_meal ?? false,
-            is_infinite: d.is_infinite ?? false,
-            is_dry: d.is_dry ?? false,
-            is_indivisible: d.is_indivisible ?? false,
-            no_counter: d.no_counter ?? false,
-            storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
-            quantity: d.quantity ?? null,
-            food_type: d.food_type ?? null,
-            protein: d.protein ?? null,
-          })) as FoodItem[];
+          currentFoodItems = await fetchAllFoodItems();
         }
         await invalidateStock();
-        return;
+        return currentFoodItems;
       }
 
       // Mode legacy : upsert de l'état complet (anciens snapshots sans delta)
@@ -690,26 +689,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         }))
       );
       await invalidateStock();
-      return;
+      return fetchAllFoodItems();
     }
 
     // Mode 2 : restauration estimée depuis la recette
-    if (!meal.ingredients?.trim()) return;
+    if (!meal.ingredients?.trim()) return [];
 
     // IMPORTANT : Récupérer les données fraîches de Supabase pour éviter les erreurs dues au cache React périmé
-    const { data: freshItems } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
-    const currentFoodItems: FoodItem[] = (freshItems ?? []).map((d: any) => ({
-      ...d,
-      is_meal: d.is_meal ?? false,
-      is_infinite: d.is_infinite ?? false,
-      is_dry: d.is_dry ?? false,
-      is_indivisible: d.is_indivisible ?? false,
-      no_counter: d.no_counter ?? false,
-      storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
-      quantity: d.quantity ?? null,
-      food_type: d.food_type ?? null,
-      protein: d.protein ?? null,
-    })) as FoodItem[];
+    let currentFoodItems = await fetchAllFoodItems();
 
     const groups = parseIngredientGroups(meal.ingredients);
     for (const group of groups) {
@@ -869,6 +856,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       }
     }
     await invalidateStock();
+    return fetchAllFoodItems();
   };
 
   // ═════════════════════════════════════════════════════════════════════════

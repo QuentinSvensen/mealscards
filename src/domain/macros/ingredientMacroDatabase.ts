@@ -387,7 +387,7 @@ export function applyIngredientMacroToText(
   return changed ? serializeIngredients(lines) : null;
 }
 
-// Prépare les mises à jour Macro en laissant les fiches Aliment standards intactes.
+// Prépare les mises à jour Macro en propageant les valeurs aux recettes, cartes Possible et fiches Aliment.
 export function buildIngredientMacroUpdatePlan(
   meals: Meal[],
   possibleMeals: PossibleMeal[],
@@ -409,9 +409,15 @@ export function buildIngredientMacroUpdatePlan(
   });
 
   const foodUpdates = foodItems.flatMap((foodItem) => {
-    if (foodItem.storage_type !== "extras") return [];
     if (normalizeKey(foodItem.name || "") !== ingredientKey) return [];
-    const storedMacros = getExtraStoredMacrosFromReference(foodItem, calories, protein, fiber);
+    const storedMacros =
+      foodItem.storage_type === "extras"
+        ? getExtraStoredMacrosFromReference(foodItem, calories, protein, fiber)
+        : {
+            calories: calories.trim() || null,
+            protein: protein.trim() || null,
+            fiber: fiber.trim() || null,
+          };
     if ((foodItem.calories ?? null) === storedMacros.calories && (foodItem.protein ?? null) === storedMacros.protein && (foodItem.fiber ?? null) === storedMacros.fiber) return [];
     return [{ id: foodItem.id, calories: storedMacros.calories, protein: storedMacros.protein, fiber: storedMacros.fiber }];
   });

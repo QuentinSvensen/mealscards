@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import type { FoodItem } from "@/hooks/useFoodItems";
+import {
+  attachPortionDeduction,
+  remapMorningMealPreferenceIds,
+  wasMorningMealSnapshot,
+} from "./stockDeductionSnapshot";
+
+function makeFoodItem(overrides: Partial<FoodItem> & { id: string; name: string }): FoodItem {
+  return {
+    id: overrides.id,
+    name: overrides.name,
+    grams: "70",
+    calories: "366",
+    protein: "29",
+    fiber: "16",
+    expiration_date: null,
+    counter_start_date: null,
+    sort_order: 0,
+    created_at: "2026-01-01",
+    is_meal: true,
+    is_infinite: false,
+    is_dry: false,
+    is_indivisible: true,
+    no_counter: false,
+    storage_type: "frigo",
+    quantity: 1,
+    food_type: null,
+    ...overrides,
+  };
+}
+
+describe("stockDeductionSnapshot", () => {
+  it("conserve le flag repas matin dans le snapshot de déduction", () => {
+    const fi = makeFoodItem({ id: "old-id", name: "Barre Optimum Caramel" });
+    const snap = attachPortionDeduction(fi, { grams: 70, quantity: 0 }, { wasMorningMeal: true });
+    expect(wasMorningMealSnapshot(snap)).toBe(true);
+  });
+
+  it("réattribue la préférence repas matin vers la nouvelle fiche aliment", () => {
+    const snap = attachPortionDeduction(
+      makeFoodItem({ id: "old-id", name: "Barre Optimum Caramel" }),
+      { grams: 70, quantity: 0 },
+      { wasMorningMeal: true },
+    );
+    const restored = [makeFoodItem({ id: "new-id", name: "Barre Optimum Caramel" })];
+    const next = remapMorningMealPreferenceIds([snap], restored, ["old-id"]);
+    expect(next).toEqual(["new-id"]);
+  });
+});

@@ -171,11 +171,11 @@ export function MacroIngredients({
 
     toast({
       title: "Macros synchronisées",
-      description: `${entry.displayName} mis à jour dans ${plan.mealUpdates.length} recette(s)${plan.possibleUpdates.length ? `, ${plan.possibleUpdates.length} possible(s)` : ""}${plan.foodUpdates.length ? ` et ${plan.foodUpdates.length} extra(s)` : ""}.`,
+      description: `${entry.displayName} mis à jour dans ${plan.mealUpdates.length} recette(s)${plan.possibleUpdates.length ? `, ${plan.possibleUpdates.length} possible(s)` : ""}${plan.foodUpdates.length ? ` et ${plan.foodUpdates.length} aliment(s)` : ""}.`,
     });
   };
 
-  // Supprime une ligne du référentiel et efface ses macros dans recettes, possibles et extras.
+  // Supprime une ligne du référentiel et efface ses macros dans recettes, possibles et aliments.
   const deleteEntry = (entry: IngredientMacroEntry) => {
     const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, "", "", "");
 
@@ -213,7 +213,7 @@ export function MacroIngredients({
           <div className="min-w-0 flex-1">
             <h2 className="text-base sm:text-lg font-extrabold">Macro ingrédients</h2>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Référentiel des calories et protéines précisées dans l'onglet Repas. Une sauvegarde propage la macro à toutes les recettes où l'ingrédient apparaît.
+              Référentiel des calories, protéines et fibres précisées dans les onglets Repas et Aliments. Une sauvegarde propage la macro à toutes les occurrences.
             </p>
           </div>
         </div>

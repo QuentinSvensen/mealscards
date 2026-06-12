@@ -51,13 +51,23 @@ function makePossible(id: string, meal: Meal, ingredients_override: string | nul
 }
 
 // Crée une fiche aliment minimale pour tester l'import automatique depuis l'onglet Aliments.
-function makeFoodItem(id: string, name: string, calories: string | null, protein: string | null, storage_type: FoodItem["storage_type"] = "frigo", grams: string | null = null, quantity: number | null = null): FoodItem {
+function makeFoodItem(
+  id: string,
+  name: string,
+  calories: string | null,
+  protein: string | null,
+  storage_type: FoodItem["storage_type"] = "frigo",
+  grams: string | null = null,
+  quantity: number | null = null,
+  fiber: string | null = null,
+): FoodItem {
   return {
     id,
     name,
     grams,
     calories,
     protein,
+    fiber,
     expiration_date: null,
     counter_start_date: null,
     sort_order: 0,
@@ -108,7 +118,9 @@ describe("ingredientMacroDatabase", () => {
     expect(plan.mealUpdates[0].ingredients).toContain("Filet de poulet{110} [25]");
     expect(plan.mealUpdates[1].ingredients).toContain("Filet de poulet{110} [25]");
     expect(plan.possibleUpdates[0].ingredients_override).toContain("Filet de poulet{110} [25]");
-    expect(plan.foodUpdates).toHaveLength(0);
+    expect(plan.foodUpdates).toEqual([
+      { id: "food1", calories: "110", protein: "25", fiber: null },
+    ]);
   });
 
   it("peut retirer une macro en sauvegardant une valeur vide", () => {
@@ -206,7 +218,7 @@ describe("ingredientMacroDatabase", () => {
     });
   });
 
-  it("prépare la suppression d'une ligne en vidant les macros dans les recettes sans toucher aux aliments standards", () => {
+  it("prépare la suppression d'une ligne en vidant les macros dans les recettes et aliments standards", () => {
     const meals = [makeMeal("1", "Poulet riz", "100g Filet de poulet{106} [23], 50g Riz")];
     const possibleMeals = [makePossible("pm1", meals[0], "50g Filet de poulet{106} [23]")];
     const foodItems = [makeFoodItem("food1", "Filet de poulet", "106", "23")];
@@ -217,11 +229,13 @@ describe("ingredientMacroDatabase", () => {
 
     expect(plan.mealUpdates[0].ingredients).toBe("100g Filet de poulet, 50g Riz");
     expect(plan.possibleUpdates[0].ingredients_override).toBe("50g Filet de poulet");
-    expect(plan.foodUpdates).toEqual([]);
+    expect(plan.foodUpdates).toEqual([
+      { id: "food1", calories: null, protein: null, fiber: null },
+    ]);
     expect(nextLibrary).toEqual([]);
   });
 
-  it("synchronise les macros vers les aliments de la section Extras uniquement", () => {
+  it("synchronise les macros vers les aliments standards et extras", () => {
     const foodItems = [
       makeFoodItem("food1", "Barres Koro", null, null, "extras", "100", null),
       makeFoodItem("food2", "Barres Koro", null, null, "frigo", "100", null),
@@ -231,6 +245,7 @@ describe("ingredientMacroDatabase", () => {
 
     expect(plan.foodUpdates).toEqual([
       { id: "food1", calories: "280", protein: "40", fiber: "8" },
+      { id: "food2", calories: "280", protein: "40", fiber: "8" },
     ]);
   });
 
