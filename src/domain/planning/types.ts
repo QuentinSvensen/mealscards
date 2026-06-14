@@ -4,6 +4,7 @@ import type { Json } from "@/integrations/supabase/types";
 export interface PlanningSnapshotEntry {
   cal?: number;
   prot?: number;
+  fiber?: number;
   itemIds?: string[];
   mealId?: string;
   name?: string;
@@ -38,8 +39,10 @@ export interface PossibleMealsFullBackup {
   cards: PossibleMealBackupCard[];
   manualCalories: Record<string, number>;
   manualProteins: Record<string, number>;
+  manualFibers: Record<string, number>;
   extraCalories: Record<string, number>;
   extraProteins: Record<string, number>;
+  extraFibers: Record<string, number>;
   extraSelections: Record<string, string[]>;
   extraSlotAssignments: Record<string, string[]>;
   breakfastManualCalories: Record<string, number>;
@@ -56,8 +59,10 @@ export interface PossibleMealsFullBackup {
 export const PLANNING_RESET_PREF_KEYS = [
   "planning_manual_calories",
   "planning_manual_proteins",
+  "planning_manual_fibers",
   "planning_extra_calories",
   "planning_extra_proteins",
+  "planning_extra_fibers",
   "planning_breakfast_manual_calories",
   "planning_breakfast_manual_proteins",
   "planning_breakfast",
@@ -76,8 +81,10 @@ export const PLANNING_RESET_PREF_KEYS = [
 export const NEXT_WEEK_PROMOTION_PREF_KEYS = [
   "next_week_manual_calories",
   "next_week_manual_proteins",
+  "next_week_manual_fibers",
   "next_week_extra_calories",
   "next_week_extra_proteins",
+  "next_week_extra_fibers",
   "next_week_extra_selections",
   "next_week_breakfast",
   "next_week_breakfast_manual_calories",
@@ -93,8 +100,10 @@ export type PlanningPrefMap = Record<string, Json | undefined>;
 export interface MergedPlanningLiveState {
   planning_manual_calories: Record<string, number>;
   planning_manual_proteins: Record<string, number>;
+  planning_manual_fibers: Record<string, number>;
   planning_extra_calories: Record<string, number>;
   planning_extra_proteins: Record<string, number>;
+  planning_extra_fibers: Record<string, number>;
   planning_extra_selections: Record<string, string[]>;
   planning_breakfast_manual_calories: Record<string, number>;
   planning_breakfast_manual_proteins: Record<string, number>;

@@ -44,6 +44,7 @@ import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
+import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
@@ -254,6 +255,17 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
     }
   }
   return { cal, pro, fiber };
+}
+
+/** Formate le titre d'un bouton de sauvegarde planning avec calories, protéines et fibres. */
+function formatPlanningSnapshotTitle(
+  snap: PlanningSnapshotEntry | undefined,
+  options: { itemCount?: number; nameFallback?: boolean } = {},
+): string {
+  if (!snap) return "Sauvegarder les valeurs pour le reset (Double-clic pour oublier)";
+  if (options.nameFallback && snap.name) return `Sauvegardé: ${snap.name} (Double-clic pour oublier)`;
+  const itemPart = options.itemCount !== undefined ? `, ${options.itemCount} items` : "";
+  return `Sauvegardé: ${snap.cal || 0} kcal / ${snap.prot || 0} prot / ${snap.fiber || 0} fib${itemPart} (Double-clic pour oublier)`;
 }
 
 /** Liste les ids d'extras déjà assignés à un créneau (matin/midi/soir/goûter) pour une journée. */
@@ -1143,7 +1155,7 @@ export function WeeklyPlanning({
   // Clé = `${iso}-${slot}`, valeur = liste d’ids d’aliments (pas de customExtra ici).
   const extraSlotAssignments = getPreference<Record<string, string[]>>('planning_extra_slot_assignments', {});
 
-  const savedSnapshots = getPreference<Record<string, { cal?: number; prot?: number; itemIds?: string[] }>>('planning_saved_snapshots', {});
+  const savedSnapshots = getPreference<Record<string, PlanningSnapshotEntry>>('planning_saved_snapshots', {});
   /**
    * Résout le snapshot d'extra directement lié au jour affiché.
    * Les anciens snapshots ISO d'un même jour de semaine ne sont pas repris ici :
@@ -2393,10 +2405,8 @@ export function WeeklyPlanning({
                           : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
                         }`}
                       title={(() => {
-                        const snap = (savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`]) as any;
-                        if (!snap) return 'Sauvegarder les valeurs pour le reset (Double-clic pour oublier)';
-                        if (snap.name) return `Sauvegardé: ${snap.name} (Double-clic pour oublier)`;
-                        return `Sauvegardé: ${snap.cal || 0} kcal / ${snap.prot || 0} prot (Double-clic pour oublier)`;
+                        const snap = savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`];
+                        return formatPlanningSnapshotTitle(snap, { nameFallback: true });
                       })()}
                     >💾</button>
                   )}
@@ -2739,7 +2749,7 @@ export function WeeklyPlanning({
                                     ? 'bg-primary/20 text-primary border border-primary/40'
                                     : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
                                   }`}
-                                title={(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`]) ? `Sauvegardé: ${((savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`]) as any).cal || 0} kcal / ${((savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`]) as any).prot || 0} prot (Double-clic pour oublier)` : 'Sauvegarder les valeurs pour le reset (Double-clic pour oublier)'}
+                                title={formatPlanningSnapshotTitle(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
                               >💾</button>
                             </div>
                           </div>
@@ -3391,8 +3401,9 @@ export function WeeklyPlanning({
                           const currentIds = extraSelections[iso] || [];
                           const cal = (iso && extraCalories[iso]) || 0;
                           const prot = (iso && extraProteins[iso]) || 0;
+                          const fiber = (iso && extraFibers[iso]) || 0;
                           const itemIds = currentIds;
-                          const updated = { ...savedSnapshots, [snapKey]: { cal, prot, itemIds } };
+                          const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber, itemIds } };
                           setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                           // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
@@ -3448,7 +3459,10 @@ export function WeeklyPlanning({
                             ? 'bg-primary/20 text-primary border border-primary/40'
                             : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
                           }`}
-                        title={(savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) ? `Sauvegardé: ${((savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any).cal || 0} kcal / ${((savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any).prot || 0} prot, ${((savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any).itemIds?.length || 0} items (Double-clic pour oublier)` : 'Sauvegarder les valeurs pour le reset (Double-clic pour oublier)'}
+                        title={(() => {
+                          const snap = savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`];
+                          return formatPlanningSnapshotTitle(snap, { itemCount: snap?.itemIds?.length || 0 });
+                        })()}
                       >💾</button>
                     </div>
                   </div>
@@ -4255,6 +4269,9 @@ export function WeeklyPlanning({
                             <PlanningInput storageKey={`next-mp-${iso}-${time}`} currentValue={nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.prot ?? 0}
                               onSave={(val) => { const u = { ...nextManualProteins }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_proteins', value: u }); }}
                               placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
+                            <PlanningInput storageKey={`next-mf-${iso}-${time}`} currentValue={nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.fiber ?? 0}
+                              onSave={(val) => { const u = { ...nextManualFibers }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_fibers', value: u }); }}
+                              placeholder="fib" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
                           </div>
                         </div>
                       </div>

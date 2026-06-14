@@ -19,8 +19,10 @@ export function pushWeeklyResetClientPreferences(
 
   mutate({ key: "planning_manual_calories", value: merged.planning_manual_calories });
   mutate({ key: "planning_manual_proteins", value: merged.planning_manual_proteins });
+  mutate({ key: "planning_manual_fibers", value: merged.planning_manual_fibers });
   mutate({ key: "planning_extra_calories", value: merged.planning_extra_calories });
   mutate({ key: "planning_extra_proteins", value: merged.planning_extra_proteins });
+  mutate({ key: "planning_extra_fibers", value: merged.planning_extra_fibers });
   mutate({ key: "planning_extra_selections", value: merged.planning_extra_selections });
   mutate({ key: "planning_breakfast_manual_calories", value: merged.planning_breakfast_manual_calories });
   mutate({ key: "planning_breakfast_manual_proteins", value: merged.planning_breakfast_manual_proteins });
@@ -43,8 +45,10 @@ export function pushWeeklyResetClientPreferences(
     mutate({ key: "next_week_breakfast", value: {} });
     mutate({ key: "next_week_manual_calories", value: {} });
     mutate({ key: "next_week_manual_proteins", value: {} });
+    mutate({ key: "next_week_manual_fibers", value: {} });
     mutate({ key: "next_week_extra_calories", value: {} });
     mutate({ key: "next_week_extra_proteins", value: {} });
+    mutate({ key: "next_week_extra_fibers", value: {} });
     mutate({ key: "next_week_extra_selections", value: {} });
     mutate({ key: "next_week_breakfast_manual_calories", value: {} });
     mutate({ key: "next_week_breakfast_manual_proteins", value: {} });
@@ -58,8 +62,10 @@ export function pushWeeklyResetClientPreferences(
     mutate({ key: "next_week_breakfast", value: {} });
     mutate({ key: "next_week_manual_calories", value: {} });
     mutate({ key: "next_week_manual_proteins", value: {} });
+    mutate({ key: "next_week_manual_fibers", value: {} });
     mutate({ key: "next_week_extra_calories", value: {} });
     mutate({ key: "next_week_extra_proteins", value: {} });
+    mutate({ key: "next_week_extra_fibers", value: {} });
     mutate({ key: "next_week_extra_selections", value: {} });
     mutate({ key: "next_week_breakfast_manual_calories", value: {} });
     mutate({ key: "next_week_breakfast_manual_proteins", value: {} });

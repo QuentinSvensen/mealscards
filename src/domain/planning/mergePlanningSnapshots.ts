@@ -20,8 +20,10 @@ export function mergeSnapshotsIntoLivePrefMap(
   // Seules les entrées explicitement sauvegardées (snapshots 💾) sont réinjectées.
   const rMC: Record<string, number> = {};
   const rMP: Record<string, number> = {};
+  const rMF: Record<string, number> = {};
   const rEC: Record<string, number> = {};
   const rEP: Record<string, number> = {};
+  const rEF: Record<string, number> = {};
   const rES: Record<string, string[]> = {};
   const rBC: Record<string, number> = {};
   const rBP: Record<string, number> = {};
@@ -33,10 +35,12 @@ export function mergeSnapshotsIntoLivePrefMap(
       const k = remapPlanningKeyToTargetWeek(key.replace("manual-", ""), targetWeek);
       if (s.cal != null) rMC[k] = s.cal;
       if (s.prot != null) rMP[k] = s.prot;
+      if (s.fiber != null) rMF[k] = s.fiber;
     } else if (key.startsWith("extra-")) {
       const k = remapPlanningKeyToTargetWeek(key.replace("extra-", ""), targetWeek);
       if (s.cal != null) rEC[k] = s.cal;
       if (s.prot != null) rEP[k] = s.prot;
+      if (s.fiber != null) rEF[k] = s.fiber;
       if (s.itemIds) rES[k] = s.itemIds;
     } else if (key.startsWith("breakfast-")) {
       const k = remapPlanningKeyToTargetWeek(key.replace("breakfast-", ""), targetWeek);
@@ -49,8 +53,10 @@ export function mergeSnapshotsIntoLivePrefMap(
   return {
     planning_manual_calories: rMC,
     planning_manual_proteins: rMP,
+    planning_manual_fibers: rMF,
     planning_extra_calories: rEC,
     planning_extra_proteins: rEP,
+    planning_extra_fibers: rEF,
     planning_extra_selections: rES,
     planning_breakfast_manual_calories: rBC,
     planning_breakfast_manual_proteins: rBP,

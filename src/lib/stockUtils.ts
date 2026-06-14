@@ -938,7 +938,14 @@ export function parseMacroDisplay(value: string | null | undefined): number | nu
  * 3. Mode additif : si le repas de base n'a PAS d'ingrédients mais A des macros,
  *    et qu'on a un override d'ingrédients → additionner les deux
  */
-export function getDisplayedCalories(meal: { calories?: string | null; ingredients?: string | null }, ingredientsOverride?: string | null, ratio?: number, isAvailable?: (name: string) => boolean): number | null {
+export function getDisplayedCalories(
+  meal: { calories?: string | null; ingredients?: string | null },
+  ingredientsOverride?: string | null,
+  ratio?: number,
+  isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
   const baseCal = parseMacroDisplay(meal.calories);
   const scaledBaseCal = (baseCal !== null && ratio) ? baseCal * ratio : baseCal;
 
@@ -946,7 +953,7 @@ export function getDisplayedCalories(meal: { calories?: string | null; ingredien
   // Si on a un override, on considère qu'il est déjà à l'échelle (ratio 1) 
   // pour éviter de multiplier deux fois (ex: x2 * x2 = x4).
   const r = ingredientsOverride ? 1 : (ratio ?? 1);
-  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable, r);
+  const ingCal = computeIngredientCalories(ingredients ?? null, isAvailable, r, foodItems, foodItemIndex);
 
   // Mode additif : override d'ingrédients + repas de base sans ingrédients mais avec macros
   if (ingredientsOverride && !meal.ingredients && baseCal !== null) {

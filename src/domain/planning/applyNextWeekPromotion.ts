@@ -22,8 +22,10 @@ export function applyNextWeekPromotionOnTop(
   const out: MergedPlanningLiveState = {
     planning_manual_calories: { ...merged.planning_manual_calories },
     planning_manual_proteins: { ...merged.planning_manual_proteins },
+    planning_manual_fibers: { ...merged.planning_manual_fibers },
     planning_extra_calories: { ...merged.planning_extra_calories },
     planning_extra_proteins: { ...merged.planning_extra_proteins },
+    planning_extra_fibers: { ...merged.planning_extra_fibers },
     planning_extra_selections: { ...merged.planning_extra_selections },
     planning_breakfast_manual_calories: { ...merged.planning_breakfast_manual_calories },
     planning_breakfast_manual_proteins: { ...merged.planning_breakfast_manual_proteins },
@@ -42,8 +44,10 @@ export function applyNextWeekPromotionOnTop(
 
   overlayNumbers(asNumberRecord(prefMap["next_week_manual_calories"]), out.planning_manual_calories);
   overlayNumbers(asNumberRecord(prefMap["next_week_manual_proteins"]), out.planning_manual_proteins);
+  overlayNumbers(asNumberRecord(prefMap["next_week_manual_fibers"]), out.planning_manual_fibers);
   overlayNumbers(asNumberRecord(prefMap["next_week_extra_calories"]), out.planning_extra_calories);
   overlayNumbers(asNumberRecord(prefMap["next_week_extra_proteins"]), out.planning_extra_proteins);
+  overlayNumbers(asNumberRecord(prefMap["next_week_extra_fibers"]), out.planning_extra_fibers);
 
   const nES = remapPlanningRecordToTargetWeek(
     asStringArrayRecord(prefMap["next_week_extra_selections"]),

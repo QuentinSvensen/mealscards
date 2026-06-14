@@ -29,19 +29,21 @@ import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
+import { autofillIngredientLinesMacros } from "@/domain/macros/ingredientMacroDatabase";
 import { usePreferences } from "@/hooks/usePreferences";
 import {
   buildStockMap, findStockKey, getMealMultiple, getMealFractionalRatio,
   analyzeMealIngredients,
   getMissingIngredients,
   buildIngredientMealIndex,
+  buildFoodItemIndex,
   formatExpirationLabel, compareExpirationWithCounter, buildScaledMealForRatio,
   getIndivisibleConstrainedRatio, getValidDiscreteRatios,
   getDisplayedCalories, getDisplayedProtein, parseMacroDisplay,
   type StockInfo, type FoodItemIndex,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey, parseIngredientsToLines
+  normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey, parseIngredientsToLines, serializeIngredients
 } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -231,6 +233,27 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
   const parseMacroValue = (value: string | null | undefined): number => {
     return parseMacroDisplay(value) ?? 0;
+  };
+
+  const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
+
+  // Prépare un repas pour le tri : ratio, autofill Macro et mêmes règles de stock que l'affichage carte.
+  const resolveMealForAvailableSort = (meal: Meal, ratio = 1): Meal => {
+    let resolved = ratio !== 1 ? buildScaledMealForRatio(meal, ratio, stockMap) : meal;
+    if (!ingredientMacroAutofillSources || !resolved.ingredients?.trim()) return resolved;
+    const filled = autofillIngredientLinesMacros(parseIngredientsToLines(resolved.ingredients), ingredientMacroAutofillSources);
+    const ingredients = serializeIngredients(filled);
+    if (!ingredients || ingredients === resolved.ingredients) return resolved;
+    return { ...resolved, ingredients };
+  };
+
+  // Retourne la valeur calorique ou protéique utilisée pour trier (alignée sur les badges affichés).
+  const getAvailableSortMacroValue = (meal: Meal, field: "calories" | "protein", ratio = 1): number => {
+    const resolved = resolveMealForAvailableSort(meal, ratio);
+    if (field === "calories") {
+      return getDisplayedCalories(resolved, undefined, undefined, isAvailableCb, foodItems, foodItemIndex) ?? 0;
+    }
+    return getDisplayedProtein(resolved, undefined, undefined, isAvailableCb, foodItems, foodItemIndex) ?? 0;
   };
 
   const getUnifiedItemName = (u: {
@@ -463,13 +486,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const dir = sortAsc ? 1 : -1;
 
     if (sortMode === "calories") {
-      sortedAvailable.sort((a, b) => dir * ((getDisplayedCalories(a.meal) ?? 0) - (getDisplayedCalories(b.meal) ?? 0)));
-      sortedNameMatches.sort((a, b) => dir * ((getDisplayedCalories(a.meal) ?? 0) - (getDisplayedCalories(b.meal) ?? 0)));
-      sortedIsMealItems.sort((a, b) => dir * (parseMacroValue(a.calories) - parseMacroValue(b.calories)));
+      sortedAvailable.sort((a, b) => dir * (getAvailableSortMacroValue(a.meal, "calories") - getAvailableSortMacroValue(b.meal, "calories")));
+      sortedNameMatches.sort((a, b) => dir * (getAvailableSortMacroValue(buildNameMatchCalorieMeal(a), "calories") - getAvailableSortMacroValue(buildNameMatchCalorieMeal(b), "calories")));
+      sortedIsMealItems.sort((a, b) => dir * (getAvailableSortMacroValue(buildIsMealCalorieMeal(a), "calories") - getAvailableSortMacroValue(buildIsMealCalorieMeal(b), "calories")));
     } else {
-      sortedAvailable.sort((a, b) => dir * ((getDisplayedProtein(a.meal) ?? 0) - (getDisplayedProtein(b.meal) ?? 0)));
-      sortedNameMatches.sort((a, b) => dir * ((getDisplayedProtein(a.meal) ?? 0) - (getDisplayedProtein(b.meal) ?? 0)));
-      sortedIsMealItems.sort((a, b) => dir * (parseMacroValue(a.protein) - parseMacroValue(b.protein)));
+      sortedAvailable.sort((a, b) => dir * (getAvailableSortMacroValue(a.meal, "protein") - getAvailableSortMacroValue(b.meal, "protein")));
+      sortedNameMatches.sort((a, b) => dir * (getAvailableSortMacroValue(buildNameMatchCalorieMeal(a), "protein") - getAvailableSortMacroValue(buildNameMatchCalorieMeal(b), "protein")));
+      sortedIsMealItems.sort((a, b) => dir * (getAvailableSortMacroValue(buildIsMealCalorieMeal(a), "protein") - getAvailableSortMacroValue(buildIsMealCalorieMeal(b), "protein")));
     }
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
@@ -583,53 +606,32 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const dir = sortAsc ? 1 : -1;
       const getVal = (u: UnifiedAvail): number => {
         if (sortMode === "calories") {
-          if (u.type === 'isMeal') {
-            // Pour le tri numérique, classer sur UNE seule portion (et non le total xN disponible).
-            let displayCal = u.fi.calories;
-            if (u.fi.grams) {
-              const unitG = parseQty(u.fi.grams);
-              if (unitG > 0 && displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
-            }
-            const fakeMeal: Meal = { ...u.fi as unknown as Meal, calories: displayCal, ingredients: null };
-            return getDisplayedCalories(fakeMeal) ?? 0;
-          }
-          if (u.type === 'nm') return getDisplayedCalories(u.nm.meal) ?? 0;
+          if (u.type === 'isMeal') return getAvailableSortMacroValue(buildIsMealCalorieMeal(u.fi), "calories");
+          if (u.type === 'nm') return getAvailableSortMacroValue(buildNameMatchCalorieMeal(u.nm), "calories");
           if (u.type === 'av') {
             const dynRatio = (u.item as any).calculatedRatio;
             const ratio = dynRatio ?? customRatios[u.item.meal.id] ?? 1;
-            const displayMeal = ratio !== 1 ? buildScaledMealForRatio(u.item.meal, ratio, stockMap) : u.item.meal;
-            return getDisplayedCalories(displayMeal) ?? 0;
+            return getAvailableSortMacroValue(u.item.meal, "calories", ratio);
           }
           if (u.type === 'partial') {
             const dynRatio = (u.item as any).calculatedRatio;
             const ratio = dynRatio ?? customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-            const displayMeal = buildScaledMealForRatio(u.item.meal, ratio, stockMap);
-            return getDisplayedCalories(displayMeal) ?? 0;
+            return getAvailableSortMacroValue(u.item.meal, "calories", ratio);
           }
           return 0;
         }
 
-        if (u.type === 'isMeal') {
-            // Même règle côté protéines : tri basé sur la portion unitaire.
-            let displayPro = u.fi.protein;
-            if (u.fi.grams) {
-              const unitG = parseQty(u.fi.grams);
-              if (unitG > 0 && displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * unitG / 100));
-            }
-            return parseMacroValue(displayPro);
-        }
-        if (u.type === 'nm') return getDisplayedProtein(u.nm.meal) ?? 0;
+        if (u.type === 'isMeal') return getAvailableSortMacroValue(buildIsMealCalorieMeal(u.fi), "protein");
+        if (u.type === 'nm') return getAvailableSortMacroValue(buildNameMatchCalorieMeal(u.nm), "protein");
         if (u.type === 'av') {
           const dynRatio = (u.item as any).calculatedRatio;
           const ratio = dynRatio ?? customRatios[u.item.meal.id] ?? 1;
-          const displayMeal = ratio !== 1 ? buildScaledMealForRatio(u.item.meal, ratio, stockMap) : u.item.meal;
-          return getDisplayedProtein(displayMeal) ?? 0;
+          return getAvailableSortMacroValue(u.item.meal, "protein", ratio);
         }
         if (u.type === 'partial') {
           const dynRatio = (u.item as any).calculatedRatio;
           const ratio = dynRatio ?? customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-          const displayMeal = buildScaledMealForRatio(u.item.meal, ratio, stockMap);
-          return getDisplayedProtein(displayMeal) ?? 0;
+          return getAvailableSortMacroValue(u.item.meal, "protein", ratio);
         }
         return 0;
       };
@@ -656,12 +658,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const tryFitMeal = (meal: Meal, overrideRatio: number | null, isScalable: boolean = true): { show: boolean; newRatio: number | null } => {
     if (!useRemainingCalories) return { show: true, newRatio: overrideRatio };
 
-    const baseRaw = getDisplayedCalories(meal);
+    const baseRaw = getAvailableSortMacroValue(meal, "calories");
     if (baseRaw === null || baseRaw === 0) return { show: true, newRatio: overrideRatio }; // No cal info, keep it
 
     const startingRatio = overrideRatio ?? 1;
-    let scaledMeal = buildScaledMealForRatio(meal, startingRatio, stockMap);
-    let currentCal = getDisplayedCalories(scaledMeal);
+    let currentCal = getAvailableSortMacroValue(meal, "calories", startingRatio);
 
     if (currentCal !== null && currentCal <= calorieThreshold) {
       return { show: true, newRatio: startingRatio };
@@ -679,12 +680,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        // Round down to nearest 0.01 to ensure we don't exceed threshold
        const directRatio = Math.floor(targetRatio * 100) / 100;
        if (directRatio < 0.5) return { show: false, newRatio: null };
-       const checkCal = getDisplayedCalories(buildScaledMealForRatio(meal, directRatio, stockMap));
+       const checkCal = getAvailableSortMacroValue(meal, "calories", directRatio);
        if (checkCal !== null && checkCal <= calorieThreshold) return { show: true, newRatio: directRatio };
        // Edge case: rounding artifacts — try one step down
        const fallback = directRatio - 0.01;
        if (fallback >= 0.5) {
-         const fbCal = getDisplayedCalories(buildScaledMealForRatio(meal, fallback, stockMap));
+         const fbCal = getAvailableSortMacroValue(meal, "calories", fallback);
          if (fbCal !== null && fbCal <= calorieThreshold) return { show: true, newRatio: fallback };
        }
        return { show: false, newRatio: null };
@@ -700,7 +701,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        
        if (bestValid < 0.5) return { show: false, newRatio: null };
        
-       currentCal = getDisplayedCalories(buildScaledMealForRatio(meal, bestValid, stockMap));
+       currentCal = getAvailableSortMacroValue(meal, "calories", bestValid);
        if (currentCal !== null && currentCal <= calorieThreshold) {
          return { show: true, newRatio: bestValid };
        }
@@ -709,7 +710,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        const sortedRatios = [...validRatios].sort((a,b) => b-a);
        for (const r of sortedRatios) {
          if (r <= targetRatio + EPSILON && r >= 0.5) {
-            currentCal = getDisplayedCalories(buildScaledMealForRatio(meal, r, stockMap));
+            currentCal = getAvailableSortMacroValue(meal, "calories", r);
             if (currentCal !== null && currentCal <= calorieThreshold) return { show: true, newRatio: r };
          }
        }
@@ -1843,25 +1844,22 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               const unified: UnifiedItem[] = [];
               for (const fi of [...sortedIsMealItems, ...isMealWithDate]) {
                 const counter = computeCounterDays(fi.counter_start_date);
-                const fakeMeal = buildIsMealCalorieMeal(fi);
-                unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(fakeMeal) });
+                unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter, sortCalories: getAvailableSortMacroValue(buildIsMealCalorieMeal(fi), "calories") });
               }
               for (let i = 0; i < sortedNameMatches.length; i++) {
                 const nm = sortedNameMatches[i];
                 const counter = computeCounterDays(nm.fi.counter_start_date);
-                unified.push({ type: 'nm', nm, nmIdx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getDisplayedCalories(buildNameMatchCalorieMeal(nm)) });
+                unified.push({ type: 'nm', nm, nmIdx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getAvailableSortMacroValue(buildNameMatchCalorieMeal(nm), "calories") });
               }
               for (const item of sortedAvailable) {
                 const an = analyzeMealIngredients(item.meal, foodItems);
                 const ratio = customRatios[item.meal.id] ?? 1;
-                const displayMeal = ratio !== 1 ? buildScaledMealForRatio(item.meal, ratio, stockMap) : item.meal;
-                unified.push({ type: 'av', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getDisplayedCalories(displayMeal) });
+                unified.push({ type: 'av', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getAvailableSortMacroValue(item.meal, "calories", ratio) });
               }
               for (const item of partialAvailable) {
                 const an = analyzeMealIngredients(item.meal, foodItems);
                 const ratio = customRatios[`partial-${item.meal.id}`] ?? item.ratio;
-                const displayMeal = buildScaledMealForRatio(item.meal, ratio, stockMap);
-                unified.push({ type: 'partial', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getDisplayedCalories(displayMeal) });
+                unified.push({ type: 'partial', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getAvailableSortMacroValue(item.meal, "calories", ratio) });
               }
               
               // Apply search filter

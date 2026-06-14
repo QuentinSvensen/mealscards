@@ -894,8 +894,8 @@ function lookupFoodItemsForMacro(name: string, foodItems: FoodItem[], index?: Fo
 /**
  * Extrait une macro pour 100 g depuis une fiche aliment (chaîne potentiellement annotée).
  */
-function parseFoodItemMacroPer100(fi: FoodItem, field: "protein" | "fiber"): number | null {
-  const raw = field === "protein" ? fi.protein : fi.fiber;
+function parseFoodItemMacroPer100(fi: FoodItem, field: "protein" | "fiber" | "calories"): number | null {
+  const raw = field === "protein" ? fi.protein : field === "fiber" ? fi.fiber : fi.calories;
   if (!raw?.trim()) return null;
   const n = parseFloat(raw.replace(",", ".").replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -904,7 +904,7 @@ function parseFoodItemMacroPer100(fi: FoodItem, field: "protein" | "fiber"): num
 /**
  * Retourne une macro pour 100 g du premier aliment matché qui définit une valeur exploitable, sinon null.
  */
-function resolveMacroPer100FromFoodItems(name: string, field: "protein" | "fiber", foodItems: FoodItem[], index?: FoodItemMacroIndex): number | null {
+function resolveMacroPer100FromFoodItems(name: string, field: "protein" | "fiber" | "calories", foodItems: FoodItem[], index?: FoodItemMacroIndex): number | null {
   for (const fi of lookupFoodItemsForMacro(name, foodItems, index)) {
     const p = parseFoodItemMacroPer100(fi, field);
     if (p !== null) return p;
@@ -923,7 +923,7 @@ function _computeMacro(
   foodItemIndex?: FoodItemMacroIndex,
 ): number | null {
   if (!ingredientStr?.trim()) return null;
-  const useFoodMacroFallback = (field === "pro" || field === "fiber") && !!foodItems?.length;
+  const useFoodMacroFallback = !!foodItems?.length;
   if (!isAvailable && ratio === 1 && !useFoodMacroFallback) {
     const cached = cache.get(ingredientStr);
     if (cached !== undefined) return cached;
@@ -970,7 +970,12 @@ function _computeMacro(
       const rawVal = field === 'cal' ? item.cal : field === 'pro' ? item.pro : item.fiber;
       let val = parseFloat(rawVal.replace(",", "."));
       if ((!val || isNaN(val)) && useFoodMacroFallback) {
-        const fromFood = resolveMacroPer100FromFoodItems(item.name, field === "fiber" ? "fiber" : "protein", foodItems!, foodItemIndex);
+        const fromFood = resolveMacroPer100FromFoodItems(
+          item.name,
+          field === "cal" ? "calories" : field === "fiber" ? "fiber" : "protein",
+          foodItems!,
+          foodItemIndex,
+        );
         if (fromFood !== null) val = fromFood;
       }
       if (!val || isNaN(val)) continue;
@@ -991,13 +996,20 @@ function _computeMacro(
 }
 
 /** Calcule les calories totales depuis une chaîne d'ingrédients */
-export function computeIngredientCalories(ingredientStr: string | null, isAvailable?: (name: string) => boolean, ratio: number = 1): number | null {
-  return _computeMacro(ingredientStr, 'cal', _calCache, isAvailable, ratio);
+export function computeIngredientCalories(
+  ingredientStr: string | null,
+  isAvailable?: (name: string) => boolean,
+  ratio: number = 1,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): number | null {
+  return _computeMacro(ingredientStr, 'cal', _calCache, isAvailable, ratio, foodItems, foodItemIndex);
 }
 
 /**
  * Calcule les protéines totales depuis une chaîne d'ingrédients ; peut compléter les [pro] absents
  * avec les protéines pour 100 g des fiches aliments correspondantes (`foodItems` + index optionnel).
+ * Même logique de repli pour les calories via `computeIngredientCalories`.
  */
 export function computeIngredientProtein(
   ingredientStr: string | null,
