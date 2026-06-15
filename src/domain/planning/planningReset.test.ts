@@ -289,6 +289,23 @@ describe("filterPossibleMealsToDeleteForWeeklyClear", () => {
     expect(del.map(m => m.id).sort()).toEqual(["del1", "del2"].sort());
     expect(del.find(m => m.id === "keep")).toBeUndefined();
   });
+
+  it("conserve les cartes ISO de la semaine précédente pendant le reset hebdomadaire", () => {
+    const meals = [
+      { id: "older", day_of_week: "2025-03-30" },
+      { id: "previous", day_of_week: "2025-03-31" },
+      { id: "previous-end", day_of_week: "2025-04-06" },
+      { id: "next", day_of_week: "2025-04-07" },
+      { id: "named", day_of_week: "lundi" },
+    ] as unknown as PossibleMeal[];
+
+    const del = filterPossibleMealsToDeleteForWeeklyClear(meals, "2025-04-06", {
+      startISO: "2025-03-31",
+      endISO: "2025-04-06",
+    });
+
+    expect(del.map(m => m.id).sort()).toEqual(["named", "older"].sort());
+  });
 });
 
 describe("getPossibleMealIdsToDeleteOnManualReset", () => {
@@ -298,6 +315,19 @@ describe("getPossibleMealIdsToDeleteOnManualReset", () => {
       { id: "b", day_of_week: "2025-04-07", meals: { category: "plat" } },
     ] as unknown as PossibleMeal[];
     expect(getPossibleMealIdsToDeleteOnManualReset(meals)).toEqual(["b"]);
+  });
+
+  it("conserve les cartes ISO de la semaine précédente au reset manuel", () => {
+    const meals = [
+      { id: "previous", day_of_week: "2025-03-31", meals: { category: "plat" } },
+      { id: "current", day_of_week: "2025-04-07", meals: { category: "plat" } },
+      { id: "named", day_of_week: "mardi", meals: { category: "plat" } },
+    ] as unknown as PossibleMeal[];
+
+    expect(getPossibleMealIdsToDeleteOnManualReset(meals, {
+      startISO: "2025-03-31",
+      endISO: "2025-04-06",
+    }).sort()).toEqual(["current", "named"].sort());
   });
 });
 

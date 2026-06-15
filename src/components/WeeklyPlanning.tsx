@@ -50,7 +50,7 @@ import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
-import { getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
+import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
 import { PlanningHeader } from "@/components/planning/PlanningHeader";
@@ -2064,7 +2064,12 @@ export function WeeklyPlanning({
       const fullBackup = buildFullBackupPayload(freshPM, prefMap);
       await upsertPossibleMealsFullBackup(userId, fullBackup);
 
-      const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM);
+      const previousWeekDates = buildWeekDates(-1, new Date());
+      const preservedPreviousWeek = {
+        startISO: previousWeekDates[0]?.iso ?? "",
+        endISO: previousWeekDates[previousWeekDates.length - 1]?.iso ?? "",
+      };
+      const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM, preservedPreviousWeek);
       await deletePossibleMealsByIds(ids);
 
       const prunedSnapshots = pruneStaleIsoSnapshotsForTargetWeek(snapshots, weekDates);

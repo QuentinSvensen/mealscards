@@ -481,8 +481,14 @@ const Index = () => {
         const fullBackup = buildFullBackupPayload(freshPossible, prefMap);
         await upsertPossibleMealsFullBackup(userId, fullBackup);
 
+        const previousWeekStart = new Date(mostRecentSunday);
+        previousWeekStart.setDate(previousWeekStart.getDate() - 6);
+        const preservedPreviousWeek = {
+          startISO: previousWeekStart.toISOString().split("T")[0],
+          endISO: mostRecentSunday.toISOString().split("T")[0],
+        };
         const cutoffISO = mostRecentSunday.toISOString().split("T")[0];
-        const mealsToDelete = filterPossibleMealsToDeleteForWeeklyClear(freshPossible, cutoffISO);
+        const mealsToDelete = filterPossibleMealsToDeleteForWeeklyClear(freshPossible, cutoffISO, preservedPreviousWeek);
         await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
 
         const targetWeek = buildWeekDates(0, now);
