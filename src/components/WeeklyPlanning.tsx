@@ -46,6 +46,7 @@ import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSn
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
+import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
@@ -2066,7 +2067,10 @@ export function WeeklyPlanning({
       const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM);
       await deletePossibleMealsByIds(ids);
 
-      const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots, weekDates);
+      const prunedSnapshots = pruneStaleIsoSnapshotsForTargetWeek(snapshots, weekDates);
+      setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
+
+      const merged = mergeSnapshotsIntoLivePrefMap(prefMap, prunedSnapshots, weekDates);
       const goals = resolvePostResetGoals(prefMap);
       pushWeeklyResetClientPreferences(
         setPreference,
@@ -2355,7 +2359,8 @@ export function WeeklyPlanning({
                         const prot = (iso && breakfastManualProteins[iso]) || 0;
                         const breakfast = getBreakfastForDay(key, iso);
                         const mealId = (iso && breakfastSelections[iso]) || undefined;
-                        const updated = { ...savedSnapshots, [snapKey]: { cal, prot, name: breakfast?.name, mealId } };
+                        const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "breakfast", iso, key, JS_DAY_TO_KEY);
+                        const updated = { ...cleaned, [snapKey]: { cal, prot, savedAt: Date.now(), name: breakfast?.name, mealId } };
                         setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                         // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
@@ -2381,11 +2386,7 @@ export function WeeklyPlanning({
                         setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
                       }}
                       onDoubleClick={() => {
-                        const snapKey = `breakfast-${iso}`;
-                        const updated = { ...savedSnapshots };
-                        delete updated[snapKey];
-                        const oldSnapKey = `breakfast-${key}`;
-                        delete updated[oldSnapKey];
+                        const updated = clearWeekdayScopedSnapshots(savedSnapshots, "breakfast", iso, key, JS_DAY_TO_KEY);
                         setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                         // Nettoyer la sync de la semaine prochaine si oubliée
@@ -2691,7 +2692,8 @@ export function WeeklyPlanning({
                                   const cal = manualCalories[`${iso}-${time}`] || 0;
                                   const prot = manualProteins[`${iso}-${time}`] || 0;
                                   const fiber = manualFibers[`${iso}-${time}`] || 0;
-                                  const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber } };
+                                  const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
+                                  const updated = { ...cleaned, [snapKey]: { cal, prot, fiber, savedAt: Date.now() } };
                                   setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                                   // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
@@ -2723,10 +2725,7 @@ export function WeeklyPlanning({
                                   setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
                                 }}
                                 onDoubleClick={() => {
-                                  const snapKey = `manual-${iso}-${time}`;
-                                  const updated = { ...savedSnapshots };
-                                  delete updated[snapKey];
-                                  delete updated[`manual-${key}-${time}`];
+                                  const updated = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
                                   setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                                   // Nettoyer la sync de la semaine prochaine si oubliée
@@ -3403,7 +3402,7 @@ export function WeeklyPlanning({
                           const prot = (iso && extraProteins[iso]) || 0;
                           const fiber = (iso && extraFibers[iso]) || 0;
                           const itemIds = currentIds;
-                          const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber, itemIds } };
+                          const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber, savedAt: Date.now(), itemIds } };
                           setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
 
                           // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)

@@ -1,7 +1,7 @@
 import type { PlanningSnapshotEntry } from "./types";
+import { clearWeekdayScopedSnapshots, type JsDayToPlanningKey } from "./weekdaySnapshotUtils";
 
-/** Mappe l’indice JS getDay() vers la clé jour du planning (lundi…dimanche). */
-export type JsDayToPlanningKey = Record<number, string>;
+export type { JsDayToPlanningKey };
 
 /**
  * Supprime tous les snapshots 💾 « extra-… » d’un jour donné :
@@ -14,23 +14,7 @@ export function clearExtraSnapshotsForWeekday(
   dayKey: string,
   jsDayToKey: JsDayToPlanningKey,
 ): Record<string, PlanningSnapshotEntry> {
-  const updated = { ...snapshots };
-  delete updated[`extra-${iso}`];
-  delete updated[`extra-${dayKey}`];
-
-  for (const snapKey of Object.keys(updated)) {
-    if (!snapKey.startsWith("extra-")) continue;
-    const suffix = snapKey.slice("extra-".length);
-    if (suffix === dayKey) {
-      delete updated[snapKey];
-      continue;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(suffix)) continue;
-    const dow = jsDayToKey[new Date(`${suffix}T12:00:00`).getDay()];
-    if (dow === dayKey) delete updated[snapKey];
-  }
-
-  return updated;
+  return clearWeekdayScopedSnapshots(snapshots, "extra", iso, dayKey, jsDayToKey);
 }
 
 /**

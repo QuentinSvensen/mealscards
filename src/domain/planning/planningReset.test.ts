@@ -66,9 +66,9 @@ describe("mergeSnapshotsIntoLivePrefMap", () => {
     const merged = mergeSnapshotsIntoLivePrefMap(
       {},
       {
-        "manual-2026-05-26-midi": { cal: 300, prot: 20 },
+        "manual-mardi-midi": { cal: 300, prot: 20 },
         "extra-vendredi": { cal: 50, prot: 4, itemIds: ["x"] },
-        "breakfast-2026-05-31": { cal: 100, prot: 8, mealId: "meal:pdej" },
+        "breakfast-dimanche": { cal: 100, prot: 8, mealId: "meal:pdej" },
       },
       targetWeek,
     );
@@ -79,6 +79,50 @@ describe("mergeSnapshotsIntoLivePrefMap", () => {
     expect(merged.planning_extra_selections["2026-06-05"]).toEqual(["x"]);
     expect(merged.planning_breakfast_manual_calories["2026-06-07"]).toBe(100);
     expect(merged.planning_breakfast["2026-06-07"]).toBe("meal:pdej");
+  });
+
+  it("préfère le snapshot de la date cible aux anciennes sauvegardes du même jour", () => {
+    const targetWeek = [
+      { key: "lundi", iso: "2026-06-15", display: "" },
+      { key: "mardi", iso: "2026-06-16", display: "" },
+      { key: "mercredi", iso: "2026-06-17", display: "" },
+      { key: "jeudi", iso: "2026-06-18", display: "" },
+      { key: "vendredi", iso: "2026-06-19", display: "" },
+      { key: "samedi", iso: "2026-06-20", display: "" },
+      { key: "dimanche", iso: "2026-06-21", display: "" },
+    ] as any;
+
+    const merged = mergeSnapshotsIntoLivePrefMap(
+      {},
+      {
+        "manual-2026-06-16-midi": { cal: 1500, prot: 35, fiber: 6 },
+        "manual-2026-06-09-midi": { cal: 1000, prot: 30 },
+      },
+      targetWeek,
+    );
+
+    expect(merged.planning_manual_calories["2026-06-16-midi"]).toBe(1500);
+    expect(merged.planning_manual_proteins["2026-06-16-midi"]).toBe(35);
+    expect(merged.planning_manual_fibers["2026-06-16-midi"]).toBe(6);
+  });
+
+  it("ignore les snapshots ISO d'anciennes semaines pour le même jour", () => {
+    const targetWeek = [
+      { key: "mardi", iso: "2026-06-16", display: "" },
+    ] as any;
+
+    const merged = mergeSnapshotsIntoLivePrefMap(
+      {},
+      {
+        "manual-2026-06-16-midi": { cal: 1500, prot: 35, fiber: 6 },
+        "manual-2026-06-09-midi": { cal: 1000, prot: 30 },
+        "manual-mardi-midi": { cal: 800, prot: 25 },
+      },
+      targetWeek,
+    );
+
+    expect(merged.planning_manual_calories["2026-06-16-midi"]).toBe(1500);
+    expect(merged.planning_manual_proteins["2026-06-16-midi"]).toBe(35);
   });
 });
 

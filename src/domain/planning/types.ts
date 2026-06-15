@@ -5,6 +5,7 @@ export interface PlanningSnapshotEntry {
   cal?: number;
   prot?: number;
   fiber?: number;
+  savedAt?: number;
   itemIds?: string[];
   mealId?: string;
   name?: string;

@@ -57,6 +57,7 @@ import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates } from "@/lib/planningWeekUtils";
+import { pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
 import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 
 /**
@@ -453,12 +454,6 @@ const Index = () => {
       return;
     }
 
-    if (possibleMeals.length === 0) {
-      // Rien à nettoyer, mais mise à jour de l'horodatage de réinitialisation
-      setPreference.mutate({ key: 'last_weekly_reset', value: now.toISOString() });
-      return;
-    }
-
     const clearAll = async () => {
       if (autoSundayResetInFlightRef.current) return;
       autoSundayResetInFlightRef.current = true;
@@ -491,10 +486,12 @@ const Index = () => {
         await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
 
         const targetWeek = buildWeekDates(0, now);
-        const merged = mergeSnapshotsIntoLivePrefMap(prefMap, snapshots, targetWeek);
+        const prunedSnapshots = pruneStaleIsoSnapshotsForTargetWeek(snapshots, targetWeek);
+        const merged = mergeSnapshotsIntoLivePrefMap(prefMap, prunedSnapshots, targetWeek);
         const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, targetWeek);
         const goals = resolvePostResetGoals(prefMap);
         pushWeeklyResetClientPreferences(setPreference, promoted, goals, now.toISOString(), "auto_sunday");
+        setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
 
         await qc.invalidateQueries({ queryKey: ["possible_meals"] });
         await qc.invalidateQueries({ queryKey: ["user_preferences"] });
