@@ -2166,13 +2166,21 @@ export function WeeklyPlanning({
           const gouterAssignedIds =
             extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
           const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
+          const gouterMeals = getMealsForSlot(key, 'gouter', iso);
+          const gouterMealCals = gouterMeals.reduce((sum, pm) => sum + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
+          const gouterMealPro = gouterMeals.reduce((sum, pm) => sum + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
+          const gouterMealFiber = gouterMeals.reduce((sum, pm) => sum + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
+          const hasGouterMeals = gouterMeals.length > 0;
           const gouterManualCal = manualCalories[`${iso}-gouter`] || 0;
           const gouterManualPro = manualProteins[`${iso}-gouter`] || 0;
           const gouterManualFiber = manualFibers[`${iso}-gouter`] || 0;
+          const effectiveGouterManualCal = hasGouterMeals ? 0 : gouterManualCal;
+          const effectiveGouterManualPro = hasGouterMeals ? 0 : gouterManualPro;
+          const effectiveGouterManualFiber = hasGouterMeals ? 0 : gouterManualFiber;
           const gouterDrink = Boolean(drinkChecks[`${iso}-gouter`] || drinkChecks[`${key}-gouter`]);
-          const gouterTotalCals = gouterManualCal + gouterAssigned.cal + (gouterDrink ? DRINK_CALORIES : 0);
-          const gouterTotalPro = gouterManualPro + gouterAssigned.pro;
-          const gouterTotalFiber = gouterManualFiber + gouterAssigned.fiber;
+          const gouterTotalCals = effectiveGouterManualCal + gouterAssigned.cal + gouterMealCals + (gouterDrink ? DRINK_CALORIES : 0);
+          const gouterTotalPro = effectiveGouterManualPro + gouterAssigned.pro + gouterMealPro;
+          const gouterTotalFiber = effectiveGouterManualFiber + gouterAssigned.fiber + gouterMealFiber;
 
           const breakfastDropKey = `${iso}-matin`;
           const isBreakfastDragOver = dragOverSlot === breakfastDropKey || dragOverSlot === `${key}-matin`;
@@ -3487,100 +3495,108 @@ export function WeeklyPlanning({
                 className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors flex items-center ${dragOverSlot === `${iso}-gouter` ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
               >
                 <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
-                  <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
-                  <button
-                    onClick={() => {
-                      const updated = { ...drinkChecks };
-                      if (updated[`${iso}-gouter`]) delete updated[`${iso}-gouter`];
-                      else if (updated[`${key}-gouter`]) delete updated[`${key}-gouter`];
-                      else updated[`${iso}-gouter`] = true;
-                      setPreference.mutate({ key: 'planning_drink_checks', value: updated });
-                    }}
-                    className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${gouterDrink ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}
-                    title={`+ Boisson sucrée (+${DRINK_CALORIES} cal)`}
-                  >
-                    🥤 {gouterDrink ? `+${DRINK_CALORIES}` : ''}
-                  </button>
-                  <PlanningInput
-                    storageKey={`manual-${iso}-gouter`}
-                    currentValue={gouterManualCal}
-                    onSave={(val) => {
-                      const updated = { ...manualCalories };
-                      if (val > 0) updated[`${iso}-gouter`] = val;
-                      else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                      setPreference.mutate({ key: 'planning_manual_calories', value: updated });
-                    }}
-                    placeholder="kcal"
-                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
-                  />
-                  <PlanningInput
-                    storageKey={`manual-prot-${iso}-gouter`}
-                    currentValue={gouterManualPro}
-                    onSave={(val) => {
-                      const updated = { ...manualProteins };
-                      if (val > 0) updated[`${iso}-gouter`] = val;
-                      else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                      setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
-                    }}
-                    placeholder="prot"
-                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
-                  />
-                  <PlanningInput
-                    storageKey={`manual-fiber-${iso}-gouter`}
-                    currentValue={gouterManualFiber}
-                    onSave={(val) => {
-                      const updated = { ...manualFibers };
-                      if (val > 0) updated[`${iso}-gouter`] = val;
-                      else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                      setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
-                    }}
-                    placeholder="fib"
-                    className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
-                  />
-                  {getMealsForSlot(key, 'gouter', iso).map((pm) => (
-                    <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
-                      {renderMiniCard(pm, true)}
-                    </div>
-                  ))}
-                  {gouterAssignedIds.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
-                        const custom = parseCustomExtraId(extraId);
-                        const fi = custom ? null : foodItems.find((f) => f.id === extraId);
-                        if (!fi && !custom) return null;
-                        return (
-                          <span
-                            key={`gouter-assigned-${extraId}-${index}-${count}`}
-                            draggable
-                            onDragStart={(e) => {
-                              setDraggedSelectedExtraId(extraId);
-                              setDraggedSelectedExtraOrigin({ iso, key });
-                              e.dataTransfer.effectAllowed = 'move';
-                              e.dataTransfer.setData('text/plain', extraId);
-                            }}
-                            onDragEnd={() => {
-                              setDraggedSelectedExtraId(null);
-                              setDraggedSelectedExtraOrigin(null);
-                            }}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
-                            title="Extra assigné à Goûter — glisse pour déplacer"
-                          >
-                            {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                            <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && (
-                    <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
-                      {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
-                      {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className="opacity-30">•</span>}
-                      {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
-                      {gouterTotalPro > 0 && gouterTotalFiber > 0 && <span className="opacity-30">•</span>}
-                      {gouterTotalFiber > 0 && <span className="flex items-center gap-0.5"><Wheat className="w-2 h-2 text-emerald-500/70" />{Math.round(gouterTotalFiber)}</span>}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                    <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
+                    <button
+                      onClick={() => {
+                        const updated = { ...drinkChecks };
+                        if (updated[`${iso}-gouter`]) delete updated[`${iso}-gouter`];
+                        else if (updated[`${key}-gouter`]) delete updated[`${key}-gouter`];
+                        else updated[`${iso}-gouter`] = true;
+                        setPreference.mutate({ key: 'planning_drink_checks', value: updated });
+                      }}
+                      className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${gouterDrink ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}
+                      title={`+ Boisson sucrée (+${DRINK_CALORIES} cal)`}
+                    >
+                      🥤 {gouterDrink ? `+${DRINK_CALORIES}` : ''}
+                    </button>
+                    {!hasGouterMeals && (
+                      <>
+                        <PlanningInput
+                          storageKey={`manual-${iso}-gouter`}
+                          currentValue={gouterManualCal}
+                          onSave={(val) => {
+                            const updated = { ...manualCalories };
+                            if (val > 0) updated[`${iso}-gouter`] = val;
+                            else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                            setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                          }}
+                          placeholder="kcal"
+                          className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
+                        />
+                        <PlanningInput
+                          storageKey={`manual-prot-${iso}-gouter`}
+                          currentValue={gouterManualPro}
+                          onSave={(val) => {
+                            const updated = { ...manualProteins };
+                            if (val > 0) updated[`${iso}-gouter`] = val;
+                            else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                            setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                          }}
+                          placeholder="prot"
+                          className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
+                        />
+                        <PlanningInput
+                          storageKey={`manual-fiber-${iso}-gouter`}
+                          currentValue={gouterManualFiber}
+                          onSave={(val) => {
+                            const updated = { ...manualFibers };
+                            if (val > 0) updated[`${iso}-gouter`] = val;
+                            else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                            setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                          }}
+                          placeholder="fib"
+                          className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
+                        />
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 sm:gap-2 flex-wrap min-w-0">
+                    {gouterMeals.map((pm) => (
+                      <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
+                        {renderMiniCard(pm, true)}
+                      </div>
+                    ))}
+                    {gouterAssignedIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
+                          const custom = parseCustomExtraId(extraId);
+                          const fi = custom ? null : foodItems.find((f) => f.id === extraId);
+                          if (!fi && !custom) return null;
+                          return (
+                            <span
+                              key={`gouter-assigned-${extraId}-${index}-${count}`}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedSelectedExtraId(extraId);
+                                setDraggedSelectedExtraOrigin({ iso, key });
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/plain', extraId);
+                              }}
+                              onDragEnd={() => {
+                                setDraggedSelectedExtraId(null);
+                                setDraggedSelectedExtraOrigin(null);
+                              }}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
+                              title="Extra assigné à Goûter — glisse pour déplacer"
+                            >
+                              {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
+                              <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && (
+                      <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
+                        {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
+                        {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className="opacity-30">•</span>}
+                        {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
+                        {gouterTotalPro > 0 && gouterTotalFiber > 0 && <span className="opacity-30">•</span>}
+                        {gouterTotalFiber > 0 && <span className="flex items-center gap-0.5"><Wheat className="w-2 h-2 text-emerald-500/70" />{Math.round(gouterTotalFiber)}</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
