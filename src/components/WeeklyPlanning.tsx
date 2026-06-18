@@ -149,6 +149,11 @@ const DAY_LABELS: Record<string, string> = {
 
 const TIME_LABELS: Record<string, string> = { midi: "Midi", soir: "Soir", gouter: "Goûter" };
 
+/** Style compact du total kcal/prot/fib d’un créneau — réduit sur mobile pour éviter le débordement. */
+const SLOT_MEAL_TOTAL_CLASS =
+  "flex items-center gap-0.5 sm:gap-1 shrink min-w-0 max-w-[58%] sm:max-w-none text-[7px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-1 sm:px-2 py-px sm:py-0.5 rounded-full border border-border/40 shadow-sm";
+const SLOT_MEAL_TOTAL_SEP_CLASS = "opacity-30 hidden sm:inline";
+
 const JS_DAY_TO_KEY: Record<number, string> = {
   1: "lundi",
   2: "mardi",
@@ -491,11 +496,11 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       ) : displayCal ? (
         <button
           onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-          className={`text-xs font-black text-white px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
+          className={`text-[9px] sm:text-xs font-black text-white px-1 sm:px-2 py-px sm:py-0.5 rounded-full flex items-center gap-0.5 shrink-0 max-w-full ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
             }`}
           title="Modifier les calories (temporaire)"
         >
-          <Flame className="h-3 w-3" />
+          <Flame className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
           {displayCal}
         </button>
       ) : (
@@ -526,7 +531,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       ) : displayPro ? (
         <button
           onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-          className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+          className={`text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px sm:py-0.5 rounded-full flex items-center justify-center shrink-0 max-w-full ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
           title="Modifier les protéines (temporaire)"
         >
           🍗 {displayPro}
@@ -544,10 +549,10 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
         <>
           <span className="basis-full h-0 sm:hidden" />
           <span
-            className="w-fit text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex items-center justify-center shrink-0 ml-auto sm:ml-0 bg-black/30"
+            className="w-fit max-w-full text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px sm:py-0.5 rounded-full flex items-center justify-center shrink-0 ml-auto sm:ml-0 bg-black/30"
             title="Fibres"
           >
-            <Wheat className="h-2.5 w-2.5 mr-0.5" />
+            <Wheat className="h-2 w-2 sm:h-2.5 sm:w-2.5 mr-0.5" />
             {displayFiber}
           </span>
         </>
@@ -2425,24 +2430,24 @@ export function WeeklyPlanning({
                     >💾</button>
                   )}
                 {(breakfastTotalCals > 0 || breakfastTotalPro > 0 || breakfastTotalFiber > 0) && (
-                  <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full ml-2 border border-border/40 shadow-sm">
+                  <div className={`${SLOT_MEAL_TOTAL_CLASS} ml-1 sm:ml-2`}>
                     {breakfastTotalCals > 0 && (
-                      <span className="flex items-center gap-1">
-                        <Flame className="w-2.5 h-2.5 text-orange-500/60" />
+                      <span className="flex items-center gap-0.5">
+                        <Flame className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-orange-500/60" />
                         {Math.round(breakfastTotalCals)}
                       </span>
                     )}
-                    {breakfastTotalCals > 0 && (breakfastTotalPro > 0 || breakfastTotalFiber > 0) && <span className="opacity-30">•</span>}
+                    {breakfastTotalCals > 0 && (breakfastTotalPro > 0 || breakfastTotalFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
                     {breakfastTotalPro > 0 && (
                       <span className="flex items-center gap-0.5">
-                        <span className="text-[10px] opacity-60">🍗</span>
+                        <span className="text-[8px] sm:text-[10px] opacity-60">🍗</span>
                         {Math.round(breakfastTotalPro)}
                       </span>
                     )}
-                    {breakfastTotalPro > 0 && breakfastTotalFiber > 0 && <span className="opacity-30">•</span>}
+                    {breakfastTotalPro > 0 && breakfastTotalFiber > 0 && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
                     {breakfastTotalFiber > 0 && (
                       <span className="flex items-center gap-0.5">
-                        <Wheat className="w-2.5 h-2.5 text-emerald-500/70" />
+                        <Wheat className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-emerald-500/70" />
                         {Math.round(breakfastTotalFiber)}
                       </span>
                     )}
@@ -2612,8 +2617,8 @@ export function WeeklyPlanning({
                       onDrop={(e) => handleDrop(e, iso, time)}
                       className={`min-w-0 min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
                     >
-                      <div className="flex items-center justify-between mb-0.5">
-                        <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-between gap-0.5 mb-0.5 min-w-0">
+                        <div className="flex items-center gap-0.5 sm:gap-1 min-w-0 shrink">
                           <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                             {TIME_LABELS[time]}
                           </span>
@@ -2635,24 +2640,24 @@ export function WeeklyPlanning({
                           </button>
                         </div>
                         {(slotCals > 0 || slotPro > 0 || slotFiber > 0) && (
-                          <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
+                          <div className={SLOT_MEAL_TOTAL_CLASS}>
                             {slotCals > 0 && (
                               <span className="flex items-center gap-0.5">
-                                <Flame className="w-2 h-2 text-orange-500/60" />
+                                <Flame className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-orange-500/60" />
                                 {Math.round(slotCals)}
                               </span>
                             )}
-                            {slotCals > 0 && (slotPro > 0 || slotFiber > 0) && <span className="opacity-30">•</span>}
+                            {slotCals > 0 && (slotPro > 0 || slotFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
                             {slotPro > 0 && (
                               <span className="flex items-center gap-0.5">
-                                <span className="text-[9px] opacity-60">🍗</span>
+                                <span className="text-[8px] sm:text-[9px] opacity-60">🍗</span>
                                 {Math.round(slotPro)}
                               </span>
                             )}
-                            {slotPro > 0 && slotFiber > 0 && <span className="opacity-30">•</span>}
+                            {slotPro > 0 && slotFiber > 0 && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
                             {slotFiber > 0 && (
                               <span className="flex items-center gap-0.5">
-                                <span className="text-[9px] opacity-60">🌾</span>
+                                <span className="text-[8px] sm:text-[9px] opacity-60">🌾</span>
                                 {Math.round(slotFiber)}
                               </span>
                             )}
@@ -3588,12 +3593,12 @@ export function WeeklyPlanning({
                       </div>
                     )}
                     {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && (
-                      <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
-                        {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
-                        {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className="opacity-30">•</span>}
-                        {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
-                        {gouterTotalPro > 0 && gouterTotalFiber > 0 && <span className="opacity-30">•</span>}
-                        {gouterTotalFiber > 0 && <span className="flex items-center gap-0.5"><Wheat className="w-2 h-2 text-emerald-500/70" />{Math.round(gouterTotalFiber)}</span>}
+                      <div className={SLOT_MEAL_TOTAL_CLASS}>
+                        {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
+                        {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
+                        {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[8px] sm:text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
+                        {gouterTotalPro > 0 && gouterTotalFiber > 0 && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
+                        {gouterTotalFiber > 0 && <span className="flex items-center gap-0.5"><Wheat className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-emerald-500/70" />{Math.round(gouterTotalFiber)}</span>}
                       </div>
                     )}
                   </div>
