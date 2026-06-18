@@ -24,10 +24,15 @@ import {
 interface IngredientEditorProps {
   lines: IngLine[];
   onUpdate: (lines: IngLine[]) => void;
-  onCommit: () => void;
+  /** Reçoit les lignes à jour au moment de la validation (évite un état parent obsolète sur mobile). */
+  onCommit: (lines: IngLine[]) => void;
   ingredientSuggestions?: string[];
   ingredientMacroSources?: IngredientMacroAutofillSources;
 }
+
+/** Colonnes compactes sur mobile : macros en largeur minimale, le nom prend le reste. */
+const INGREDIENT_GRID_CLASS =
+  "grid grid-cols-[auto_auto_auto_auto_max-content_max-content_minmax(0,1fr)_max-content_max-content_max-content] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0";
 
 /**
  * Shared ingredient editing grid used by MealCard and PossibleMealCard.
@@ -48,6 +53,12 @@ export function IngredientEditor({
   const [suggestionLineIdx, setSuggestionLineIdx] = useState<number | null>(null);
   const [activeSuggestionIdx, setActiveSuggestionIdx] = useState(0);
   const handleRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+
+  /** Valide avec la dernière version des lignes (synchrone ou via ref après blur mobile). */
+  const commitCurrentLines = () => onCommit(linesRef.current);
 
   const normalizedIngredientSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -193,9 +204,9 @@ export function IngredientEditor({
       else if (field === "count") nameRefs.current[idx]?.focus();
       else if (idx < lines.length - 1) qtyRefs.current[idx + 1]?.focus();
       else if (lines[idx].name.trim()) setTimeout(() => qtyRefs.current[idx + 1]?.focus(), 0);
-      else onCommit();
+      else commitCurrentLines();
     }
-    if (e.key === "Escape") onCommit();
+    if (e.key === "Escape") commitCurrentLines();
   };
 
   const handleDragStart = (e: React.DragEvent, idx: number) => {
@@ -227,16 +238,17 @@ export function IngredientEditor({
 
   return (
     <div
-      onBlur={(e) => {
+      ref={containerRef}
+      onBlur={() => {
         setTimeout(() => {
           if (handleRef.current) return;
-          const container = e.currentTarget;
-          if (container && !container.contains(document.activeElement)) onCommit();
+          const container = containerRef.current;
+          if (container && !container.contains(document.activeElement)) commitCurrentLines();
         }, 100);
       }}
-      className="flex flex-col gap-1"
+      className="flex flex-col gap-1 min-w-0"
     >
-      <div className="grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 mb-0.5 pl-0 pr-0">
+      <div className={`${INGREDIENT_GRID_CLASS} mb-0.5`}>
         <span className="text-[8px] text-white/50 text-center"></span>
         <span className="text-[8px] text-white/50 text-center">Ou</span>
         <span className="text-[8px] text-white/50 text-center">Et</span>
@@ -256,7 +268,7 @@ export function IngredientEditor({
           onDragOver={(e) => handleDragOver(e, idx)}
           onDrop={(e) => handleDrop(e, idx)}
           onDragEnd={handleDragEnd}
-          className={`grid grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_2.5rem_1.8rem_1fr_2rem_2rem_2rem] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0 transition-opacity ${
+          className={`${INGREDIENT_GRID_CLASS} transition-opacity ${
             dragIdx === idx ? 'opacity-30' : ''
           } ${dragOverIdx === idx && dragIdx !== idx ? 'border-t-2 border-yellow-300/60' : ''}`}
         >
@@ -320,7 +332,7 @@ export function IngredientEditor({
             value={line.qty}
             onChange={e => updateLine(idx, "qty", e.target.value)}
             onKeyDown={e => handleKeyDown(idx, "qty", e)}
-            className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1.5"
+            className="h-7 w-[2.25rem] min-w-0 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
           />
           <Input
             ref={el => { countRefs.current[idx] = el; }}
@@ -329,20 +341,24 @@ export function IngredientEditor({
             value={line.count}
             onChange={e => updateLine(idx, "count", e.target.value)}
             onKeyDown={e => handleKeyDown(idx, "count", e)}
-            className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
+            className="h-7 w-[1.35rem] min-w-0 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-0.5"
           />
-          <div className="relative">
+          <div className="relative min-w-0">
             <Input
               ref={el => { nameRefs.current[idx] = el; }}
               placeholder={`Ingrédient ${idx + 1}`}
               value={line.name}
+              dir="ltr"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               onFocus={() => { if (line.name.trim()) setSuggestionLineIdx(idx); }}
               onChange={e => updateLine(idx, "name", e.target.value)}
               onKeyDown={e => handleKeyDown(idx, "name", e)}
-              className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-2"
+              className="h-7 min-w-0 w-full border-white/30 bg-white/20 text-left text-white placeholder:text-white/40 text-xs px-1.5"
             />
             {suggestionLineIdx === idx && getSuggestions(idx).length > 0 && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border border-white/20 bg-slate-900/95 py-1 shadow-xl backdrop-blur">
+              <div className="absolute left-0 top-full z-50 mt-1 min-w-[10rem] max-w-[min(100vw,16rem)] max-h-40 overflow-y-auto rounded-lg border border-white/20 bg-slate-900/95 py-1 shadow-xl backdrop-blur">
                 {getSuggestions(idx).map((name, suggestionIdx) => (
                   <button
                     key={name}
@@ -371,28 +387,28 @@ export function IngredientEditor({
             inputMode="text"
             value={line.cal}
             onChange={e => updateLine(idx, "cal", e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") onCommit(); if (e.key === "Escape") onCommit(); }}
-            className="h-7 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-[10px] px-1"
+            onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
+            className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-[10px] px-0.5"
           />
           <Input
             placeholder="prot"
             inputMode="text"
             value={line.pro}
             onChange={e => updateLine(idx, "pro", e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") onCommit(); if (e.key === "Escape") onCommit(); }}
-            className="h-7 border-white/30 bg-blue-500/20 text-white placeholder:text-white/40 text-[10px] px-1"
+            onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
+            className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-blue-500/20 text-white placeholder:text-white/40 text-[10px] px-0.5"
           />
           <Input
             placeholder="fib"
             inputMode="text"
             value={line.fiber}
             onChange={e => updateLine(idx, "fiber", e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") onCommit(); if (e.key === "Escape") onCommit(); }}
-            className="h-7 border-white/30 bg-emerald-500/20 text-white placeholder:text-white/40 text-[10px] px-1"
+            onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
+            className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-emerald-500/20 text-white placeholder:text-white/40 text-[10px] px-0.5"
           />
         </div>
       ))}
-      <button onClick={onCommit} className="text-[10px] text-white/60 hover:text-white text-left mt-0.5">✓ Valider</button>
+      <button type="button" onClick={commitCurrentLines} className="text-[10px] text-white/60 hover:text-white text-left mt-0.5">✓ Valider</button>
     </div>
   );
 }

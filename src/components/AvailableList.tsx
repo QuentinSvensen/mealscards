@@ -719,8 +719,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   };
 
   /**
-   * Filtre « 100 % » : garde les recettes faisables à 100 % et celles ramenées à 90–99 %
-   * par le budget calorique restant (même logique qu’sans la case 100 %).
+   * Filtre « 100 % » : garde uniquement les recettes entre 90% et 100%.
+   * - 100% stock → OK
+   * - 90–99% (partiel stock ou ajusté au budget calories) → OK
+   * - < 90% → masqué
    */
   const matchesShowOnlyFullRemainingRecipes = (
     u: { type: string; fi?: FoodItem; item?: { meal: Meal; ratio?: number } },
@@ -731,24 +733,34 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     }
     if (u.type === 'av' && u.item) {
       const mealId = u.item.meal.id;
-      if (tryFitMeal(u.item.meal, 1, false).show) return true;
-      const ratioToTry = customRatios[mealId] ?? 1;
-      const fitResult = tryFitMeal(u.item.meal, ratioToTry);
-      const nearlyFullRatio = fitResult.newRatio ?? 0;
-      if (fitResult.show && nearlyFullRatio >= MIN_NEAR_FULL_REMAINING_RATIO && nearlyFullRatio < 1) {
-        localCalculatedRatios[mealId] = nearlyFullRatio;
+      const fitFull = tryFitMeal(u.item.meal, 1, false);
+      if (fitFull.show) return true;
+
+      const fitNear = tryFitMeal(u.item.meal, 1, true);
+      const r = fitNear.newRatio ?? 0;
+      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
+        localCalculatedRatios[mealId] = r;
         return true;
       }
       return false;
     }
     if (u.type === 'partial' && u.item) {
+      // Recette partielle (stock incomplet) : ne garder que les ratios >= 90%.
       const partialKey = `partial-${u.item.meal.id}`;
-      if (tryFitMeal(u.item.meal, 1, false).show) return true;
-      const ratioToTry = customRatios[partialKey] ?? u.item.ratio ?? 1;
-      const fitResult = tryFitMeal(u.item.meal, ratioToTry);
-      const nearlyFullRatio = fitResult.newRatio ?? 0;
-      if (fitResult.show && nearlyFullRatio >= MIN_NEAR_FULL_REMAINING_RATIO && nearlyFullRatio < 1) {
-        localCalculatedRatios[partialKey] = nearlyFullRatio;
+      const baseRatio = u.item.ratio ?? 0;
+      if (baseRatio >= 1) {
+        // Sécurité : un "partial" ne devrait pas être à 100, mais s'il l'est, on le laisse passer.
+        return tryFitMeal(u.item.meal, 1, false).show;
+      }
+      if (baseRatio < MIN_NEAR_FULL_REMAINING_RATIO) return false;
+
+      const fitAtBase = tryFitMeal(u.item.meal, baseRatio, false);
+      if (fitAtBase.show) return true;
+
+      const fitNear = tryFitMeal(u.item.meal, baseRatio, true);
+      const r = fitNear.newRatio ?? 0;
+      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
+        localCalculatedRatios[partialKey] = r;
         return true;
       }
       return false;
@@ -1829,7 +1841,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
       {!collapsed &&
         <div className="flex flex-col gap-2 mt-3">
-          {isPlat && !(useRemainingCalories && showOnlyFullRemainingRecipes) && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
+          {isPlat && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
 
           {(() => {
             const isMealWithDate: FoodItem[] = (sortedIsMealItems as any).__withDate || [];

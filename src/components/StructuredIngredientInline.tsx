@@ -118,7 +118,7 @@ export function StructuredIngredientInline({
                     return (
                       <React.Fragment key={ii}>
                         {isBundle && ii > 0 && <span className={plusCls}>+</span>}
-                        <span className={cn(cls, "leading-tight whitespace-nowrap")}>
+                        <span dir="ltr" className={cn(cls, "leading-tight whitespace-nowrap")}>
                           {isOpt ? "?" : ""}
                           {textDisplay}
                         </span>

@@ -101,8 +101,9 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     setEditingIngredients(true);
   };
 
-  const commitIngredients = () => {
-    onUpdateIngredients(serializeIngredients(ingLines));
+  // Persiste les ingrédients validés depuis l'éditeur (lignes passées = état le plus récent).
+  const commitIngredients = (committedLines: IngLine[]) => {
+    onUpdateIngredients(serializeIngredients(committedLines));
     setEditingIngredients(false);
   };
 

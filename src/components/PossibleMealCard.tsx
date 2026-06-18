@@ -438,8 +438,9 @@ export function PossibleMealCard({
     setEditingIngredients(true);
   };
 
-  const commitIngredients = () => {
-    const serialized = serializeIngredients(ingLines);
+  // Persiste les ingrédients validés depuis l'éditeur (lignes passées = état le plus récent).
+  const commitIngredients = (committedLines: IngLine[]) => {
+    const serialized = serializeIngredients(committedLines);
     if (onUpdatePossibleIngredients) {
       onUpdatePossibleIngredients(serialized === null ? "" : serialized);
     }
