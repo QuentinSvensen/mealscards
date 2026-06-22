@@ -1611,7 +1611,10 @@ const Index = () => {
                                   const deductQty = consumeQty || 1;
                                   const currentQty = fi.quantity ?? 1;
                                   if (currentQty <= deductQty) { await supabase.from("food_items").delete().eq("id", fi.id); }
-                                  else { await supabase.from("food_items").update({ quantity: currentQty - deductQty } as any).eq("id", fi.id); }
+                                  // Prélever des unités « ouvre » le paquet : on démarre le compteur d'ouverture
+                                  // sur le reste du stock (cohérent avec la branche grammes ci-dessus) si l'aliment
+                                  // a « Compteur auto » activé et n'est ni surgelé ni déjà compté.
+                                  else { await supabase.from("food_items").update({ quantity: currentQty - deductQty, ...(movedCounterDate ? { counter_start_date: movedCounterDate } : {}) } as any).eq("id", fi.id); }
                                 }
                                 qc.invalidateQueries({ queryKey: ["food_items"] });
                               }
