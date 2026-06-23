@@ -36,6 +36,8 @@ import {
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate } from "@/lib/stockUtils";
+import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -327,6 +329,13 @@ export function PossibleMealCard({
     return firstRatio;
   };
   const detectedRatio = detectScaleRatio();
+  const nutritionScore = getPossibleMealNutritionScore(
+    pm,
+    detectedRatio ?? undefined,
+    isAvailableCb,
+    foodItems,
+    foodMacroIndex,
+  );
 
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const todayISO = format(new Date(), 'yyyy-MM-dd');
@@ -601,6 +610,7 @@ export function PossibleMealCard({
             <span className="block flex-1 font-semibold text-white text-sm min-w-0 break-normal whitespace-normal pt-[2px]">
               {meal.name}
             </span>
+            <NutritionScoreBadge score={nutritionScore} />
             {counterDays !== null ? (
               <button
                 onClick={() => onUpdateCounter(null)}

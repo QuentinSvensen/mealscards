@@ -14,6 +14,7 @@
  *   sur burrito, sandwich, gaufrette plutôt que 3× la même ligne).
  * - Tri par calories (ascendant/descendant) ou par premier ingrédient (regroupe les mêmes têtes de liste).
  * - Persistance des résultats en sessionStorage ; recalcul automatique si aliments / recettes changent
+ * - Exclut les fiches plat « raccourci » (un seul ingrédient obligatoire = le nom du plat, ex. Fuet).
  * - Inclut en second les aliments "is_meal" seulement s'il n'existe pas déjà
  *   une recette plat homonyme dans le catalogue, et si le stock restant le permet.
  * - Sous la liste : comme sur les cartes (#, unité g, → reste) ; péremption / surgelé ; seulement ingrédients de plats.
@@ -38,7 +39,12 @@ import {
   parseIngredientGroups,
   type StockInfo,
 } from "@/lib/stockUtils";
-import { computeIngredientCalories, computeIngredientProtein, cleanIngredientText } from "@/lib/ingredientUtils";
+import {
+  computeIngredientCalories,
+  computeIngredientProtein,
+  cleanIngredientText,
+  strictNameMatch,
+} from "@/lib/ingredientUtils";
 
 /** Modes de tri de la liste générée (calories, 1er ingrédient, ou péremption). */
 type MaxMealSort = "none" | "asc" | "desc" | "first_ingredient" | "expiration";
@@ -509,6 +515,26 @@ function measureLeftoverWaste(stock: Map<string, StockInfo>): number {
   return w;
 }
 
+/**
+ * Indique si une fiche plat est un « raccourci » (snack / aliment seul) : un seul ingrédient
+ * obligatoire dont le nom correspond au titre. Exclu du générateur car ce n'est pas une recette.
+ */
+export function isShortcutStandalonePlat(meal: Meal): boolean {
+  if (!meal.ingredients?.trim()) return false;
+  const groups = parseIngredientGroups(meal.ingredients);
+  const mandatory: string[] = [];
+  for (const group of groups) {
+    for (const alt of group) {
+      for (const item of alt) {
+        if (item.optional) continue;
+        mandatory.push(item.name);
+      }
+    }
+  }
+  if (mandatory.length !== 1) return false;
+  return strictNameMatch(mandatory[0], meal.name);
+}
+
 /** Marge (score « invendus ») en dessous de laquelle deux plats sont considérés équivalents côté stock. */
 const WASTE_TIE_EPS = 55;
 /** Pénalité douce par répétition de recette pour favoriser la diversité à restes comparables. */
@@ -558,6 +584,7 @@ function runMaxPlatSimulation(foodItems: FoodItem[], meals: Meal[]): {
 
   const platMeals = meals.filter((m) => {
     if (m.category !== "plat" || !m.ingredients?.trim()) return false;
+    if (isShortcutStandalonePlat(m)) return false;
     const n = m.name.toLowerCase().replace(/\s+/g, " ");
     if (n.includes("avant grimpe")) return false;
     if (n.includes("pain + fuet") || n.includes("pain+fuet")) return false;

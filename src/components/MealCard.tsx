@@ -29,6 +29,8 @@ import {
 } from "@/lib/ingredientUtils";
 import { findStockKey, type StockInfo, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber } from "@/lib/stockUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
+import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { getMealNutritionScore } from "@/lib/nutritionScore";
 
 interface MealCardProps {
   meal: Meal;
@@ -120,6 +122,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const ovenTemp = (meal as any).oven_temp;
   const ovenMinutes = (meal as any).oven_minutes;
   const hasCuisson = ovenTemp || ovenMinutes;
+  const nutritionScore = getMealNutritionScore(meal, isAvailableCb);
 
   return (
     <div
@@ -153,9 +156,12 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
         <>
           {/* Ligne de titre */}
           <div className="flex items-start gap-1 flex-wrap">
-            <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal flex-shrink basis-full sm:basis-auto sm:flex-1">
-              {meal.name}
-            </span>
+            <div className="flex items-center gap-1.5 min-w-0 flex-shrink basis-full sm:basis-auto sm:flex-1">
+              <span className="font-semibold text-white text-sm min-w-0 break-words whitespace-normal">
+                {meal.name}
+              </span>
+              <NutritionScoreBadge score={nutritionScore} />
+            </div>
             {/* Ligne d'options - s'enroule sous le titre sur les écrans étroits et reste alignée à droite */}
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">
               {maxIngredientCounter !== null && maxIngredientCounter !== undefined && !hideCounter && (
@@ -304,7 +310,9 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
 }), (prevProps, nextProps) => {
   return prevProps.meal.id === nextProps.meal.id &&
     prevProps.meal.name === nextProps.meal.name &&
+    prevProps.meal.category === nextProps.meal.category &&
     prevProps.meal.calories === nextProps.meal.calories &&
+    prevProps.meal.protein === nextProps.meal.protein &&
     prevProps.meal.fiber === nextProps.meal.fiber &&
     prevProps.meal.grams === nextProps.meal.grams &&
     prevProps.meal.ingredients === nextProps.meal.ingredients &&
