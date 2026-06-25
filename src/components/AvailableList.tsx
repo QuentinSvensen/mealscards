@@ -29,7 +29,8 @@ import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
-import { autofillIngredientLinesMacros } from "@/domain/macros/ingredientMacroDatabase";
+import { autofillIngredientLinesMacros, resolveIngredientLineMacros } from "@/domain/macros/ingredientMacroDatabase";
+import { getExtraPortionMacros, parseFoodMacroValue } from "@/lib/extraMacroUtils";
 import { usePreferences } from "@/hooks/usePreferences";
 import {
   buildStockMap, findStockKey, getMealMultiple, getMealFractionalRatio,
@@ -67,6 +68,89 @@ function useUnusedSuggestionTapMode(): boolean {
     return () => mq.removeEventListener("change", sync);
   }, []);
   return tapMode;
+}
+
+/**
+ * Calcule les macros affichées (kcal, protéines, fibres) pour une portion d'aliment-repas
+ * à partir des valeurs /100g, du grammage unitaire et du référentiel Macro si besoin.
+ */
+function computeFoodItemPortionMacros(
+  fi: FoodItem,
+  opts?: { ratio?: number; macroSources?: IngredientMacroAutofillSources },
+): { calories: string | null; protein: string | null; fiber: string | null } {
+  const ratio = opts?.ratio ?? 1;
+  let calRef = parseFoodMacroValue(fi.calories);
+  let proRef = parseFoodMacroValue(fi.protein);
+  let fiberRef = parseFoodMacroValue(fi.fiber);
+
+  if (calRef <= 0 && proRef <= 0 && fiberRef <= 0 && opts?.macroSources) {
+    const resolved = resolveIngredientLineMacros(
+      { name: fi.name, qty: fi.grams ?? "", count: fi.quantity ?? undefined },
+      opts.macroSources,
+    );
+    calRef = parseFoodMacroValue(resolved.cal);
+    proRef = parseFoodMacroValue(resolved.pro);
+    fiberRef = parseFoodMacroValue(resolved.fiber);
+  }
+
+  if (calRef <= 0 && proRef <= 0 && fiberRef <= 0 && opts?.macroSources?.macroLibrary?.length) {
+    const libraryItem = opts.macroSources.macroLibrary.find((entry) =>
+      strictNameMatch(entry.displayName, fi.name),
+    );
+    if (libraryItem) {
+      calRef = parseFoodMacroValue(libraryItem.calories);
+      proRef = parseFoodMacroValue(libraryItem.protein);
+      fiberRef = parseFoodMacroValue(libraryItem.fiber);
+    }
+  }
+
+  if (calRef <= 0 && proRef <= 0 && fiberRef <= 0 && opts?.macroSources?.foodItems?.length) {
+    const donor = opts.macroSources.foodItems.find(
+      (item) =>
+        item.id !== fi.id &&
+        strictNameMatch(item.name, fi.name) &&
+        (parseFoodMacroValue(item.calories) > 0 ||
+          parseFoodMacroValue(item.protein) > 0 ||
+          parseFoodMacroValue(item.fiber) > 0),
+    );
+    if (donor) {
+      calRef = parseFoodMacroValue(donor.calories);
+      proRef = parseFoodMacroValue(donor.protein);
+      fiberRef = parseFoodMacroValue(donor.fiber);
+    }
+  }
+
+  const enriched: FoodItem = {
+    ...fi,
+    calories: calRef > 0 ? String(calRef) : fi.calories,
+    protein: proRef > 0 ? String(proRef) : fi.protein,
+    fiber: fiberRef > 0 ? String(fiberRef) : fi.fiber,
+  };
+  const portion = getExtraPortionMacros(enriched);
+
+  return {
+    calories: portion.cal > 0 ? String(Math.round(portion.cal * ratio)) : null,
+    protein: portion.pro > 0 ? String(Math.round(portion.pro * ratio)) : null,
+    fiber: portion.fiber > 0 ? String(Math.round(portion.fiber * ratio)) : null,
+  };
+}
+
+/**
+ * Harmonise quantité/grammage des aliments-repas : pastille xN en coin (comme les recettes),
+ * grammage unitaire affiché seulement s'il n'y a qu'une unité en stock.
+ */
+function getStandaloneFoodStockDisplay(
+  fi: FoodItem,
+  portionsAvailable?: number | null,
+): { portionsLabel: string | null; displayGrams: string | null } {
+  if (fi.is_infinite) {
+    return { portionsLabel: null, displayGrams: fi.grams ?? "∞" };
+  }
+  const qty = portionsAvailable ?? fi.quantity ?? 1;
+  return {
+    portionsLabel: `x${qty}`,
+    displayGrams: qty > 1 ? null : fi.grams ?? null,
+  };
 }
 
 /** Style commun : aliments (quantité + nom) — se détache du texte de liaison. */
@@ -312,17 +396,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   // 2. Correspondance par nom
   type NameMatch = { meal: Meal; fi: FoodItem; portionsAvailable: number | null };
 
-  /** Construit un repas factice avec les calories de la portion unitaire affichée pour un aliment-repas. */
+  /** Construit un repas factice avec les macros de la portion unitaire pour un aliment-repas. */
   const buildIsMealCalorieMeal = (fi: FoodItem): Meal => {
-    let displayCal = fi.calories;
-    if (fi.grams) {
-      const unitG = parseQty(fi.grams);
-      const calPer100 = displayCal ? parseFloat(displayCal.replace(",", ".")) : 0;
-      if (unitG > 0 && Number.isFinite(calPer100) && calPer100 > 0) {
-        displayCal = String(Math.round(calPer100 * unitG / 100));
-      }
-    }
-    return { ...fi as unknown as Meal, calories: displayCal, ingredients: null };
+    const macros = computeFoodItemPortionMacros(fi, { macroSources: ingredientMacroAutofillSources });
+    return { ...fi as unknown as Meal, ...macros, ingredients: null };
   };
 
   /** Construit un repas factice avec les calories visibles pour une correspondance nom ↔ aliment. */
@@ -789,32 +866,23 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const expLabel = formatExpirationLabel(fi.expiration_date);
     const isExpiredFi = fi.expiration_date && new Date(new Date(fi.expiration_date).toDateString()) < new Date(new Date().toDateString());
     const expIsTodayFi = isToday(fi.expiration_date);
-    const displayGrams = fi.is_infinite ? "∞" : fi.grams ?? null;
-    
-    let displayCal = fi.calories;
-    let displayPro = fi.protein ?? null;
-    let displayFiber = fi.fiber ?? null;
-    if (fi.grams) {
-      const unitG = parseQty(fi.grams);
-      if (unitG > 0) {
-        if (displayCal) displayCal = String(Math.round(parseFloat(displayCal.replace(',', '.')) * unitG / 100));
-        if (displayPro) displayPro = String(Math.round(parseFloat(displayPro.replace(',', '.')) * unitG / 100));
-        if (displayFiber) displayFiber = String(Math.round(parseFloat(displayFiber.replace(',', '.')) * unitG / 100));
-      }
-    }
+    const { portionsLabel, displayGrams } = getStandaloneFoodStockDisplay(fi);
+    const macros = computeFoodItemPortionMacros(fi, { macroSources: ingredientMacroAutofillSources });
 
     const counterDays = computeCounterDays(fi.counter_start_date);
     const fakeMeal: Meal = {
-      id: `fi-${fi.id}`, name: fi.name, category: category.value, calories: displayCal,
-      protein: displayPro,
-      fiber: displayFiber,
+      id: `fi-${fi.id}`, name: fi.name, category: category.value,
+      calories: macros.calories,
+      protein: macros.protein,
+      fiber: macros.fiber,
       grams: displayGrams, ingredients: null,
       sort_order: 0, created_at: fi.created_at, is_available: true, is_favorite: false,
       oven_temp: null, oven_minutes: null,
     };
     return (
       <div key={fi.id} className="relative">
-        <MealCard meal={fakeMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+        <MealCard meal={fakeMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
+          ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={() => { onMoveFoodItemToPossible(fi); onAfterMoveToPossible?.(); }}
           onRename={() => {}} onDelete={() => onDeleteFoodItem(fi.id)} onUpdateCalories={() => {}} onUpdateGrams={() => {}} onUpdateIngredients={() => {}}
@@ -823,11 +891,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (sortMode === "manual" && avDragIndex !== null && unifiedIdx !== undefined && avDragIndex !== unifiedIdx) handleAvReorder(avDragIndex, unifiedIdx); setAvDragIndex(null); }}
           expirationLabel={expLabel} expirationDate={fi.expiration_date} expirationIsToday={expIsTodayFi} 
           maxIngredientCounter={counterDays} earliestCounterDate={fi.counter_start_date} />
-        {fi.quantity && fi.quantity > 1 && (
-          <div className="absolute top-1 right-2 z-10 bg-black/60 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow flex items-center gap-0.5">
-            x{fi.quantity}
-          </div>
-        )}
+        {portionsLabel ? (
+          <span className="absolute top-1 right-2 z-10 text-white text-[10px] font-black px-1.5 py-0.5 bg-black/60 rounded-full shadow pointer-events-none">
+            {portionsLabel}
+          </span>
+        ) : null}
       </div>
     );
   };
@@ -839,70 +907,42 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const counterDays = computeCounterDays(fi.counter_start_date);
     const customRatio = customRatios[nmKey];
     const effectiveRatio = customRatio ?? 1;
-    const baseGrams = fi.quantity && fi.quantity > 1 && fi.grams
-      ? `${parseQty(fi.grams) * fi.quantity}g`
-      : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
-    const baseG = parseQty(baseGrams);
-    const hasCal = meal.calories && meal.calories !== "0";
-    const hasPro = meal.protein && meal.protein !== "0" && meal.protein !== "0%";
-    
-    let baseCal = hasCal ? parseFloat(meal.calories!.replace(",", ".")) : 0;
-    let basePro = hasPro ? parseFloat(meal.protein!.replace(",", ".")) : 0;
+    const stockDisplay = getStandaloneFoodStockDisplay(fi, portionsAvailable);
+    const unitG = parseQty(meal.grams ?? fi.grams ?? "0");
+    const fiMacros = computeFoodItemPortionMacros(fi, {
+      ratio: effectiveRatio,
+      macroSources: ingredientMacroAutofillSources,
+    });
 
-    // Si le repas maître n'a pas de macros, on prend celles de l'aliment
-    if (!hasCal || !hasPro) {
-      if (!hasCal && fi.calories) {
-        const fiCal = parseFloat(fi.calories.replace(",", "."));
-        if (fi.grams) {
-          const totalG = getFoodItemTotalGrams(fi);
-          baseCal = (fiCal * totalG) / 100;
-        } else {
-          baseCal = fiCal * (fi.quantity ?? 1);
-        }
-      }
-      if (!hasPro && fi.protein) {
-        const fiPro = parseFloat(fi.protein.replace(",", "."));
-        if (fi.grams) {
-          const totalG = getFoodItemTotalGrams(fi);
-          basePro = (fiPro * totalG) / 100;
-        } else {
-          basePro = fiPro * (fi.quantity ?? 1);
-        }
-      }
+    const mealCal = parseMacroDisplay(meal.calories);
+    const mealPro = parseMacroDisplay(meal.protein);
+    const mealFiber = parseMacroDisplay(meal.fiber);
+
+    let displayGrams = stockDisplay.displayGrams ?? meal.grams ?? null;
+    if (effectiveRatio !== 1 && unitG > 0) {
+      displayGrams = `${Math.round(unitG * effectiveRatio)}g`;
     }
 
-    // Mise à l'échelle des grammes et macros si le ratio != 1
-    let displayGrams = baseGrams;
-    let displayMeal = meal;
+    const scaledMealMacro = (val: number | null): string | null => {
+      if (val == null || val <= 0) return null;
+      return String(Math.round(val * effectiveRatio));
+    };
 
-    if (effectiveRatio !== 1) {
-      const scaledG = baseG > 0 ? Math.round(baseG * effectiveRatio) : 0;
-      const scaledCal = baseCal > 0 ? Math.round(baseCal * effectiveRatio) : 0;
-      const scaledPro = basePro > 0 ? Math.round(basePro * effectiveRatio) : 0;
-      displayGrams = scaledG > 0 ? `${scaledG}g` : baseGrams;
-      displayMeal = { 
-        ...meal, 
-        grams: displayGrams,
-        // On passe les ingrédients pour que getDisplayedCalories calcule tout seul depuis le stock
-        ingredients: meal.ingredients || (scaledG > 0 ? `${scaledG}g ${meal.name}` : null),
-        calories: scaledCal > 0 ? String(scaledCal) : (baseCal > 0 ? String(Math.round(baseCal)) : meal.calories), 
-        protein: scaledPro > 0 ? String(scaledPro) : (basePro > 0 ? String(Math.round(basePro)) : meal.protein) 
-      };
-    } else if (!hasCal || !hasPro) {
-      // Même sans changement de ratio, on assure l'affichage des macros calculées
-      displayMeal = {
-        ...meal,
-        ingredients: meal.ingredients || (baseG > 0 ? `${baseG}g ${meal.name}` : null),
-        calories: baseCal > 0 ? String(Math.round(baseCal)) : meal.calories,
-        protein: basePro > 0 ? String(Math.round(basePro)) : meal.protein
-      };
-    }
+    const displayMeal: Meal = {
+      ...meal,
+      grams: displayGrams,
+      ingredients: null,
+      calories: mealCal != null && mealCal > 0 ? scaledMealMacro(mealCal) : fiMacros.calories,
+      protein: mealPro != null && mealPro > 0 ? scaledMealMacro(mealPro) : fiMacros.protein,
+      fiber: mealFiber != null && mealFiber > 0 ? scaledMealMacro(mealFiber) : fiMacros.fiber,
+    };
 
     const expIsTodayNm = isToday(fi.expiration_date);
-    const fakeMeal: Meal = { ...displayMeal, id: nmKey, grams: displayGrams };
+    const fakeMeal: Meal = { ...displayMeal, id: nmKey };
     return (
       <div key={`nm-${idx}`} className="relative">
-        <MealCard meal={fakeMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+        <MealCard meal={fakeMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
+          ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={async () => {
             const cr = customRatios[nmKey];

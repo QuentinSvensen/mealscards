@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Meal } from "@/hooks/useMeals";
-import { isShortcutStandalonePlat } from "@/components/MaxMealGenerator";
+import type { FoodItem } from "@/hooks/useFoodItems";
+import { isShortcutStandalonePlat, isMorningMealPlat } from "@/components/MaxMealGenerator";
 
 const base = (overrides: Partial<Meal>): Meal =>
   ({
@@ -47,5 +48,20 @@ describe("isShortcutStandalonePlat", () => {
         base({ name: "Nouilles teriyaki", ingredients: "200g Nouilles" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("isMorningMealPlat", () => {
+  it("détecte un plat homonyme à un aliment matin", () => {
+    const morningFood = {
+      id: "fi-1",
+      name: "Barre Optimum Brownie (13g fibre)",
+    } as FoodItem;
+    expect(
+      isMorningMealPlat(
+        base({ name: "Barre Optimum Brownie (13g fibre)", ingredients: "1 Barre" }),
+        [morningFood],
+      ),
+    ).toBe(true);
   });
 });

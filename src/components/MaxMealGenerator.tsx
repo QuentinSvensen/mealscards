@@ -14,13 +14,14 @@
  *   sur burrito, sandwich, gaufrette plutôt que 3× la même ligne).
  * - Tri par calories (ascendant/descendant) ou par premier ingrédient (regroupe les mêmes têtes de liste).
  * - Persistance des résultats en sessionStorage ; recalcul automatique si aliments / recettes changent
+ * - Exclut les aliments marqués « Matin » (petit-déj. autonome, pas un plat du soir).
  * - Exclut les fiches plat « raccourci » (un seul ingrédient obligatoire = le nom du plat, ex. Fuet).
  * - Inclut en second les aliments "is_meal" seulement s'il n'existe pas déjà
  *   une recette plat homonyme dans le catalogue, et si le stock restant le permet.
  * - Sous la liste : comme sur les cartes (#, unité g, → reste) ; péremption / surgelé ; seulement ingrédients de plats.
  *
  */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { usePreferences } from "@/hooks/usePreferences";
 import { ChevronDown, ChevronRight, Loader2, ListOrdered, Package, Zap, ArrowUpDown, ArrowUp, ArrowDown, Hash, Weight, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,12 +66,24 @@ interface GeneratedMeal {
 }
 
 const SESSION_KEY = "max_meal_generator_results";
+const MORNING_MEAL_PREF_KEY = "morning_meal_food_item_ids";
+
+/**
+ * Indique si une fiche plat correspond à un aliment marqué « Matin » (homonyme).
+ */
+export function isMorningMealPlat(meal: Meal, morningFoodItems: FoodItem[]): boolean {
+  return morningFoodItems.some((fi) => strictNameMatch(fi.name, meal.name));
+}
 
 /**
  * Empreinte stable des aliments et des fiches repas : quand elle change, la simulation est
  * recalculée automatiquement pour refléter le stock et les recettes à jour.
  */
-function buildMaxMealGeneratorDepsKey(foodItems: FoodItem[], meals: Meal[]): string {
+function buildMaxMealGeneratorDepsKey(
+  foodItems: FoodItem[],
+  meals: Meal[],
+  morningMealFoodItemIds: string[] = [],
+): string {
   const f = [...foodItems]
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((fi) => ({
@@ -96,7 +109,7 @@ function buildMaxMealGeneratorDepsKey(foodItems: FoodItem[], meals: Meal[]): str
       category: me.category,
       ingredients: me.ingredients,
     }));
-  return JSON.stringify({ f, m });
+  return JSON.stringify({ f, m, morning: [...morningMealFoodItemIds].sort() });
 }
 
 /**
@@ -572,10 +585,15 @@ function isPreferredMaxMealChoice(
  * Exécute la simulation gloutonne (même logique que le bouton « Générer ») : liste de plats
  * et blocs reste en stock, à partir des aliments et repas actuels.
  */
-function runMaxPlatSimulation(foodItems: FoodItem[], meals: Meal[]): {
+function runMaxPlatSimulation(
+  foodItems: FoodItem[],
+  meals: Meal[],
+  morningMealFoodItemIds: Set<string> = new Set(),
+): {
   results: GeneratedMeal[];
   remaining: RemainingFoodLine[];
 } {
+  const morningFoodItems = foodItems.filter((fi) => morningMealFoodItemIds.has(fi.id));
   const originalStock = buildStockMap(foodItems);
   const virtualStock = new Map<string, StockInfo>();
   for (const [key, info] of originalStock.entries()) {
@@ -585,6 +603,7 @@ function runMaxPlatSimulation(foodItems: FoodItem[], meals: Meal[]): {
   const platMeals = meals.filter((m) => {
     if (m.category !== "plat" || !m.ingredients?.trim()) return false;
     if (isShortcutStandalonePlat(m)) return false;
+    if (isMorningMealPlat(m, morningFoodItems)) return false;
     const n = m.name.toLowerCase().replace(/\s+/g, " ");
     if (n.includes("avant grimpe")) return false;
     if (n.includes("pain + fuet") || n.includes("pain+fuet")) return false;
@@ -651,7 +670,7 @@ function runMaxPlatSimulation(foodItems: FoodItem[], meals: Meal[]): {
 
   const recipeNameKeys = new Set(platMeals.map((m) => normalizeKey(m.name)));
   const fromIsMeal: GeneratedMeal[] = [];
-  const isMealItems = foodItems.filter((fi) => fi.is_meal);
+  const isMealItems = foodItems.filter((fi) => fi.is_meal && !morningMealFoodItemIds.has(fi.id));
   for (const fi of isMealItems) {
     if (recipeNameKeys.has(normalizeKey(fi.name))) continue;
     if (!tryConsumeStandaloneIsMealFood(fi, virtualStock)) continue;
@@ -716,7 +735,12 @@ function RemainingStockPills({ row }: { row: RemainingFoodLine }) {
 }
 
 export default function MaxMealGenerator({ foodItems, meals }: Props) {
-  const { setPreference } = usePreferences();
+  const { setPreference, getPreference } = usePreferences();
+  const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
+  const morningMealFoodItemIdSet = useMemo(
+    () => new Set(morningMealFoodItemIds),
+    [morningMealFoodItemIds],
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<GeneratedMeal[]>([]);
@@ -724,7 +748,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
   const [sortBy, setSortBy] = useState<MaxMealSort>("expiration");
   const [remainingAfterSimulation, setRemainingAfterSimulation] = useState<RemainingFoodLine[]>([]);
   const lastRunDepsKeyRef = useRef<string | null>(null);
-  const depsKey = buildMaxMealGeneratorDepsKey(foodItems, meals);
+  const depsKey = buildMaxMealGeneratorDepsKey(foodItems, meals, morningMealFoodItemIds);
 
   /**
    * Restaure la session si elle correspond au stock / recettes actuels, sinon relance la simulation
@@ -737,7 +761,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
         try {
           const parsed = JSON.parse(raw) as unknown;
           if (Array.isArray(parsed)) {
-            const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
+            const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
             setHasGenerated(true);
             setResults(r);
             setRemainingAfterSimulation(rem);
@@ -748,7 +772,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
           if (parsed && typeof parsed === "object" && "results" in parsed) {
             const p = parsed as { results: GeneratedMeal[]; remaining?: unknown[]; depsKey?: string };
             if (p.depsKey === depsKey && Array.isArray(p.results)) {
-              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
+              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
               setHasGenerated(true);
               setResults(r);
               setRemainingAfterSimulation(rem);
@@ -757,7 +781,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
               return;
             }
             if (Array.isArray(p.results)) {
-              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
+              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
               setHasGenerated(true);
               setResults(r);
               setRemainingAfterSimulation(rem);
@@ -773,7 +797,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     }
     if (!hasGenerated) return;
     try {
-      const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
+      const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
       lastRunDepsKeyRef.current = depsKey;
       setResults(r);
       setRemainingAfterSimulation(rem);
@@ -797,8 +821,8 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     setLoading(true);
     setTimeout(() => {
       try {
-        const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals);
-        const k = buildMaxMealGeneratorDepsKey(foodItems, meals);
+        const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
+        const k = buildMaxMealGeneratorDepsKey(foodItems, meals, morningMealFoodItemIds);
         lastRunDepsKeyRef.current = k;
         setResults(r);
         setRemainingAfterSimulation(rem);
