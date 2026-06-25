@@ -116,6 +116,8 @@ const importAvailableList = () => import("@/components/AvailableList").then((m) 
 const importUnParUnSection = () => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection }));
 /** Import dynamique du référentiel des macros d'ingrédients. */
 const importMacroIngredients = () => import("@/components/MacroIngredients").then((m) => ({ default: m.MacroIngredients }));
+/** Import dynamique de la liste des boissons énergisantes. */
+const importEnergyDrinksList = () => import("@/components/EnergyDrinksList").then((m) => ({ default: m.EnergyDrinksList }));
 
 const LazyShoppingList = lazyRetry(importShoppingList, "ShoppingList");
 const LazyMealPlanGenerator = lazyRetry(importMealPlanGenerator, "MealPlanGenerator");
@@ -126,6 +128,7 @@ const LazyPossibleList = lazyRetry(importPossibleList, "PossibleList");
 const LazyAvailableList = lazyRetry(importAvailableList, "AvailableList");
 const LazyUnParUnSection = lazyRetry(importUnParUnSection, "UnParUnSection");
 const LazyMacroIngredients = lazyRetry(importMacroIngredients, "MacroIngredients");
+const LazyEnergyDrinksList = lazyRetry(importEnergyDrinksList, "EnergyDrinksList");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Catégories de repas disponibles dans l'application
@@ -237,6 +240,7 @@ const Index = () => {
       importAvailableList();
       importUnParUnSection();
       importMacroIngredients();
+      importEnergyDrinksList();
     };
     if ('requestIdleCallback' in window) {
       (window as any).requestIdleCallback(preload);
@@ -676,7 +680,7 @@ const Index = () => {
   const [logoClickCount, setLogoClickCount] = useState(0);
   const [showDevMenu, setShowDevMenu] = useState(false);
   const [chronoOpen, setChronoOpen] = useState(false);
-  const [coursesTab, setCoursesTab] = useState<"liste" | "menu">("liste");
+  const [coursesTab, setCoursesTab] = useState<"liste" | "menu" | "boissons">("liste");
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {};
@@ -883,11 +887,12 @@ const Index = () => {
           {mainPage === "courses" && (
             <ErrorBoundary section="Courses">
               <div className="sticky top-[44px] sm:top-[52px] z-10 bg-background/95 backdrop-blur-sm pb-2 pt-1">
-                <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 max-w-xs mx-auto">
+                <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 max-w-md mx-auto">
                   <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🛒 Liste</button>
                   <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
+                  <button onClick={() => setCoursesTab("boissons")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap px-2 ${coursesTab === "boissons" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>⚡ Boissons</button>
                 </div>
-                <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none justify-center mt-1.5">
+                {coursesTab === "liste" && <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none justify-center mt-1.5">
                   <input
                     type="checkbox"
                     checked={getPreference<boolean>('shopping_show_green_checks', true)}
@@ -949,9 +954,15 @@ const Index = () => {
                     className="h-3 w-3 rounded accent-green-500"
                   />
                   Menu semaine
-                </label>
+                </label>}
               </div>
-              {coursesTab === "liste" ? <LazyShoppingList /> : <LazyMealPlanGenerator />}
+              {coursesTab === "liste" ? (
+                <LazyShoppingList />
+              ) : coursesTab === "menu" ? (
+                <LazyMealPlanGenerator />
+              ) : (
+                <LazyEnergyDrinksList />
+              )}
             </ErrorBoundary>
           )}
           {mainPage === "planning" && (
