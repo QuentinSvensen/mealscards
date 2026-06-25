@@ -21,6 +21,16 @@ import type {
 } from "@/lib/energyDrinkUtils";
 import type { EnergyDrinkImageCrop } from "@/lib/energyDrinkImageCrop";
 import { energyDrinkFlavorsConflict, slugifyEnergyDrinkId } from "@/lib/energyDrinkUtils";
+import {
+  type EnergyDrinkImageBlobs,
+  ENERGY_DRINK_IMAGE_IMPORT_BATCH_SIZE,
+  energyDrinkBrandImageKey,
+  importEnergyDrinkImageToBlobs,
+  isExternalEnergyDrinkImageUrl,
+  isLocalEnergyDrinkImageRef,
+  parseLocalEnergyDrinkImageKey,
+  resolveEnergyDrinkImageUrl,
+} from "@/lib/energyDrinkImageStorage";
 
 export type {
   EnergyDrinkBrand,
@@ -35,6 +45,7 @@ const PREF_REVIEWS = "energy_drinks_reviews_v2";
 const PREF_SEED_VERSION = "energy_drinks_seed_version";
 const PREF_IMAGES_VERSION = "energy_drinks_images_version";
 const PREF_CROP_VERSION = "energy_drinks_crop_version";
+const PREF_IMAGE_BLOBS = "energy_drinks_image_blobs_v1";
 
 /** Version du remplissage automatique des images de canettes. */
 const ENERGY_DRINKS_IMAGES_VERSION = 2;
@@ -60,9 +71,17 @@ export function useEnergyDrinks() {
   const imagesAppliedRef = useRef(false);
   const cropResetRef = useRef(false);
   const autoCropInFlightRef = useRef<Set<string>>(new Set());
+  const imageImportInFlightRef = useRef<Set<string>>(new Set());
 
   const brands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, ENERGY_DRINKS_SEED_BRANDS);
   const reviews = getPreference<EnergyDrinksReviewsMap>(PREF_REVIEWS, ENERGY_DRINKS_SEED_REVIEWS);
+  const imageBlobs = getPreference<EnergyDrinkImageBlobs>(PREF_IMAGE_BLOBS, {});
+
+  /** Résout une référence d'image (locale ou URL) vers une URL affichable. */
+  const resolveImageUrl = useCallback(
+    (ref: string | null | undefined) => resolveEnergyDrinkImageUrl(ref, imageBlobs),
+    [imageBlobs],
+  );
 
   /** Applique le seed catalogue une fois (ou après bump de version). */
   useEffect(() => {
@@ -116,6 +135,86 @@ export function useEnergyDrinks() {
     setPreference.mutate({ key: PREF_CROP_VERSION, value: ENERGY_DRINKS_CROP_VERSION });
   }, [isLoading, getPreference, setPreference]);
 
+  /** Importe les URLs externes en copies locales (data URL) tout en conservant les rognages. */
+  useEffect(() => {
+    if (isLoading) return;
+
+    type PendingImport = {
+      storageKey: string;
+      sourceUrl: string;
+      brandId?: string;
+      flavorId?: string;
+    };
+
+    const pending: PendingImport[] = [];
+    for (const brand of brands) {
+      if (brand.imageUrl && isExternalEnergyDrinkImageUrl(brand.imageUrl)) {
+        pending.push({
+          storageKey: energyDrinkBrandImageKey(brand.id),
+          sourceUrl: brand.imageUrl,
+          brandId: brand.id,
+        });
+      }
+      for (const flavor of brand.flavors) {
+        if (flavor.imageUrl && isExternalEnergyDrinkImageUrl(flavor.imageUrl)) {
+          pending.push({
+            storageKey: flavor.id,
+            sourceUrl: flavor.imageUrl,
+            brandId: brand.id,
+            flavorId: flavor.id,
+          });
+        }
+      }
+    }
+
+    const batch = pending
+      .filter((item) => !imageImportInFlightRef.current.has(item.storageKey))
+      .slice(0, ENERGY_DRINK_IMAGE_IMPORT_BATCH_SIZE);
+
+    if (batch.length === 0) return;
+
+    let cancelled = false;
+
+    (async () => {
+      let nextBlobs = { ...getPreference<EnergyDrinkImageBlobs>(PREF_IMAGE_BLOBS, {}) };
+      const localRefs = new Map<string, string>();
+
+      for (const item of batch) {
+        if (cancelled) break;
+        imageImportInFlightRef.current.add(item.storageKey);
+        const imported = await importEnergyDrinkImageToBlobs(nextBlobs, item.storageKey, item.sourceUrl);
+        imageImportInFlightRef.current.delete(item.storageKey);
+        if (!imported) continue;
+        nextBlobs = imported.blobs;
+        localRefs.set(item.storageKey, imported.localRef);
+      }
+
+      if (cancelled || localRefs.size === 0) return;
+
+      const currentBrands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, ENERGY_DRINKS_SEED_BRANDS);
+      setPreference.mutate({ key: PREF_IMAGE_BLOBS, value: nextBlobs });
+      setPreference.mutate({
+        key: PREF_BRANDS,
+        value: currentBrands.map((brand) => {
+          const brandKey = energyDrinkBrandImageKey(brand.id);
+          const brandLocalRef = localRefs.get(brandKey);
+          return {
+            ...brand,
+            imageUrl: brandLocalRef ?? brand.imageUrl,
+            flavors: brand.flavors.map((flavor) => {
+              const flavorLocalRef = localRefs.get(flavor.id);
+              return flavorLocalRef ? { ...flavor, imageUrl: flavorLocalRef } : flavor;
+            }),
+          };
+        }),
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [brands, isLoading, getPreference, setPreference]);
+
   /** Applique un rognage auto (sans bandes blanches/grises) sur les images non réglées à la main. */
   useEffect(() => {
     if (isLoading) return;
@@ -142,7 +241,8 @@ export function useEnergyDrinks() {
       for (const flavor of pending) {
         if (cancelled || !flavor.imageUrl) break;
         autoCropInFlightRef.current.add(flavor.id);
-        const crop = await autoDetectEnergyDrinkCrop(flavor.imageUrl);
+        const resolvedUrl = resolveEnergyDrinkImageUrl(flavor.imageUrl, imageBlobs);
+        const crop = resolvedUrl ? await autoDetectEnergyDrinkCrop(resolvedUrl) : null;
         autoCropInFlightRef.current.delete(flavor.id);
         if (crop) detected.set(flavor.id, crop);
       }
@@ -166,7 +266,7 @@ export function useEnergyDrinks() {
     return () => {
       cancelled = true;
     };
-  }, [brands, isLoading, getPreference, setPreference]);
+  }, [brands, imageBlobs, isLoading, getPreference, setPreference]);
 
   const orderedBrands = useMemo(
     () => brands.map((b) => ({ ...b, flavors: [...b.flavors] })),
@@ -337,6 +437,71 @@ export function useEnergyDrinks() {
     [brands, setPreference],
   );
 
+  /** Enregistre l'image d'un goût : importe une URL externe en local ou met à jour le rognage. */
+  const saveFlavorImage = useCallback(
+    async (
+      brandId: string,
+      flavorId: string,
+      opts: {
+        sourceUrl?: string | null;
+        crop?: EnergyDrinkImageCrop | null;
+        imageCropManual?: boolean;
+      },
+    ): Promise<boolean> => {
+      const brand = brands.find((b) => b.id === brandId);
+      const flavor = brand?.flavors.find((f) => f.id === flavorId);
+      if (!brand || !flavor) return false;
+
+      let nextBlobs = { ...imageBlobs };
+      let nextImageUrl = flavor.imageUrl ?? null;
+      let blobsChanged = false;
+      const { sourceUrl, crop, imageCropManual } = opts;
+
+      if (sourceUrl === null) {
+        if (nextImageUrl && isLocalEnergyDrinkImageRef(nextImageUrl)) {
+          const key = parseLocalEnergyDrinkImageKey(nextImageUrl);
+          const { [key]: _removed, ...rest } = nextBlobs;
+          nextBlobs = rest;
+          blobsChanged = true;
+        }
+        nextImageUrl = null;
+      } else if (sourceUrl && isExternalEnergyDrinkImageUrl(sourceUrl)) {
+        const imported = await importEnergyDrinkImageToBlobs(nextBlobs, flavorId, sourceUrl);
+        if (!imported) return false;
+        nextBlobs = imported.blobs;
+        nextImageUrl = imported.localRef;
+        blobsChanged = true;
+      }
+
+      const patch: Partial<
+        Pick<EnergyDrinkFlavor, "imageUrl" | "imageCrop" | "imageCropManual">
+      > = {};
+      if (sourceUrl !== undefined) patch.imageUrl = nextImageUrl;
+      if (crop !== undefined) patch.imageCrop = crop;
+      if (imageCropManual !== undefined) patch.imageCropManual = imageCropManual;
+
+      if (Object.keys(patch).length === 0) return true;
+
+      if (blobsChanged) {
+        setPreference.mutate({ key: PREF_IMAGE_BLOBS, value: nextBlobs });
+      }
+
+      setPreference.mutate({
+        key: PREF_BRANDS,
+        value: brands.map((b) =>
+          b.id === brandId
+            ? {
+                ...b,
+                flavors: b.flavors.map((f) => (f.id === flavorId ? { ...f, ...patch } : f)),
+              }
+            : b,
+        ),
+      });
+      return true;
+    },
+    [brands, imageBlobs, setPreference],
+  );
+
   /** Met à jour le nom ou l'image d'une marque. */
   const updateBrand = useCallback(
     (brandId: string, patch: Partial<Pick<EnergyDrinkBrand, "name" | "imageUrl">>) => {
@@ -400,6 +565,8 @@ export function useEnergyDrinks() {
     deleteFlavor,
     updateFlavor,
     updateBrand,
+    saveFlavorImage,
+    resolveImageUrl,
     moveBrand,
     stats,
   };

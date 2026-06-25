@@ -98,6 +98,12 @@ export function applyDefaultEnergyDrinkImages(
     flavors: brand.flavors.map((flavor) => {
       const imageUrl = getDefaultEnergyDrinkImage(flavor.id);
       if (!imageUrl) return flavor;
+      if (
+        flavor.imageUrl &&
+        (flavor.imageUrl.startsWith("local:") || flavor.imageUrl.startsWith("data:"))
+      ) {
+        return flavor;
+      }
       if (!options?.replaceExisting && flavor.imageUrl) return flavor;
       if (flavor.imageUrl === imageUrl) return flavor;
       changed = true;

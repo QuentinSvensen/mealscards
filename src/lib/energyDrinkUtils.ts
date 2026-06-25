@@ -10,6 +10,7 @@ export type EnergyDrinkFlavor = {
   id: string;
   /** Nom du goût / variante (ex. Ultra White, Mangue). */
   taste: string;
+  /** Référence locale (`local:…`), data URL ou URL externe en cours d'import. */
   imageUrl?: string | null;
   /** Zone de rognage en % de l'image source (vignette portrait). */
   imageCrop?: EnergyDrinkImageCrop | null;
