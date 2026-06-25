@@ -551,6 +551,7 @@ function BrandSection({
   brand,
   filter,
   search,
+  zeroCalorieOnly,
   collapsed,
   canMoveUp,
   canMoveDown,
@@ -570,6 +571,7 @@ function BrandSection({
   brand: EnergyDrinkBrand;
   filter: FilterMode;
   search: string;
+  zeroCalorieOnly: boolean;
   collapsed: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -596,6 +598,7 @@ function BrandSection({
   const flavors = useMemo(() => {
     const filtered = brand.flavors.filter((f) => {
       const review = getReview(f.id);
+      if (zeroCalorieOnly && !f.zeroCalorie) return false;
       if (filter === "tested" && !review.tested) return false;
       if (filter === "untested" && review.tested) return false;
       if (!q) return true;
@@ -605,10 +608,10 @@ function BrandSection({
       );
     });
     return sortFlavorsForDisplay(filtered, getReview);
-  }, [brand.flavors, brand.name, filter, search, getReview]);
+  }, [brand.flavors, brand.name, filter, search, zeroCalorieOnly, getReview]);
 
   if (flavors.length === 0 && q) return null;
-  if (flavors.length === 0 && filter !== "all") return null;
+  if (flavors.length === 0 && (filter !== "all" || zeroCalorieOnly)) return null;
 
   const brandTested = brand.flavors.filter((f) => getReview(f.id).tested).length;
 
@@ -840,6 +843,7 @@ export function EnergyDrinksList() {
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterMode>("all");
+  const [zeroCalorieOnly, setZeroCalorieOnly] = useState(false);
   const [collapsedBrands, setCollapsedBrands] = useState<Set<string>>(new Set());
   const [addBrandOpen, setAddBrandOpen] = useState(false);
   const [newBrandName, setNewBrandName] = useState("");
@@ -847,19 +851,20 @@ export function EnergyDrinksList() {
 
   const visibleBrands = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q && filter === "all") return brands;
+    if (!q && filter === "all" && !zeroCalorieOnly) return brands;
     return brands.filter((brand) => {
       const hasMatchingFlavor = brand.flavors.some((f) => {
         const review = getReview(f.id);
+        if (zeroCalorieOnly && !f.zeroCalorie) return false;
         if (filter === "tested" && !review.tested) return false;
         if (filter === "untested" && review.tested) return false;
         if (!q) return true;
         return brand.name.toLowerCase().includes(q) || f.taste.toLowerCase().includes(q);
       });
-      if (filter !== "all" || q) return hasMatchingFlavor;
+      if (filter !== "all" || q || zeroCalorieOnly) return hasMatchingFlavor;
       return true;
     });
-  }, [brands, search, filter, getReview]);
+  }, [brands, search, filter, zeroCalorieOnly, getReview]);
 
   /** Bascule l'état replié d'une marque. */
   const toggleBrand = (brandId: string) => {
@@ -950,10 +955,20 @@ export function EnergyDrinksList() {
         />
       </div>
 
-      <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 w-fit mx-auto">
-        {filterBtn("all", "Tous")}
-        {filterBtn("tested", "Testés")}
-        {filterBtn("untested", "À tester")}
+      <div className="flex flex-col items-center gap-1.5">
+        <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 w-fit">
+          {filterBtn("all", "Tous")}
+          {filterBtn("tested", "Testés")}
+          {filterBtn("untested", "À tester")}
+        </div>
+        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none">
+          <Checkbox
+            checked={zeroCalorieOnly}
+            onCheckedChange={(v) => setZeroCalorieOnly(v === true)}
+            className="h-3 w-3"
+          />
+          0 cal seulement
+        </label>
       </div>
 
       {brands.length === 0 ? (
@@ -974,6 +989,7 @@ export function EnergyDrinksList() {
                 brand={brand}
                 filter={filter}
                 search={search}
+                zeroCalorieOnly={zeroCalorieOnly}
                 collapsed={collapsedBrands.has(brand.id)}
                 canMoveUp={brandIndex > 0}
                 canMoveDown={brandIndex >= 0 && brandIndex < brands.length - 1}
