@@ -35,7 +35,7 @@ import {
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, hasRemainingMealStock } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -352,7 +352,21 @@ export function PossibleMealCard({
   const effectiveCounterStart =
     activeCounterFromStock ?? realtimeCounterStartDate ?? pm.counter_start_date;
 
-  const counterDays = getAdaptedCounterDays(effectiveCounterStart, pm.day_of_week, pm.created_at, pm.meal_time);
+  const hasRemainingStock = useMemo(
+    () =>
+      foodItems?.length
+        ? hasRemainingMealStock(meal, foodItems, cardIngredients, foodMacroIndex)
+        : true,
+    [meal, foodItems, cardIngredients, foodMacroIndex],
+  );
+
+  const counterDaysRaw = getAdaptedCounterDays(
+    effectiveCounterStart,
+    pm.day_of_week,
+    pm.created_at,
+    pm.meal_time,
+  );
+  const counterDays = hasRemainingStock ? counterDaysRaw : null;
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;

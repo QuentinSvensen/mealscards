@@ -141,6 +141,37 @@ export function pickBestAlternative(
   return null;
 }
 
+/** Indique s'il reste du stock fini pour préparer ce repas (par ingrédients ou par nom). */
+export function hasRemainingMealStock(
+  meal: Pick<Meal, "name" | "ingredients">,
+  foodItems: FoodItem[],
+  ingredientsOverride?: string | null,
+  index?: FoodItemIndex,
+): boolean {
+  const stockMap = buildStockMap(foodItems);
+  const ingredients = ingredientsOverride ?? meal.ingredients;
+  if (!ingredients?.trim()) {
+    const key = findStockKey(stockMap, meal.name);
+    if (!key) return false;
+    const info = stockMap.get(key)!;
+    return info.infinite || info.grams > 0 || info.count > 0;
+  }
+  const groups = parseIngredientGroups(ingredients);
+  for (const group of groups) {
+    if (group.every((bundle) => bundle.every((item) => item.optional))) continue;
+    const bundle = pickBestAlternative(group, stockMap);
+    if (!bundle) continue;
+    for (const item of bundle) {
+      if (item.optional || !item.name) continue;
+      const key = findStockKey(stockMap, item.name);
+      if (!key) continue;
+      const info = stockMap.get(key)!;
+      if (info.infinite || info.grams > 0 || info.count > 0) return true;
+    }
+  }
+  return false;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 3 : Disponibilité des repas
 // ═══════════════════════════════════════════════════════════════════════════════
