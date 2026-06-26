@@ -36,6 +36,23 @@ export type EnergyDrinkReview = {
 
 export type EnergyDrinksReviewsMap = Record<string, EnergyDrinkReview>;
 
+/** Normalise un texte pour la recherche (casse et accents ignorés). */
+export function normalizeEnergyDrinkSearch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/œ/g, "oe")
+    .replace(/æ/g, "ae")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Indique si un libellé correspond à une requête de recherche (casse et accents ignorés). */
+export function energyDrinkSearchMatches(text: string, query: string): boolean {
+  const q = normalizeEnergyDrinkSearch(query.trim());
+  if (!q) return true;
+  return normalizeEnergyDrinkSearch(text).includes(q);
+}
+
 /** Indique si deux goûts ont le même nom et la même variante calorique (conflit). */
 export function energyDrinkFlavorsConflict(
   a: Pick<EnergyDrinkFlavor, "taste" | "zeroCalorie">,

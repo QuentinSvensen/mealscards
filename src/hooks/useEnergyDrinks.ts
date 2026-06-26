@@ -25,6 +25,7 @@ import {
   type EnergyDrinkImageBlobs,
   ENERGY_DRINK_IMAGE_IMPORT_BATCH_SIZE,
   energyDrinkBrandImageKey,
+  storeEnergyDrinkImageDataUrl,
   importEnergyDrinkImageToBlobs,
   isExternalEnergyDrinkImageUrl,
   isLocalEnergyDrinkImageRef,
@@ -465,12 +466,24 @@ export function useEnergyDrinks() {
           blobsChanged = true;
         }
         nextImageUrl = null;
-      } else if (sourceUrl && isExternalEnergyDrinkImageUrl(sourceUrl)) {
-        const imported = await importEnergyDrinkImageToBlobs(nextBlobs, flavorId, sourceUrl);
-        if (!imported) return false;
-        nextBlobs = imported.blobs;
-        nextImageUrl = imported.localRef;
+      } else if (sourceUrl && sourceUrl.startsWith("data:")) {
+        const stored = storeEnergyDrinkImageDataUrl(nextBlobs, flavorId, sourceUrl);
+        nextBlobs = stored.blobs;
+        nextImageUrl = stored.localRef;
         blobsChanged = true;
+      } else if (
+        sourceUrl &&
+        isExternalEnergyDrinkImageUrl(sourceUrl) &&
+        sourceUrl !== flavor.imageUrl
+      ) {
+        const imported = await importEnergyDrinkImageToBlobs(nextBlobs, flavorId, sourceUrl);
+        if (imported) {
+          nextBlobs = imported.blobs;
+          nextImageUrl = imported.localRef;
+          blobsChanged = true;
+        } else {
+          nextImageUrl = sourceUrl;
+        }
       }
 
       const patch: Partial<

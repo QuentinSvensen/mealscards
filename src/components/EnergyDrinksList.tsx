@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useEnergyDrinks, type EnergyDrinkBrand, type EnergyDrinkFlavor } from "@/hooks/useEnergyDrinks";
-import { sortFlavorsForDisplay, formatRatingDisplay, getEnergyDrinkRatingClasses, isHighEnergyDrinkRating, type EnergyDrinkReview } from "@/lib/energyDrinkUtils";
+import { sortFlavorsForDisplay, formatRatingDisplay, getEnergyDrinkRatingClasses, isHighEnergyDrinkRating, energyDrinkSearchMatches, type EnergyDrinkReview } from "@/lib/energyDrinkUtils";
 import type { EnergyDrinkImageCrop } from "@/lib/energyDrinkImageCrop";
 import { isFullImageCrop } from "@/lib/energyDrinkImageCrop";
 import { isLocalEnergyDrinkImageRef } from "@/lib/energyDrinkImageStorage";
@@ -226,11 +226,18 @@ function FlavorImageDialog({
     const latestCrop = cropMode ? cropperRef.current?.getCrop() ?? crop : crop;
     const nextCrop = latestCrop && !isFullImageCrop(latestCrop) ? latestCrop : null;
     const manualCrop = cropMode && Boolean(nextCrop);
+    const urlChanged = Boolean(trimmedUrl && trimmedUrl !== (imageRef ?? ""));
 
-    if (trimmedUrl) {
+    if (urlChanged) {
       await onSave({ sourceUrl: trimmedUrl, crop: nextCrop, imageCropManual: manualCrop });
     } else if (imageRef) {
       await onSave({ crop: nextCrop, imageCropManual: manualCrop });
+    } else if (resolvedImageUrl) {
+      await onSave({
+        sourceUrl: resolvedImageUrl,
+        crop: nextCrop,
+        imageCropManual: manualCrop,
+      });
     } else {
       await onSave({ sourceUrl: null, crop: null, imageCropManual: false });
     }
@@ -607,7 +614,7 @@ function BrandSection({
   const [newImageUrl, setNewImageUrl] = useState("");
   const [newZeroCalorie, setNewZeroCalorie] = useState(false);
 
-  const q = search.trim().toLowerCase();
+  const q = search.trim();
   const flavors = useMemo(() => {
     const filtered = brand.flavors.filter((f) => {
       const review = getReview(f.id);
@@ -615,10 +622,7 @@ function BrandSection({
       if (filter === "tested" && !review.tested) return false;
       if (filter === "untested" && review.tested) return false;
       if (!q) return true;
-      return (
-        brand.name.toLowerCase().includes(q) ||
-        f.taste.toLowerCase().includes(q)
-      );
+      return energyDrinkSearchMatches(brand.name, q) || energyDrinkSearchMatches(f.taste, q);
     });
     return sortFlavorsForDisplay(filtered, getReview);
   }, [brand.flavors, brand.name, filter, search, zeroCalorieOnly, highRatedOnly, getReview]);
@@ -808,8 +812,8 @@ function BrandSection({
                     const ok = await saveFlavorImage(brand.id, flavor.id, opts);
                     if (!ok) {
                       toast({
-                        title: "Image non enregistrée",
-                        description: "Impossible de télécharger ou d'enregistrer cette image.",
+                        title: "Rognage non enregistré",
+                        description: "Impossible de sauvegarder ce goût. Réessayez.",
                         variant: "destructive",
                       });
                     }
@@ -864,7 +868,7 @@ export function EnergyDrinksList() {
   const [newBrandImageUrl, setNewBrandImageUrl] = useState("");
 
   const visibleBrands = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     if (!q && filter === "all" && !zeroCalorieOnly && !highRatedOnly) return brands;
     return brands.filter((brand) => {
       const hasMatchingFlavor = brand.flavors.some((f) => {
@@ -873,7 +877,7 @@ export function EnergyDrinksList() {
         if (filter === "tested" && !review.tested) return false;
         if (filter === "untested" && review.tested) return false;
         if (!q) return true;
-        return brand.name.toLowerCase().includes(q) || f.taste.toLowerCase().includes(q);
+        return energyDrinkSearchMatches(brand.name, q) || energyDrinkSearchMatches(f.taste, q);
       });
       if (filter !== "all" || q || zeroCalorieOnly || highRatedOnly) return hasMatchingFlavor;
       return true;

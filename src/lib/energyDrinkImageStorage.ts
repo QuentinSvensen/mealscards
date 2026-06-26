@@ -109,6 +109,18 @@ export async function fetchEnergyDrinkImageAsDataUrl(
   }
 }
 
+/** Enregistre une data URL directement dans les blobs locaux. */
+export function storeEnergyDrinkImageDataUrl(
+  blobs: EnergyDrinkImageBlobs,
+  storageKey: string,
+  dataUrl: string,
+): { blobs: EnergyDrinkImageBlobs; localRef: string } {
+  return {
+    blobs: { ...blobs, [storageKey]: dataUrl },
+    localRef: makeLocalEnergyDrinkImageRef(storageKey),
+  };
+}
+
 /** Importe une image externe dans le catalogue local et retourne la référence locale. */
 export async function importEnergyDrinkImageToBlobs(
   blobs: EnergyDrinkImageBlobs,
