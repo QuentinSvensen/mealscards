@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useEnergyDrinks, type EnergyDrinkBrand, type EnergyDrinkFlavor } from "@/hooks/useEnergyDrinks";
-import { sortFlavorsForDisplay, formatRatingDisplay, getEnergyDrinkRatingClasses } from "@/lib/energyDrinkUtils";
+import { sortFlavorsForDisplay, formatRatingDisplay, getEnergyDrinkRatingClasses, isHighEnergyDrinkRating, type EnergyDrinkReview } from "@/lib/energyDrinkUtils";
 import type { EnergyDrinkImageCrop } from "@/lib/energyDrinkImageCrop";
 import { isFullImageCrop } from "@/lib/energyDrinkImageCrop";
 import { isLocalEnergyDrinkImageRef } from "@/lib/energyDrinkImageStorage";
@@ -26,6 +26,17 @@ import { EnergyDrinkImageCropper, type EnergyDrinkImageCropperHandle } from "@/c
 import { toast } from "@/hooks/use-toast";
 
 type FilterMode = "all" | "tested" | "untested";
+
+/** Indique si un goût passe les filtres optionnels (0 cal, note ≥ 6,5). */
+function matchesExtraFlavorFilters(
+  flavor: EnergyDrinkFlavor,
+  review: EnergyDrinkReview,
+  opts: { zeroCalorieOnly: boolean; highRatedOnly: boolean },
+): boolean {
+  if (opts.zeroCalorieOnly && !flavor.zeroCalorie) return false;
+  if (opts.highRatedOnly && (!review.tested || !isHighEnergyDrinkRating(review.rating))) return false;
+  return true;
+}
 
 /** Affiche une note sur 10 en grand, avec réglage rapide ±0,5. */
 function RatingHighlight({
@@ -552,6 +563,7 @@ function BrandSection({
   filter,
   search,
   zeroCalorieOnly,
+  highRatedOnly,
   collapsed,
   canMoveUp,
   canMoveDown,
@@ -572,6 +584,7 @@ function BrandSection({
   filter: FilterMode;
   search: string;
   zeroCalorieOnly: boolean;
+  highRatedOnly: boolean;
   collapsed: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -598,7 +611,7 @@ function BrandSection({
   const flavors = useMemo(() => {
     const filtered = brand.flavors.filter((f) => {
       const review = getReview(f.id);
-      if (zeroCalorieOnly && !f.zeroCalorie) return false;
+      if (!matchesExtraFlavorFilters(f, review, { zeroCalorieOnly, highRatedOnly })) return false;
       if (filter === "tested" && !review.tested) return false;
       if (filter === "untested" && review.tested) return false;
       if (!q) return true;
@@ -608,10 +621,10 @@ function BrandSection({
       );
     });
     return sortFlavorsForDisplay(filtered, getReview);
-  }, [brand.flavors, brand.name, filter, search, zeroCalorieOnly, getReview]);
+  }, [brand.flavors, brand.name, filter, search, zeroCalorieOnly, highRatedOnly, getReview]);
 
   if (flavors.length === 0 && q) return null;
-  if (flavors.length === 0 && (filter !== "all" || zeroCalorieOnly)) return null;
+  if (flavors.length === 0 && (filter !== "all" || zeroCalorieOnly || highRatedOnly)) return null;
 
   const brandTested = brand.flavors.filter((f) => getReview(f.id).tested).length;
 
@@ -844,6 +857,7 @@ export function EnergyDrinksList() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterMode>("all");
   const [zeroCalorieOnly, setZeroCalorieOnly] = useState(false);
+  const [highRatedOnly, setHighRatedOnly] = useState(false);
   const [collapsedBrands, setCollapsedBrands] = useState<Set<string>>(new Set());
   const [addBrandOpen, setAddBrandOpen] = useState(false);
   const [newBrandName, setNewBrandName] = useState("");
@@ -851,20 +865,20 @@ export function EnergyDrinksList() {
 
   const visibleBrands = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q && filter === "all" && !zeroCalorieOnly) return brands;
+    if (!q && filter === "all" && !zeroCalorieOnly && !highRatedOnly) return brands;
     return brands.filter((brand) => {
       const hasMatchingFlavor = brand.flavors.some((f) => {
         const review = getReview(f.id);
-        if (zeroCalorieOnly && !f.zeroCalorie) return false;
+        if (!matchesExtraFlavorFilters(f, review, { zeroCalorieOnly, highRatedOnly })) return false;
         if (filter === "tested" && !review.tested) return false;
         if (filter === "untested" && review.tested) return false;
         if (!q) return true;
         return brand.name.toLowerCase().includes(q) || f.taste.toLowerCase().includes(q);
       });
-      if (filter !== "all" || q || zeroCalorieOnly) return hasMatchingFlavor;
+      if (filter !== "all" || q || zeroCalorieOnly || highRatedOnly) return hasMatchingFlavor;
       return true;
     });
-  }, [brands, search, filter, zeroCalorieOnly, getReview]);
+  }, [brands, search, filter, zeroCalorieOnly, highRatedOnly, getReview]);
 
   /** Bascule l'état replié d'une marque. */
   const toggleBrand = (brandId: string) => {
@@ -969,6 +983,14 @@ export function EnergyDrinksList() {
           />
           0 cal seulement
         </label>
+        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none">
+          <Checkbox
+            checked={highRatedOnly}
+            onCheckedChange={(v) => setHighRatedOnly(v === true)}
+            className="h-3 w-3"
+          />
+          ≥ 6,5/10 testés
+        </label>
       </div>
 
       {brands.length === 0 ? (
@@ -990,6 +1012,7 @@ export function EnergyDrinksList() {
                 filter={filter}
                 search={search}
                 zeroCalorieOnly={zeroCalorieOnly}
+                highRatedOnly={highRatedOnly}
                 collapsed={collapsedBrands.has(brand.id)}
                 canMoveUp={brandIndex > 0}
                 canMoveDown={brandIndex >= 0 && brandIndex < brands.length - 1}
