@@ -39,6 +39,7 @@ import {
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
   getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
   findEarliestActiveCounterDate,
+  findEarliestFutureCounterDate,
   recipeHasFiniteCounterableIngredients,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
@@ -1413,11 +1414,33 @@ const Index = () => {
                                       ) < 60_000,
                                   )
                                 : true;
-                              // Créneau futur + pas de vraie ouverture manuelle → « prog. » (date du créneau).
-                              // Sinon on garde la résolution standard (préserve une ouverture réelle passée).
+                              // Ouverture déjà PROGRAMMÉE du lot par une autre carte planifiée plus tôt.
+                              // Deux sources : un compteur futur sur le stock (lotFutureOpening) OU la date résolue
+                              // par resolveCounterStartForPossibleBadge (héritée d'une carte planifiée antérieure
+                              // partageant le lot — robuste même si le food_item n'a plus de compteur).
+                              // Ex. Tenders ouverts lundi soir (par « Riz + Tenders »), cette carte planifiée
+                              // mercredi soir doit figer sur lundi pour afficher 2j (mercredi − lundi).
+                              const lotFutureOpening = ing
+                                ? findEarliestFutureCounterDate(ing, foodItems, foodItemIndex)
+                                : undefined;
+                              const slotMsForFreeze = plannedSlotIso ? new Date(plannedSlotIso).getTime() : NaN;
+                              const earlierOpeningForFreeze = [lotFutureOpening, nextResolvedCounter]
+                                .filter((iso): iso is string => {
+                                  if (!iso) return false;
+                                  const ms = new Date(iso).getTime();
+                                  return !Number.isNaN(ms) && ms > Date.now() && (!Number.isNaN(slotMsForFreeze) ? ms < slotMsForFreeze : true);
+                                })
+                                .reduce<string | undefined>(
+                                  (best, iso) => (!best || new Date(iso).getTime() < new Date(best).getTime() ? iso : best),
+                                  undefined,
+                                );
+                              // Créneau futur + pas de vraie ouverture manuelle → « prog. ».
+                              //  - si le lot s'ouvre plus tôt via une autre carte → figer sur CETTE ouverture (Xj),
+                              //  - sinon cette carte ouvre le lot → figer sur son propre créneau (0j masqué).
+                              // Hors créneau futur : résolution standard (préserve une ouverture réelle passée).
                               const frozenCounter =
                                 plannedSlotIsFuture && activeIsArtifact
-                                  ? plannedSlotIso
+                                  ? (earlierOpeningForFreeze ?? plannedSlotIso)
                                   : nextResolvedCounter;
                               const preservedCounter =
                                 effectiveCounter ??

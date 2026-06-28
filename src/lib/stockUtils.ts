@@ -717,6 +717,9 @@ export function resolveCounterStartForPossibleBadge(
     }
   }
 
+  // Ouvertures réellement actives (≤ maintenant) côté carte ou analyse, puis date d'analyse réelle
+  // (plus ancienne date de compteur des ingrédients) même future. Ces sources priment sur l'inférence
+  // depuis une carte planifiée voisine (ci-dessous).
   if (!base) {
     const cardDate = cardCounterFallback?.trim();
     const analysisDate = earliestFromAnalysis?.trim();
@@ -725,7 +728,43 @@ export function resolveCounterStartForPossibleBadge(
       const ms = parseISO(iso).getTime();
       return !Number.isNaN(ms) && ms <= nowMs ? iso : undefined;
     };
-    base = pickIfActive(cardDate) || pickIfActive(analysisDate) || cardDate || analysisDate;
+    base = pickIfActive(cardDate) || pickIfActive(analysisDate) || (analysisDate || undefined);
+  }
+
+  // Toujours pas de base : si CETTE carte est planifiée et qu'une AUTRE carte planifiée PLUS TÔT (créneau
+  // futur antérieur) partage le même lot comptable, c'est elle qui ouvre réellement le lot. On hérite de
+  // SON créneau comme date d'ouverture. Robuste : indépendant du counter_start_date du food_item (qui peut
+  // être null si le lot a été refermé puis ré-ouvert). Ex. « Riz + Tenders » lundi soir ouvre le lot →
+  // « Patatoes + Tenders » mercredi soir affiche alors 2j.
+  if (!base && mine.size > 0 && pm.day_of_week && pm.meal_time?.trim()) {
+    const mySlotMs = getTargetDate(pm.day_of_week, now, null, pm.meal_time).getTime();
+    let earliestSiblingMs = Infinity;
+    let earliestSiblingIso: string | undefined;
+    for (const o of siblingPossibleMeals) {
+      if (o.id === pm.id) continue;
+      if (!o.day_of_week || !o.meal_time?.trim()) continue;
+      const oIng = o.ingredients_override ?? o.meals?.ingredients;
+      if (!oIng?.trim()) continue;
+      const theirs = counterableIngredientKeysFromRecipe(oIng, foodItems, index);
+      let shares = false;
+      for (const k of mine) { if (theirs.has(k)) { shares = true; break; } }
+      if (!shares) continue;
+      const oSlot = getTargetDate(o.day_of_week, now, null, o.meal_time);
+      const oMs = oSlot.getTime();
+      // Uniquement les créneaux FUTURS antérieurs au mien : la 1re carte à venir ouvre le lot.
+      // Les cartes passées concernent d'anciens lots déjà consommés et ne doivent pas servir d'ouverture.
+      if (oMs > nowMs && oMs < mySlotMs && oMs < earliestSiblingMs) {
+        earliestSiblingMs = oMs;
+        earliestSiblingIso = oSlot.toISOString();
+      }
+    }
+    if (earliestSiblingIso) base = earliestSiblingIso;
+  }
+
+  // Dernier recours : compteur propre figé sur la carte (souvent son propre créneau).
+  if (!base) {
+    const cardDate = cardCounterFallback?.trim();
+    if (cardDate) base = cardDate;
   }
 
   if (!base) return undefined;
@@ -814,6 +853,45 @@ export function findEarliestActiveCounterDate(
         if (ms < earliestMs) {
           earliestMs = ms;
           earliest = fi.counter_start_date!;
+        }
+      }
+    }
+  }
+  return earliest;
+}
+
+/**
+ * Retourne la date de compteur FUTURE la plus proche (compteur « prog. ») parmi les ingrédients
+ * comptables d'une recette. Sert à afficher le décalage Xj sur une carte planifiée APRÈS l'ouverture
+ * d'un lot déjà programmé par une autre carte (ex. Tenders ouverts lundi soir, recette planifiée
+ * mercredi soir → 2j). Contrairement à findEarliestActiveCounterDate, on ne garde QUE les compteurs
+ * strictement futurs (un compteur « maintenant » posé par la déduction est un artefact, pas une ouverture).
+ */
+export function findEarliestFutureCounterDate(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+): string | undefined {
+  const nowMs = (fixedNow ?? new Date()).getTime();
+  let earliest: string | undefined;
+  let earliestMs = Infinity;
+  if (!ingredients?.trim()) return undefined;
+  const groups = parseIngredientGroups(ingredients);
+  const stockMap = buildStockMap(foodItems);
+  for (const group of groups) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const alt = pickBestAlternative(group, stockMap) ?? group[0];
+    if (!alt) continue;
+    for (const item of alt) {
+      if (item.optional || !item.name) continue;
+      for (const fi of lookupFoodItems(item.name, foodItems, index)) {
+        if (fi.is_infinite || fi.storage_type === "surgele" || !fi.counter_start_date?.trim()) continue;
+        const ms = parseISO(fi.counter_start_date).getTime();
+        if (Number.isNaN(ms) || ms <= nowMs) continue; // garder uniquement les compteurs futurs (prog)
+        if (ms < earliestMs) {
+          earliestMs = ms;
+          earliest = fi.counter_start_date;
         }
       }
     }

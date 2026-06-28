@@ -1193,14 +1193,39 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const currentCounterMs = fi.counter_start_date ? new Date(fi.counter_start_date).getTime() : NaN;
         const nowMsAtItem = new Date().getTime();
         if (fullPlanningSlot && Number.isFinite(currentCounterMs) && currentCounterMs > nowMsAtItem) {
-          // Compteur « prog. » résiduel : restaurer une ouverture réelle passée si disponible.
-          const fallbackMs = fallbackDate ? new Date(fallbackDate).getTime() : NaN;
-          if (Number.isFinite(fallbackMs) && fallbackMs <= nowMsAtItem) {
-            pendingUpdates.set(fi.id, fallbackDate!);
-          } else {
-            pendingUpdates.set(fi.id, null);
+          // Le lot porte déjà un compteur FUTUR (« prog. »). Avant de le nettoyer, vérifier s'il reste
+          // justifié par une AUTRE carte planifiée (sibling) qui consomme ce lot à un créneau futur.
+          // Ex. « Riz + Tenders » planifié lundi soir a ouvert les Tenders : planifier « Patatoes + Tenders »
+          // mercredi soir ne doit PAS effacer l'ouverture de lundi (sinon plus de prog ni de décalage Xj).
+          const hasFuturePlannedSiblingForLot = allPossibleMeals.some((pm) => {
+            if (pm.id === pmId) return false;
+            if (!pm.day_of_week || !String(pm.meal_time ?? "").trim()) return false;
+            const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
+            if (!pmIngs?.trim()) return false;
+            const shares = parseIngredientGroups(pmIngs).some((g) =>
+              g.some((altBundle) =>
+                altBundle.some(
+                  (it) =>
+                    !it.optional &&
+                    expandOrGroupIngredientNames(it).some((t) => strictNameMatch(fi.name, t)),
+                ),
+              ),
+            );
+            if (!shares) return false;
+            return new Date(computePlannedCounterDate(pm.day_of_week, pm.meal_time)).getTime() > nowMsAtItem;
+          });
+          // Pas de sibling futur → vrai reliquat : restaurer une ouverture réelle passée ou nettoyer.
+          if (!hasFuturePlannedSiblingForLot) {
+            const fallbackMs = fallbackDate ? new Date(fallbackDate).getTime() : NaN;
+            if (Number.isFinite(fallbackMs) && fallbackMs <= nowMsAtItem) {
+              pendingUpdates.set(fi.id, fallbackDate!);
+            } else {
+              pendingUpdates.set(fi.id, null);
+            }
+            continue;
           }
-          continue;
+          // Sinon : laisser la logique normale ci-dessous recalculer le min des créneaux futurs
+          // (conserve l'ouverture la plus précoce, ex. lundi soir).
         }
 
         // Objectif : faire pointer le compteur de l’aliment sur la date FUTURE LA PLUS PROCHE

@@ -349,24 +349,43 @@ export function PossibleMealCard({
         : undefined,
     [cardIngredients, foodItems, foodMacroIndex],
   );
-  // Carte planifiée (jour + créneau) : le compteur est FIGÉ sur la carte (pm.counter_start_date) et ne
-  // suit plus le lot partagé en direct — sinon ajouter une autre recette qui ouvre le même aliment
-  // modifierait le compteur de cette carte. Carte non planifiée : résolution live depuis le stock.
+  // Carte planifiée (jour + créneau) : le départ du compteur correspond à l'ouverture du lot LA PLUS
+  // PRÉCOCE connue — le minimum entre le compteur FIGÉ sur la carte (au moment de la planification) et la
+  // date RÉSOLUE en direct par le parent (ouverture en stock / carte voisine consommant le lot).
+  // Prendre le minimum :
+  //  - préserve une vraie ouverture antérieure déjà figée (une autre carte qui entame le lot MAINTENANT
+  //    ne raccourcit pas le compteur d'une carte dont le lot était ouvert plus tôt → effet « figé ») ;
+  //  - reflète une ouverture PLUS PRÉCOCE non encore figée (ex. « Patatoes + Tenders » non planifié entame
+  //    les Tenders maintenant → la carte « Riz + Tenders » de lundi affiche 0j ; ou une carte planifiée
+  //    antérieure qui ouvre le lot → décalage Xj).
   const isPlannedFull = Boolean(pm.day_of_week?.trim() && pm.meal_time?.trim());
+  const plannedStart = useMemo(() => {
+    const frozen = pm.counter_start_date?.trim() || undefined;
+    const resolved = realtimeCounterStartDate?.trim() || undefined;
+    if (frozen && resolved) {
+      return new Date(resolved).getTime() < new Date(frozen).getTime() ? resolved : frozen;
+    }
+    return frozen ?? resolved;
+  }, [pm.counter_start_date, realtimeCounterStartDate]);
   const effectiveCounterStart = isPlannedFull
-    ? (pm.counter_start_date ?? realtimeCounterStartDate)
+    ? plannedStart
     : (activeCounterFromStock ?? realtimeCounterStartDate ?? pm.counter_start_date);
 
   // Le badge compteur n'a de sens que si la recette possède réellement un ingrédient porteur de compteur
   // (lot fini non surgelé encore en stock) OU si un compteur est déjà actif sur le stock (y compris manuel).
   // Évite un « 0j » résiduel sur une carte dont l'aliment a été entièrement consommé et n'existe plus.
+  // Une carte entièrement planifiée porte un compteur FIGÉ au moment de la planification : on lui fait
+  // confiance même si l'ingrédient comptable n'est plus en stock (consommé), pour rester cohérent avec
+  // l'onglet Planning qui affiche ce compteur sans cette restriction. Le gate « backing » ne sert alors
+  // qu'à masquer un compteur résiduel sur une carte NON planifiée dont l'aliment a disparu.
   const counterHasBacking = useMemo(
     () =>
       foodItems?.length
         ? recipeHasFiniteCounterableIngredients(cardIngredients, foodItems, foodMacroIndex) ||
-          activeCounterFromStock != null
+          activeCounterFromStock != null ||
+          (isPlannedFull && !!plannedStart)
         : true,
-    [cardIngredients, foodItems, foodMacroIndex, activeCounterFromStock],
+    [cardIngredients, foodItems, foodMacroIndex, activeCounterFromStock, isPlannedFull, plannedStart],
   );
 
   const counterDaysRaw = getAdaptedCounterDays(
