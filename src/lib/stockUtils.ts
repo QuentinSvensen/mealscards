@@ -141,37 +141,6 @@ export function pickBestAlternative(
   return null;
 }
 
-/** Indique s'il reste du stock fini pour préparer ce repas (par ingrédients ou par nom). */
-export function hasRemainingMealStock(
-  meal: Pick<Meal, "name" | "ingredients">,
-  foodItems: FoodItem[],
-  ingredientsOverride?: string | null,
-  index?: FoodItemIndex,
-): boolean {
-  const stockMap = buildStockMap(foodItems);
-  const ingredients = ingredientsOverride ?? meal.ingredients;
-  if (!ingredients?.trim()) {
-    const key = findStockKey(stockMap, meal.name);
-    if (!key) return false;
-    const info = stockMap.get(key)!;
-    return info.infinite || info.grams > 0 || info.count > 0;
-  }
-  const groups = parseIngredientGroups(ingredients);
-  for (const group of groups) {
-    if (group.every((bundle) => bundle.every((item) => item.optional))) continue;
-    const bundle = pickBestAlternative(group, stockMap);
-    if (!bundle) continue;
-    for (const item of bundle) {
-      if (item.optional || !item.name) continue;
-      const key = findStockKey(stockMap, item.name);
-      if (!key) continue;
-      const info = stockMap.get(key)!;
-      if (info.infinite || info.grams > 0 || info.count > 0) return true;
-    }
-  }
-  return false;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 3 : Disponibilité des repas
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -503,6 +472,17 @@ export function isFoodItemCounterEligible(fi: FoodItem): boolean {
   return !fi.is_infinite && fi.storage_type !== "surgele" && !fi.no_counter;
 }
 
+/**
+ * Indique si un aliment a un compteur d’ouverture déjà démarré et affichable.
+ * Inclut les compteurs manuels sur articles sans grammes (`no_counter`), tant que `counter_start_date` est actif.
+ */
+export function hasActiveFoodItemCounter(fi: FoodItem, fixedNow?: Date): boolean {
+  if (fi.is_infinite || fi.storage_type === "surgele" || !fi.counter_start_date?.trim()) return false;
+  const nowMs = (fixedNow ?? new Date()).getTime();
+  const startMs = parseISO(fi.counter_start_date).getTime();
+  return !Number.isNaN(startMs) && startMs <= nowMs;
+}
+
 export interface MealAnalysis {
   /** Date de péremption la plus proche parmi les ingrédients */
   earliestExpiration: string | null;
@@ -557,7 +537,6 @@ export function analyzeMealIngredients(
   if (!meal.ingredients?.trim()) return result;
 
   const now = new Date();
-  const nowMs = now.getTime();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayMs = today.getTime();
   const soonDate = new Date(today);
@@ -565,11 +544,14 @@ export function analyzeMealIngredients(
   const soonMs = soonDate.getTime();
 
   const groups = parseIngredientGroups(meal.ingredients);
+  const stockMap = buildStockMap(foodItems);
   let earliestSoonDate: string | null = null;
   let earliestSoonName: string | null = null;
 
   for (const group of groups) {
+    const bestAlt = pickBestAlternative(group, stockMap);
     for (const alt of group) {
+      const includeCounter = !bestAlt || alt === bestAlt;
       for (const item of alt) {
         for (const fi of lookupFoodItems(item.name, foodItems, index)) {
           if (skipIds?.has(fi.id)) continue;
@@ -592,13 +574,13 @@ export function analyzeMealIngredients(
             }
           }
 
-          // --- Analyse du compteur d'ouverture (uniquement stock fini compteur) ---
-          if (isFoodItemCounterEligible(fi) && fi.counter_start_date) {
-            const csdMs = parseISO(fi.counter_start_date).getTime();
-            if (!Number.isNaN(csdMs) && csdMs <= nowMs) {
-              if (!result.earliestActiveCounterDate || fi.counter_start_date < result.earliestActiveCounterDate) {
-                result.earliestActiveCounterDate = fi.counter_start_date;
-              }
+          if (!includeCounter) continue;
+
+          // --- Analyse du compteur d'ouverture (compteur actif, y compris manuel) ---
+          if (hasActiveFoodItemCounter(fi)) {
+            const csdMs = parseISO(fi.counter_start_date!).getTime();
+            if (!result.earliestActiveCounterDate || fi.counter_start_date! < result.earliestActiveCounterDate) {
+              result.earliestActiveCounterDate = fi.counter_start_date!;
             }
             const days = computeCounterDays(fi.counter_start_date);
             if (days !== null) {
@@ -608,13 +590,12 @@ export function analyzeMealIngredients(
               }
               result.counterIngredientNames.add(normalizeKey(item.name));
             }
-            // Toujours collecter la date la plus ancienne pour le calcul d'offset dans le planning
-            if (!result.earliestCounterDate || fi.counter_start_date < result.earliestCounterDate) {
-              result.earliestCounterDate = fi.counter_start_date;
+            if (!result.earliestCounterDate || fi.counter_start_date! < result.earliestCounterDate) {
+              result.earliestCounterDate = fi.counter_start_date!;
             }
           }
 
-          // --- Vérifier si l'aliment peut avoir un compteur ---
+          // --- Vérifier si l'aliment peut avoir un compteur automatique ---
           if (isFoodItemCounterEligible(fi)) {
             result.hasCounterableIngredient = true;
           }
@@ -816,24 +797,23 @@ export function findEarliestActiveCounterDate(
   index?: FoodItemIndex,
   fixedNow?: Date,
 ): string | undefined {
-  const nowMs = (fixedNow ?? new Date()).getTime();
   let earliest: string | undefined;
   let earliestMs = Infinity;
   if (!ingredients?.trim()) return undefined;
   const groups = parseIngredientGroups(ingredients);
+  const stockMap = buildStockMap(foodItems);
   for (const group of groups) {
     if (group.every((b) => b.every((i) => i.optional))) continue;
-    const bundle = group[0];
-    if (!bundle) continue;
-    for (const item of bundle) {
+    const alt = pickBestAlternative(group, stockMap) ?? group[0];
+    if (!alt) continue;
+    for (const item of alt) {
       if (item.optional || !item.name) continue;
       for (const fi of lookupFoodItems(item.name, foodItems, index)) {
-        if (!isFoodItemCounterEligible(fi) || !fi.counter_start_date) continue;
-        const ms = parseISO(fi.counter_start_date).getTime();
-        if (Number.isNaN(ms) || ms > nowMs) continue;
+        if (!hasActiveFoodItemCounter(fi, fixedNow)) continue;
+        const ms = parseISO(fi.counter_start_date!).getTime();
         if (ms < earliestMs) {
           earliestMs = ms;
-          earliest = fi.counter_start_date;
+          earliest = fi.counter_start_date!;
         }
       }
     }
@@ -858,14 +838,15 @@ function findCriticalCounterKeys(
   const baseMs = parseISO(base).getTime();
   if (Number.isNaN(baseMs)) return keys;
   const groups = parseIngredientGroups(ingredients);
+  const stockMap = buildStockMap(foodItems);
   for (const group of groups) {
     if (group.every((b) => b.every((i) => i.optional))) continue;
-    const bundle = group[0];
-    if (!bundle) continue;
-    for (const item of bundle) {
+    const alt = pickBestAlternative(group, stockMap) ?? group[0];
+    if (!alt) continue;
+    for (const item of alt) {
       if (item.optional || !item.name) continue;
       for (const fi of lookupFoodItems(item.name, foodItems, index)) {
-        if (!isFoodItemCounterEligible(fi) || !fi.counter_start_date) continue;
+        if (!hasActiveFoodItemCounter(fi) || !fi.counter_start_date) continue;
         const csdMs = parseISO(fi.counter_start_date).getTime();
         if (Number.isNaN(csdMs)) continue;
         // Tolérance d'une minute pour absorber les écarts de sérialisation ISO.

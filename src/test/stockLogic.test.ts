@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
@@ -520,6 +520,29 @@ describe("analyzeMealIngredients — stock infini", () => {
     expect(analysis.earliestCounterDate).toBeNull();
     expect(analysis.hasCounterableIngredient).toBe(false);
     expect(recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems)).toBe(false);
+  });
+
+  it("affiche le compteur d’une alternative OU disponible même si no_counter (compteur manuel)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T12:00:00.000Z"));
+    const foodItems = [
+      makeFoodItem({
+        name: "Blanc de poulet",
+        quantity: 2,
+        grams: null,
+        no_counter: true,
+        counter_start_date: "2026-07-16T10:00:00.000Z",
+      }),
+    ];
+    const meal = makeMeal({
+      name: "Sandwich",
+      ingredients: "2 Blanc de dinde | 2 Blanc de poulet | 75g Dés de poulet, 25g Fuet",
+    });
+    const analysis = analyzeMealIngredients(meal, foodItems);
+    expect(analysis.maxIngredientCounter).toBe(1);
+    expect(analysis.counterIngredientNames.has("blanc de poulet")).toBe(true);
+    expect(analysis.hasCounterableIngredient).toBe(false);
+    vi.useRealTimers();
   });
 });
 

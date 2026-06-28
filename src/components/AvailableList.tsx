@@ -573,8 +573,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     }
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
-      const aAn = analyzeMealIngredients(a.meal, foodItems);
-      const bAn = analyzeMealIngredients(b.meal, foodItems);
+      const aAn = analyzeMealIngredients(a.meal, foodItems, foodItemIndex);
+      const bAn = analyzeMealIngredients(b.meal, foodItems, foodItemIndex);
       const res = compareExpirationWithCounter(aAn.earliestExpiration, bAn.earliestExpiration, aAn.maxIngredientCounter, bAn.maxIngredientCounter);
       if (res !== 0) return res;
       // Tie-breaker: favorites first
@@ -1019,7 +1019,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const displayMultiple = effectiveRatio !== 1 ? getMealMultiple(displayMeal, stockMap) : multiple;
     const badgeMultiple = displayMultiple ?? multiple;
     // L'analyse en une seule passe remplace 6+ appels de fonctions séparés
-    const analysis = analyzeMealIngredients(meal, foodItems);
+    const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
     const expLabel = formatExpirationLabel(analysis.earliestExpiration);
     const expIsTodayAv = isToday(analysis.earliestExpiration);
     const expiringIng = analysis.expiringIngredientName;
@@ -1110,7 +1110,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
     const effectiveRatio = customRatio ?? defaultRatio;
     const pct = Math.round(effectiveRatio * 100);
-    const analysis = analyzeMealIngredients(meal, foodItems);
+    const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
     const expLabel = formatExpirationLabel(analysis.earliestExpiration);
     const expIsTodayPa = isToday(analysis.earliestExpiration);
     const partialMeal = buildScaledMealForRatio(meal, effectiveRatio, stockMap);
@@ -1904,12 +1904,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                 unified.push({ type: 'nm', nm, nmIdx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getAvailableSortMacroValue(buildNameMatchCalorieMeal(nm), "calories") });
               }
               for (const item of sortedAvailable) {
-                const an = analyzeMealIngredients(item.meal, foodItems);
+                const an = analyzeMealIngredients(item.meal, foodItems, foodItemIndex);
                 const ratio = customRatios[item.meal.id] ?? 1;
                 unified.push({ type: 'av', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getAvailableSortMacroValue(item.meal, "calories", ratio) });
               }
               for (const item of partialAvailable) {
-                const an = analyzeMealIngredients(item.meal, foodItems);
+                const an = analyzeMealIngredients(item.meal, foodItems, foodItemIndex);
                 const ratio = customRatios[`partial-${item.meal.id}`] ?? item.ratio;
                 unified.push({ type: 'partial', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getAvailableSortMacroValue(item.meal, "calories", ratio) });
               }

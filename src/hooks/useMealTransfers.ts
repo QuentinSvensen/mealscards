@@ -590,18 +590,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     }
 
     const fi = matchingItems[0];
-    // Conserver l'ouverture d'origine : on prend la date de compteur la plus ancienne entre
-    // l'aliment en stock et le snapshot (ex. retour d'une portion ouverte vendredi midi).
-    const restoredCounter = earlierCounterDate(fi.counter_start_date, snap.counter_start_date);
+    // On revient à l'état d'ouverture d'AVANT le passage en Possible : le snapshot fait foi.
+    // - snapshot ouvert (ex. portion ouverte vendredi midi) → on garde la date la plus ancienne.
+    // - snapshot scellé (pas de compteur) → on N'hérite PAS du compteur « maintenant » posé par la
+    //   déduction ; sinon le compteur resterait lancé après le retour dans « au choix ».
+    const restoredCounter = snap.counter_start_date
+      ? earlierCounterDate(fi.counter_start_date, snap.counter_start_date)
+      : null;
     if (neededCount > 0) {
       const newQty = (fi.quantity ?? 1) + neededCount;
         const synthetic = { ...fi, quantity: newQty } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
-        const counterUpdate = restoredCounter
-          ? { counter_start_date: restoredCounter }
-          : clearCtr
-            ? { counter_start_date: null }
-            : {};
+        const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
         await safeMutate("Restauration portion (count)", () =>
         supabase.from("food_items").update({ quantity: Math.ceil(newQty), ...counterUpdate } as any).eq("id", fi.id)
       );
@@ -617,11 +617,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const newGramsStr = encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null);
         const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
-        const counterUpdate = restoredCounter
-          ? { counter_start_date: restoredCounter }
-          : clearCtr
-            ? { counter_start_date: null }
-            : {};
+        const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
         await safeMutate("Restauration portion (grams)", () =>
           supabase.from("food_items").update({
             quantity: newQty,
@@ -634,11 +630,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const newG = formatNumeric(currentTotal + neededGrams);
         const synthetic = { ...fi, grams: newG } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
-        const counterUpdate = restoredCounter
-          ? { counter_start_date: restoredCounter }
-          : clearCtr
-            ? { counter_start_date: null }
-            : {};
+        const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
         await safeMutate("Restauration portion (simple)", () =>
           supabase.from("food_items").update({
             grams: newG,
@@ -1289,10 +1281,36 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const currentCounterMs = fi.counter_start_date ? new Date(fi.counter_start_date).getTime() : NaN;
           const isAlreadyOpened =
             Number.isFinite(currentCounterMs) && currentCounterMs <= nowMsCheck;
-          const counterFromPmCreation = Number.isFinite(currentCounterMs)
-            && allPossibleMeals.some(pm => pm.created_at && Math.abs(currentCounterMs - new Date(pm.created_at).getTime()) < 60_000);
-          if (isSettingFutureDate && isAlreadyOpened) continue;
-          if (fullPlanningSlot && isSettingFutureDate && !counterFromPmCreation) continue;
+          const cardCreatedMs = createdAt ? new Date(createdAt).getTime() : NaN;
+          // Compteur « artificiel » : posé par la déduction au passage en Possible (donc au moment, ou après,
+          // la création de la carte planifiée), et non une ouverture manuelle réelle antérieure. On le détecte
+          // soit par proximité avec la création d'une carte (≤ 60 s), soit parce qu'il ne précède pas la carte
+          // planifiée. Un tel compteur peut être repoussé sur le créneau futur (mode « prog. »).
+          const counterFromPmCreation =
+            Number.isFinite(currentCounterMs) &&
+            (allPossibleMeals.some(pm => pm.created_at && Math.abs(currentCounterMs - new Date(pm.created_at).getTime()) < 60_000) ||
+              (Number.isFinite(cardCreatedMs) && currentCounterMs >= cardCreatedMs - 60_000));
+          // Un autre repas NON planifié consomme déjà ce lot maintenant : le lot est réellement ouvert,
+          // on ne le bascule pas en « prog. ». Les repas planifiés (passés ou futurs) portent leur
+          // propre compteur figé sur leur carte et ne bloquent donc pas la programmation de ce lot.
+          const lotConsumedNowBySibling = allPossibleMeals.some((pm) => {
+            if (pm.id === pmId) return false;
+            if (pm.day_of_week && String(pm.meal_time ?? "").trim()) return false;
+            const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
+            if (!pmIngs?.trim()) return false;
+            return parseIngredientGroups(pmIngs).some((g) =>
+              g.some((altBundle) =>
+                altBundle.some(
+                  (it) =>
+                    !it.optional &&
+                    expandOrGroupIngredientNames(it).some((t) => strictNameMatch(fi.name, t)),
+                ),
+              ),
+            );
+          });
+          const movableToProg = counterFromPmCreation && !lotConsumedNowBySibling;
+          if (isSettingFutureDate && isAlreadyOpened && !movableToProg) continue;
+          if (fullPlanningSlot && isSettingFutureDate && !movableToProg) continue;
 
           // Protéger les compteurs manuels seulement hors planification complète (jour + créneau).
           if (!fullPlanningSlot && !isSettingFutureDate && fi.counter_start_date) {

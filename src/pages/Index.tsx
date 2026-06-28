@@ -1388,25 +1388,39 @@ const Index = () => {
                               // (ne pas inférer « midi » dès le jour seul — cela effaçait le compteur trop tôt).
                               const hasFullPlanningSlot = Boolean(day?.trim() && time?.trim());
 
-                              // 2e clic planning (Midi puis jour, ou jour puis Midi) : ne pas effacer le compteur ni resync le stock.
-                              const isCompletingPartialSlot = Boolean(
-                                day &&
-                                (
-                                  (time?.trim() && pm.meal_time === time && !pm.day_of_week?.trim()) ||
-                                  (day && pm.day_of_week === day && !pm.meal_time?.trim())
-                                ),
-                              );
+                              // Le compteur d'une carte Possible est FIGÉ : on le fixe au moment de la planification
+                              // et il ne doit plus changer parce qu'une AUTRE recette ouvre le même lot ensuite.
+                              const plannedSlotIso =
+                                hasFullPlanningSlot && day ? computePlannedCounterDate(day, time) : null;
+                              const plannedSlotIsFuture =
+                                plannedSlotIso ? new Date(plannedSlotIso).getTime() > Date.now() : false;
+                              // Une ouverture « active » sur le stock est-elle un simple artefact de déduction
+                              // (compteur posé ≈ création d'une carte) plutôt qu'une vraie ouverture manuelle ?
+                              const activeIsArtifact = activeStockFallback
+                                ? possibleMeals.some(
+                                    (p) =>
+                                      p.created_at &&
+                                      Math.abs(
+                                        new Date(activeStockFallback).getTime() -
+                                          new Date(p.created_at).getTime(),
+                                      ) < 60_000,
+                                  )
+                                : true;
+                              // Créneau futur + pas de vraie ouverture manuelle → « prog. » (date du créneau).
+                              // Sinon on garde la résolution standard (préserve une ouverture réelle passée).
+                              const frozenCounter =
+                                plannedSlotIsFuture && activeIsArtifact
+                                  ? plannedSlotIso
+                                  : nextResolvedCounter;
                               const preservedCounter =
                                 effectiveCounter ??
                                 activeStockFallback ??
                                 nextResolvedCounter ??
                                 pm.counter_start_date ??
                                 undefined;
-                              // Ne pas persister analysis.earliestCounterDate sur la carte quand jour+créneau sont
-                              // fixés (sinon « maintenant » après déduction écrase le min jeudi d'un autre repas).
                               const counterForMutate =
-                                hasFullPlanningSlot && !isOccupied && !isCompletingPartialSlot
-                                  ? undefined
+                                hasFullPlanningSlot && !isOccupied
+                                  ? frozenCounter
                                   : preservedCounter;
                               updatePlanning.mutate({
                                 id,
@@ -1414,9 +1428,9 @@ const Index = () => {
                                 meal_time: time,
                                 counter_start_date: counterForMutate,
                               });
-                              if (hasFullPlanningSlot && !isCompletingPartialSlot) {
+                              if (hasFullPlanningSlot) {
                                 const fallbackDate =
-                                  nextResolvedCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null;
+                                  frozenCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null;
                                 updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, nextPossibleMeals);
                               }
                             }

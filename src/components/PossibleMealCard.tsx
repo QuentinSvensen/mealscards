@@ -35,7 +35,7 @@ import {
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, hasRemainingMealStock } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, recipeHasFiniteCounterableIngredients } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -349,15 +349,24 @@ export function PossibleMealCard({
         : undefined,
     [cardIngredients, foodItems, foodMacroIndex],
   );
-  const effectiveCounterStart =
-    activeCounterFromStock ?? realtimeCounterStartDate ?? pm.counter_start_date;
+  // Carte planifiée (jour + créneau) : le compteur est FIGÉ sur la carte (pm.counter_start_date) et ne
+  // suit plus le lot partagé en direct — sinon ajouter une autre recette qui ouvre le même aliment
+  // modifierait le compteur de cette carte. Carte non planifiée : résolution live depuis le stock.
+  const isPlannedFull = Boolean(pm.day_of_week?.trim() && pm.meal_time?.trim());
+  const effectiveCounterStart = isPlannedFull
+    ? (pm.counter_start_date ?? realtimeCounterStartDate)
+    : (activeCounterFromStock ?? realtimeCounterStartDate ?? pm.counter_start_date);
 
-  const hasRemainingStock = useMemo(
+  // Le badge compteur n'a de sens que si la recette possède réellement un ingrédient porteur de compteur
+  // (lot fini non surgelé encore en stock) OU si un compteur est déjà actif sur le stock (y compris manuel).
+  // Évite un « 0j » résiduel sur une carte dont l'aliment a été entièrement consommé et n'existe plus.
+  const counterHasBacking = useMemo(
     () =>
       foodItems?.length
-        ? hasRemainingMealStock(meal, foodItems, cardIngredients, foodMacroIndex)
+        ? recipeHasFiniteCounterableIngredients(cardIngredients, foodItems, foodMacroIndex) ||
+          activeCounterFromStock != null
         : true,
-    [meal, foodItems, cardIngredients, foodMacroIndex],
+    [cardIngredients, foodItems, foodMacroIndex, activeCounterFromStock],
   );
 
   const counterDaysRaw = getAdaptedCounterDays(
@@ -366,7 +375,7 @@ export function PossibleMealCard({
     pm.created_at,
     pm.meal_time,
   );
-  const counterDays = hasRemainingStock ? counterDaysRaw : null;
+  const counterDays = counterHasBacking ? counterDaysRaw : null;
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;
