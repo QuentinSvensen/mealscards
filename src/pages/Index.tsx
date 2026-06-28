@@ -52,6 +52,8 @@ import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRep
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
 import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
+import { asStringArrayRecord } from "@/domain/planning/jsonCoerce";
+import { remapPlanningRecordToTargetWeek } from "@/domain/planning/remapPlanningKeys";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
@@ -501,6 +503,11 @@ const Index = () => {
         const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, targetWeek);
         const goals = resolvePostResetGoals(prefMap);
         pushWeeklyResetClientPreferences(setPreference, promoted, goals, now.toISOString(), "auto_sunday");
+        const promotedExtraSlots = remapPlanningRecordToTargetWeek(
+          asStringArrayRecord(prefMap["next_week_extra_slot_assignments"]),
+          targetWeek,
+        );
+        setPreference.mutate({ key: "planning_extra_slot_assignments", value: promotedExtraSlots });
         setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
 
         await qc.invalidateQueries({ queryKey: ["possible_meals"] });

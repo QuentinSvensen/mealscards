@@ -50,6 +50,7 @@ export function pushWeeklyResetClientPreferences(
     mutate({ key: "next_week_extra_proteins", value: {} });
     mutate({ key: "next_week_extra_fibers", value: {} });
     mutate({ key: "next_week_extra_selections", value: {} });
+    mutate({ key: "next_week_extra_slot_assignments", value: {} });
     mutate({ key: "next_week_breakfast_manual_calories", value: {} });
     mutate({ key: "next_week_breakfast_manual_proteins", value: {} });
     mutate({ key: "next_week_drink_checks", value: {} });
@@ -67,6 +68,7 @@ export function pushWeeklyResetClientPreferences(
     mutate({ key: "next_week_extra_proteins", value: {} });
     mutate({ key: "next_week_extra_fibers", value: {} });
     mutate({ key: "next_week_extra_selections", value: {} });
+    mutate({ key: "next_week_extra_slot_assignments", value: {} });
     mutate({ key: "next_week_breakfast_manual_calories", value: {} });
     mutate({ key: "next_week_breakfast_manual_proteins", value: {} });
     mutate({ key: "next_week_drink_checks", value: {} });

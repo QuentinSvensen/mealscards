@@ -35,6 +35,7 @@ describe("clearNextWeekExtraStateForDay", () => {
       { lundi: ["food-a"], "2026-06-02": ["food-b"] },
       { lundi: 120 },
       { lundi: 12 },
+      { lundi: 8 },
       "2026-06-02",
       "lundi",
     );
@@ -43,5 +44,6 @@ describe("clearNextWeekExtraStateForDay", () => {
     expect(out.calories.lundi).toBe(0);
     expect(out.calories["2026-06-02"]).toBe(0);
     expect(out.proteins.lundi).toBe(0);
+    expect(out.fibers.lundi).toBe(0);
   });
 });

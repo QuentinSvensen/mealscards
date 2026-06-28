@@ -87,6 +87,7 @@ export const NEXT_WEEK_PROMOTION_PREF_KEYS = [
   "next_week_extra_proteins",
   "next_week_extra_fibers",
   "next_week_extra_selections",
+  "next_week_extra_slot_assignments",
   "next_week_breakfast",
   "next_week_breakfast_manual_calories",
   "next_week_breakfast_manual_proteins",

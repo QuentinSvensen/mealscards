@@ -25,16 +25,19 @@ export function clearNextWeekExtraStateForDay(
   selections: Record<string, string[]>,
   calories: Record<string, number>,
   proteins: Record<string, number>,
+  fibers: Record<string, number>,
   iso: string,
   dayKey: string,
 ): {
   selections: Record<string, string[]>;
   calories: Record<string, number>;
   proteins: Record<string, number>;
+  fibers: Record<string, number>;
 } {
   const nextSelections = { ...selections };
   const nextCalories = { ...calories };
   const nextProteins = { ...proteins };
+  const nextFibers = { ...fibers };
 
   nextSelections[dayKey] = [];
   nextSelections[iso] = [];
@@ -42,10 +45,13 @@ export function clearNextWeekExtraStateForDay(
   nextCalories[iso] = 0;
   nextProteins[dayKey] = 0;
   nextProteins[iso] = 0;
+  nextFibers[dayKey] = 0;
+  nextFibers[iso] = 0;
 
   return {
     selections: nextSelections,
     calories: nextCalories,
     proteins: nextProteins,
+    fibers: nextFibers,
   };
 }
