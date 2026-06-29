@@ -549,6 +549,14 @@ const Index = () => {
   const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
   const snapshotsSynced = useRef(false);
   const snapshotsJsonRef = useRef('');
+  /** Snapshots effectifs : état local ou préférences persistées (disponibles dès le 1er rendu si cache chaud). */
+  const effectiveDeductionSnapshots = useMemo(
+    () =>
+      Object.keys(deductionSnapshots).length > 0
+        ? deductionSnapshots
+        : (persistedSnapshots ?? EMPTY_DEDUCTION_SNAPSHOTS),
+    [deductionSnapshots, persistedSnapshots],
+  );
   useEffect(() => {
     if (snapshotsSynced.current) return;
     if (!persistedSnapshots || Object.keys(persistedSnapshots).length === 0) return;
@@ -1260,6 +1268,7 @@ const Index = () => {
                           category={cat}
                           items={getSortedPossible(cat.value)}
                           allPossibleMeals={possibleMeals}
+                          deductionSnapshots={effectiveDeductionSnapshots}
                           sortMode={sortModes[cat.value] || "manual"}
                           stockMap={stockMap}
                           onToggleSort={() => toggleSort(cat.value)}
@@ -1434,14 +1443,46 @@ const Index = () => {
                                   (best, iso) => (!best || new Date(iso).getTime() < new Date(best).getTime() ? iso : best),
                                   undefined,
                                 );
+                              // Ne pas écraser une ouverture RÉELLE (carte, snapshot de déduction ou stock) par le
+                              // créneau planifié « prog. ». Les snapshots conservent l'état AVANT consommation
+                              // (ex. Crème liquide ouverte depuis 3j). On exclut l'artefact « ouvert à la création ».
+                              const cardCounterIso = pm.counter_start_date?.trim();
+                              const createdMs = pm.created_at ? new Date(pm.created_at).getTime() : NaN;
+                              const snapshotPastOpening = ing
+                                ? findEarliestActiveCounterDate(ing, effectiveDeductionSnapshots[id] ?? [], foodItemIndex)
+                                : undefined;
+                              const realPastOpening = [
+                                cardCounterIso,
+                                snapshotPastOpening,
+                                activeStockFallback,
+                                nextAnalysis?.earliestActiveCounterDate ?? undefined,
+                              ]
+                                .filter((iso): iso is string => {
+                                  if (!iso?.trim()) return false;
+                                  const ms = new Date(iso).getTime();
+                                  if (!Number.isFinite(ms) || ms > Date.now()) return false;
+                                  if (
+                                    iso === cardCounterIso &&
+                                    Number.isFinite(createdMs) &&
+                                    Math.abs(ms - createdMs) < 60_000
+                                  ) {
+                                    return false;
+                                  }
+                                  return true;
+                                })
+                                .reduce<string | undefined>(
+                                  (best, iso) =>
+                                    !best || new Date(iso).getTime() < new Date(best).getTime() ? iso : best,
+                                  undefined,
+                                );
                               // Créneau futur + pas de vraie ouverture manuelle → « prog. ».
                               //  - si le lot s'ouvre plus tôt via une autre carte → figer sur CETTE ouverture (Xj),
                               //  - sinon cette carte ouvre le lot → figer sur son propre créneau (0j masqué).
                               // Hors créneau futur : résolution standard (préserve une ouverture réelle passée).
                               const frozenCounter =
-                                plannedSlotIsFuture && activeIsArtifact
+                                plannedSlotIsFuture && activeIsArtifact && !realPastOpening
                                   ? (earlierOpeningForFreeze ?? plannedSlotIso)
-                                  : nextResolvedCounter;
+                                  : (realPastOpening ?? nextResolvedCounter);
                               const preservedCounter =
                                 effectiveCounter ??
                                 activeStockFallback ??

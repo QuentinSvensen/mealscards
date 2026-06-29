@@ -20,7 +20,7 @@ import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -104,6 +104,8 @@ interface PossibleListProps {
   unParUnSourcePmIds: Set<string>;
   /** Toutes les cartes possibles, toutes catégories (utilisé pour la priorité du badge compteur). */
   allPossibleMeals?: PossibleMeal[];
+  /** Snapshots de déduction par carte (état stock avant consommation, pour retrouver le compteur réel). */
+  deductionSnapshots?: Record<string, FoodItem[]>;
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
@@ -114,7 +116,7 @@ export function PossibleList({
   onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes,
   onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems,
   ingredientMacroAutofillSources,
-  onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals
+  onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals, deductionSnapshots = {}
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
@@ -172,6 +174,10 @@ export function PossibleList({
           if (!meal || !analysis) return null;
           const expiredIngs = analysis.expiredIngredientNames;
           const soonIngs = analysis.expiringSoonIngredientNames;
+          const cardIngredients = pm.ingredients_override ?? meal.ingredients;
+          const snapshotPastOpening = cardIngredients
+            ? findEarliestActiveCounterDate(cardIngredients, deductionSnapshots[pm.id] ?? [], foodItemIndex)
+            : undefined;
           const resolvedCounterStart =
             masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id)
               ? null
@@ -252,7 +258,13 @@ export function PossibleList({
                 realtimeCounterStartDate={
                   resolvedCounterStart === null
                     ? undefined
-                    : (resolvedCounterStart ?? analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date ?? undefined)
+                    : pickEarliestPastCounterStart(
+                        resolvedCounterStart,
+                        snapshotPastOpening,
+                        analysis.earliestActiveCounterDate,
+                        analysis.earliestCounterDate,
+                        pm.counter_start_date,
+                      )
                 } />
 
               {showBottomSeparator && (
@@ -277,7 +289,10 @@ export function PossibleList({
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
             const displayPro = ingPro !== null ? String(ingPro) : meal.protein;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
-            const effectiveStart =
+            const popupSnapshotOpening = displayIngredients
+              ? findEarliestActiveCounterDate(displayIngredients, deductionSnapshots[popupPm.id] ?? [], foodItemIndex)
+              : undefined;
+            const effectiveStart = pickEarliestPastCounterStart(
               resolveCounterStartForPossibleBadge(
                 popupPm,
                 badgeSiblings,
@@ -287,11 +302,12 @@ export function PossibleList({
                 foodItemIndex,
                 undefined,
                 analysis.earliestActiveCounterDate,
-              ) ??
-              analysis.earliestActiveCounterDate ??
-              analysis.earliestCounterDate ??
-              popupPm.counter_start_date ??
-              null;
+              ),
+              popupSnapshotOpening,
+              analysis.earliestActiveCounterDate,
+              analysis.earliestCounterDate,
+              popupPm.counter_start_date,
+            ) ?? null;
             const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
             const counterBadgeTitle =
               counterDays !== null && effectiveStart

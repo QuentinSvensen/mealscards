@@ -483,6 +483,24 @@ export function hasActiveFoodItemCounter(fi: FoodItem, fixedNow?: Date): boolean
   return !Number.isNaN(startMs) && startMs <= nowMs;
 }
 
+/**
+ * Choisit la date de départ du badge compteur parmi plusieurs candidates.
+ * Priorise les ouvertures passées réelles (stock / snapshot) aux dates « prog. » futures de la carte.
+ */
+export function pickEarliestPastCounterStart(
+  ...candidates: (string | null | undefined)[]
+): string | undefined {
+  const nowMs = Date.now();
+  const valid = candidates
+    .filter((iso): iso is string => !!iso?.trim())
+    .filter((iso) => !Number.isNaN(new Date(iso).getTime()));
+  const past = valid.filter((iso) => new Date(iso).getTime() <= nowMs);
+  if (past.length > 0) {
+    return past.reduce((best, iso) => (new Date(iso).getTime() < new Date(best).getTime() ? iso : best));
+  }
+  return valid[0];
+}
+
 export interface MealAnalysis {
   /** Date de péremption la plus proche parmi les ingrédients */
   earliestExpiration: string | null;
@@ -655,6 +673,30 @@ export function recipeHasFiniteCounterableIngredients(
 }
 
 /**
+ * Indique si au moins un ingrédient non optionnel de la recette correspond encore à une ligne food_item
+ * (quel que soit no_counter / surgelé). Sert à distinguer « stock supprimé après consommation »
+ * (pas de ligne) d’un ingrédient présent mais non comptable.
+ */
+function recipeHasMatchingFoodItemsInStock(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+): boolean {
+  if (!ingredients?.trim()) return false;
+  const groups = parseIngredientGroups(ingredients);
+  for (const group of groups) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const bundle = group[0];
+    if (!bundle) continue;
+    for (const item of bundle) {
+      if (item.optional || !item.name) continue;
+      if (lookupFoodItems(item.name, foodItems, index).length > 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Type allégé d’un repas possible utilisé par la résolution du badge compteur (toutes catégories confondues).
  */
 type PossibleMealForBadge = {
@@ -692,7 +734,13 @@ export function resolveCounterStartForPossibleBadge(
   const nowMs = now.getTime();
   const currentIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
   const mine = counterableIngredientKeysFromRecipe(currentIngredients, foodItems, index);
-  if (mine.size === 0) return undefined;
+  // Stock entièrement consommé (aliment supprimé) : conserver le compteur figé sur la carte.
+  // Si l'ingrédient est encore en stock mais no_counter / surgelé, ne pas renvoyer le fallback.
+  if (mine.size === 0) {
+    if (recipeHasMatchingFoodItemsInStock(currentIngredients, foodItems, index)) return undefined;
+    const cardDate = cardCounterFallback?.trim();
+    return cardDate || undefined;
+  }
 
   const activeStockOpen = findEarliestActiveCounterDate(currentIngredients, foodItems, index, now);
   let base = activeStockOpen

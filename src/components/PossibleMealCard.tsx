@@ -35,7 +35,7 @@ import {
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, recipeHasFiniteCounterableIngredients } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, recipeHasFiniteCounterableIngredients, pickEarliestPastCounterStart } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -359,17 +359,13 @@ export function PossibleMealCard({
   //    les Tenders maintenant → la carte « Riz + Tenders » de lundi affiche 0j ; ou une carte planifiée
   //    antérieure qui ouvre le lot → décalage Xj).
   const isPlannedFull = Boolean(pm.day_of_week?.trim() && pm.meal_time?.trim());
-  const plannedStart = useMemo(() => {
-    const frozen = pm.counter_start_date?.trim() || undefined;
-    const resolved = realtimeCounterStartDate?.trim() || undefined;
-    if (frozen && resolved) {
-      return new Date(resolved).getTime() < new Date(frozen).getTime() ? resolved : frozen;
-    }
-    return frozen ?? resolved;
-  }, [pm.counter_start_date, realtimeCounterStartDate]);
+  const plannedStart = useMemo(
+    () => pickEarliestPastCounterStart(realtimeCounterStartDate, pm.counter_start_date),
+    [realtimeCounterStartDate, pm.counter_start_date],
+  );
   const effectiveCounterStart = isPlannedFull
     ? plannedStart
-    : (activeCounterFromStock ?? realtimeCounterStartDate ?? pm.counter_start_date);
+    : pickEarliestPastCounterStart(activeCounterFromStock, realtimeCounterStartDate, pm.counter_start_date);
 
   // Le badge compteur n'a de sens que si la recette possède réellement un ingrédient porteur de compteur
   // (lot fini non surgelé encore en stock) OU si un compteur est déjà actif sur le stock (y compris manuel).
@@ -394,7 +390,13 @@ export function PossibleMealCard({
     pm.created_at,
     pm.meal_time,
   );
-  const counterDays = counterHasBacking ? counterDaysRaw : null;
+  // Afficher tout compteur > 0 même si le stock a été entièrement déduit (carte fraîchement passée
+  // en « possible » avec un counter_start_date). Ne masquer que le 0j sans appui (stock épuisé,
+  // pas de compteur figé sur une carte planifiée).
+  const counterDays =
+    counterDaysRaw != null && (counterDaysRaw > 0 || counterHasBacking)
+      ? counterDaysRaw
+      : null;
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;
