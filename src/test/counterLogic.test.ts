@@ -526,6 +526,43 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
     const resolved = resolveFoodItemCounterStartForDisplay(sauce, [pastPm], fixedNow, 450);
     expect(resolved).toBeTruthy();
   });
+
+  it("lot entamé : conserve un prog. futur sur la fiche malgré un ancien repas Possible", () => {
+    const fixedNow = new Date("2026-07-06T08:00:00.000Z");
+    const oldPm = {
+      ...futurePm,
+      id: "pm-old",
+      day_of_week: "2026-06-29",
+      meal_time: "midi",
+      ingredients_override: "Riz + Tenders",
+      meals: { ingredients: "Riz + Tenders" },
+    } as PossibleMeal;
+    const progNoon = computePlannedCounterDate("2026-07-06", "midi");
+    const opened = {
+      ...tenders,
+      grams: "400|200",
+      counter_start_date: progNoon,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(opened, [oldPm], fixedNow, 400);
+    expect(resolved).toBe(progNoon);
+    expect(new Date(resolved!).getTime()).toBeGreaterThan(fixedNow.getTime());
+  });
+
+  it("lot entamé sans compteur persisté : utilise la date courante plutôt qu'un vieux repas", () => {
+    const fixedNow = new Date("2026-07-06T10:00:00.000Z");
+    const oldPm = {
+      ...futurePm,
+      id: "pm-old",
+      day_of_week: "2026-06-29",
+      meal_time: "midi",
+      ingredients_override: "Riz + Tenders",
+      meals: { ingredients: "Riz + Tenders" },
+    } as PossibleMeal;
+    const opened = { ...tenders, grams: "400|200", counter_start_date: null };
+    const resolved = resolveFoodItemCounterStartForDisplay(opened, [oldPm], fixedNow, 400);
+    expect(resolved).toBe("2026-07-06T10:00:00.000Z");
+    expect(computeCounterDays(resolved)).toBe(0);
+  });
 });
 
 describe("resolveFoodItemStockVisualHint", () => {

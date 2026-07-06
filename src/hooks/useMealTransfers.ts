@@ -16,7 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { format, parseISO } from "date-fns";
+import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
@@ -310,6 +310,37 @@ export function isSealedPartialUseInPastPlanning(
 }
 
 /**
+ * Parcourt les créneaux planifiés passés et retourne le plus ancien ou le plus récent selon `direction`.
+ */
+function findPastPlannedSlotForFood(
+  fi: FoodItem,
+  allPossibleMeals: PossibleMeal[],
+  fixedNow: Date,
+  mode: "virtual" | "opened",
+  direction: "earliest" | "latest",
+): string | undefined {
+  const perUnit = parseQty(fi.grams);
+  const nowMs = fixedNow.getTime();
+  let result: string | undefined;
+  let resultMs = direction === "earliest" ? Infinity : -Infinity;
+
+  for (const pm of allPossibleMeals) {
+    if (!pm.day_of_week?.trim() || !String(pm.meal_time ?? "").trim()) continue;
+    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
+    if (mode === "virtual" && !pastSlotQualifiesForVirtualOpen(fi, pm, perUnit)) continue;
+    const slotIso = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
+    const slotMs = new Date(slotIso).getTime();
+    if (Number.isNaN(slotMs) || slotMs > nowMs) continue;
+    const isBetter = direction === "earliest" ? slotMs < resultMs : slotMs > resultMs;
+    if (isBetter) {
+      resultMs = slotMs;
+      result = slotIso;
+    }
+  }
+  return result;
+}
+
+/**
  * Retourne la date d'ouverture la plus ancienne liée à un repas Possible planifié passé.
  * mode « virtual » : lot scellé, règles pot vs boîte ; mode « opened » : lot déjà entamé.
  */
@@ -319,23 +350,20 @@ function findEarliestPastPlannedSlotForFood(
   fixedNow: Date,
   mode: "virtual" | "opened",
 ): string | undefined {
-  const perUnit = parseQty(fi.grams);
-  const nowMs = fixedNow.getTime();
-  let earliest: string | undefined;
-  let earliestMs = Infinity;
-  for (const pm of allPossibleMeals) {
-    if (!pm.day_of_week?.trim() || !String(pm.meal_time ?? "").trim()) continue;
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    if (mode === "virtual" && !pastSlotQualifiesForVirtualOpen(fi, pm, perUnit)) continue;
-    const slotIso = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
-    const slotMs = new Date(slotIso).getTime();
-    if (Number.isNaN(slotMs) || slotMs > nowMs) continue;
-    if (slotMs < earliestMs) {
-      earliestMs = slotMs;
-      earliest = slotIso;
-    }
-  }
-  return earliest;
+  return findPastPlannedSlotForFood(fi, allPossibleMeals, fixedNow, mode, "earliest");
+}
+
+/**
+ * Retourne la date d'ouverture la plus récente liée à un repas Possible planifié passé.
+ * Utilisée pour un lot physiquement entamé sans compteur persisté sur la fiche aliment.
+ */
+function findLatestPastPlannedSlotForFood(
+  fi: FoodItem,
+  allPossibleMeals: PossibleMeal[],
+  fixedNow: Date,
+  mode: "virtual" | "opened",
+): string | undefined {
+  return findPastPlannedSlotForFood(fi, allPossibleMeals, fixedNow, mode, "latest");
 }
 
 /**
@@ -396,6 +424,38 @@ export function findEarliestOpenDateFromPossibleMeals(
 }
 
 /**
+ * Retourne la date d'ouverture la plus récente inférée depuis les repas Possible
+ * (créneau passé planifié, ou repas non planifié déjà dans la liste).
+ */
+export function findLatestOpenDateFromPossibleMeals(
+  fi: FoodItem,
+  allPossibleMeals: PossibleMeal[],
+  fixedNow?: Date,
+): string | undefined {
+  const nowMs = (fixedNow ?? new Date()).getTime();
+  let latest: string | undefined;
+  let latestMs = -Infinity;
+  for (const pm of allPossibleMeals) {
+    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
+    const planned = Boolean(pm.day_of_week?.trim() && String(pm.meal_time ?? "").trim());
+    let candidate: string | undefined;
+    if (planned) {
+      candidate = computePlannedCounterDate(pm.day_of_week!, pm.meal_time);
+    } else {
+      candidate = (pm.counter_start_date?.trim() || pm.created_at?.trim()) ?? undefined;
+    }
+    if (!candidate) continue;
+    const ms = new Date(candidate).getTime();
+    if (Number.isNaN(ms) || ms > nowMs) continue;
+    if (ms > latestMs) {
+      latestMs = ms;
+      latest = candidate;
+    }
+  }
+  return latest;
+}
+
+/**
  * Retourne la date d'ouverture la plus ancienne parmi les créneaux planifiés déjà passés
  * où un repas Possible entame virtuellement cet aliment (pot / bocal scellé).
  */
@@ -433,6 +493,24 @@ export function resolveFoodItemCounterStartForDisplay(
   if (!logicallyOpened && !virtualOpen) return null;
 
   const stored = fi.counter_start_date?.trim();
+
+  // Lot physiquement entamé : le compteur persisté sur la fiche prime (y compris un « prog. » futur).
+  // Évite de remonter à un ancien repas Possible qui réutilise le même ingrédient.
+  if (physicallyOpened) {
+    if (stored) {
+      const storedMs = new Date(stored).getTime();
+      if (!Number.isNaN(storedMs)) return stored;
+    }
+    const latestInferred =
+      findLatestOpenDateFromPossibleMeals(fi, allPossibleMeals, now) ??
+      findLatestPastPlannedSlotForFood(fi, allPossibleMeals, now, "opened");
+    if (latestInferred) {
+      const ageDays = differenceInCalendarDays(now, new Date(latestInferred));
+      if (ageDays <= 2) return latestInferred;
+    }
+    return now.toISOString();
+  }
+
   if (stored) {
     const storedMs = new Date(stored).getTime();
     if (!Number.isNaN(storedMs)) {
@@ -775,8 +853,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 const consumedPastFirstPartial = hadOpenPartial && deduct > partialBefore;
                 const restartForNewPack =
                   consumedPastFirstPartial && shouldStartCounter(fi);
+                const openingFromSealed = !hadOpenPartial && deduct > 0;
                 const bumpCounter =
-                  restartForNewPack || needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
+                  restartForNewPack ||
+                  openingFromSealed ||
+                  needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
                 const counterUpdate = bumpCounter ? { counter_start_date: effectiveCounterDate } : {};
                 if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
                 updatesById.set(fi.id, {
