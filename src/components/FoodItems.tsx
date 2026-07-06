@@ -32,6 +32,15 @@ import { colorFromName, computeCounterDays, computeCounterHours, isExpiredDate, 
 import { usePreferences } from "@/hooks/usePreferences";
 import { useSortModes, FoodSortMode } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
+import {
+  FOOD_EXTRAS_DIVIDER_PREF_KEY,
+  extrasDividerMoveState,
+  moveExtrasDividerDown,
+  moveExtrasDividerUp,
+  resolveExtrasDividerAfterId,
+  splitSortedExtrasByDivider,
+} from "@/lib/extrasDividerUtils";
+import { ExtrasMovableDivider } from "@/components/planning/ExtrasMovableDivider";
 import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams } from "@/lib/stockUtils";
 import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
 import type { PossibleMeal } from "@/hooks/useMeals";
@@ -955,6 +964,14 @@ export function FoodItems() {
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const testItemIds = getPreference<string[]>("food_test_ids", []);
+  const extrasDividerAfterId = getPreference<string | null>(FOOD_EXTRAS_DIVIDER_PREF_KEY, null);
+
+  const setExtrasDividerAfterId = useCallback(
+    (id: string | null) => {
+      setPreference.mutate({ key: FOOD_EXTRAS_DIVIDER_PREF_KEY, value: id });
+    },
+    [setPreference],
+  );
   const testItemIdSet = new Set(testItemIds);
   const foodLibraryAmountMemory = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
   const foodStockBaselines = getPreference<Record<string, FoodStockBaseline>>(FOOD_STOCK_BASELINE_PREF_KEY, {});
@@ -1601,7 +1618,17 @@ export function FoodItems() {
             storageType={section.type}
             items={getSortedItems(section.type)}
             onUpdate={handleUpdate}
-            onDelete={(id) => deleteItem.mutate(id)}
+            onDelete={(id) => {
+              const extrasItems = getSortedItems("extras");
+              if (resolveExtrasDividerAfterId(extrasItems, extrasDividerAfterId) === id) {
+                const remaining = extrasItems.filter((item) => item.id !== id);
+                setExtrasDividerAfterId(
+                  remaining.length > 0 ? resolveExtrasDividerAfterId(remaining, null) : null,
+                );
+              }
+              removeMorningMealId(id);
+              deleteItem.mutate(id);
+            }}
             onDuplicate={(id) => duplicateItem.mutate(id)}
             sortMode={foodSortModes[section.type] || "manual"}
             onToggleSort={() => toggleFoodSort(section.type)}
@@ -1632,7 +1659,17 @@ export function FoodItems() {
               storageType={section.type}
               items={getSortedItems(section.type)}
               onUpdate={handleUpdate}
-              onDelete={(id) => deleteItem.mutate(id)}
+              onDelete={(id) => {
+                const extrasItems = getSortedItems("extras");
+                if (resolveExtrasDividerAfterId(extrasItems, extrasDividerAfterId) === id) {
+                  const remaining = extrasItems.filter((item) => item.id !== id);
+                  setExtrasDividerAfterId(
+                    remaining.length > 0 ? resolveExtrasDividerAfterId(remaining, null) : null,
+                  );
+                }
+                removeMorningMealId(id);
+                deleteItem.mutate(id);
+              }}
               onDuplicate={(id) => duplicateItem.mutate(id)}
               sortMode={foodSortModes[section.type] || "manual"}
               onToggleSort={() => toggleFoodSort(section.type)}
@@ -1650,6 +1687,8 @@ export function FoodItems() {
               possibleMeals={possibleMeals}
               foodStockBaselines={foodStockBaselines}
               foodLibraryAmountMemory={foodLibraryAmountMemory}
+              extrasDividerAfterId={section.type === "extras" ? extrasDividerAfterId : undefined}
+              onSetExtrasDividerAfterId={section.type === "extras" ? setExtrasDividerAfterId : undefined}
             />
           ))}
         </div>
@@ -1686,10 +1725,20 @@ interface FoodSectionProps {
   possibleMeals: PossibleMeal[];
   foodStockBaselines: Record<string, FoodStockBaseline>;
   foodLibraryAmountMemory: FoodLibraryAmountMemory;
+  extrasDividerAfterId?: string | null;
+  onSetExtrasDividerAfterId?: (id: string | null) => void;
 }
 
 /** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
-function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory }: FoodSectionProps) {
+function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory, extrasDividerAfterId, onSetExtrasDividerAfterId }: FoodSectionProps) {
+  const effectiveDividerAfterId =
+    storageType === "extras" ? resolveExtrasDividerAfterId(items, extrasDividerAfterId) : null;
+  const dividerSplit =
+    storageType === "extras" ? splitSortedExtrasByDivider(items, extrasDividerAfterId) : null;
+  const dividerMove =
+    storageType === "extras"
+      ? extrasDividerMoveState(items, extrasDividerAfterId)
+      : { canMoveUp: false, canMoveDown: false };
   const SortIcon = sortMode === "expiration" ? CalendarDays : sortMode === "name" ? ArrowUpDown : sortMode === "calories" ? Flame : sortMode === "protein" ? UtensilsCrossed : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : sortMode === "name" ? "Nom" : sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
@@ -1859,12 +1908,12 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
             </p>
           ) : (
             items.map((item, sectionIdx) => (
-              <div
-                key={item.id}
-                data-food-idx={sectionIdx}
-                onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
-              >
-                <FoodItemCard
+              <div key={item.id}>
+                <div
+                  data-food-idx={sectionIdx}
+                  onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
+                >
+                  <FoodItemCard
                   item={item}
                   possibleMeals={possibleMeals}
                   baselineTotalGrams={resolveFoodItemBaselineTotalGrams(
@@ -1904,6 +1953,27 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                     setDragIndex(null);
                   }}
                 />
+                </div>
+                {storageType === "extras" &&
+                  onSetExtrasDividerAfterId &&
+                  effectiveDividerAfterId === item.id &&
+                  items.length > 1 && (
+                    <ExtrasMovableDivider
+                      canMoveUp={dividerMove.canMoveUp}
+                      canMoveDown={dividerMove.canMoveDown}
+                      aboveCount={dividerSplit?.above.length ?? 0}
+                      belowCount={dividerSplit?.below.length ?? 0}
+                      onMoveUp={() => {
+                        const next = moveExtrasDividerUp(items, extrasDividerAfterId);
+                        if (next) onSetExtrasDividerAfterId(next);
+                      }}
+                      onMoveDown={() => {
+                        onSetExtrasDividerAfterId(
+                          moveExtrasDividerDown(items, extrasDividerAfterId),
+                        );
+                      }}
+                    />
+                  )}
               </div>
             ))
           )}
