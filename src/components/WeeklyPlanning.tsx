@@ -41,6 +41,7 @@ import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
+import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
@@ -51,9 +52,16 @@ import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
+import { computeRolling7DayCalorieAverage, parseBackupCalorieContext } from "@/domain/planning/rollingCalorieAverage";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
 import { PlanningHeader } from "@/components/planning/PlanningHeader";
+import { BreakfastBreakdownList } from "@/components/planning/BreakfastBreakdownList";
+import {
+  buildBackupBreakfastBreakdownItems,
+  buildLiveBreakfastBreakdownItems,
+  isBackupBreakfastPmAlreadyInMatinSlot,
+} from "@/domain/planning/breakfastBreakdown";
 
 /**
  * Champ numérique du planning avec mode « + » pour ajouter une valeur à la saisie courante
@@ -1311,8 +1319,12 @@ export function WeeklyPlanning({
     const bBP = isNF ? (backupRaw.breakfastManualProteins || {}) : {};
     const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
     const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
-    const bCO = isNF ? (backupRaw.calOverrides || {}) : {};
-    const bPO = isNF ? (backupRaw.proOverrides || {}) : {};
+    const bCO = isNF
+      ? mergeBackupCardOverrides(backupRaw.calOverrides, calOverrides, cards.map((c) => c.id))
+      : {};
+    const bPO = isNF
+      ? mergeBackupCardOverrides(backupRaw.proOverrides, proOverrides, cards.map((c) => c.id))
+      : {};
 
     // Objectifs tels qu’au moment de la sauvegarde (ne pas utiliser les objectifs courants / semaine suivante)
     const archivedDailyGoal =
@@ -1356,8 +1368,12 @@ export function WeeklyPlanning({
       const bfSel = bBS[iso] || bBS[key];
       if (bfSel) {
         if (bfSel.startsWith('pm:')) {
-          const pm = cards.find(p => p.id === bfSel.slice(3));
-          if (pm) {
+          const pm = cards.find((p: { id: string }) => p.id === bfSel.slice(3));
+          const dayMatinCards = cards.filter(
+            (c: { day_of_week: string; meal_time: string }) =>
+              (c.day_of_week === iso || c.day_of_week === key) && c.meal_time === 'matin',
+          );
+          if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, iso, key, dayMatinCards)) {
             dayCal += getCardDisplayCalories(pm, bCO[pm.id], isAvailableCb);
             dayPro += getCardDisplayProtein(pm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
           }
@@ -1381,7 +1397,7 @@ export function WeeklyPlanning({
     });
 
     return { totalCal, totalPro, archivedDailyGoal, archivedProteinGoal };
-  }, [getPreference, weekOffset, allMealsById, foodItems, weekDates]);
+  }, [getPreference, weekOffset, allMealsById, foodItems, weekDates, calOverrides, proOverrides, todayISO, isAvailableCb, foodMacroIndex]);
 
   const handleAddExtraItem = (day: string, item: FoodItem, remove = false) => {
     const updated = { ...extraSelections };
@@ -2087,6 +2103,21 @@ export function WeeklyPlanning({
 
   const weekTotal = weekDates.reduce((sum, d) => sum + getDayCalories(d.key, d.iso), 0);
 
+  const rolling7DayAvg = useMemo(() => {
+    const currentWeekIsos = new Set(buildWeekDates(0, new Date()).map((d) => d.iso));
+    const backupRaw = getPreference<unknown>("possible_meals_backup", null);
+    const backupCtx = parseBackupCalorieContext(backupRaw, calOverrides, proOverrides);
+    return computeRolling7DayCalorieAverage({
+      getLiveDayCalories: getDayCalories,
+      currentWeekIsos,
+      backupCtx,
+      mealsById: allMealsById,
+      foodItems,
+      isAvailable: isAvailableCb,
+      foodMacroIndex,
+    });
+  }, [getDayCalories, getPreference, calOverrides, proOverrides, allMealsById, foodItems, isAvailableCb, foodMacroIndex]);
+
   const handleRestoreBackup = async () => {
     if (restoreLockRef.current) return;
     const userId = (await supabase.auth.getUser()).data.user?.id;
@@ -2341,6 +2372,24 @@ export function WeeklyPlanning({
           const isBreakfastDragOver = dragOverSlot === breakfastDropKey || dragOverSlot === `${key}-matin`;
           const breakfastAssignedSlotIds =
             extraSlotAssignments[breakfastDropKey] ?? extraSlotAssignments[`${key}-matin`] ?? [];
+          const liveBreakfastBreakdown = buildLiveBreakfastBreakdownItems({
+            key,
+            iso,
+            matinMeals,
+            breakfast,
+            breakfastSelections,
+            possibleMeals,
+            calOverrides,
+            proOverrides,
+            breakfastManualCalories,
+            breakfastManualProteins,
+            breakfastAssignedIds: breakfastAssignedSlotIds,
+            foodItems,
+            isAvailable: isAvailableCb,
+            foodMacroIndex,
+            getMealCal,
+            getMealPro,
+          });
           return (
             <div
               key={iso}
@@ -2389,8 +2438,7 @@ export function WeeklyPlanning({
                       <button
                         className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors truncate max-w-[120px] ${
                           (() => {
-                            const count = matinMeals.length + (getBreakfastForDay(key, iso) ? 1 : 0);
-                            return count > 0
+                            return liveBreakfastBreakdown.length > 0
                               ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50"
                               : "bg-slate-200/80 dark:bg-slate-700/45 text-slate-700 dark:text-slate-300 border border-dashed border-slate-400/50 dark:border-slate-500/50 hover:bg-slate-300/80 dark:hover:bg-slate-600/50";
                           })()
@@ -2401,17 +2449,23 @@ export function WeeklyPlanning({
                         }}
                       >
                         {(() => {
-                          const count = matinMeals.length + (getBreakfastForDay(key, iso) ? 1 : 0);
-                          if (count > 1) return 'Plusieurs petits déj';
-                          if (count === 1) {
-                            if (matinMeals.length === 1) return matinMeals[0].meals?.name || '🥐 Petit déj';
-                            return getBreakfastForDay(key, iso)?.name || '🥐 Petit déj';
-                          }
+                          if (liveBreakfastBreakdown.length > 1) return 'Plusieurs petits déj';
+                          if (liveBreakfastBreakdown.length === 1) return liveBreakfastBreakdown[0].name;
                           return '🥐 Petit déj';
                         })()}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-52 p-2" align="start">
+                    <PopoverContent className="w-56 p-2" align="start">
+                      {liveBreakfastBreakdown.length > 1 && (
+                        <>
+                          <BreakfastBreakdownList
+                            items={liveBreakfastBreakdown}
+                            totalCal={breakfastTotalCals}
+                            totalPro={breakfastTotalPro}
+                          />
+                          <Separator className="my-2" />
+                        </>
+                      )}
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petit déjeuner</p>
                       <div className="space-y-0.5 max-h-48 overflow-y-auto">
                         <button onClick={() => setBreakfastForDay(iso, null)} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">
@@ -3782,7 +3836,12 @@ export function WeeklyPlanning({
           const avgCal = datesUpToToday.length > 0 ? Math.round(totalUpToToday / datesUpToToday.length) : 0;
           return (
             <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
-              <span className="text-sm font-bold text-foreground">Total semaine</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-foreground">Total semaine</span>
+                <span className="text-xs text-muted-foreground font-medium">
+                  Moy. {rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">(7j)</span>
+                </span>
+              </div>
               <div className="flex items-center gap-3 flex-wrap ml-auto">
                 <span className="text-xs text-muted-foreground font-medium">
                   Moy. {avgCal} kcal/j <span className="text-muted-foreground/40">({datesUpToToday.length}j)</span>
@@ -3840,8 +3899,12 @@ export function WeeklyPlanning({
           const bBP = isNF ? (backupRaw.breakfastManualProteins || {}) : {};
           const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
           const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
-          const bCO = isNF ? (backupRaw.calOverrides || {}) : {};
-          const bPO = isNF ? (backupRaw.proOverrides || {}) : {};
+          const bCO = isNF
+            ? mergeBackupCardOverrides(backupRaw.calOverrides, calOverrides, cards.map((c: { id: string }) => c.id))
+            : {};
+          const bPO = isNF
+            ? mergeBackupCardOverrides(backupRaw.proOverrides, proOverrides, cards.map((c: { id: string }) => c.id))
+            : {};
 
           const renderBackupCards = (slotCards: any[]) => slotCards.map((c: any, i: number) => {
             const m = allMealsById.get(c.meal_id);
@@ -3895,7 +3958,7 @@ export function WeeklyPlanning({
                   if (m) { bfSlotCal += parseCalories(m.calories); bfSlotPro += parseProtein(m.protein); }
                 } else if (bfSel?.startsWith('pm:')) {
                   const pm = cards.find(c => c.id === bfSel.slice(3));
-                  if (pm) {
+                  if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, iso, key, matinCards)) {
                     const m = allMealsById.get(pm.meal_id);
                     const fullPm = m ? { ...pm, meals: m } : pm;
                     bfSlotCal += getCardDisplayCalories(fullPm, bCO[pm.id], isAvailableCb);
@@ -3997,25 +4060,67 @@ export function WeeklyPlanning({
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <h3 className="text-sm sm:text-base font-bold text-foreground">{display}</h3>
                       <div className="flex items-center gap-1">
-                        <span
-                          onDoubleClick={backupBreakfastMeal ? openBackupBreakfastPopup : undefined}
-                          onClick={() => {
-                            if (backupBreakfastMeal) handleBackupCardOpen(`bf-${iso}`, openBackupBreakfastPopup);
-                          }}
-                          className={`text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold ${backupBreakfastMeal ? 'cursor-pointer hover:bg-muted/80' : ''}`}
-                          title={backupBreakfastMeal ? "Double-clic pour voir le détail" : undefined}
-                        >
-                          {(() => {
-                            const count = matinCards.length + (bfSel ? 1 : 0);
-                            if (count > 1) return 'Plusieurs petits déj';
-                            if (count === 1) {
-                              if (matinCards.length === 1) return allMealsById.get(matinCards[0].meal_id)?.name || '🥐 Petit déj';
-                              if (bfSel?.startsWith('meal:')) return allMealsById.get(bfSel.slice(5))?.name || '🥐 Petit déj';
-                              if (bfSel?.startsWith('pm:')) return allMealsById.get(cards.find(c => c.id === bfSel.slice(3))?.meal_id)?.name || '🥐 Petit déj';
-                            }
-                            return '🥐 Petit déj';
-                          })()}
-                        </span>
+                        {(() => {
+                          const bfSelLabel = bBS[iso] || bBS[key];
+                          const breakfastBreakdownItems = buildBackupBreakfastBreakdownItems({
+                            key,
+                            iso,
+                            matinCards,
+                            bfSel: bfSelLabel,
+                            cards,
+                            breakfastManualCalories: bBC,
+                            breakfastManualProteins: bBP,
+                            calOverrides: bCO,
+                            proOverrides: bPO,
+                            matinAssignedIds,
+                            mealsById: allMealsById,
+                            foodItems,
+                            isAvailable: isAvailableCb,
+                            foodMacroIndex,
+                          });
+                          const breakfastLabel =
+                            breakfastBreakdownItems.length > 1
+                              ? 'Plusieurs petits déj'
+                              : breakfastBreakdownItems.length === 1
+                                ? breakfastBreakdownItems[0].name
+                                : '🥐 Petit déj';
+
+                          if (breakfastBreakdownItems.length > 1) {
+                            return (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold cursor-pointer hover:bg-muted/80"
+                                    title="Voir le détail des petits déjeuners"
+                                  >
+                                    {breakfastLabel}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-56 p-2" align="start">
+                                  <BreakfastBreakdownList
+                                    items={breakfastBreakdownItems}
+                                    totalCal={bfSlotCal}
+                                    totalPro={bfSlotPro}
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            );
+                          }
+
+                          return (
+                            <span
+                              onDoubleClick={backupBreakfastMeal ? openBackupBreakfastPopup : undefined}
+                              onClick={() => {
+                                if (backupBreakfastMeal) handleBackupCardOpen(`bf-${iso}`, openBackupBreakfastPopup);
+                              }}
+                              className={`text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold ${backupBreakfastMeal ? 'cursor-pointer hover:bg-muted/80' : ''}`}
+                              title={backupBreakfastMeal ? "Double-clic pour voir le détail" : undefined}
+                            >
+                              {breakfastLabel}
+                            </span>
+                          );
+                        })()}
                         {(bfSlotCal > 0 || bfSlotPro > 0) && (
                           <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
                             {bfSlotCal > 0 && (

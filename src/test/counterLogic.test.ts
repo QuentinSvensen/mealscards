@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { computeCounterDays, getAdaptedCounterDays } from "@/lib/ingredientUtils";
-import { computePlannedCounterDate } from "@/hooks/useMealTransfers";
+import { computePlannedCounterDate, findEarliestPastPlannedOpenForFood, resolveFoodItemCounterStartForDisplay, resolveFoodItemStockVisualHint, isSealedPartialUseInPastPlanning } from "@/hooks/useMealTransfers";
+import type { FoodItem } from "@/hooks/useFoodItems";
+import type { PossibleMeal } from "@/hooks/useMeals";
 
 // ─── getAdaptedCounterDays (carte Possible) ─────────────────────────────────
 
@@ -315,5 +317,250 @@ describe("Counter start conditions", () => {
     const fi = { counter_start_date: null, storage_type: "sec", no_counter: false };
     const shouldStart = !fi.counter_start_date && fi.storage_type !== 'surgele' && !fi.no_counter;
     expect(shouldStart).toBe(true);
+  });
+});
+
+// ─── Ouverture inférée depuis repas Possible planifiés passés ─────────────────
+
+describe("findEarliestPastPlannedOpenForFood", () => {
+  const sauce: FoodItem = {
+    id: "s1",
+    name: "Sauce tikka masala",
+    grams: "225",
+    quantity: null,
+    counter_start_date: null,
+    calories: null,
+    protein: null,
+    fiber: null,
+    expiration_date: null,
+    sort_order: 0,
+    created_at: "",
+    is_meal: false,
+    is_infinite: false,
+    is_dry: false,
+    is_indivisible: false,
+    no_counter: false,
+    storage_type: "frigo",
+    food_type: null,
+  };
+
+  const makePm = (day: string, time: string, ingredients: string): PossibleMeal => ({
+    id: `pm-${day}-${time}`,
+    meal_id: "m1",
+    quantity: 1,
+    expiration_date: null,
+    day_of_week: day,
+    meal_time: time,
+    counter_start_date: null,
+    created_at: "2026-06-01T10:00:00.000Z",
+    ingredients_override: ingredients,
+    meals: { ingredients },
+  } as PossibleMeal);
+
+  it("retourne le créneau passé le plus ancien qui utilise l'aliment", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const pms = [
+      makePm("2026-06-29", "midi", "Riz + 50g Sauce tikka masala"),
+      makePm("2026-07-01", "soir", "50g Sauce tikka masala"),
+    ];
+    const open = findEarliestPastPlannedOpenForFood(sauce, pms, fixedNow);
+    expect(open).toBeTruthy();
+    expect(new Date(open!).getHours()).toBe(12);
+  });
+
+  it("ignore un repas qui consomme le paquet entier (400g Tenders)", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const tenders: FoodItem = {
+      ...sauce,
+      id: "t1",
+      name: "Tenders",
+      grams: "400",
+      quantity: 1,
+    };
+    const pms = [makePm("2026-06-29", "midi", "400g Tenders")];
+    expect(findEarliestPastPlannedOpenForFood(tenders, pms, fixedNow)).toBeUndefined();
+  });
+
+  it("ignore aussi une fraction de boîte (200g sur 400g)", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const tenders: FoodItem = {
+      ...sauce,
+      id: "t1",
+      name: "Tenders",
+      grams: "400",
+      quantity: 1,
+    };
+    const pms = [makePm("2026-06-29", "midi", "200g Tenders")];
+    expect(findEarliestPastPlannedOpenForFood(tenders, pms, fixedNow)).toBeUndefined();
+  });
+
+  it("ouvre un pot cité sans quantité dans une recette passée", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const pms = [makePm("2026-06-29", "midi", "Riz + Tenders + Sauce tikka masala")];
+    expect(findEarliestPastPlannedOpenForFood(sauce, pms, fixedNow)).toBeTruthy();
+  });
+
+  it("ignore les lots multi-paquets (#2)", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const lardons: FoodItem = {
+      ...sauce,
+      id: "l1",
+      name: "Lardons",
+      grams: "100",
+      quantity: 2,
+    };
+    const pms = [makePm("2026-06-29", "midi", "50g Lardons")];
+    expect(findEarliestPastPlannedOpenForFood(lardons, pms, fixedNow)).toBeUndefined();
+  });
+
+  it("ignore les créneaux futurs", () => {
+    const fixedNow = new Date("2026-06-28T10:00:00.000Z");
+    const pms = [makePm("2026-06-29", "midi", "50g Sauce tikka masala")];
+    expect(findEarliestPastPlannedOpenForFood(sauce, pms, fixedNow)).toBeUndefined();
+  });
+});
+
+describe("resolveFoodItemCounterStartForDisplay", () => {
+  const tenders: FoodItem = {
+    id: "t1",
+    name: "Tenders",
+    grams: "400",
+    quantity: 1,
+    counter_start_date: null,
+    calories: null,
+    protein: null,
+    fiber: null,
+    expiration_date: null,
+    sort_order: 0,
+    created_at: "",
+    is_meal: false,
+    is_infinite: false,
+    is_dry: false,
+    is_indivisible: false,
+    no_counter: false,
+    storage_type: "frigo",
+    food_type: null,
+  };
+
+  const futurePm = {
+    id: "pm-fut",
+    meal_id: "m1",
+    quantity: 1,
+    expiration_date: null,
+    day_of_week: "2026-07-10",
+    meal_time: "midi",
+    counter_start_date: null,
+    created_at: "2026-06-01T10:00:00.000Z",
+    ingredients_override: "400g Tenders",
+    meals: { ingredients: "400g Tenders" },
+  } as PossibleMeal;
+
+  it("n'affiche pas un prog. futur sur un lot scellé", () => {
+    const fixedNow = new Date("2026-06-29T10:00:00.000Z");
+    const fi = {
+      ...tenders,
+      counter_start_date: computePlannedCounterDate("2026-07-10", "midi"),
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(fi, [futurePm], fixedNow);
+    expect(resolved).toBeNull();
+  });
+
+  it("n'affiche pas de compteur sur une boîte entière 400g planifiée passée", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const pastPm = {
+      ...futurePm,
+      id: "pm-past",
+      day_of_week: "2026-06-29",
+      ingredients_override: "400g Tenders",
+      meals: { ingredients: "400g Tenders" },
+    } as PossibleMeal;
+    const resolved = resolveFoodItemCounterStartForDisplay(
+      { ...tenders, counter_start_date: computePlannedCounterDate("2026-06-29", "midi") },
+      [pastPm],
+      fixedNow,
+    );
+    expect(resolved).toBeNull();
+  });
+
+  it("infère une ouverture passée sur pot scellé (recette partielle)", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const pastPm = {
+      ...futurePm,
+      id: "pm-past",
+      day_of_week: "2026-06-29",
+      ingredients_override: "50g Sauce tikka masala",
+      meals: { ingredients: "50g Sauce tikka masala" },
+    } as PossibleMeal;
+    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225", quantity: null };
+    const resolved = resolveFoodItemCounterStartForDisplay(sauce, [pastPm], fixedNow);
+    expect(resolved).toBeTruthy();
+    expect(new Date(resolved!).getTime()).toBeLessThanOrEqual(fixedNow.getTime());
+  });
+
+  it("affiche un compteur quand l'aliment est consommé par un repas Possible non planifié", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const unplannedPm = {
+      ...futurePm,
+      id: "pm-unplanned",
+      day_of_week: null,
+      meal_time: null,
+      created_at: "2026-06-29T12:00:00.000Z",
+      ingredients_override: "Riz + Tenders + Sauce tikka masala",
+      meals: { ingredients: "Riz + Tenders + Sauce tikka masala" },
+    } as PossibleMeal;
+    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225", quantity: null };
+    const resolved = resolveFoodItemCounterStartForDisplay(sauce, [unplannedPm], fixedNow, null);
+    expect(resolved).toBeTruthy();
+  });
+
+  it("affiche un compteur quand le reliquat est sous le poids d'origine (450g → 225g)", () => {
+    const fixedNow = new Date("2026-06-30T10:00:00.000Z");
+    const pastPm = {
+      ...futurePm,
+      id: "pm-past",
+      day_of_week: "2026-06-29",
+      ingredients_override: "Riz + Tenders + Sauce tikka masala",
+      meals: { ingredients: "Riz + Tenders + Sauce tikka masala" },
+    } as PossibleMeal;
+    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225", quantity: null };
+    const resolved = resolveFoodItemCounterStartForDisplay(sauce, [pastPm], fixedNow, 450);
+    expect(resolved).toBeTruthy();
+  });
+});
+
+describe("resolveFoodItemStockVisualHint", () => {
+  const tenders: FoodItem = {
+    id: "t1",
+    name: "Tenders",
+    grams: "400",
+    quantity: 1,
+    counter_start_date: null,
+    calories: null,
+    protein: null,
+    fiber: null,
+    expiration_date: null,
+    sort_order: 0,
+    created_at: "",
+    is_meal: false,
+    is_infinite: false,
+    is_dry: false,
+    is_indivisible: false,
+    no_counter: false,
+    storage_type: "frigo",
+    food_type: null,
+  };
+
+  it("marque un paquet entier sans compteur attendu", () => {
+    const hint = resolveFoodItemStockVisualHint(tenders, [], null, undefined, null);
+    expect(hint.isFullSealed).toBe(true);
+    expect(hint.counterExpected).toBe(false);
+  });
+
+  it("marque entamé + compteur attendu sous le poids d'origine", () => {
+    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225" };
+    const hint = resolveFoodItemStockVisualHint(sauce, [], "2026-06-29T12:00:00.000Z", undefined, 450);
+    expect(hint.isPhysicallyOpened).toBe(true);
+    expect(hint.counterExpected).toBe(true);
+    expect(hint.counterActive).toBe(true);
   });
 });

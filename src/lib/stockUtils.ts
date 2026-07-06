@@ -472,6 +472,77 @@ export function isFoodItemCounterEligible(fi: FoodItem): boolean {
   return !fi.is_infinite && fi.storage_type !== "surgele" && !fi.no_counter;
 }
 
+/** True si l'aliment est entièrement scellé (aucune unité entamée). */
+export function isFoodItemFullySealed(fi: FoodItem): boolean {
+  const perUnit = parseQty(fi.grams);
+  if (perUnit <= 0) return true;
+  const partial = parsePartialQty(fi.grams);
+  if (partial > 0 && partial < perUnit) return false;
+  const q = fi.quantity ?? 1;
+  const total = getFoodItemTotalGrams(fi);
+  return Math.abs(total - q * perUnit) < 0.01;
+}
+
+/**
+ * Résout le poids total de référence (paquet d'origine) pour détecter une entame.
+ * Priorité : baseline enregistrée à l'ajout → encodage « unité|reste » → défaut bibliothèque.
+ */
+export function resolveFoodItemBaselineTotalGrams(
+  fi: FoodItem,
+  recordedBaseline?: { totalGrams: number } | null,
+  libraryUnitGrams?: number | null,
+): number | null {
+  const current = getFoodItemTotalGrams(fi);
+  const candidates: number[] = [];
+  if (recordedBaseline?.totalGrams && recordedBaseline.totalGrams > 0) {
+    candidates.push(recordedBaseline.totalGrams);
+  }
+  const raw = fi.grams;
+  if (raw?.includes("|")) {
+    const unit = parseQty(raw);
+    const q = fi.quantity ?? 1;
+    if (unit > 0) candidates.push(unit * q);
+  }
+  if (libraryUnitGrams && libraryUnitGrams > 0) {
+    candidates.push(libraryUnitGrams * (fi.quantity ?? 1));
+  }
+  const aboveCurrent = candidates.filter((b) => b > current + 0.01);
+  return aboveCurrent.length > 0 ? Math.max(...aboveCurrent) : null;
+}
+
+/**
+ * Indique si le lot est physiquement entamé (reliquat, quantité réduite, ou sous le poids d'origine).
+ */
+export function isFoodItemPhysicallyOpened(
+  fi: FoodItem,
+  baselineTotalGrams?: number | null,
+): boolean {
+  if (!isFoodItemFullySealed(fi)) return true;
+  if (baselineTotalGrams != null && baselineTotalGrams > 0) {
+    return getFoodItemTotalGrams(fi) < baselineTotalGrams - 0.01;
+  }
+  return false;
+}
+
+/**
+ * Calcule le poids total « par défaut » d'une fiche aliment (quantité × grammage unitaire).
+ * Sert de référence pour savoir si le lot a été entamé ou partiellement consommé.
+ */
+export function getFoodItemDefaultTotalGrams(fi: FoodItem): number {
+  const perUnit = parseQty(fi.grams);
+  if (perUnit <= 0) return 0;
+  return (fi.quantity ?? 1) * perUnit;
+}
+
+/**
+ * Indique si le stock actuel est en dessous du total par défaut (lot entamé ou partiellement consommé).
+ */
+export function isFoodItemBelowDefaultTotal(fi: FoodItem): boolean {
+  const baseline = getFoodItemDefaultTotalGrams(fi);
+  if (baseline <= 0) return false;
+  return getFoodItemTotalGrams(fi) < baseline - 0.01;
+}
+
 /**
  * Indique si un aliment a un compteur d’ouverture déjà démarré et affichable.
  * Inclut les compteurs manuels sur articles sans grammes (`no_counter`), tant que `counter_start_date` est actif.

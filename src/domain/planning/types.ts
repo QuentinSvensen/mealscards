@@ -50,8 +50,8 @@ export interface PossibleMealsFullBackup {
   breakfastManualProteins: Record<string, number>;
   breakfastSelections: Record<string, string>;
   drinkChecks: Record<string, boolean>;
-  calOverrides: Record<string, number>;
-  proOverrides: Record<string, number>;
+  calOverrides: Record<string, string>;
+  proOverrides: Record<string, string>;
   daily_goal: number | null;
   protein_goal: number | null;
 }

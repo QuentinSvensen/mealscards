@@ -225,7 +225,13 @@ const Index = () => {
   // ─── Données dérivées (memoized) ────────────────────────────────────────
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
   const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
-  const { deductIngredientsFromStock, restoreIngredientsToStock, adjustStockForIngredientChange, deductNameMatchStock, updateFoodItemCountersForPlanning } = useMealTransfers(foodItems);
+  const { deductIngredientsFromStock, restoreIngredientsToStock, adjustStockForIngredientChange, deductNameMatchStock, updateFoodItemCountersForPlanning, reconcileMissedProgCounters } = useMealTransfers(foodItems);
+  const progReconcileDone = useRef(false);
+  useEffect(() => {
+    if (!unlocked || isLoading || !possibleMeals.length || progReconcileDone.current) return;
+    progReconcileDone.current = true;
+    void reconcileMissedProgCounters(possibleMeals);
+  }, [unlocked, isLoading, possibleMeals, reconcileMissedProgCounters]);
 
   // Précharger TOUS les fragments lazy + pré-récupérer TOUTES les données une fois déverrouillé (idle callback)
   const preloadDone = useRef(false);

@@ -28,10 +28,13 @@ import { fr } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { colorFromName, computeCounterDays, computeCounterHours, isExpiredDate, normalizeKey } from "@/lib/ingredientUtils";
+import { colorFromName, computeCounterDays, computeCounterHours, isExpiredDate, normalizeKey, parseQty } from "@/lib/ingredientUtils";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useSortModes, FoodSortMode } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
+import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams } from "@/lib/stockUtils";
+import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
+import type { PossibleMeal } from "@/hooks/useMeals";
 import { useMeals } from "@/hooks/useMeals";
 import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
 import { BarcodeScanner } from "./BarcodeScanner";
@@ -309,6 +312,8 @@ export function useFoodItems() {
 
 interface FoodItemCardProps {
   item: FoodItem;
+  possibleMeals: PossibleMeal[];
+  baselineTotalGrams?: number | null;
   onUpdate: (updates: Partial<FoodItem>) => void;
   manualMacroFields: FoodManualMacroFields;
   isMorningMeal: boolean;
@@ -323,17 +328,26 @@ interface FoodItemCardProps {
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, onUpdate, manualMacroFields, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manualMacroFields, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
 
-  const isFuture = item.counter_start_date ? new Date(item.counter_start_date) > new Date() : false;
-  const counterDays = computeCounterDays(item.counter_start_date);
-  const counterHours = computeCounterHours(item.counter_start_date);
-  const formattedProgDate = isFuture && item.counter_start_date ? (() => {
-    const s = format(parseISO(item.counter_start_date), "eeee d HH'h'", { locale: fr });
+  const gramsData = parseStoredGrams(item.grams);
+  const displayDefaultGrams = gramsData.unit !== null ? `${formatNumericFR(gramsData.unit)}g` : item.grams;
+
+  const effectiveCounterStart = resolveFoodItemCounterStartForDisplay(
+    item,
+    possibleMeals,
+    undefined,
+    baselineTotalGrams,
+  );
+  const isFuture = effectiveCounterStart ? new Date(effectiveCounterStart) > new Date() : false;
+  const counterDays = computeCounterDays(effectiveCounterStart);
+  const counterHours = computeCounterHours(effectiveCounterStart);
+  const formattedProgDate = isFuture && effectiveCounterStart ? (() => {
+    const s = format(parseISO(effectiveCounterStart), "eeee d HH'h'", { locale: fr });
     return s.charAt(0).toUpperCase() + s.slice(1);
   })() : null;
   const counterUrgent = counterDays !== null && counterDays >= 3;
@@ -343,10 +357,8 @@ function FoodItemCard({ item, onUpdate, manualMacroFields, isMorningMeal, onCycl
     const today = new Date();
     return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
   })() : false;
-  const gramsData = parseStoredGrams(item.grams);
-  const displayDefaultGrams = gramsData.unit !== null ? `${formatNumericFR(gramsData.unit)}g` : item.grams;
-  const displayPartialGrams = gramsData.remainder !== null ? `${formatNumericFR(gramsData.remainder)}g` : null;
   const effectiveQty = item.quantity === 1 ? null : item.quantity;
+  const displayPartialGrams = gramsData.remainder !== null ? `${formatNumericFR(gramsData.remainder)}g` : null;
   const canEditPartial = !item.is_infinite && gramsData.unit !== null && (effectiveQty ? effectiveQty > 1 : true);
   const showPartialLabel = gramsData.remainder !== null;
   const showCalories = isManualFoodMacroVisible(item, "calories", manualMacroFields);
@@ -873,11 +885,20 @@ const STORAGE_SECTIONS: { type: StorageType; label: string; emoji: React.ReactNo
 
 const MORNING_MEAL_PREF_KEY = 'morning_meal_food_item_ids';
 const FOOD_MANUAL_MACRO_FIELDS_PREF_KEY = 'food_manual_macro_fields';
+/** Référence quantité/grammage enregistrée à l'ajout de chaque aliment (pour détecter entamé vs entier). */
+const FOOD_STOCK_BASELINE_PREF_KEY = 'food_item_stock_baselines';
+
+export type FoodStockBaseline = {
+  quantity: number | null;
+  grams: string | null;
+  totalGrams: number;
+};
 
 /** Écran principal des aliments : sections de stockage, ajout, tri et recherche. */
 export function FoodItems() {
   const { items, isLoading: itemsLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
-  const { meals = [] } = useMeals();
+  const { meals = [], possibleMeals = [] } = useMeals();
+  const { reconcileMissedProgCounters } = useMealTransfers(items);
   const { searchLibrary, upsertEntry, deleteEntry } = useFoodLibrary();
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const {
@@ -886,6 +907,12 @@ export function FoodItems() {
 
   const { getPreference, setPreference, isLoading: prefsLoading } = usePreferences();
   const isLoading = itemsLoading || prefsLoading;
+  const counterReconcileDone = useRef(false);
+  useEffect(() => {
+    if (isLoading || !possibleMeals.length || counterReconcileDone.current) return;
+    counterReconcileDone.current = true;
+    void reconcileMissedProgCounters(possibleMeals);
+  }, [isLoading, possibleMeals, reconcileMissedProgCounters]);
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
   const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
@@ -930,6 +957,7 @@ export function FoodItems() {
   const testItemIds = getPreference<string[]>("food_test_ids", []);
   const testItemIdSet = new Set(testItemIds);
   const foodLibraryAmountMemory = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
+  const foodStockBaselines = getPreference<Record<string, FoodStockBaseline>>(FOOD_STOCK_BASELINE_PREF_KEY, {});
 
   /** Mémorise la première valeur de création et l'option indivisible pour les prochains ajouts du même aliment. */
   const rememberInitialFoodLibraryAmount = useCallback((
@@ -944,7 +972,12 @@ export function FoodItems() {
     const existing = current[key];
     const nextAmount = buildFoodLibraryAmountMemory(quantity, grams, isIndivisible);
     const mergedAmount = {
-      grams: nextAmount.grams || existing?.grams || "",
+      grams: (() => {
+        const nextG = parseQty(nextAmount.grams);
+        const prevG = parseQty(existing?.grams);
+        const best = Math.max(nextG, prevG);
+        return best > 0 ? String(best) : (nextAmount.grams || existing?.grams || "");
+      })(),
       quantity: nextAmount.quantity || existing?.quantity || "",
       is_indivisible: nextAmount.is_indivisible ?? existing?.is_indivisible ?? false,
     };
@@ -1198,6 +1231,23 @@ export function FoodItems() {
           if (pendingManualMacroFields.protein) updates.protein = protein;
           if (pendingManualMacroFields.fiber) updates.fiber = fiber;
           markManualFoodMacroFields(created.id, updates);
+          const baselineFi = {
+            id: created.id,
+            name: pendingName,
+            grams,
+            quantity: qty,
+          } as FoodItem;
+          setPreference.mutate({
+            key: FOOD_STOCK_BASELINE_PREF_KEY,
+            value: {
+              ...foodStockBaselines,
+              [created.id]: {
+                quantity: qty,
+                grams,
+                totalGrams: getFoodItemDefaultTotalGrams(baselineFi),
+              },
+            },
+          });
         }
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
@@ -1566,6 +1616,9 @@ export function FoodItems() {
             morningMealFoodItemIdSet={morningMealFoodItemIdSet}
             cycleMealMode={cycleMealMode}
             removeMorningMealId={removeMorningMealId}
+            possibleMeals={possibleMeals}
+            foodStockBaselines={foodStockBaselines}
+            foodLibraryAmountMemory={foodLibraryAmountMemory}
           />
         ))}
       </div>
@@ -1594,6 +1647,9 @@ export function FoodItems() {
               morningMealFoodItemIdSet={morningMealFoodItemIdSet}
               cycleMealMode={cycleMealMode}
               removeMorningMealId={removeMorningMealId}
+              possibleMeals={possibleMeals}
+              foodStockBaselines={foodStockBaselines}
+              foodLibraryAmountMemory={foodLibraryAmountMemory}
             />
           ))}
         </div>
@@ -1627,10 +1683,13 @@ interface FoodSectionProps {
   morningMealFoodItemIdSet: Set<string>;
   cycleMealMode: (item: FoodItem) => void;
   removeMorningMealId: (id: string) => void;
+  possibleMeals: PossibleMeal[];
+  foodStockBaselines: Record<string, FoodStockBaseline>;
+  foodLibraryAmountMemory: FoodLibraryAmountMemory;
 }
 
 /** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
-function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId }: FoodSectionProps) {
+function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory }: FoodSectionProps) {
   const SortIcon = sortMode === "expiration" ? CalendarDays : sortMode === "name" ? ArrowUpDown : sortMode === "calories" ? Flame : sortMode === "protein" ? UtensilsCrossed : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : sortMode === "name" ? "Nom" : sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : "Manuel";
   const [sectionDragOver, setSectionDragOver] = useState(false);
@@ -1807,6 +1866,12 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
               >
                 <FoodItemCard
                   item={item}
+                  possibleMeals={possibleMeals}
+                  baselineTotalGrams={resolveFoodItemBaselineTotalGrams(
+                    item,
+                    foodStockBaselines[item.id],
+                    parseQty(foodLibraryAmountMemory[getFoodLibraryAmountKey(item.name)]?.grams) || null,
+                  )}
                   onUpdate={(updates) => onUpdate(item.id, updates)}
                   manualMacroFields={manualMacroFields}
                   isMorningMeal={morningMealFoodItemIdSet.has(item.id)}

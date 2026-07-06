@@ -36,6 +36,22 @@ export function asStringRecord(value: Json | undefined): Record<string, string> 
   return out;
 }
 
+/**
+ * Convertit les overrides kcal/prot du planning (chaînes ou nombres JSON)
+ * en dictionnaire homogène clé → chaîne, pour la sauvegarde semaine précédente.
+ */
+export function asPlanningOverrideRecord(value: Json | undefined): Record<string, string> {
+  if (value === null || value === undefined) return {};
+  if (typeof value !== "object" || Array.isArray(value)) return {};
+  const o = value as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (typeof v === "string" && v.trim()) out[k] = v;
+    else if (typeof v === "number" && !Number.isNaN(v)) out[k] = String(v);
+  }
+  return out;
+}
+
 /** Convertit une valeur JSON en dictionnaire clé → booléen. */
 export function asBoolRecord(value: Json | undefined): Record<string, boolean> {
   if (value === null || value === undefined) return {};

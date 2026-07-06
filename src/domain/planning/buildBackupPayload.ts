@@ -3,6 +3,7 @@ import type { PossibleMealBackupCard, PossibleMealsFullBackup, PlanningPrefMap }
 import {
   asBoolRecord,
   asNumberRecord,
+  asPlanningOverrideRecord,
   asStringArrayRecord,
   asStringRecord,
 } from "./jsonCoerce";
@@ -51,8 +52,8 @@ export function buildFullBackupPayload(
     breakfastManualProteins: asNumberRecord(prefMap["planning_breakfast_manual_proteins"]),
     breakfastSelections: asStringRecord(prefMap["planning_breakfast"]),
     drinkChecks: asBoolRecord(prefMap["planning_drink_checks"]),
-    calOverrides: asNumberRecord(prefMap["planning_cal_overrides"]),
-    proOverrides: asNumberRecord(prefMap["planning_pro_overrides"]),
+    calOverrides: asPlanningOverrideRecord(prefMap["planning_cal_overrides"]),
+    proOverrides: asPlanningOverrideRecord(prefMap["planning_pro_overrides"]),
     daily_goal: typeof dg === "number" ? dg : null,
     protein_goal: typeof pg === "number" ? pg : null,
   };

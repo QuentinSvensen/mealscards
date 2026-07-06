@@ -367,4 +367,39 @@ describe("buildFullBackupPayload", () => {
     expect(b.daily_goal).toBe(2500);
     expect(serializePossibleMealsForBackup(pm)).toEqual(b.cards);
   });
+
+  it("conserve les overrides kcal/prot saisis en chaîne (format live)", () => {
+    const pm = [
+      {
+        id: "sandwich-pm",
+        meal_id: "m",
+        quantity: 1,
+        expiration_date: null,
+        day_of_week: "2026-07-05",
+        meal_time: "soir",
+        counter_start_date: null,
+        sort_order: 0,
+        ingredients_override: null,
+        ...baseMeal,
+      },
+    ] as PossibleMeal[];
+    const pref: PlanningPrefMap = {
+      planning_manual_calories: {},
+      planning_manual_proteins: {},
+      planning_extra_calories: {},
+      planning_extra_proteins: {},
+      planning_extra_selections: {},
+      planning_breakfast_manual_calories: {},
+      planning_breakfast_manual_proteins: {},
+      planning_breakfast: {},
+      planning_drink_checks: {},
+      planning_cal_overrides: { "sandwich-pm": "818" },
+      planning_pro_overrides: { "sandwich-pm": "64" },
+      planning_daily_goal: 2300,
+      planning_protein_goal: 120,
+    };
+    const b = buildFullBackupPayload(pm, pref);
+    expect(b.calOverrides).toEqual({ "sandwich-pm": "818" });
+    expect(b.proOverrides).toEqual({ "sandwich-pm": "64" });
+  });
 });
