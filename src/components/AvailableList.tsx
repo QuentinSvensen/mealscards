@@ -1227,15 +1227,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     };
     const byMissing = new Map<string, { missingName: string; qty: number; count: number; sources: Source[]; countedRecipeIds: Set<string> }>();
 
-    /** Formate la quantité d'un aliment inutilisé, avec repli sur le stock si la recette ne précise rien. */
+    /** Formate la quantité d'un aliment inutilisé, avec repli sur le stock réel si la recette ne précise rien. */
     const formatUnusedRecipeAmountLabel = (fi: FoodItem, recipeQty: number, recipeCount: number): string => {
       if (recipeQty > 0) return `${formatNumeric(recipeQty)}g`;
       if (recipeCount > 0) return `x${formatNumeric(recipeCount)}`;
 
-      const unitGrams = parseQty(fi.grams);
+      const totalGrams = getFoodItemTotalGrams(fi);
+      if (totalGrams > 0) return `${formatNumeric(totalGrams)}g`;
       const quantity = fi.quantity ?? null;
-      if (unitGrams > 0 && quantity && quantity > 1) return `${formatNumeric(unitGrams)}g x${formatNumeric(quantity)}`;
-      if (unitGrams > 0) return `${formatNumeric(unitGrams)}g`;
       if (quantity && quantity > 0) return `x${formatNumeric(quantity)}`;
       return "";
     };

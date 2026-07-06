@@ -388,6 +388,11 @@ describe("getFoodItemTotalGrams", () => {
     const fi = makeFoodItem({ name: "Test", quantity: 0, grams: "100" });
     expect(getFoodItemTotalGrams(fi)).toBe(100);
   });
+
+  it("retourne le reliquat quand quantity est implicite (null) et lot entamé", () => {
+    const fi = makeFoodItem({ name: "Beurre", quantity: null, grams: "250|130" });
+    expect(getFoodItemTotalGrams(fi)).toBe(130);
+  });
 });
 
 // ─── UN PAR UN : VALIDATION DE CONSOMMATION ────────────────────────────────

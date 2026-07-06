@@ -480,14 +480,25 @@ export function encodeStoredGrams(unit: number, partial: number | null): string 
  * Calcule le poids total d'un aliment en stock.
  * Tient compte des unités complètes + éventuel reliquat partiel.
  * Ex: 3 × 100g avec 30g de partiel → 2×100 + 30 = 230g
+ * Ex: 1 × 250g entamé (250|130) sans quantity explicite → 130g
  */
 export function getFoodItemTotalGrams(fi: FoodItem): number {
   const unit = parseQty(fi.grams);
   if (unit <= 0) return 0;
-  if (!fi.quantity || fi.quantity < 1) return unit;
   const partial = parsePartialQty(fi.grams);
-  if (partial > 0 && partial < unit) return unit * Math.max(0, fi.quantity - 1) + partial;
-  return unit * fi.quantity;
+  const rawQty = fi.quantity;
+
+  if (rawQty == null) {
+    if (partial > 0 && partial < unit) return partial;
+    return unit;
+  }
+
+  if (rawQty < 1) return unit;
+
+  if (partial > 0 && partial < unit) {
+    return unit * Math.max(0, rawQty - 1) + partial;
+  }
+  return unit * rawQty;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -161,6 +161,34 @@ const DAY_LABELS: Record<string, string> = {
 
 const TIME_LABELS: Record<string, string> = { midi: "Midi", soir: "Soir", gouter: "Goûter" };
 
+/**
+ * Libellé de date pour le badge d'une carte planning : jour planifié en priorité (comme Possible),
+ * sinon date de péremption pour les repas non encore placés.
+ */
+function formatPlanningMiniCardDateLabel(
+  dayOfWeek: string | null | undefined,
+  expirationDate: string | null | undefined,
+): string | null {
+  if (dayOfWeek) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dayOfWeek)) {
+      try {
+        return format(parseISO(dayOfWeek), "eee d", { locale: fr });
+      } catch {
+        return dayOfWeek;
+      }
+    }
+    return DAY_LABELS[dayOfWeek] || dayOfWeek;
+  }
+  if (expirationDate) {
+    try {
+      return format(parseISO(expirationDate), "d MMM", { locale: fr });
+    } catch {
+      return expirationDate;
+    }
+  }
+  return null;
+}
+
 /** Style compact du total kcal/prot/fib d’un créneau — réduit sur mobile pour éviter le débordement. */
 const SLOT_MEAL_TOTAL_CLASS =
   "flex items-center gap-0.5 sm:gap-1 shrink min-w-0 max-w-[58%] sm:max-w-none text-[7px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-1 sm:px-2 py-px sm:py-0.5 rounded-full border border-border/40 shadow-sm";
@@ -486,6 +514,8 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
   const [editingPro, setEditingPro] = useState(false);
   const [proValue, setProValue] = useState("");
   const cardColorIngredients = meal.ingredients?.trim() ? meal.ingredients : pm.ingredients_override;
+  const dateBadgeLabel = formatPlanningMiniCardDateLabel(pm.day_of_week, pm.expiration_date);
+  const dateBadgeIsExpiration = !pm.day_of_week && !!pm.expiration_date;
 
   const macroControls = !compact ? (
     <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
@@ -603,14 +633,14 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             </div>
           </div>
         </div>
-        {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
+        {!compact && (dateBadgeLabel || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
           <div className="mt-auto pt-0.5">
             <div className="flex items-end justify-between gap-1 min-w-0">
               <div className="flex flex-wrap items-center gap-1 min-w-0">
-                {pm.expiration_date && (
-                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border align-middle text-[9px] font-normal ${expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                {dateBadgeLabel && (
+                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border align-middle text-[9px] font-normal ${dateBadgeIsExpiration && expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
                     <Calendar className="h-2 w-2 inline" />
-                    {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                    {dateBadgeLabel}
                   </span>
                 )}
                 {meal.grams && (
@@ -656,14 +686,14 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               </span>
             ) : null}
           </div>
-          {!compact && (pm.expiration_date || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
+          {!compact && (dateBadgeLabel || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
             <div className="pt-0.5">
               <div className="flex items-end justify-between gap-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-1 min-w-0">
-                  {pm.expiration_date && (
-                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border text-[9px] font-normal ${expired ? "text-red-300 font-bold border-red-400/50 bg-red-500/20" : "text-white/60 border-white/15 bg-white/5"}`}>
+                  {dateBadgeLabel && (
+                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border text-[9px] font-normal ${dateBadgeIsExpiration && expired ? "text-red-300 font-bold border-red-400/50 bg-red-500/20" : "text-white/60 border-white/15 bg-white/5"}`}>
                     <Calendar className="h-2 w-2 inline" />
-                    {format(parseISO(pm.expiration_date), "d MMM", { locale: fr })}
+                    {dateBadgeLabel}
                   </span>
                   )}
                   {meal.grams && (
