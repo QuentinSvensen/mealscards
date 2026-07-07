@@ -365,6 +365,42 @@ export function deductMealServingFromVirtualStock(
 }
 
 /**
+ * Calcule combien de portions on peut préparer avec un ratio donné sur la recette d'origine
+ * (sans la mettre à l'échelle au préalable). Évite les faux x1000 quand les quantités scalées
+ * deviennent nulles ou trop petites pour être déduites correctement du stock.
+ */
+export function getMealMultipleAtRatio(
+  meal: Meal,
+  stockMap: Map<string, StockInfo>,
+  ratio: number = 1,
+): number | null {
+  if (!meal.ingredients?.trim()) return null;
+  if (ratio <= 0) return null;
+  if (ratio === 1) return getMealMultiple(meal, stockMap);
+
+  const virtualStock = new Map<string, StockInfo>();
+  for (const [k, v] of stockMap.entries()) {
+    virtualStock.set(k, { ...v });
+  }
+
+  let servings = 0;
+  const MAX_SERVINGS = 1000;
+  while (servings < MAX_SERVINGS) {
+    if (!deductMealServingFromVirtualStock(meal, virtualStock, ratio)) break;
+    servings++;
+  }
+  return servings === 0 ? null : servings;
+}
+
+/**
+ * Indique si le comptage d'un ingrédient doit être arrondi à l'entier lors du scale
+ * (ex. 4 œufs), contrairement aux fractions unitaires (ex. 0,5 œuf).
+ */
+function shouldRoundCountWhenScaling(count: number): boolean {
+  return count >= 1;
+}
+
+/**
  * Calcule le ratio fractionnaire maximal (entre 0.5 et 1.0) pour une portion partielle.
  * Utilisé quand un repas n'est pas faisable à 100% mais qu'une portion réduite l'est.
  * Tient compte des ingrédients indivisibles pour arrondir le ratio.
@@ -1443,14 +1479,15 @@ export function scaleIngredientStringExact(
     const { text: withoutMetrics } = extractMetrics(cleanAlt);
     const parsed = parseIngredientLineRaw(withoutMetrics);
 
-    if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible) {
+    if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible && shouldRoundCountWhenScaling(parsed.count)) {
       const scaledCount = Math.round(parsed.count * ratio);
       const actualRatio = scaledCount / parsed.count;
-      if (Math.abs(actualRatio - ratio) > 0.001) {
+      if (scaledCount > 0 && Math.abs(actualRatio - ratio) > 0.001) {
         effectiveRatio = actualRatio;
       }
     }
   }
+  if (effectiveRatio <= 0) effectiveRatio = ratio;
 
   // Deuxième passe : appliquer le ratio effectif à tous les ingrédients
   return groups.map(group => {
@@ -1465,7 +1502,7 @@ export function scaleIngredientStringExact(
         let scaledQtyRaw = parsed.qty > 0 ? parsed.qty * effectiveRatio : 0;
         let scaledCountRaw = parsed.count > 0 ? parsed.count * effectiveRatio : 0;
 
-        if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible) {
+        if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible && shouldRoundCountWhenScaling(parsed.count)) {
           scaledCountRaw = Math.round(scaledCountRaw);
         }
 

@@ -7,7 +7,7 @@ import {
 } from "@/lib/ingredientUtils";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
-  getMealMultiple, getMealFractionalRatio,
+  getMealMultiple, getMealMultipleAtRatio, getMealFractionalRatio,
   getMissingIngredients, buildScaledMealForRatio, scaleIngredientStringExact,
   resolveCounterStartForPossibleBadge,
   analyzeMealIngredients,
@@ -222,6 +222,34 @@ describe("getMealMultiple", () => {
   });
 });
 
+describe("getMealMultipleAtRatio", () => {
+  it("retourne le même résultat que getMealMultiple quand ratio = 1", () => {
+    const items = [makeFoodItem({ name: "Oeufs", quantity: 8 })];
+    const meal = makeMeal({ name: "Oeufs", ingredients: "4 Oeufs" });
+    const map = buildStockMap(items);
+    expect(getMealMultipleAtRatio(meal, map, 1)).toBe(2);
+  });
+
+  it("compte les portions partielles sans faux x1000 (quantités fractionnaires)", () => {
+    const items = [
+      makeFoodItem({ name: "Beurre", quantity: 1, grams: "120" }),
+      makeFoodItem({ name: "Oeuf", quantity: 4 }),
+      makeFoodItem({ name: "Farine d'avoine", quantity: 1, grams: "100" }),
+    ];
+    const meal = makeMeal({
+      name: "Cookie",
+      calories: "440",
+      ingredients: "30g Beurre, 0.5 Oeuf, 25g Farine d'avoine",
+    });
+    const map = buildStockMap(items);
+    expect(getMealMultiple(meal, map)).toBe(4);
+    const at75 = getMealMultipleAtRatio(meal, map, 0.75);
+    expect(at75).not.toBe(1000);
+    expect(at75).toBeGreaterThan(0);
+    expect(at75).toBeLessThanOrEqual(6);
+  });
+});
+
 // ─── RATIO FRACTIONNAIRE DE REPAS (CARTES EN POURCENTAGE) ───────────────────
 
 describe("getMealFractionalRatio", () => {
@@ -362,6 +390,13 @@ describe("buildScaledMealForRatio", () => {
     const scaled = buildScaledMealForRatio(meal, 0.8);
     // 12.5 * 0.8 = 10
     expect(scaled.ingredients).toBe("10g Sucre");
+  });
+
+  it("conserve les fractions unitaires (ex. 0,5 œuf à 75%)", () => {
+    const meal = makeMeal({ name: "Cookie", ingredients: "30g Beurre, 0.5 Oeuf" });
+    const scaled = buildScaledMealForRatio(meal, 0.75);
+    expect(scaled.ingredients).toContain("0.4 Oeuf");
+    expect(scaled.ingredients).toContain("22.5g Beurre");
   });
 });
 

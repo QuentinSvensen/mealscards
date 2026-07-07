@@ -33,7 +33,7 @@ import { autofillIngredientLinesMacros, resolveIngredientLineMacros } from "@/do
 import { getExtraPortionMacros, parseFoodMacroValue } from "@/lib/extraMacroUtils";
 import { usePreferences } from "@/hooks/usePreferences";
 import {
-  buildStockMap, findStockKey, getMealMultiple, getMealFractionalRatio,
+  buildStockMap, findStockKey, getMealMultiple, getMealMultipleAtRatio, getMealFractionalRatio,
   analyzeMealIngredients,
   getMissingIngredients,
   buildIngredientMealIndex,
@@ -1016,7 +1016,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const effectiveRatio = customRatio ?? 1;
     const displayMeal = effectiveRatio !== 1 ? buildScaledMealForRatio(meal, effectiveRatio, stockMap) : meal;
     // Calcule le nombre de portions réellement faisables pour la portion affichée (ex: 57%).
-    const displayMultiple = effectiveRatio !== 1 ? getMealMultiple(displayMeal, stockMap) : multiple;
+    const displayMultiple = effectiveRatio !== 1 ? getMealMultipleAtRatio(meal, stockMap, effectiveRatio) : multiple;
     const badgeMultiple = displayMultiple ?? multiple;
     // L'analyse en une seule passe remplace 6+ appels de fonctions séparés
     const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
