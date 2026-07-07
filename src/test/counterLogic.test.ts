@@ -508,9 +508,32 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
       ingredients_override: "Riz + Tenders + Sauce tikka masala",
       meals: { ingredients: "Riz + Tenders + Sauce tikka masala" },
     } as PossibleMeal;
-    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225", quantity: null };
+    // Après déduction, le pot est physiquement entamé (pas encore scellé à 100 %).
+    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225|180", quantity: null };
     const resolved = resolveFoodItemCounterStartForDisplay(sauce, [unplannedPm], fixedNow, null);
     expect(resolved).toBeTruthy();
+  });
+
+  it("n'affiche pas de compteur sur une unité scellée restante (ex. Lardons 1/2 consommés)", () => {
+    const fixedNow = new Date("2026-07-07T10:00:00.000Z");
+    const unplannedPm = {
+      ...futurePm,
+      id: "pm-lardons",
+      day_of_week: null,
+      meal_time: null,
+      created_at: "2026-07-02T10:00:00.000Z",
+      ingredients_override: "100g Lardons",
+      meals: { ingredients: "100g Lardons" },
+    } as PossibleMeal;
+    const lardons = {
+      ...tenders,
+      name: "Lardons",
+      grams: "100",
+      quantity: 1,
+      counter_start_date: "2026-07-02T10:00:00.000Z",
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(lardons, [unplannedPm], fixedNow);
+    expect(resolved).toBeNull();
   });
 
   it("affiche un compteur quand le reliquat est sous le poids d'origine (450g → 225g)", () => {

@@ -368,17 +368,15 @@ function findLatestPastPlannedSlotForFood(
 
 /**
  * Indique si un repas Possible (planifié passé ou non planifié) consomme déjà cet aliment.
+ * Un lot entièrement scellé n'est jamais considéré comme ouvert : la consommation concerne
+ * d'autres unités déjà retirées (ex. 1 paquet sur 2 consommé, le restant est intact).
  */
 export function isFoodItemConsumedByPossibleMeals(
   fi: FoodItem,
   allPossibleMeals: PossibleMeal[],
   fixedNow?: Date,
 ): boolean {
-  const perUnit = parseQty(fi.grams);
-  const sealed = isFoodItemFullySealed(fi);
-  if (sealed && ((fi.quantity ?? 1) > 1 || perUnit > MAX_CONTAINER_VIRTUAL_GRAMS)) {
-    return false;
-  }
+  if (isFoodItemFullySealed(fi)) return false;
 
   const nowMs = (fixedNow ?? new Date()).getTime();
   for (const pm of allPossibleMeals) {
@@ -1924,7 +1922,6 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const now = new Date();
     for (const fi of getLiveFoodItems()) {
       if (!shouldStartCounter(fi) || fi.counter_start_date?.trim()) continue;
-      const perUnit = parseQty(fi.grams);
       // Ce rattrapage ne doit poser un compteur QUE sur des lots réellement entamés.
       // Si le stock est entièrement scellé (ex. 1 paquet restant intact après consommation d'un autre),
       // il ne faut jamais faire apparaître un compteur "fantôme".
@@ -1933,23 +1930,40 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       const openDate = findEarliestOpenDateFromPossibleMeals(fi, allPossibleMeals, now);
       if (openDate) pendingOpens.set(fi.id, openDate);
     }
-    if (pendingOpens.size === 0) return;
+
+    // Retire les compteurs passés encore enregistrés sur des lots entièrement scellés (données obsolètes).
+    const staleCounterClears = new Map<string, null>();
+    for (const fi of getLiveFoodItems()) {
+      if (!fi.counter_start_date?.trim()) continue;
+      if (!shouldStartCounter(fi)) continue;
+      if (!isFoodItemFullySealed(fi)) continue;
+      const ctrMs = new Date(fi.counter_start_date).getTime();
+      if (Number.isNaN(ctrMs) || ctrMs > now.getTime()) continue;
+      staleCounterClears.set(fi.id, null);
+    }
+
+    if (pendingOpens.size === 0 && staleCounterClears.size === 0) return;
 
     await qc.cancelQueries({ queryKey: ["food_items"] });
     qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
       if (!Array.isArray(old)) return old;
       return old.map((fi) => {
         const openDate = pendingOpens.get(fi.id);
-        return openDate ? { ...fi, counter_start_date: openDate } : fi;
+        if (openDate) return { ...fi, counter_start_date: openDate };
+        if (staleCounterClears.has(fi.id)) return { ...fi, counter_start_date: null };
+        return fi;
       });
     });
     suppressStockRealtimeBriefly();
-    await safeMutate("Ouverture compteur repas Possible", () =>
-      Promise.all(
-        Array.from(pendingOpens.entries()).map(([id, dateIso]) =>
+    await safeMutate("Synchronisation compteurs stock", () =>
+      Promise.all([
+        ...Array.from(pendingOpens.entries()).map(([id, dateIso]) =>
           supabase.from("food_items").update({ counter_start_date: dateIso } as any).eq("id", id),
         ),
-      ),
+        ...Array.from(staleCounterClears.keys()).map((id) =>
+          supabase.from("food_items").update({ counter_start_date: null } as any).eq("id", id),
+        ),
+      ]),
     );
   };
 
