@@ -1925,9 +1925,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     for (const fi of getLiveFoodItems()) {
       if (!shouldStartCounter(fi) || fi.counter_start_date?.trim()) continue;
       const perUnit = parseQty(fi.grams);
-      if (isFoodItemFullySealed(fi) && ((fi.quantity ?? 1) > 1 || perUnit > MAX_CONTAINER_VIRTUAL_GRAMS)) {
-        continue;
-      }
+      // Ce rattrapage ne doit poser un compteur QUE sur des lots réellement entamés.
+      // Si le stock est entièrement scellé (ex. 1 paquet restant intact après consommation d'un autre),
+      // il ne faut jamais faire apparaître un compteur "fantôme".
+      if (isFoodItemFullySealed(fi)) continue;
       if (!isFoodItemConsumedByPossibleMeals(fi, allPossibleMeals, now)) continue;
       const openDate = findEarliestOpenDateFromPossibleMeals(fi, allPossibleMeals, now);
       if (openDate) pendingOpens.set(fi.id, openDate);

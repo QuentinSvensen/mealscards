@@ -561,7 +561,11 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
     const opened = { ...tenders, grams: "400|200", counter_start_date: null };
     const resolved = resolveFoodItemCounterStartForDisplay(opened, [oldPm], fixedNow, 400);
     expect(resolved).toBe("2026-07-06T10:00:00.000Z");
+    // computeCounterDays dépend de l'horloge système : figer le temps pour un test stable.
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
     expect(computeCounterDays(resolved)).toBe(0);
+    vi.useRealTimers();
   });
 });
 
