@@ -49,11 +49,27 @@ import {
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useCalorieBalance } from "@/hooks/useCalorieBalance";
+import { DESSERT_FOOD_PREF_KEY } from "@/lib/foodDessertUtils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
+
+/**
+ * Indique si un aliment est marqué comme option planning (repas, matin ou dessert)
+ * et doit donc être exclu de la section « Aliments inutilisés ».
+ */
+function isFoodPlanningOption(
+  fi: FoodItem,
+  morningIds: Set<string>,
+  dessertIds: Set<string>,
+): boolean {
+  if (fi.is_meal) return true;
+  if (morningIds.has(fi.id)) return true;
+  if (dessertIds.has(fi.id)) return true;
+  return false;
+}
 
 /**
  * Détecte un contexte mobile / tactile sans hover fiable, pour ouvrir le détail des suggestions au tap.
@@ -251,6 +267,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
   const morningMealFoodItemIds = getAvailPref<string[]>('morning_meal_food_item_ids', []);
   const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
+  const dessertFoodItemIds = getAvailPref<string[]>(DESSERT_FOOD_PREF_KEY, []);
+  const dessertFoodItemIdSet = new Set(dessertFoodItemIds);
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
   const useRemainingCalories = getAvailPref<boolean>(`available_use_remaining_calories_${category.value}`, category.value !== "petit_dejeuner");
   const showOnlyFullRemainingRecipes = getAvailPref<boolean>(`available_full_remaining_recipes_${category.value}`, false);
@@ -496,7 +514,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     for (const nmKey of nameMatchMealNames) usedIngredientKeys.add(nmKey);
 
     return nonToujoursItems.filter(fi => {
-      if (fi.is_meal) return false;
+      if (isFoodPlanningOption(fi, morningMealFoodItemIdSet, dessertFoodItemIdSet)) return false;
       const fiKey = normalizeForMatch(fi.name);
       for (const usedKey of usedIngredientKeys) {
         if (strictNameMatch(fiKey, usedKey)) return false;
@@ -523,6 +541,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     // For each expiring item, check which categories use it
     const result: FoodItem[] = [];
     for (const fi of expiringItems) {
+      if (isFoodPlanningOption(fi, morningMealFoodItemIdSet, dessertFoodItemIdSet)) continue;
       const fiKey = normalizeForMatch(fi.name);
       // Find which categories this item belongs to (via meal ingredients or name match)
       const belongsToCategories = new Set<string>();
