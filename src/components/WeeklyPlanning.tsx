@@ -53,6 +53,11 @@ import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
+import {
+  buildFoodDessertExtras,
+  DESSERT_FOOD_PREF_KEY,
+  parseFoodDessertExtraId,
+} from "@/lib/foodDessertUtils";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
@@ -280,7 +285,7 @@ function buildDessertExtraId(name: string, cal: number, prot: number): string {
   return `custom::${name}::${Math.round(cal)}::${Math.round(prot)}`;
 }
 
-/** Somme kcal / prot / fibres des extras (aliments stock ou entrées `custom::…`). */
+/** Somme kcal / prot / fibres des extras (aliments stock, desserts aliment ou entrées `custom::…`). */
 function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodItem[]): { cal: number; pro: number; fiber: number } {
   let cal = 0;
   let pro = 0;
@@ -290,6 +295,17 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
     if (custom) {
       cal += custom.cal;
       pro += custom.prot;
+      continue;
+    }
+    const foodDessertItemId = parseFoodDessertExtraId(id);
+    if (foodDessertItemId) {
+      const dessertFi = foodItems.find((f) => f.id === foodDessertItemId);
+      if (dessertFi) {
+        const macros = getExtraPortionMacros(dessertFi, { perUnit: true });
+        cal += macros.cal;
+        pro += macros.pro;
+        fiber += macros.fiber;
+      }
       continue;
     }
     const fi = foodItems.find((f) => f.id === id);
@@ -448,6 +464,29 @@ function groupAssignedExtraIds(ids: string[]): Array<{ id: string; count: number
   return groups;
 }
 
+/**
+ * Résout custom + fiche aliment pour afficher un extra assigné à un créneau
+ * (stock, dessert aliment `food-dessert::…` ou recette dessert `custom::…`).
+ */
+function resolveAssignedExtraForDisplay(
+  extraId: string,
+  foodItems: FoodItem[],
+  dessertById: Map<string, { mealPayload: Meal }>,
+): { custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
+  const custom = parseCustomExtraId(extraId);
+  if (custom) return { custom, fi: undefined };
+
+  const foodDessertItemId = parseFoodDessertExtraId(extraId);
+  const fi =
+    foodItems.find((f) => f.id === extraId)
+    ?? (foodDessertItemId ? foodItems.find((f) => f.id === foodDessertItemId) : undefined);
+
+  if (fi || dessertById.has(extraId)) {
+    return { custom: null, fi };
+  }
+  return null;
+}
+
 /** Construit le texte d'une bulle d'extra assigné en affichant la quantité totale déplacée. */
 function getAssignedExtraLabel(
   extraId: string,
@@ -457,7 +496,7 @@ function getAssignedExtraLabel(
   foodItems: FoodItem[],
   dessertById: Map<string, { mealPayload: Meal }>,
 ): string {
-  const name = custom?.name || fi?.name || "";
+  const name = custom?.name || fi?.name || dessertById.get(extraId)?.mealPayload?.name || "";
   if (fi) {
     const totalQuantity = fi.quantity != null ? Math.max(1, fi.quantity) * Math.max(1, count) : null;
     return formatPlacedExtraLabel(name, multiplyDisplayGrams(fi.grams, count), totalQuantity);
@@ -788,6 +827,7 @@ export function WeeklyPlanning({
 
   // Sélections de petit déjeuner par jour
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
+  const dessertFoodItemIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
   const { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_FIBER_GOAL: DAILY_FIBER_GOAL_PREF_FROM_HOOK, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const possiblePetitDej = possibleMeals.filter(pm => pm.meals?.category === 'petit_dejeuner');
@@ -857,8 +897,12 @@ export function WeeklyPlanning({
         if (!extrasByCustomId.has(extra.id)) extrasByCustomId.set(extra.id, extra);
       });
 
+    buildFoodDessertExtras(foodItems, dessertFoodItemIds).forEach((extra) => {
+      if (!extrasByCustomId.has(extra.id)) extrasByCustomId.set(extra.id, extra);
+    });
+
     return Array.from(extrasByCustomId.values());
-  }, [buildMealTransferPayload, foodItems, foodMacroIndex, getMealsByCategory, meals]);
+  }, [buildMealTransferPayload, dessertFoodItemIds, foodItems, foodMacroIndex, getMealsByCategory, meals]);
   /** Desserts à ingrédient unique actuellement ajoutables (stock > 0). */
   const singleIngredientDessertExtras = useMemo(() => {
     const withExpiry = allSingleIngredientDessertExtras
@@ -2696,9 +2740,9 @@ export function WeeklyPlanning({
                 {breakfastAssignedSlotIds.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
                     {groupAssignedExtraIds(breakfastAssignedSlotIds).map(({ id: extraId, count }, index) => {
-                      const custom = parseCustomExtraId(extraId);
-                      const fi = custom ? null : foodItems.find(f => f.id === extraId);
-                      if (!fi && !custom) return null;
+                      const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                      if (!resolved) return null;
+                      const { custom, fi } = resolved;
                       return (
                         <span
                           key={`breakfast-assigned-${extraId}-${index}-${count}`}
@@ -3015,9 +3059,9 @@ export function WeeklyPlanning({
                         {slotAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1 pt-0.5">
                             {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
-                              const custom = parseCustomExtraId(extraId);
-                              const fi = custom ? null : foodItems.find(f => f.id === extraId);
-                              if (!fi && !custom) return null;
+                              const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                              if (!resolved) return null;
+                              const { custom, fi } = resolved;
                               return (
                                 <span
                                   key={`${time}-assigned-${extraId}-${index}-${count}`}
@@ -3132,13 +3176,21 @@ export function WeeklyPlanning({
                             <Plus className="h-3 w-3" />
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80 p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]" align="center">
+                        <PopoverContent
+                          className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]"
+                          align="center"
+                          onOpenAutoFocus={(e) => e.preventDefault()}
+                        >
                           {/* Formulaire d'ajout en une ligne — STYLE MODERNISÉ */}
                           <div className="flex items-center gap-1.5 mb-3 pb-3 border-b border-white/5">
                             <input
                               type="text"
                               value={customExtraName}
                               onChange={(e) => setCustomExtraName(e.target.value)}
+                              readOnly={isTouchDevice}
+                              onFocus={(e) => {
+                                if (isTouchDevice) e.currentTarget.readOnly = false;
+                              }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && customExtraName.trim() && customExtraCal.trim()) {
                                   const name = customExtraName.trim();
@@ -3162,6 +3214,10 @@ export function WeeklyPlanning({
                                 inputMode="decimal"
                                 value={customExtraCal}
                                 onChange={(e) => setCustomExtraCal(e.target.value)}
+                                readOnly={isTouchDevice}
+                                onFocus={(e) => {
+                                  if (isTouchDevice) e.currentTarget.readOnly = false;
+                                }}
                                 placeholder="kcal"
                                 className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-orange-500 placeholder:text-orange-300/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 text-center transition-all shadow-sm"
                               />
@@ -3172,6 +3228,10 @@ export function WeeklyPlanning({
                                 inputMode="decimal"
                                 value={customExtraProt}
                                 onChange={(e) => setCustomExtraProt(e.target.value)}
+                                readOnly={isTouchDevice}
+                                onFocus={(e) => {
+                                  if (isTouchDevice) e.currentTarget.readOnly = false;
+                                }}
                                 placeholder="prot"
                                 className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-blue-400 placeholder:text-blue-400/20 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-center transition-all shadow-sm"
                               />
@@ -3309,18 +3369,23 @@ export function WeeklyPlanning({
                               /** Rend une ligne d'extra sélectionné avec une clé stable par section pour accepter les doublons. */
                               const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom", occurrenceIndex: number) => {
                                 const c = parseCustomExtraId(id);
-                                const fi = c ? null : extrasById.get(id);
-                                if (!c && !fi) return null;
-                                const isDessertExtra = singleIngredientDessertById.has(id);
+                                const dessertExtra = singleIngredientDessertById.get(id);
+                                const fi = c ? null : (extrasById.get(id) ?? (dessertExtra ? foodItems.find((f) => f.id === parseFoodDessertExtraId(id) ?? undefined) : undefined));
+                                if (!c && !fi && !dessertExtra) return null;
+                                const isDessertExtra = !!dessertExtra;
                                 const canAddDessert = !isDessertExtra || canAddDessertById.get(id) === true;
                                 const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(id) ?? 0) : null;
                                 const count = currentIds.filter((cid) => cid === id).length;
-                                const label = c ? c.name : (fi?.name || id);
-                                const dessertExtra = singleIngredientDessertById.get(id);
-                                const portionMacros = fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0, fiber: 0 };
+                                const label = c ? c.name : (dessertExtra?.name ?? fi?.name ?? id);
+                                const portionMacros = dessertExtra
+                                  ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
+                                  : (fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0, fiber: 0 });
                                 const prot = c ? c.prot : portionMacros.pro;
                                 const cal = c ? c.cal : portionMacros.cal;
                                 const fiber = c ? (dessertExtra?.fiber ?? 0) : portionMacros.fiber;
+                                const dessertDisplayQty = dessertExtra
+                                  ? extractExtraDisplayQuantity(dessertExtra.mealPayload, foodItems)
+                                  : null;
                                 return (
                                   <div
                                     key={`${selectedSection}-${id}-${occurrenceIndex}`}
@@ -3352,12 +3417,19 @@ export function WeeklyPlanning({
                                       setDraggedSelectedExtraOrigin(null);
                                       setSelectedExtrasDropZone(null);
                                     }}
-                                    className="w-full my-1 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm cursor-grab active:cursor-grabbing hover:bg-orange-500/20"
+                                    className="w-full my-1 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm cursor-grab active:cursor-grabbing hover:bg-orange-500/20"
                                   >
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-[11px] font-black transition-colors truncate text-orange-600">{label}</p>
-                                      {(!c && (fi?.grams || fi?.quantity)) && (
+                                      <p className="text-[11px] font-black transition-colors break-words leading-snug text-orange-600">{label}</p>
+                                      {(!c && !isDessertExtra && (fi?.grams || fi?.quantity)) && (
                                         <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">{fi?.grams ? `${fi.grams}` : ''}{fi?.grams && fi?.quantity ? ' · ' : ''}{fi?.quantity ? `x${fi.quantity}` : ''}</p>
+                                      )}
+                                      {(!c && !fi && dessertDisplayQty && (dessertDisplayQty.grams || dessertDisplayQty.quantity)) && (
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
+                                          {dessertDisplayQty.grams ? `${dessertDisplayQty.grams}` : ''}
+                                          {dessertDisplayQty.grams && dessertDisplayQty.quantity ? ' · ' : ''}
+                                          {dessertDisplayQty.quantity ? `x${dessertDisplayQty.quantity}` : ''}
+                                        </p>
                                       )}
                                       {dessertPossibleCount !== null && (
                                         <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
@@ -3464,10 +3536,10 @@ export function WeeklyPlanning({
                                       setDraggedSelectedExtraId(null);
                                       setDraggedSelectedExtraOrigin(null);
                                     }}
-                                    className={`w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                    className={`w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                   >
                                     <div className="flex-1 min-w-0">
-                                      <p className={`text-[11px] font-black transition-colors truncate ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
+                                      <p className={`text-[11px] font-black transition-colors break-words leading-snug ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
                                       {(fi.grams || fi.quantity) && (
                                         <p className="text-[9px] text-muted-foreground/50 font-medium">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
                                       )}
@@ -3596,9 +3668,9 @@ export function WeeklyPlanning({
                                       <Separator className="my-2 opacity-50" />
                                       <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
                                       {unselectedDessertExtras.map((d, index) => (
-                                        <div key={`unselected-dessert-${d.id}-${index}`} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-center gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
+                                        <div key={`unselected-dessert-${d.id}-${index}`} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
                                           <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-black transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
+                                            <p className="text-[11px] font-black transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
                                             <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}</p>
                                           </div>
                                           <div className="flex items-center gap-1.5 shrink-0">
@@ -3812,9 +3884,9 @@ export function WeeklyPlanning({
                     {gouterAssignedIds.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
-                          const custom = parseCustomExtraId(extraId);
-                          const fi = custom ? null : foodItems.find((f) => f.id === extraId);
-                          if (!fi && !custom) return null;
+                          const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                          if (!resolved) return null;
+                          const { custom, fi } = resolved;
                           return (
                             <span
                               key={`gouter-assigned-${extraId}-${index}-${count}`}
@@ -4242,9 +4314,9 @@ export function WeeklyPlanning({
                                 return (
                                   <div className="flex flex-wrap gap-1">
                                     {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
-                                      const custom = parseCustomExtraId(extraId);
-                                      const fi = custom ? null : foodItems.find((f) => f.id === extraId);
-                                      if (!fi && !custom) return null;
+                                      const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                                      if (!resolved) return null;
+                                      const { custom, fi } = resolved;
                                       return (
                                         <span
                                           key={`backup-${time}-assigned-${extraId}-${index}-${count}`}
@@ -4294,7 +4366,11 @@ export function WeeklyPlanning({
                             </div>
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-80 p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]" align="center">
+                        <PopoverContent
+                          className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]"
+                          align="center"
+                          onOpenAutoFocus={(e) => e.preventDefault()}
+                        >
                           {(() => {
                             const backupUnassignedIds = getUnassignedExtraSelectionIds(bES, bESA, iso, key);
                             const manualCal = bEC[iso] || bEC[key] || 0;
@@ -4316,11 +4392,14 @@ export function WeeklyPlanning({
                                   <>
                                     <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Extras non déplacés</p>
                                     {groupAssignedExtraIds(backupUnassignedIds).map(({ id: extraId, count }, index) => {
-                                      const custom = parseCustomExtraId(extraId);
-                                      const fi = custom ? null : foodItems.find((f) => f.id === extraId);
-                                      if (!fi && !custom) return null;
+                                      const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                                      if (!resolved) return null;
+                                      const { custom, fi } = resolved;
                                       const dessertExtra = singleIngredientDessertById.get(extraId);
-                                      const portionMacros = fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0, fiber: 0 };
+                                      const isFoodDessert = !!parseFoodDessertExtraId(extraId);
+                                      const portionMacros = fi
+                                        ? getExtraPortionMacros(fi, isFoodDessert ? { perUnit: true } : undefined)
+                                        : { cal: 0, pro: 0, fiber: 0 };
                                       const prot = custom ? custom.prot : portionMacros.pro;
                                       const cal = custom ? custom.cal : portionMacros.cal;
                                       const fiber = custom ? 0 : (dessertExtra?.fiber ?? portionMacros.fiber);
@@ -4338,7 +4417,7 @@ export function WeeklyPlanning({
                                           className="w-full my-0.5 p-2.5 rounded-2xl border flex items-center gap-3 bg-orange-500/10 border-orange-500/20"
                                         >
                                           <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-black truncate text-orange-600">{label}</p>
+                                            <p className="text-[11px] font-black break-words leading-snug text-orange-600">{label}</p>
                                           </div>
                                           <div className="flex items-center gap-1.5 shrink-0">
                                             <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
@@ -4399,9 +4478,9 @@ export function WeeklyPlanning({
                         {gouterAssignedIds.length > 0 && (
                           <div className="flex flex-wrap gap-1">
                             {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
-                              const custom = parseCustomExtraId(extraId);
-                              const fi = custom ? null : foodItems.find((f) => f.id === extraId);
-                              if (!fi && !custom) return null;
+                              const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                              if (!resolved) return null;
+                              const { custom, fi } = resolved;
                               return (
                                 <span
                                   key={`backup-gouter-assigned-${extraId}-${index}-${count}`}
@@ -4830,9 +4909,9 @@ export function WeeklyPlanning({
                           {slotAssignedIds.length > 0 && (
                             <div className="flex flex-wrap gap-1 pt-0.5">
                               {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
-                                const custom = parseCustomExtraId(extraId);
-                                const fi = custom ? null : foodItems.find(f => f.id === extraId);
-                                if (!fi && !custom) return null;
+                                const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                                if (!resolved) return null;
+                                const { custom, fi } = resolved;
                                 return (
                                   <span
                                     key={`next-${time}-assigned-${extraId}-${index}-${count}`}
@@ -4912,7 +4991,11 @@ export function WeeklyPlanning({
                               <Plus className="h-3 w-3" />
                             </button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-80 p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl" align="center">
+                          <PopoverContent
+                            className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl"
+                            align="center"
+                            onOpenAutoFocus={(e) => e.preventDefault()}
+                          >
                             <div className="flex items-center justify-between mb-3">
                               <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> Extras disponibles</p>
                               <Zap className="w-3 h-3 text-amber-400 animate-pulse" />
@@ -4921,9 +5004,9 @@ export function WeeklyPlanning({
                               <div className="mb-3 pb-3 border-b border-white/5 space-y-1">
                                 <p className="text-[9px] font-semibold text-orange-500 px-1">Sélectionnés — glisse vers un créneau</p>
                                 {groupAssignedExtraIds(nextUnassignedExtraIds).map(({ id: extraId, count }, index) => {
-                                  const custom = parseCustomExtraId(extraId);
-                                  const fi = custom ? null : foodItems.find((f) => f.id === extraId);
-                                  if (!fi && !custom) return null;
+                                  const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
+                                  if (!resolved) return null;
+                                  const { custom, fi } = resolved;
                                   return (
                                     <div
                                       key={`next-pop-sel-${extraId}-${index}`}
@@ -4940,7 +5023,7 @@ export function WeeklyPlanning({
                                       }}
                                       className="w-full p-2 rounded-xl border bg-orange-500/10 border-orange-500/20 flex items-center gap-2 cursor-grab active:cursor-grabbing"
                                     >
-                                      <p className="text-[11px] font-bold text-orange-600 truncate flex-1">{getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}</p>
+                                      <p className="text-[11px] font-bold text-orange-600 break-words leading-snug flex-1">{getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}</p>
                                       <button onClick={() => deselectNextExtraForDay(extraId, iso, key)} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
                                     </div>
                                   );
@@ -4968,9 +5051,9 @@ export function WeeklyPlanning({
                                 const renderRow = (fi: FoodItem) => {
                                   const count = effExtraSel.filter(id => id === fi.id).length;
                                   return (
-                                    <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-center gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
+                                    <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
                                       <div className="flex-1 min-w-0">
-                                        <p className={`text-[11px] font-bold transition-colors truncate ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
+                                        <p className={`text-[11px] font-bold transition-colors break-words leading-snug ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
                                         {(fi.grams || fi.quantity) && (
                                           <p className="text-[9px] text-muted-foreground/60">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
                                         )}
@@ -5004,9 +5087,9 @@ export function WeeklyPlanning({
                                         {selectedDessertExtras.map((d, index) => {
                                           const count = effExtraSel.filter((id) => id === d.id).length;
                                           return (
-                                            <div key={`next-selected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-orange-500/20 border-orange-500/40 shadow-inner">
+                                            <div key={`next-selected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-start gap-3 bg-orange-500/20 border-orange-500/40 shadow-inner">
                                               <div className="flex-1 min-w-0">
-                                                <p className="text-[11px] font-bold transition-colors truncate text-orange-600">{d.name}</p>
+                                                <p className="text-[11px] font-bold transition-colors break-words leading-snug text-orange-600">{d.name}</p>
                                               </div>
                                               <div className="flex items-center gap-1.5 shrink-0">
                                                 <button onClick={() => { const u = { ...nextExtraSelections }; const c = u[iso] || u[key] || []; const idx = c.lastIndexOf(d.id); if (idx >= 0) u[iso] = [...c.slice(0, idx), ...c.slice(idx + 1)]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
@@ -5019,9 +5102,9 @@ export function WeeklyPlanning({
                                           );
                                         })}
                                         {unselectedDessertExtras.map((d, index) => (
-                                          <div key={`next-unselected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-center gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
+                                          <div key={`next-unselected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-start gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
                                             <div className="flex-1 min-w-0">
-                                              <p className="text-[11px] font-bold transition-colors truncate text-foreground group-hover:text-orange-600">{d.name}</p>
+                                              <p className="text-[11px] font-bold transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">
                                               <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), d.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>

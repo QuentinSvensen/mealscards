@@ -5,6 +5,7 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import { getCardDisplayCalories, getCardDisplayProtein } from "@/hooks/useCalorieBalance";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
+import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
 import { PLANNING_DAY_KEYS } from "@/lib/planningWeekUtils";
 import type { PossibleMealBackupCard } from "./types";
 import { isBackupBreakfastPmAlreadyInMatinSlot } from "./breakfastBreakdown";
@@ -55,7 +56,7 @@ function parseMealCalories(cal: string | null | undefined): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-/** Somme kcal / prot des extras (stock ou `custom::…`). */
+/** Somme kcal / prot des extras (stock, dessert aliment ou `custom::…`). */
 function sumExtrasFromSelectionIds(
   ids: string[] | undefined,
   foodItems: FoodItem[],
@@ -67,6 +68,16 @@ function sumExtrasFromSelectionIds(
     if (custom) {
       cal += custom.cal;
       pro += custom.prot;
+      continue;
+    }
+    const foodDessertItemId = parseFoodDessertExtraId(id);
+    if (foodDessertItemId) {
+      const dessertFi = foodItems.find((f) => f.id === foodDessertItemId);
+      if (dessertFi) {
+        const macros = getExtraPortionMacros(dessertFi, { perUnit: true });
+        cal += macros.cal;
+        pro += macros.pro;
+      }
       continue;
     }
     const fi = foodItems.find((f) => f.id === id);

@@ -18,6 +18,7 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
 import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
+import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
 
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 
@@ -72,6 +73,35 @@ function parseCustomExtraId(id: string): { name: string; cal: number; prot: numb
     cal: parseFloat((parts[1] || '0').replace(',', '.')) || 0,
     prot: parseFloat((parts[2] || '0').replace(',', '.')) || 0,
   };
+}
+
+/**
+ * Résout les macros d'un extra sélectionné dans le planning
+ * (aliment stock, dessert aliment `food-dessert::…` ou entrée `custom::…`).
+ */
+function getExtraSelectionMacros(
+  id: string,
+  foodItems: FoodItem[],
+): { cal: number; pro: number; fiber: number } {
+  const custom = parseCustomExtraId(id);
+  if (custom) return { cal: custom.cal, pro: custom.prot, fiber: 0 };
+
+  const foodDessertId = parseFoodDessertExtraId(id);
+  if (foodDessertId) {
+    const item = foodItems.find((fi) => fi.id === foodDessertId);
+    if (item) {
+      const macros = getExtraPortionMacros(item, { perUnit: true });
+      return { cal: macros.cal, pro: macros.pro, fiber: macros.fiber };
+    }
+    return { cal: 0, pro: 0, fiber: 0 };
+  }
+
+  const item = foodItems.find((fi) => fi.id === id);
+  if (item) {
+    const macros = getExtraPortionMacros(item);
+    return { cal: macros.cal, pro: macros.pro, fiber: macros.fiber };
+  }
+  return { cal: 0, pro: 0, fiber: 0 };
 }
 
 /**
@@ -314,12 +344,10 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
     const selectionKey = isoDate || dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
-    const extraSelectedCal = selectedExtraIds.reduce((sum, id) => {
-      const custom = parseCustomExtraId(id);
-      if (custom) return sum + custom.cal;
-      const item = foodItems.find(fi => fi.id === id);
-      return sum + (item ? getExtraPortionMacros(item).cal : 0);
-    }, 0);
+    const extraSelectedCal = selectedExtraIds.reduce(
+      (sum, id) => sum + getExtraSelectionMacros(id, foodItems).cal,
+      0,
+    );
 
     const drinkCal = [...TIMES, 'gouter'].reduce((sum, time) => {
       const drinkKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
@@ -368,12 +396,10 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
     const selectionKey = isoDate || dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
-    const extraSelectedPro = selectedExtraIds.reduce((sum, id) => {
-      const custom = parseCustomExtraId(id);
-      if (custom) return sum + custom.prot;
-      const item = foodItems.find(fi => fi.id === id);
-      return sum + (item ? getExtraPortionMacros(item).pro : 0);
-    }, 0);
+    const extraSelectedPro = selectedExtraIds.reduce(
+      (sum, id) => sum + getExtraSelectionMacros(id, foodItems).pro,
+      0,
+    );
 
     return mealPro + breakfastPro + extraManual + extraSelectedPro;
   };
@@ -415,12 +441,10 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
     const selectionKey = isoDate || dayKey;
     const selectedExtraIds = extraSelections[selectionKey] || [];
-    const extraSelectedFiber = selectedExtraIds.reduce((sum, id) => {
-      const custom = parseCustomExtraId(id);
-      if (custom) return sum;
-      const item = foodItems.find(fi => fi.id === id);
-      return sum + (item ? getExtraPortionMacros(item).fiber : 0);
-    }, 0);
+    const extraSelectedFiber = selectedExtraIds.reduce(
+      (sum, id) => sum + getExtraSelectionMacros(id, foodItems).fiber,
+      0,
+    );
 
     return mealFiber + breakfastFiber + extraManual + extraSelectedFiber;
   };

@@ -43,6 +43,13 @@ describe("extraMacroUtils", () => {
       pro: 14,
       fiber: 4,
     });
+    expect(
+      getExtraPortionMacros({ grams: null, quantity: 3, calories: "62.4", protein: "4.6", fiber: "1.2" }, { perUnit: true }),
+    ).toEqual({
+      cal: 62,
+      pro: 5,
+      fiber: 1,
+    });
   });
 
   it("utilise la valeur brute pour le produit complet sans grammes ni quantité", () => {

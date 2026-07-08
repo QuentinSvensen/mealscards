@@ -32,8 +32,13 @@ export function getExtraMacroBasisLabel(foodItem: Pick<FoodItem, "grams" | "quan
   return "Produit";
 }
 
-// Calcule les calories/protéines/fibres consommées pour une occurrence d'extra sélectionnée dans le planning.
-export function getExtraPortionMacros(foodItem: Pick<FoodItem, "grams" | "quantity" | "calories" | "protein"> & { fiber?: string | null }): { cal: number; pro: number; fiber: number } {
+// Calcule les calories/protéines/fibres pour une occurrence d'extra (planning ou affichage).
+// Par défaut, en mode « par quantité », multiplie par le stock (ex. x3 → total des 3 unités).
+// Avec perUnit: true, renvoie les macros d'une seule unité (badge xN affiché à part).
+export function getExtraPortionMacros(
+  foodItem: Pick<FoodItem, "grams" | "quantity" | "calories" | "protein"> & { fiber?: string | null },
+  options?: { perUnit?: boolean },
+): { cal: number; pro: number; fiber: number } {
   const cal = parseFoodMacroValue(foodItem.calories);
   const pro = parseFoodMacroValue(foodItem.protein);
   const fiber = parseFoodMacroValue(foodItem.fiber);
@@ -48,10 +53,11 @@ export function getExtraPortionMacros(foodItem: Pick<FoodItem, "grams" | "quanti
   }
 
   if (foodItem.quantity != null && foodItem.quantity > 0) {
+    const factor = options?.perUnit ? 1 : foodItem.quantity;
     return {
-      cal: Math.round(cal * foodItem.quantity),
-      pro: Math.round(pro * foodItem.quantity),
-      fiber: Math.round(fiber * foodItem.quantity),
+      cal: Math.round(cal * factor),
+      pro: Math.round(pro * factor),
+      fiber: Math.round(fiber * factor),
     };
   }
 

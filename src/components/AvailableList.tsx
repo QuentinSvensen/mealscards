@@ -126,7 +126,7 @@ function computeFoodItemPortionMacros(
     protein: proRef > 0 ? String(proRef) : fi.protein,
     fiber: fiberRef > 0 ? String(fiberRef) : fi.fiber,
   };
-  const portion = getExtraPortionMacros(enriched);
+  const portion = getExtraPortionMacros(enriched, { perUnit: true });
 
   return {
     calories: portion.cal > 0 ? String(Math.round(portion.cal * ratio)) : null,

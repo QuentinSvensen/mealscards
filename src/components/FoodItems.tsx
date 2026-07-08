@@ -17,7 +17,7 @@
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import { z } from "zod";
-import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick, Lock, Scan } from "lucide-react";
+import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick, Lock, Scan, Cake } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -43,6 +43,7 @@ import {
 import { ExtrasMovableDivider } from "@/components/planning/ExtrasMovableDivider";
 import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams } from "@/lib/stockUtils";
 import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
+import { DESSERT_FOOD_PREF_KEY } from "@/lib/foodDessertUtils";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { useMeals } from "@/hooks/useMeals";
 import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
@@ -326,6 +327,7 @@ interface FoodItemCardProps {
   onUpdate: (updates: Partial<FoodItem>) => void;
   manualMacroFields: FoodManualMacroFields;
   isMorningMeal: boolean;
+  isDessertFood: boolean;
   onCycleMealMode: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
@@ -337,7 +339,7 @@ interface FoodItemCardProps {
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manualMacroFields, isMorningMeal, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manualMacroFields, isMorningMeal, isDessertFood, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -673,19 +675,27 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manua
             </button>
           )}
 
-          {/* Bascule repas : off -> repas entier -> repas matin -> off */}
+          {/* Bascule repas : off -> repas entier -> repas matin -> dessert -> off */}
           <button
             onClick={onCycleMealMode}
             className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${isMorningMeal
               ? 'bg-sky-400/30 text-sky-100 border-sky-400/60 font-bold'
+              : isDessertFood
+                ? 'bg-fuchsia-400/30 text-fuchsia-100 border-fuchsia-400/60 font-bold'
               : item.is_meal
                 ? 'bg-white/30 text-white border-white/50 font-bold'
                 : 'bg-white/10 text-white/50 border-white/20'
               }`}
-            title={isMorningMeal ? "Repas matin (cliquer pour désactiver)" : item.is_meal ? "Repas entier (cliquer: Repas matin)" : "Marquer comme repas à part entière"}
+            title={isMorningMeal
+              ? "Repas matin (cliquer pour passer en dessert)"
+              : isDessertFood
+                ? "Dessert planning (cliquer pour désactiver)"
+                : item.is_meal
+                  ? "Repas entier (cliquer: Repas matin)"
+                  : "Marquer comme repas à part entière"}
           >
-            <UtensilsCrossed className="h-2.5 w-2.5" />
-            {isMorningMeal ? 'Matin' : item.is_meal ? 'Repas' : ''}
+            {isDessertFood ? <Cake className="h-2.5 w-2.5" /> : <UtensilsCrossed className="h-2.5 w-2.5" />}
+            {isMorningMeal ? 'Matin' : isDessertFood ? 'Dessert' : item.is_meal ? 'Repas' : ''}
           </button>
 
           {/* Bascule food_type : cycle null -> féculent -> viande -> null */}
@@ -926,6 +936,8 @@ export function FoodItems() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
   const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
   const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
+  const dessertFoodItemIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
+  const dessertFoodItemIdSet = new Set(dessertFoodItemIds);
   const manualMacroFields = getPreference<FoodManualMacroFields>(FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, {});
 
   const [newName, setNewName] = useState("");
@@ -1133,24 +1145,60 @@ export function FoodItems() {
     });
   }, [morningMealFoodItemIdSet, morningMealFoodItemIds, setPreference]);
 
-  /** Fait tourner le mode repas : désactivé -> repas entier -> repas matin -> désactivé. */
+  /** Retire un aliment de la catégorie « dessert planning » stockée en préférence. */
+  const removeDessertFoodId = useCallback((id: string) => {
+    if (!dessertFoodItemIdSet.has(id)) return;
+    setPreference.mutate({
+      key: DESSERT_FOOD_PREF_KEY,
+      value: dessertFoodItemIds.filter((storedId) => storedId !== id),
+    });
+  }, [dessertFoodItemIdSet, dessertFoodItemIds, setPreference]);
+
+  /** Fait tourner le mode repas : désactivé -> repas entier -> repas matin -> dessert -> désactivé. */
   const cycleMealMode = useCallback((item: FoodItem) => {
     const isMorningMeal = morningMealFoodItemIdSet.has(item.id);
-    if (!item.is_meal) {
+    const isDessertFood = dessertFoodItemIdSet.has(item.id);
+
+    if (!item.is_meal && !isMorningMeal && !isDessertFood) {
       handleUpdate(item.id, { is_meal: true });
       removeMorningMealId(item.id);
+      removeDessertFoodId(item.id);
       return;
     }
-    if (!isMorningMeal) {
+    if (item.is_meal && !isMorningMeal && !isDessertFood) {
       setPreference.mutate({
         key: MORNING_MEAL_PREF_KEY,
         value: [...morningMealFoodItemIds.filter((id) => id !== item.id), item.id],
       });
       return;
     }
+    if (isMorningMeal && !isDessertFood) {
+      removeMorningMealId(item.id);
+      setPreference.mutate({
+        key: DESSERT_FOOD_PREF_KEY,
+        value: [...dessertFoodItemIds.filter((id) => id !== item.id), item.id],
+      });
+      handleUpdate(item.id, { is_meal: false });
+      return;
+    }
+    if (isDessertFood) {
+      removeDessertFoodId(item.id);
+      handleUpdate(item.id, { is_meal: false });
+      return;
+    }
     handleUpdate(item.id, { is_meal: false });
     removeMorningMealId(item.id);
-  }, [handleUpdate, morningMealFoodItemIdSet, morningMealFoodItemIds, removeMorningMealId, setPreference]);
+    removeDessertFoodId(item.id);
+  }, [
+    dessertFoodItemIdSet,
+    dessertFoodItemIds,
+    handleUpdate,
+    morningMealFoodItemIdSet,
+    morningMealFoodItemIds,
+    removeDessertFoodId,
+    removeMorningMealId,
+    setPreference,
+  ]);
 
   // Fermer les suggestions quand on clique ailleurs
   useEffect(() => {
@@ -1627,6 +1675,7 @@ export function FoodItems() {
                 );
               }
               removeMorningMealId(id);
+              removeDessertFoodId(id);
               deleteItem.mutate(id);
             }}
             onDuplicate={(id) => duplicateItem.mutate(id)}
@@ -1641,8 +1690,10 @@ export function FoodItems() {
             manualMacroFields={manualMacroFields}
             onChangeStorage={handleChangeStorage}
             morningMealFoodItemIdSet={morningMealFoodItemIdSet}
+            dessertFoodItemIdSet={dessertFoodItemIdSet}
             cycleMealMode={cycleMealMode}
             removeMorningMealId={removeMorningMealId}
+            removeDessertFoodId={removeDessertFoodId}
             possibleMeals={possibleMeals}
             foodStockBaselines={foodStockBaselines}
             foodLibraryAmountMemory={foodLibraryAmountMemory}
@@ -1668,6 +1719,7 @@ export function FoodItems() {
                   );
                 }
                 removeMorningMealId(id);
+                removeDessertFoodId(id);
                 deleteItem.mutate(id);
               }}
               onDuplicate={(id) => duplicateItem.mutate(id)}
@@ -1682,8 +1734,10 @@ export function FoodItems() {
               manualMacroFields={manualMacroFields}
               onChangeStorage={handleChangeStorage}
               morningMealFoodItemIdSet={morningMealFoodItemIdSet}
+              dessertFoodItemIdSet={dessertFoodItemIdSet}
               cycleMealMode={cycleMealMode}
               removeMorningMealId={removeMorningMealId}
+              removeDessertFoodId={removeDessertFoodId}
               possibleMeals={possibleMeals}
               foodStockBaselines={foodStockBaselines}
               foodLibraryAmountMemory={foodLibraryAmountMemory}
@@ -1720,8 +1774,10 @@ interface FoodSectionProps {
   manualMacroFields: FoodManualMacroFields;
   onChangeStorage: (id: string, storageType: StorageType) => void;
   morningMealFoodItemIdSet: Set<string>;
+  dessertFoodItemIdSet: Set<string>;
   cycleMealMode: (item: FoodItem) => void;
   removeMorningMealId: (id: string) => void;
+  removeDessertFoodId: (id: string) => void;
   possibleMeals: PossibleMeal[];
   foodStockBaselines: Record<string, FoodStockBaseline>;
   foodLibraryAmountMemory: FoodLibraryAmountMemory;
@@ -1730,7 +1786,7 @@ interface FoodSectionProps {
 }
 
 /** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
-function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, cycleMealMode, removeMorningMealId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory, extrasDividerAfterId, onSetExtrasDividerAfterId }: FoodSectionProps) {
+function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, dessertFoodItemIdSet, cycleMealMode, removeMorningMealId, removeDessertFoodId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory, extrasDividerAfterId, onSetExtrasDividerAfterId }: FoodSectionProps) {
   const effectiveDividerAfterId =
     storageType === "extras" ? resolveExtrasDividerAfterId(items, extrasDividerAfterId) : null;
   const dividerSplit =
@@ -1924,9 +1980,11 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                   onUpdate={(updates) => onUpdate(item.id, updates)}
                   manualMacroFields={manualMacroFields}
                   isMorningMeal={morningMealFoodItemIdSet.has(item.id)}
+                  isDessertFood={dessertFoodItemIdSet.has(item.id)}
                   onCycleMealMode={() => cycleMealMode(item)}
                   onDelete={() => {
                     removeMorningMealId(item.id);
+                    removeDessertFoodId(item.id);
                     onDelete(item.id);
                   }}
                   onDuplicate={() => onDuplicate(item.id)}
