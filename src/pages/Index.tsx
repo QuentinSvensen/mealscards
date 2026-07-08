@@ -1335,10 +1335,15 @@ const Index = () => {
                           onDuplicate={async (id) => {
                             const pm = possibleMeals.find(p => p.id === id);
                             if (pm?.meals) {
-                              const ingredientsToDeduce = pm.ingredients_override ?? pm.meals.ingredients;
-                              const mealForDeduction = { ...pm.meals, ingredients: ingredientsToDeduce };
-                              const { snapshots } = await deductIngredientsFromStock(mealForDeduction);
-                              
+                              const fromMaster = masterSourcePmIds.has(id);
+                              let snapshots: FoodItem[] = [];
+                              if (!fromMaster) {
+                                const ingredientsToDeduce = pm.ingredients_override ?? pm.meals.ingredients;
+                                const mealForDeduction = { ...pm.meals, ingredients: ingredientsToDeduce };
+                                const deductionResult = await deductIngredientsFromStock(mealForDeduction);
+                                snapshots = deductionResult.snapshots;
+                              }
+
                               const newId = await duplicatePossibleMeal.mutateAsync(id);
                               if (newId) {
                                 if (snapshots.length > 0) {
@@ -1358,7 +1363,7 @@ const Index = () => {
                                 }
 
                                 // 2. Copier le statut de source (pour le comportement du compteur automatique)
-                                if (masterSourcePmIds.has(id)) {
+                                if (fromMaster) {
                                   setMasterSourcePmIds(prev => new Set([...prev, newId]));
                                 }
                                 if (unParUnSourcePmIds.has(id)) {
