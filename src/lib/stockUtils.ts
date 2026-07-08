@@ -1450,10 +1450,95 @@ export function buildScaledMealForRatio(meal: Meal, ratio: number, stockMap?: Ma
 }
 
 /**
+ * Retire les parenthèses englobantes d'un bundle d'ingrédients (ex. sélection « + »).
+ */
+function stripOuterParens(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+/**
+ * Découpe une alternative en sous-ingrédients reliés par « + » (bundle ET).
+ */
+function splitIngredientAltBundle(alt: string): string[] {
+  const parts = stripOuterParens(alt).split(/\+/).map((s) => s.trim()).filter(Boolean);
+  return parts.length > 0 ? parts : [alt.trim()];
+}
+
+/**
+ * Applique un ratio à un seul token d'ingrédient (sans « | » ni « + »).
+ * Sert le scaling des cartes Possible et des overrides de quantités.
+ */
+function scaleIngredientAltToken(
+  alt: string,
+  effectiveRatio: number,
+  stockMap?: Map<string, StockInfo>,
+  allowIndivisibleSplitInPossible: boolean = false,
+): string {
+  const isOptional = alt.startsWith("?");
+  const cleanAlt = isOptional ? alt.slice(1).trim() : alt;
+
+  const { text: withoutMetrics, cal, pro } = extractMetrics(cleanAlt);
+  const parsed = parseIngredientLineRaw(withoutMetrics);
+
+  let scaledQtyRaw = parsed.qty > 0 ? parsed.qty * effectiveRatio : 0;
+  let scaledCountRaw = parsed.count > 0 ? parsed.count * effectiveRatio : 0;
+
+  if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible && shouldRoundCountWhenScaling(parsed.count)) {
+    scaledCountRaw = Math.round(scaledCountRaw);
+  }
+
+  if (stockMap && !allowIndivisibleSplitInPossible) {
+    const key = findStockKey(stockMap, parsed.name);
+    if (key) {
+      const stock = stockMap.get(key)!;
+      if (stock.indivisibleUnit > 0 && parsed.qty > 0) {
+        scaledQtyRaw = Math.round(scaledQtyRaw / stock.indivisibleUnit) * stock.indivisibleUnit;
+      }
+    }
+  }
+
+  const scaledQty = scaledQtyRaw > 0 ? formatNumeric(Math.round(scaledQtyRaw * 10) / 10) : "";
+  const scaledCount = scaledCountRaw > 0 ? formatNumeric(Math.round(scaledCountRaw * 10) / 10) : "";
+
+  let token = [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
+
+  if (cal) token += ` {${cal}}`;
+  if (pro) token += ` [${pro}]`;
+
+  return isOptional ? `?${token}` : token;
+}
+
+/**
+ * Met à l'échelle une alternative entière (bundle « + » éventuellement entre parenthèses).
+ */
+function scaleIngredientAltBundle(
+  alt: string,
+  effectiveRatio: number,
+  stockMap?: Map<string, StockInfo>,
+  allowIndivisibleSplitInPossible: boolean = false,
+): string {
+  const trimmed = alt.trim();
+  const hadOuterParens = trimmed.startsWith("(") && trimmed.endsWith(")");
+  const bundleParts = splitIngredientAltBundle(trimmed);
+  if (bundleParts.length <= 1) {
+    return scaleIngredientAltToken(trimmed, effectiveRatio, stockMap, allowIndivisibleSplitInPossible);
+  }
+  const scaled = bundleParts
+    .map((part) => scaleIngredientAltToken(part, effectiveRatio, stockMap, allowIndivisibleSplitInPossible))
+    .join(" + ");
+  return hadOuterParens ? `( ${scaled} )` : scaled;
+}
+
+/**
  * Multiplie toutes les quantités d'une chaîne d'ingrédients par un ratio.
  * 
  * Gère :
  * - Les alternatives (A | B) : chaque alternative est scalée
+ * - Les bundles ET (A + B) : chaque sous-ingrédient est scalé
  * - Les ingrédients optionnels (?) : scalés aussi
  * - Les comptages arrondis : "2 oeufs" × 1.5 → "3 oeufs"
  * - Les ingrédients indivisibles : arrondis au multiple de l'unité
@@ -1472,18 +1557,20 @@ export function scaleIngredientStringExact(
   const groups = rawIngredients.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean);
 
   for (const group of groups) {
-    const alt = group.split(/\|/).map(s => s.trim()).filter(Boolean)[0];
-    if (!alt) continue;
-    const isOptional = alt.startsWith("?");
-    const cleanAlt = isOptional ? alt.slice(1).trim() : alt;
-    const { text: withoutMetrics } = extractMetrics(cleanAlt);
-    const parsed = parseIngredientLineRaw(withoutMetrics);
+    for (const alt of group.split(/\|/).map((s) => s.trim()).filter(Boolean)) {
+      for (const part of splitIngredientAltBundle(alt)) {
+        const isOptional = part.startsWith("?");
+        const cleanAlt = isOptional ? part.slice(1).trim() : part;
+        const { text: withoutMetrics } = extractMetrics(cleanAlt);
+        const parsed = parseIngredientLineRaw(withoutMetrics);
 
-    if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible && shouldRoundCountWhenScaling(parsed.count)) {
-      const scaledCount = Math.round(parsed.count * ratio);
-      const actualRatio = scaledCount / parsed.count;
-      if (scaledCount > 0 && Math.abs(actualRatio - ratio) > 0.001) {
-        effectiveRatio = actualRatio;
+        if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible && shouldRoundCountWhenScaling(parsed.count)) {
+          const scaledCount = Math.round(parsed.count * ratio);
+          const actualRatio = scaledCount / parsed.count;
+          if (scaledCount > 0 && Math.abs(actualRatio - ratio) > 0.001) {
+            effectiveRatio = actualRatio;
+          }
+        }
       }
     }
   }
@@ -1492,43 +1579,8 @@ export function scaleIngredientStringExact(
   // Deuxième passe : appliquer le ratio effectif à tous les ingrédients
   return groups.map(group => {
     return group.split(/\|/).map(s => s.trim()).filter(Boolean)
-      .map(alt => {
-        const isOptional = alt.startsWith("?");
-        const cleanAlt = isOptional ? alt.slice(1).trim() : alt;
-
-        const { text: withoutMetrics, cal, pro } = extractMetrics(cleanAlt);
-        const parsed = parseIngredientLineRaw(withoutMetrics);
-
-        let scaledQtyRaw = parsed.qty > 0 ? parsed.qty * effectiveRatio : 0;
-        let scaledCountRaw = parsed.count > 0 ? parsed.count * effectiveRatio : 0;
-
-        if (parsed.count > 0 && parsed.qty === 0 && !allowIndivisibleSplitInPossible && shouldRoundCountWhenScaling(parsed.count)) {
-          scaledCountRaw = Math.round(scaledCountRaw);
-        }
-
-        // Arrondir au multiple de l'unité indivisible si applicable.
-        // Exception explicite : en catégorie "Possible", on autorise la division
-        // via multiple/pourcent et "Diviser les quantités".
-        if (stockMap && !allowIndivisibleSplitInPossible) {
-          const key = findStockKey(stockMap, parsed.name);
-          if (key) {
-            const stock = stockMap.get(key)!;
-            if (stock.indivisibleUnit > 0 && parsed.qty > 0) {
-              scaledQtyRaw = Math.round(scaledQtyRaw / stock.indivisibleUnit) * stock.indivisibleUnit;
-            }
-          }
-        }
-
-        const scaledQty = scaledQtyRaw > 0 ? formatNumeric(Math.round(scaledQtyRaw * 10) / 10) : "";
-        const scaledCount = scaledCountRaw > 0 ? formatNumeric(Math.round(scaledCountRaw * 10) / 10) : "";
-
-        let token = [scaledQty ? `${scaledQty}g` : "", scaledCount, parsed.rawName].filter(Boolean).join(" ");
-
-        if (cal) token += ` {${cal}}`;
-        if (pro) token += ` [${pro}]`;
-
-        return isOptional ? `?${token}` : token;
-      }).join(" | ");
+      .map((alt) => scaleIngredientAltBundle(alt, effectiveRatio, stockMap, allowIndivisibleSplitInPossible))
+      .join(" | ");
   }).join(", ");
 }
 

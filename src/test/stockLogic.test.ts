@@ -400,6 +400,20 @@ describe("buildScaledMealForRatio", () => {
   });
 });
 
+describe("scaleIngredientStringExact", () => {
+  it("met à l'échelle chaque ingrédient d'un bundle « + » entre parenthèses", () => {
+    const raw = "25g Beurre, ( 8g Chocolat + 13g Beurre de cacahuète maison )";
+    const scaled = scaleIngredientStringExact(raw, 4, undefined, true);
+    expect(scaled).toBe("100g Beurre, ( 32g Chocolat + 52g Beurre de cacahuète maison )");
+  });
+
+  it("met à l'échelle un bundle « + » sans parenthèses", () => {
+    const raw = "100g Riz + 50g Poulet";
+    const scaled = scaleIngredientStringExact(raw, 2, undefined, true);
+    expect(scaled).toBe("200g Riz + 100g Poulet");
+  });
+});
+
 // ─── CAS LIMITES DE DÉDUCTION DE STOCK (EDGE CASES) ─────────────────────────
 
 describe("getFoodItemTotalGrams", () => {

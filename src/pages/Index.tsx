@@ -1597,7 +1597,8 @@ const Index = () => {
                             const pm = possibleMeals.find(p => p.id === pmId);
                             if (!pm) return;
                             const oldIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
-                            if (oldIngredients || newIngredients) {
+                            // Cartes issues de « Tous » : pas de déduction initiale → le scale xN non plus.
+                            if (!masterSourcePmIds.has(pmId) && (oldIngredients || newIngredients)) {
                               const newSnaps = await adjustStockForIngredientChange(oldIngredients, newIngredients, deductionSnapshots[pmId]);
                               if (newSnaps.length > 0) {
                                 updateSnapshots(prev => ({
