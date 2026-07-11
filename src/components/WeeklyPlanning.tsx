@@ -167,31 +167,18 @@ const DAY_LABELS: Record<string, string> = {
 const TIME_LABELS: Record<string, string> = { midi: "Midi", soir: "Soir", gouter: "Goûter" };
 
 /**
- * Libellé de date pour le badge d'une carte planning : jour planifié en priorité (comme Possible),
- * sinon date de péremption pour les repas non encore placés.
+ * Libellé de date pour le badge d'une carte planning : uniquement la date de péremption.
+ * Rien n'est affiché si l'aliment n'a pas de date de péremption.
  */
 function formatPlanningMiniCardDateLabel(
-  dayOfWeek: string | null | undefined,
   expirationDate: string | null | undefined,
 ): string | null {
-  if (dayOfWeek) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dayOfWeek)) {
-      try {
-        return format(parseISO(dayOfWeek), "eee d", { locale: fr });
-      } catch {
-        return dayOfWeek;
-      }
-    }
-    return DAY_LABELS[dayOfWeek] || dayOfWeek;
+  if (!expirationDate) return null;
+  try {
+    return format(parseISO(expirationDate), "d MMM", { locale: fr });
+  } catch {
+    return expirationDate;
   }
-  if (expirationDate) {
-    try {
-      return format(parseISO(expirationDate), "d MMM", { locale: fr });
-    } catch {
-      return expirationDate;
-    }
-  }
-  return null;
 }
 
 /** Style compact du total kcal/prot/fib d’un créneau — réduit sur mobile pour éviter le débordement. */
@@ -553,8 +540,8 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
   const [editingPro, setEditingPro] = useState(false);
   const [proValue, setProValue] = useState("");
   const cardColorIngredients = meal.ingredients?.trim() ? meal.ingredients : pm.ingredients_override;
-  const dateBadgeLabel = formatPlanningMiniCardDateLabel(pm.day_of_week, pm.expiration_date);
-  const dateBadgeIsExpiration = !pm.day_of_week && !!pm.expiration_date;
+  const dateBadgeLabel = formatPlanningMiniCardDateLabel(pm.expiration_date);
+  const dateBadgeIsExpiration = !!pm.expiration_date;
 
   const macroControls = !compact ? (
     <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
