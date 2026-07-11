@@ -11,7 +11,7 @@
  * - Macros enrichies depuis le lookup des recettes
  * - Détection des aliments inutilisés (pas dans aucune recette disponible)
  */
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Drumstick, Wheat, ArrowUpDown, CalendarDays, Timer, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,8 +19,9 @@ import { usePreferences } from "@/hooks/usePreferences";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { buildStockMap, findStockKey, getMealMultiple } from "@/lib/stockUtils";
-import { normalizeForMatch, strictNameMatch, parseIngredientGroups, formatNumeric, getFoodItemTotalGrams, extractIngredientMacros, normalizeKey, computeCounterDays, parseQty } from "@/lib/ingredientUtils";
+import { buildStockMap, findStockKey, getMealMultiple, hasActiveFoodItemCounter } from "@/lib/stockUtils";
+import { normalizeForMatch, strictNameMatch, parseIngredientGroups, formatNumeric, getFoodItemTotalGrams, normalizeKey, computeCounterDays, parseQty } from "@/lib/ingredientUtils";
+import { resolveConsumeDialogMacros, resolveUnParUnFoodItemMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -35,9 +36,10 @@ interface UnParUnSectionProps {
   onMoveToPossible: (fi: FoodItem, consumeQty?: number, consumeGrams?: number) => void;
   sortMode: UnParUnSortMode;
   onToggleSort: () => void;
+  ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
 }
 
-export function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleCollapse, onMoveToPossible, sortMode, onToggleSort }: UnParUnSectionProps) {
+export function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleCollapse, onMoveToPossible, sortMode, onToggleSort, ingredientMacroAutofillSources }: UnParUnSectionProps) {
   const stockMap = buildStockMap(foodItems);
   const { getPreference, setPreference } = usePreferences();
   const [consumeDialogItem, setConsumeDialogItem] = useState<FoodItem | null>(null);
@@ -76,21 +78,7 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
     }
   }
 
-  // Build macro lookup from all meal ingredients
-  const macroLookup = useMemo(() => {
-    const map = new Map<string, { cal: string; pro: string }>();
-    for (const meal of allMeals) {
-      if (!meal.ingredients) continue;
-      const macros = extractIngredientMacros(meal.ingredients);
-      for (const [key, val] of macros) {
-        const existing = map.get(key);
-        if (!existing || (!existing.cal && val.cal) || (!existing.pro && val.pro)) {
-          map.set(key, { cal: val.cal || existing?.cal || "", pro: val.pro || existing?.pro || "" });
-        }
-      }
-    }
-    return map;
-  }, [allMeals]);
+  const macroLibrary = ingredientMacroAutofillSources?.macroLibrary ?? [];
 
   const isUnused = (fi: FoodItem) => {
     const fiKey = normalizeForMatch(fi.name);
@@ -232,13 +220,44 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
   const SortIcon = sortMode === "expiration" ? CalendarDays : ArrowUpDown;
   const sortLabel = sortMode === "expiration" ? "Péremption" : "Manuel";
 
+  /**
+   * Lit les macros depuis le référentiel « Macro ingrédients » pour l'affichage carte.
+   */
+  const resolveUnParUnMacroDisplay = (fi: FoodItem) =>
+    resolveUnParUnFoodItemMacros(fi, macroLibrary);
+
+  /**
+   * Calcule les macros affichées en direct dans le dialogue « Consommer » selon la saisie.
+   */
+  const getConsumeDialogMacroPreview = () => {
+    if (!consumeDialogItem) return { cal: null, pro: null };
+    return resolveConsumeDialogMacros(consumeDialogItem, macroLibrary, consumeQty, consumeGrams);
+  };
+
+  /**
+   * Affiche un duo cal/prot (badges orange + bleu), utilisé pour la portion puis pour le /100g.
+   */
+  const renderMacroBadgeGroup = (cal: number, pro: number | null, muted = false) => (
+    <span className={`inline-flex items-center gap-0.5 shrink-0 ${muted ? "opacity-80" : ""}`}>
+      <span className="text-[10px] font-bold text-white bg-orange-500/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+        <Flame className="w-2.5 h-2.5" />
+        {Math.round(cal)}
+      </span>
+      {pro !== null && (
+        <span className="text-[10px] font-bold text-white bg-blue-600/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+          🍗{Math.round(pro)}
+        </span>
+      )}
+    </span>
+  );
+
   const renderFoodCard = (fi: FoodItem, col: 'viande' | 'feculent', idx: number) => {
     const unused = isUnused(fi);
     const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
     const isExpired = fi.expiration_date ? new Date(fi.expiration_date) < new Date(new Date().toDateString()) : false;
     const totalG = getFoodItemTotalGrams(fi);
     const qty = fi.quantity && fi.quantity > 1 ? fi.quantity : null;
-    const counterDays = computeCounterDays(fi.counter_start_date);
+    const counterDays = hasActiveFoodItemCounter(fi) ? computeCounterDays(fi.counter_start_date) : null;
     const counterUrgent = counterDays !== null && counterDays >= 3;
     const color = colorFromName(fi.name);
 
@@ -267,30 +286,16 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
             {qty && <span className="text-xs text-white/80 font-bold">×{qty}</span>}
             {fi.is_infinite && <span className="text-xs text-white/80 font-bold">∞</span>}
             {(() => {
-              const fiMacro = macroLookup.get(normalizeKey(fi.name));
-              const rawCal = fi.calories || fiMacro?.cal || null;
-              const rawPro = fi.protein || fiMacro?.pro || null;
-              let calDisplay: number | null = rawCal ? parseFloat(rawCal.replace(',', '.')) : null;
-              let proDisplay: number | null = rawPro ? parseFloat(rawPro.replace(',', '.')) : null;
-
-              if (fi.grams) {
-                const portionG = parseQty(fi.grams);
-                if (portionG > 0) {
-                  calDisplay = calDisplay !== null ? (calDisplay * portionG) / 100 : null;
-                  proDisplay = proDisplay !== null ? (proDisplay * portionG) / 100 : null;
-                }
-              }
+              const { calDisplay, proDisplay, per100Cal, per100Pro, hasGrams } = resolveUnParUnMacroDisplay(fi);
 
               return (
                 <>
-                  {calDisplay !== null && (
-                    <span className="text-[10px] font-bold text-white bg-orange-500/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                      <Flame className="w-2.5 h-2.5" />{Math.round(calDisplay)}
-                    </span>
-                  )}
-                  {proDisplay !== null && (
-                    <span className="text-[10px] font-bold text-white bg-blue-600/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
-                      🍗{Math.round(proDisplay)}
+                  {calDisplay !== null && renderMacroBadgeGroup(calDisplay, proDisplay)}
+                  {hasGrams && per100Cal !== null && (
+                    <span className="inline-flex items-center gap-0.5 shrink-0 text-white/80 font-bold text-[10px]">
+                      <span>(</span>
+                      {renderMacroBadgeGroup(per100Cal, per100Pro, true)}
+                      <span>)</span>
                     </span>
                   )}
                 </>
@@ -345,7 +350,9 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
         </Button>
       </div>
 
-      {consumeDialogItem && (
+      {consumeDialogItem && (() => {
+        const consumeMacroPreview = getConsumeDialogMacroPreview();
+        return (
         <div className="mt-3 rounded-2xl bg-muted/50 border p-3">
           <p className="text-sm font-semibold text-foreground mb-2">Consommer « {consumeDialogItem.name} »</p>
           <div className="flex gap-2 items-center mb-2">
@@ -362,12 +369,19 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
               </div>
             )}
           </div>
+          {consumeMacroPreview.cal !== null && (
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] text-muted-foreground shrink-0">Macros :</span>
+              {renderMacroBadgeGroup(consumeMacroPreview.cal, consumeMacroPreview.pro)}
+            </div>
+          )}
           <div className="flex gap-2">
             <Button size="sm" onClick={handleConsumeConfirm} className="flex-1 rounded-xl text-xs">Confirmer</Button>
             <Button size="sm" variant="ghost" onClick={() => { setConsumeDialogItem(null); setConsumeQty(""); setConsumeGrams(""); }} className="rounded-xl text-xs">Annuler</Button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {!collapsed && (
         <div className={`grid grid-cols-2 gap-3 mt-3 ${touchActive ? "touch-none" : ""}`}>

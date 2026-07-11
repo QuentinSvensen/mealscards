@@ -12,6 +12,8 @@ import {
   upsertFoodItemMacroLibraryItem,
   upsertIngredientMacroLibraryItem,
   resolveIngredientLineMacros,
+  resolveUnParUnFoodItemMacros,
+  resolveConsumeDialogMacros,
   autofillIngredientLinesMacros,
 } from "./ingredientMacroDatabase";
 
@@ -273,5 +275,55 @@ describe("ingredientMacroDatabase", () => {
     expect(filled[0].cal).toBe("131");
     expect(filled[0].pro).toBe("2,1");
     expect(filled[0].fiber).toBe("4");
+  });
+
+  it("calcule l'affichage Un par un depuis le référentiel Macro ingrédients", () => {
+    const library = [createIngredientMacroLibraryItem("Fuet", "228", "14")!];
+    const fi = makeFoodItem("f1", "Fuet", "456", "27", "frigo", "300", 2);
+
+    expect(resolveUnParUnFoodItemMacros(fi, library)).toEqual({
+      per100Cal: 228,
+      per100Pro: 14,
+      calDisplay: 1368,
+      proDisplay: 84,
+      hasGrams: true,
+    });
+  });
+
+  it("totalise les macros sur le stock réel (unités + reliquat)", () => {
+    const library = [createIngredientMacroLibraryItem("Fuet", "456", "27")!];
+    const fi = makeFoodItem("f2", "Fuet", null, null, "frigo", "300|150", 2);
+
+    expect(resolveUnParUnFoodItemMacros(fi, library)).toEqual({
+      per100Cal: 456,
+      per100Pro: 27,
+      calDisplay: 2052,
+      proDisplay: 122,
+      hasGrams: true,
+    });
+  });
+
+  it("prévisualise les macros du dialogue Consommer selon les grammes saisis", () => {
+    const library = [createIngredientMacroLibraryItem("Brochettes poulet tandoori Picard", "150", "18")!];
+    const fi = makeFoodItem("f3", "Brochettes poulet tandoori Picard", null, null, "frigo", "400", 1);
+
+    expect(resolveConsumeDialogMacros(fi, library, "", "200")).toEqual({
+      cal: 300,
+      pro: 36,
+    });
+    expect(resolveConsumeDialogMacros(fi, library, "", "")).toEqual({
+      cal: null,
+      pro: null,
+    });
+  });
+
+  it("prévisualise les macros du dialogue Consommer avec quantité et grammes", () => {
+    const library = [createIngredientMacroLibraryItem("Fuet", "456", "27")!];
+    const fi = makeFoodItem("f4", "Fuet", null, null, "frigo", "300", 3);
+
+    expect(resolveConsumeDialogMacros(fi, library, "1", "150")).toEqual({
+      cal: 2052,
+      pro: 122,
+    });
   });
 });

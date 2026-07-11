@@ -46,6 +46,7 @@ import {
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
 import {
   attachPortionDeduction,
+  mergeDeductionSnapshotMaps,
   remapMorningMealPreferenceIds,
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
@@ -312,6 +313,11 @@ const Index = () => {
     const count = parseInt(localStorage.getItem(TAB_KEY) || '0');
     localStorage.setItem(TAB_KEY, String(count + 1));
     const handleUnload = () => {
+      // En dev (reload HMR ou F5), on garde la session pour éviter de retaper le PIN à chaque modif.
+      if (import.meta.env.DEV || sessionStorage.getItem("mealcards_preserve_session") === "1") {
+        sessionStorage.removeItem("mealcards_preserve_session");
+        return;
+      }
       const current = parseInt(localStorage.getItem(TAB_KEY) || '1');
       if (current <= 1) {
         supabase.auth.signOut();
@@ -555,12 +561,13 @@ const Index = () => {
   const [deductionSnapshots, setDeductionSnapshots] = useState<Record<string, FoodItem[]>>({});
   const snapshotsSynced = useRef(false);
   const snapshotsJsonRef = useRef('');
-  /** Snapshots effectifs : état local ou préférences persistées (disponibles dès le 1er rendu si cache chaud). */
+  /** Snapshots effectifs : fusion persisté + local (fiable même après rechargement ou le lendemain). */
   const effectiveDeductionSnapshots = useMemo(
     () =>
-      Object.keys(deductionSnapshots).length > 0
-        ? deductionSnapshots
-        : (persistedSnapshots ?? EMPTY_DEDUCTION_SNAPSHOTS),
+      mergeDeductionSnapshotMaps(
+        persistedSnapshots ?? EMPTY_DEDUCTION_SNAPSHOTS,
+        deductionSnapshots,
+      ),
     [deductionSnapshots, persistedSnapshots],
   );
   useEffect(() => {
@@ -574,7 +581,11 @@ const Index = () => {
   }, [persistedSnapshots]);
   const updateSnapshots = (updater: (prev: Record<string, FoodItem[]>) => Record<string, FoodItem[]>) => {
     setDeductionSnapshots(prev => {
-      const next = updater(prev);
+      const base = mergeDeductionSnapshotMaps(
+        persistedSnapshots ?? EMPTY_DEDUCTION_SNAPSHOTS,
+        prev,
+      );
+      const next = updater(base);
       setPreference.mutate({ key: SNAPSHOT_PREF_KEY, value: next });
       return next;
     });
@@ -1282,7 +1293,7 @@ const Index = () => {
                           onRemove={(id) => { removeFromPossible.mutate(id); }}
                           onReturnWithoutDeduction={async (id) => {
                             const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
-                            const snapshots = deductionSnapshots[id];
+                            const snapshots = effectiveDeductionSnapshots[id];
                             let restoredFoodItems: FoodItem[] = [];
                             if (snapshots && snapshots.length > 0) {
                               restoredFoodItems = await restoreIngredientsToStock({} as Meal, snapshots);
@@ -1291,7 +1302,10 @@ const Index = () => {
                               const mealForRestore = pm.ingredients_override
                                 ? { ...pm.meals, ingredients: pm.ingredients_override }
                                 : pm.meals;
-                              restoredFoodItems = await restoreIngredientsToStock(mealForRestore);
+                              restoredFoodItems = await restoreIngredientsToStock(mealForRestore, undefined, {
+                                fallbackCounterDate: pm.counter_start_date ?? null,
+                                fallbackExpirationDate: pm.expiration_date ?? null,
+                              });
                             }
                             updateSnapshots(prev => { const next = { ...prev }; delete next[id]; return next; });
                             removeFromPossible.mutate(id);
@@ -1543,7 +1557,7 @@ const Index = () => {
                                 const newGrams = parseQty(g);
                                 const delta = oldGrams - newGrams;
                                 if (delta !== 0) {
-                                  const snapshots = deductionSnapshots[pm.id];
+                                  const snapshots = effectiveDeductionSnapshots[pm.id];
                                   let matchingFi = foodItems.find(fi => snapshots?.[0] ? fi.id === snapshots[0].id : strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
                                   if (matchingFi) {
                                     const perUnit = parseQty(matchingFi.grams);
@@ -1604,7 +1618,7 @@ const Index = () => {
                             const oldIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
                             // Cartes issues de « Tous » : pas de déduction initiale → le scale xN non plus.
                             if (!masterSourcePmIds.has(pmId) && (oldIngredients || newIngredients)) {
-                              const newSnaps = await adjustStockForIngredientChange(oldIngredients, newIngredients, deductionSnapshots[pmId]);
+                              const newSnaps = await adjustStockForIngredientChange(oldIngredients, newIngredients, effectiveDeductionSnapshots[pmId]);
                               if (newSnaps.length > 0) {
                                 updateSnapshots(prev => ({
                                   ...prev,
@@ -1634,7 +1648,7 @@ const Index = () => {
                                 const oldQty = pm.quantity;
                                 const delta = oldQty - qty;
                                 if (delta !== 0) {
-                                  const snapshots = deductionSnapshots[pm.id];
+                                  const snapshots = effectiveDeductionSnapshots[pm.id];
                                   let matchingFi = foodItems.find(fi => snapshots?.[0] ? fi.id === snapshots[0].id : strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
                                   if (matchingFi) {
                                     if (delta > 0) {
@@ -1687,6 +1701,7 @@ const Index = () => {
                             category={cat}
                             foodItems={foodItems}
                             allMeals={meals}
+                            ingredientMacroAutofillSources={ingredientMacroAutofillSources}
                             collapsed={collapsedSections[`unparun-${cat.value}`] ?? true}
                             onToggleCollapse={() => toggleSectionCollapse(`unparun-${cat.value}`)}
                             sortMode={unParUnSortModes[cat.value] || "expiration"}

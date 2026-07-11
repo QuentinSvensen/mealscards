@@ -95,3 +95,14 @@ export function stripPortionDeductionMeta(fi: FoodItem): FoodItem {
   delete raw[PORTION_MORNING_MEAL_KEY];
   return raw as FoodItem;
 }
+
+/**
+ * Fusionne les snapshots persistés et l'état local (le local écrase les clés communes).
+ * Évite de perdre des snapshots au retour Possible → Au choix.
+ */
+export function mergeDeductionSnapshotMaps(
+  persisted: Record<string, FoodItem[]>,
+  local: Record<string, FoodItem[]>,
+): Record<string, FoodItem[]> {
+  return { ...persisted, ...local };
+}

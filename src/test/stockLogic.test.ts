@@ -11,6 +11,7 @@ import {
   getMissingIngredients, buildScaledMealForRatio, scaleIngredientStringExact,
   resolveCounterStartForPossibleBadge,
   analyzeMealIngredients,
+  findEarliestActiveCounterDate,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
 } from "@/lib/stockUtils";
@@ -596,6 +597,29 @@ describe("analyzeMealIngredients — stock infini", () => {
     expect(analysis.maxIngredientCounter).toBe(1);
     expect(analysis.counterIngredientNames.has("blanc de poulet")).toBe(true);
     expect(analysis.hasCounterableIngredient).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("masque le compteur recette quand no_counter sur un aliment au grammage", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T10:00:00.000Z"));
+    const foodItems = [
+      makeFoodItem({
+        name: "Pomme de terre",
+        grams: "500",
+        quantity: 2,
+        no_counter: true,
+        counter_start_date: "2026-07-09T10:00:00.000Z",
+      }),
+    ];
+    const meal = makeMeal({
+      name: "Poulet patate",
+      ingredients: "375g Pomme de terre, 200g Filet de poulet",
+    });
+    const analysis = analyzeMealIngredients(meal, foodItems);
+    expect(analysis.counterIngredientNames.has("pomme de terre")).toBe(false);
+    expect(analysis.maxIngredientCounter).toBeNull();
+    expect(findEarliestActiveCounterDate(meal.ingredients, foodItems)).toBeUndefined();
     vi.useRealTimers();
   });
 });

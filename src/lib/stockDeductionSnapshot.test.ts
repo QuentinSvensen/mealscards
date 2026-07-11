@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import {
   attachPortionDeduction,
+  mergeDeductionSnapshotMaps,
   remapMorningMealPreferenceIds,
   wasMorningMealSnapshot,
 } from "./stockDeductionSnapshot";
@@ -46,5 +47,17 @@ describe("stockDeductionSnapshot", () => {
     const restored = [makeFoodItem({ id: "new-id", name: "Barre Optimum Caramel" })];
     const next = remapMorningMealPreferenceIds([snap], restored, ["old-id"]);
     expect(next).toEqual(["new-id"]);
+  });
+
+  it("fusionne snapshots persistés et locaux sans perdre les entrées anciennes", () => {
+    const persisted = {
+      "pm-hier": [makeFoodItem({ id: "tenders-1", name: "Tenders", counter_start_date: "2026-07-08T10:00:00.000Z" })],
+    };
+    const local = {
+      "pm-aujourdhui": [makeFoodItem({ id: "poulet-1", name: "Poulet" })],
+    };
+    const merged = mergeDeductionSnapshotMaps(persisted, local);
+    expect(Object.keys(merged).sort()).toEqual(["pm-aujourdhui", "pm-hier"]);
+    expect(merged["pm-hier"][0].counter_start_date).toBe("2026-07-08T10:00:00.000Z");
   });
 });

@@ -87,6 +87,7 @@ registerServiceWorker();
 // On force un reload complet après chaque update Vite pour éviter l'actualisation manuelle.
 if (import.meta.hot) {
   import.meta.hot.on("vite:afterUpdate", () => {
+    sessionStorage.setItem("mealcards_preserve_session", "1");
     window.location.reload();
   });
 }

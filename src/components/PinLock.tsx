@@ -121,6 +121,9 @@ export const PinLock = forwardRef<HTMLDivElement, { onUnlock: () => void }>(func
           <Button onClick={handleSubmit} disabled={pin.length !== 4 || loading} className="w-32 rounded-xl">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrer"}
           </Button>
+          {error && (
+            <p className="text-xs text-destructive text-center max-w-[220px] leading-snug">{errorMsg}</p>
+          )}
           {checkingUpdate && (
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground animate-pulse">
               <RefreshCw className="h-3 w-3 animate-spin" /> Vérification de version...

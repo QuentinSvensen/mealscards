@@ -580,11 +580,13 @@ export function isFoodItemBelowDefaultTotal(fi: FoodItem): boolean {
 }
 
 /**
- * Indique si un aliment a un compteur d’ouverture déjà démarré et affichable.
- * Inclut les compteurs manuels sur articles sans grammes (`no_counter`), tant que `counter_start_date` est actif.
+ * Indique si un aliment a un compteur d’ouverture déjà démarré et affichable sur une recette.
+ * Les articles au grammage avec compteur auto désactivé (`no_counter`) sont exclus :
+ * seuls les articles « à l’unité » sans grammes gardent un compteur manuel visible.
  */
 export function hasActiveFoodItemCounter(fi: FoodItem, fixedNow?: Date): boolean {
   if (fi.is_infinite || fi.storage_type === "surgele" || !fi.counter_start_date?.trim()) return false;
+  if (fi.no_counter && parseQty(fi.grams) > 0) return false;
   const nowMs = (fixedNow ?? new Date()).getTime();
   const startMs = parseISO(fi.counter_start_date).getTime();
   return !Number.isNaN(startMs) && startMs <= nowMs;
@@ -1042,6 +1044,7 @@ export function findEarliestFutureCounterDate(
       if (item.optional || !item.name) continue;
       for (const fi of lookupFoodItems(item.name, foodItems, index)) {
         if (fi.is_infinite || fi.storage_type === "surgele" || !fi.counter_start_date?.trim()) continue;
+        if (fi.no_counter && parseQty(fi.grams) > 0) continue;
         const ms = parseISO(fi.counter_start_date).getTime();
         if (Number.isNaN(ms) || ms <= nowMs) continue; // garder uniquement les compteurs futurs (prog)
         if (ms < earliestMs) {

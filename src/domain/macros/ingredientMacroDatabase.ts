@@ -1,6 +1,6 @@
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { normalizeKey, parseIngredientsToLines, serializeIngredients, type IngLine } from "@/lib/ingredientUtils";
+import { getFoodItemTotalGrams, normalizeKey, parseIngredientsToLines, parseQty, serializeIngredients, type IngLine } from "@/lib/ingredientUtils";
 import {
   getExtraMacroBasisLabel,
   getExtraMacroReferenceMacros,
@@ -507,6 +507,92 @@ export function resolveIngredientLineMacros(
   }
 
   return { cal: "", pro: "", fiber: "" };
+}
+
+export interface UnParUnMacroDisplay {
+  calDisplay: number | null;
+  proDisplay: number | null;
+  per100Cal: number | null;
+  per100Pro: number | null;
+  hasGrams: boolean;
+}
+
+/**
+ * Résout les macros affichées dans « Un par un » depuis le référentiel « Macro ingrédients » (/100g).
+ * Ignore les valeurs de la fiche aliment et des recettes pour éviter les totaux ligne mal interprétés.
+ */
+export function resolveUnParUnFoodItemMacros(
+  fi: FoodItem,
+  macroLibrary: IngredientMacroLibraryItem[] = [],
+): UnParUnMacroDisplay {
+  const key = normalizeKey(fi.name);
+  const libraryItem = macroLibrary.find((entry) => entry.key === key);
+  const per100Cal = libraryItem ? parseFoodMacroValue(libraryItem.calories) : 0;
+  const per100Pro = libraryItem ? parseFoodMacroValue(libraryItem.protein) : 0;
+  const totalG = getFoodItemTotalGrams(fi);
+  const hasGrams = totalG > 0;
+
+  if (!hasGrams) {
+    return {
+      calDisplay: per100Cal > 0 ? per100Cal : null,
+      proDisplay: per100Pro > 0 ? per100Pro : null,
+      per100Cal: null,
+      per100Pro: null,
+      hasGrams: false,
+    };
+  }
+
+  return {
+    per100Cal: per100Cal > 0 ? per100Cal : null,
+    per100Pro: per100Pro > 0 ? per100Pro : null,
+    calDisplay: per100Cal > 0 ? Math.round((per100Cal * totalG) / 100) : null,
+    proDisplay: per100Pro > 0 ? Math.round((per100Pro * totalG) / 100) : null,
+    hasGrams: true,
+  };
+}
+
+export interface ConsumeDialogMacroPreview {
+  cal: number | null;
+  pro: number | null;
+}
+
+/**
+ * Calcule les macros prévisionnelles du dialogue « Consommer » à partir de la saisie en cours.
+ * Utilise le référentiel « Macro ingrédients » (/100g) et la même logique de déduction que le déplacement.
+ */
+export function resolveConsumeDialogMacros(
+  fi: FoodItem,
+  macroLibrary: IngredientMacroLibraryItem[] = [],
+  consumeQty: string,
+  consumeGrams: string,
+): ConsumeDialogMacroPreview {
+  const key = normalizeKey(fi.name);
+  const libraryItem = macroLibrary.find((entry) => entry.key === key);
+  const per100Cal = libraryItem ? parseFoodMacroValue(libraryItem.calories) : 0;
+  const per100Pro = libraryItem ? parseFoodMacroValue(libraryItem.protein) : 0;
+  if (per100Cal <= 0 && per100Pro <= 0) return { cal: null, pro: null };
+
+  const unitG = parseQty(fi.grams);
+  const qtyParsed = consumeQty.trim() ? parseInt(consumeQty, 10) : NaN;
+  const gramsParsed = consumeGrams.trim() ? parseFloat(consumeGrams.replace(",", ".")) : NaN;
+  const hasQty = Number.isFinite(qtyParsed) && qtyParsed > 0;
+  const hasGrams = Number.isFinite(gramsParsed) && gramsParsed > 0;
+
+  if (unitG > 0) {
+    if (!hasQty && !hasGrams) return { cal: null, pro: null };
+    const effectiveGrams = (hasQty ? qtyParsed : 0) * unitG + (hasGrams ? gramsParsed : 0);
+    if (effectiveGrams <= 0) return { cal: null, pro: null };
+    return {
+      cal: per100Cal > 0 ? Math.round((per100Cal * effectiveGrams) / 100) : null,
+      pro: per100Pro > 0 ? Math.round((per100Pro * effectiveGrams) / 100) : null,
+    };
+  }
+
+  if (!hasQty) return { cal: null, pro: null };
+  return {
+    cal: per100Cal > 0 ? Math.round(per100Cal * qtyParsed) : null,
+    pro: per100Pro > 0 ? Math.round(per100Pro * qtyParsed) : null,
+  };
 }
 
 // Complète les macros manquantes sur chaque ligne sans écraser une saisie manuelle existante.

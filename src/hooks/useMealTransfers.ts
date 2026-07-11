@@ -630,6 +630,12 @@ function counterMatchesPlannedSlot(
  * Hook principal de transfert de stock.
  * Fournit toutes les opérations de mutation du stock liées aux repas.
  */
+/** Options de repli lors d'une restauration estimée sans snapshot de déduction. */
+export type RestoreIngredientsOptions = {
+  fallbackCounterDate?: string | null;
+  fallbackExpirationDate?: string | null;
+};
+
 export function useMealTransfers(foodItems: FoodItem[]) {
   const qc = useQueryClient();
 
@@ -685,6 +691,43 @@ export function useMealTransfers(foodItems: FoodItem[]) {
    */
   const shouldStartCounter = (fi: FoodItem) =>
     !fi.is_infinite && fi.storage_type !== "surgele" && !fi.no_counter;
+
+  /**
+   * Résout péremption et compteur lors de la recréation d'un aliment absent du stock
+   * (repli si le snapshot de déduction est introuvable).
+   */
+  const resolveRecreatedFoodItemMeta = (
+    templateFi: FoodItem | undefined,
+    name: string,
+    storageFallback: FoodItem["storage_type"],
+    options?: RestoreIngredientsOptions,
+  ): { expiration_date: string | null; counter_start_date: string | null } => {
+    const expiration_date = templateFi?.expiration_date ?? options?.fallbackExpirationDate ?? null;
+    const counterCandidate = templateFi?.counter_start_date ?? options?.fallbackCounterDate ?? null;
+    const counterProbe: FoodItem = templateFi ?? {
+      id: "",
+      name,
+      grams: null,
+      calories: null,
+      protein: null,
+      fiber: null,
+      expiration_date,
+      counter_start_date: counterCandidate,
+      sort_order: 0,
+      created_at: "",
+      is_meal: false,
+      is_infinite: false,
+      is_dry: false,
+      is_indivisible: false,
+      no_counter: false,
+      storage_type: storageFallback,
+      quantity: null,
+      food_type: null,
+    };
+    const counter_start_date =
+      counterCandidate && shouldStartCounter(counterProbe) ? counterCandidate : null;
+    return { expiration_date, counter_start_date };
+  };
 
   /**
    * Retourne la date de compteur la plus ancienne entre deux dates (ignore les valeurs nulles).
@@ -1076,7 +1119,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
    * 1. Avec snapshots → portion déduite (delta) si métadonnées présentes, sinon upsert legacy
    * 2. Sans snapshots → estimation en ajoutant les quantités de la recette
    */
-  const restoreIngredientsToStock = async (meal: Meal, snapshots?: FoodItem[]): Promise<FoodItem[]> => {
+  const restoreIngredientsToStock = async (
+    meal: Meal,
+    snapshots?: FoodItem[],
+    options?: RestoreIngredientsOptions,
+  ): Promise<FoodItem[]> => {
     if (snapshots && snapshots.length > 0) {
       const usePortionRestore = snapshots.some(hasPortionDeductionMeta);
       if (usePortionRestore) {
@@ -1138,6 +1185,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const templateFi = foodItems.find(fi => strictNameMatch(fi.name, name) && !fi.is_infinite);
           const storageFallback = templateFi?.storage_type ?? 'frigo';
           const unitGrams = templateFi ? parseQty(templateFi.grams) : 0;
+          const recreatedMeta = resolveRecreatedFoodItemMeta(templateFi, name, storageFallback, options);
 
           if (neededCount > 0) {
             await safeMutate("Restauration stock (recréation count)", () =>
@@ -1148,8 +1196,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 calories: templateFi?.calories ?? null,
                 protein: templateFi?.protein ?? null,
                 is_indivisible: templateFi?.is_indivisible ?? false,
-                expiration_date: templateFi?.expiration_date ?? null,
-                counter_start_date: null,
+                expiration_date: recreatedMeta.expiration_date,
+                counter_start_date: recreatedMeta.counter_start_date,
                 no_counter: templateFi?.no_counter ?? false,
                 is_meal: templateFi?.is_meal ?? false,
                 is_infinite: false,
@@ -1169,8 +1217,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 calories: templateFi?.calories ?? null,
                 protein: templateFi?.protein ?? null,
                 is_indivisible: templateFi?.is_indivisible ?? false,
-                expiration_date: templateFi?.expiration_date ?? null,
-                counter_start_date: null,
+                expiration_date: recreatedMeta.expiration_date,
+                counter_start_date: recreatedMeta.counter_start_date,
                 no_counter: templateFi?.no_counter ?? false,
                 is_meal: templateFi?.is_meal ?? false,
                 is_infinite: false,
@@ -1187,8 +1235,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 calories: templateFi?.calories ?? null,
                 protein: templateFi?.protein ?? null,
                 is_indivisible: templateFi?.is_indivisible ?? false,
-                expiration_date: templateFi?.expiration_date ?? null,
-                counter_start_date: null,
+                expiration_date: recreatedMeta.expiration_date,
+                counter_start_date: recreatedMeta.counter_start_date,
                 no_counter: templateFi?.no_counter ?? false,
                 is_meal: templateFi?.is_meal ?? false,
                 is_infinite: false,
