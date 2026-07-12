@@ -37,6 +37,35 @@ import {
   hasPortionDeductionMeta,
   stripPortionDeductionMeta,
 } from "@/lib/stockDeductionSnapshot";
+import {
+  DESSERT_FOOD_PREF_KEY,
+  DESSERT_FOOD_NAME_KEYS_PREF_KEY,
+  patchDessertPrefsAfterStockDeletes,
+} from "@/lib/foodDessertUtils";
+
+type UserPreferenceRow = { id: string; key: string; value: unknown };
+
+/**
+ * Met à jour le cache des noms dessert mémorisés quand une fiche dessert est supprimée du stock.
+ */
+function syncDessertNameMemoryAfterDeletes(
+  qc: ReturnType<typeof useQueryClient>,
+  deletedSnapshots: FoodItem[],
+) {
+  if (deletedSnapshots.length === 0) return;
+  const prefs = qc.getQueryData<UserPreferenceRow[]>(["user_preferences"]) ?? [];
+  const dessertIds = (prefs.find((p) => p.key === DESSERT_FOOD_PREF_KEY)?.value ?? []) as string[];
+  const nameKeys = (prefs.find((p) => p.key === DESSERT_FOOD_NAME_KEYS_PREF_KEY)?.value ?? []) as string[];
+  const patched = patchDessertPrefsAfterStockDeletes(deletedSnapshots, dessertIds, nameKeys);
+  if (!patched.changed) return;
+  qc.setQueryData<UserPreferenceRow[]>(["user_preferences"], (old) => {
+    if (!old) return old;
+    return old.map((pref) => {
+      if (pref.key === DESSERT_FOOD_NAME_KEYS_PREF_KEY) return { ...pref, value: patched.nameKeys };
+      return pref;
+    });
+  });
+}
 
 /** Table de correspondance jour français → index (0=Lun) */
 const DAY_KEY_TO_INDEX: Record<string, number> = {
@@ -994,6 +1023,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     };
     qc.setQueryData<FoodItem[]>(["food_items"], applyOptimistic);
     suppressStockRealtimeBriefly();
+    const deletedSnapshots = Array.from(updatesById.values())
+      .filter((u) => u.delete)
+      .map((u) => snapshotsById.get(u.id))
+      .filter((fi): fi is FoodItem => !!fi);
+    syncDessertNameMemoryAfterDeletes(qc, deletedSnapshots);
     const consumedIngredients = buildConsumedIngredientsOverride(pickedAlternatives, meal.ingredients);
     return {
       snapshots: Array.from(snapshotsById.values()).map((fi) => {

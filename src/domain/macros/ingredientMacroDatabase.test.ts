@@ -220,6 +220,20 @@ describe("ingredientMacroDatabase", () => {
     });
   });
 
+  it("privilégie la base Quantité depuis la fiche aliment même si le référentiel macro est au 100g", () => {
+    const foodItems = [
+      makeFoodItem("food1", "Vacherin vanille framboise Picard", "117", "1,4", "congelateur", null, 1, "0,7"),
+    ];
+    const library = [createIngredientMacroLibraryItem("Vacherin vanille framboise Picard", "117", "1,4", "0,7")!];
+
+    const entries = collectIngredientMacroEntries([], [], library, foodItems);
+
+    expect(entries.find((entry) => entry.displayName.includes("Vacherin"))).toMatchObject({
+      basisLabel: "Quantité",
+      foodCount: 1,
+    });
+  });
+
   it("prépare la suppression d'une ligne en vidant les macros dans les recettes et aliments standards", () => {
     const meals = [makeMeal("1", "Poulet riz", "100g Filet de poulet{106} [23], 50g Riz")];
     const possibleMeals = [makePossible("pm1", meals[0], "50g Filet de poulet{106} [23]")];

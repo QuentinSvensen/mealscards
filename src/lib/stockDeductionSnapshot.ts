@@ -6,6 +6,8 @@ export const PORTION_GRAMS_KEY = "_portionGrams";
 export const PORTION_QUANTITY_KEY = "_portionQuantity";
 /** Indique que la fiche source était un « repas matin » (préférence utilisateur). */
 export const PORTION_MORNING_MEAL_KEY = "_wasMorningMeal";
+/** Indique que la fiche source était marquée « dessert » (préférence utilisateur). */
+export const PORTION_WAS_DESSERT_KEY = "_wasDessertFood";
 
 export type PortionDeduction = {
   grams: number;
@@ -42,6 +44,11 @@ export function wasMorningMealSnapshot(snapshot: FoodItem): boolean {
   return (snapshot as Record<string, unknown>)[PORTION_MORNING_MEAL_KEY] === true;
 }
 
+/** Indique si le snapshot provient d'un aliment marqué dessert dans l'onglet Aliments. */
+export function wasDessertFoodSnapshot(snapshot: FoodItem): boolean {
+  return (snapshot as Record<string, unknown>)[PORTION_WAS_DESSERT_KEY] === true;
+}
+
 /**
  * Réattribue la préférence « repas matin » après recréation d'une fiche aliment
  * (ex. retour Possible → Au choix quand l'ancienne ligne a été supprimée).
@@ -67,10 +74,35 @@ export function remapMorningMealPreferenceIds(
   return nextIds;
 }
 
+/**
+ * Réattribue la préférence « dessert » après recréation d'une fiche aliment
+ * (ex. retour Possible → Au choix quand l'ancienne ligne a été supprimée).
+ */
+export function remapDessertFoodPreferenceIds(
+  snapshots: FoodItem[],
+  currentFoodItems: FoodItem[],
+  dessertFoodIds: string[],
+): string[] {
+  let nextIds = [...dessertFoodIds];
+  for (const snap of snapshots) {
+    const wasDessert = wasDessertFoodSnapshot(snap) || dessertFoodIds.includes(snap.id);
+    if (!wasDessert) continue;
+    const oldId = snap.id;
+    nextIds = nextIds.filter((id) => id !== oldId);
+    const restored =
+      currentFoodItems.find((fi) => fi.id === oldId) ??
+      currentFoodItems.find((fi) => strictNameMatch(fi.name, snap.name));
+    if (restored && !nextIds.includes(restored.id)) {
+      nextIds.push(restored.id);
+    }
+  }
+  return nextIds;
+}
+
 export function attachPortionDeduction(
   fi: FoodItem,
   portion: Partial<PortionDeduction>,
-  meta?: { wasMorningMeal?: boolean },
+  meta?: { wasMorningMeal?: boolean; wasDessertFood?: boolean },
 ): FoodItem {
   const grams = portion.grams ?? 0;
   const quantity = portion.quantity ?? 0;
@@ -81,6 +113,9 @@ export function attachPortionDeduction(
   };
   if (meta?.wasMorningMeal) {
     out[PORTION_MORNING_MEAL_KEY] = true;
+  }
+  if (meta?.wasDessertFood) {
+    out[PORTION_WAS_DESSERT_KEY] = true;
   }
   return out as FoodItem;
 }
@@ -93,6 +128,7 @@ export function stripPortionDeductionMeta(fi: FoodItem): FoodItem {
   delete raw[PORTION_GRAMS_KEY];
   delete raw[PORTION_QUANTITY_KEY];
   delete raw[PORTION_MORNING_MEAL_KEY];
+  delete raw[PORTION_WAS_DESSERT_KEY];
   return raw as FoodItem;
 }
 

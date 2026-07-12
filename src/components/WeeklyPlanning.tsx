@@ -55,9 +55,17 @@ import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import {
   buildFoodDessertExtras,
+  buildFoodDessertExtraId,
   DESSERT_FOOD_PREF_KEY,
+  deduplicateDessertExtraCatalog,
+  findSnapshotFoodItemForDessertExtra,
   parseFoodDessertExtraId,
+  resolveFoodDessertPortionMacros,
+  resolveSingleIngredientMealDessertMacros,
+  stripDessertCatalogDuplicatesForSelections,
+  supplementFoodDessertExtrasFromSnapshots,
 } from "@/lib/foodDessertUtils";
+import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
@@ -272,8 +280,26 @@ function buildDessertExtraId(name: string, cal: number, prot: number): string {
   return `custom::${name}::${Math.round(cal)}::${Math.round(prot)}`;
 }
 
+/** Résout les macros affichées d'un aliment extra dans le popover planning. */
+function resolvePlanningExtraFoodMacros(
+  fi: FoodItem,
+  macroLibrary: IngredientMacroLibraryItem[],
+  options?: { perUnit?: boolean; asDessertFood?: boolean },
+): { cal: number; pro: number; fiber: number } {
+  if (options?.asDessertFood) {
+    return resolveFoodDessertPortionMacros(fi, macroLibrary);
+  }
+  return getExtraPortionMacros(fi, options?.perUnit ? { perUnit: true } : undefined);
+}
+
 /** Somme kcal / prot / fibres des extras (aliments stock, desserts aliment ou entrées `custom::…`). */
-function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodItem[]): { cal: number; pro: number; fiber: number } {
+function aggregateExtraSelectionMacros(
+  ids: string[] | undefined,
+  foodItems: FoodItem[],
+  macroLibrary: IngredientMacroLibraryItem[] = [],
+  dessertCatalogById: Map<string, { cal: number; prot: number; fiber?: number }> = new Map(),
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): { cal: number; pro: number; fiber: number } {
   let cal = 0;
   let pro = 0;
   let fiber = 0;
@@ -288,10 +314,25 @@ function sumExtrasFromSelectionIds(ids: string[] | undefined, foodItems: FoodIte
     if (foodDessertItemId) {
       const dessertFi = foodItems.find((f) => f.id === foodDessertItemId);
       if (dessertFi) {
-        const macros = getExtraPortionMacros(dessertFi, { perUnit: true });
+        const macros = resolveFoodDessertPortionMacros(dessertFi, macroLibrary);
         cal += macros.cal;
         pro += macros.pro;
         fiber += macros.fiber;
+      } else {
+        const catalogDessert = dessertCatalogById.get(id);
+        if (catalogDessert) {
+          cal += catalogDessert.cal;
+          pro += catalogDessert.prot;
+          fiber += catalogDessert.fiber ?? 0;
+        } else {
+          const snapshotFi = findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, id);
+          if (snapshotFi) {
+            const macros = resolveFoodDessertPortionMacros(snapshotFi, macroLibrary);
+            cal += macros.cal;
+            pro += macros.pro;
+            fiber += macros.fiber;
+          }
+        }
       }
       continue;
     }
@@ -339,9 +380,209 @@ function getUnassignedExtraSelectionIds(
   iso: string,
   key: string,
 ): string[] {
-  const ids = extraSelections[iso] || [];
+  const ids = extraSelections[iso] || extraSelections[key] || [];
   const assignedSet = new Set(getAssignedExtraIdsForDay(extraSlotAssignments, iso, key));
   return ids.filter((id) => !assignedSet.has(id));
+}
+
+/**
+ * Fusionne les sélections du jour avec les extras déjà posés dans un créneau.
+ * Corrige l'affichage quand un extra est dans SOIR/MIDI mais absent de next_week_extra_selections.
+ */
+function mergeExtraDaySelectionIds(
+  selectedIds: string[],
+  extraSlotAssignments: Record<string, string[]>,
+  iso: string,
+  key: string,
+): string[] {
+  const merged = [...selectedIds];
+  const assigned = getAssignedExtraIdsForDay(extraSlotAssignments, iso, key);
+  for (const id of new Set(assigned)) {
+    const assignedCount = assigned.filter((entry) => entry === id).length;
+    const selectedCount = merged.filter((entry) => entry === id).length;
+    for (let i = selectedCount; i < assignedCount; i++) merged.push(id);
+  }
+  return merged;
+}
+
+/** Normalise un nom d'extra pour comparer recettes et aliments dessert. */
+function normalizeExtraDisplayName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * Associe un id de sélection au dessert catalogue correspondant
+ * (id exact, aliment `food-dessert::…` ou nom de recette `custom::…`).
+ */
+function resolveDessertCatalogId(
+  selectionId: string,
+  catalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): string | null {
+  if (dessertById.has(selectionId)) return selectionId;
+  const custom = parseCustomExtraId(selectionId);
+  if (custom) {
+    const target = normalizeExtraDisplayName(custom.name);
+    const match = catalog.find((entry) => normalizeExtraDisplayName(entry.name) === target);
+    return match?.id ?? null;
+  }
+  const foodItemId = parseFoodDessertExtraId(selectionId);
+  if (foodItemId) {
+    const match = catalog.find((entry) => parseFoodDessertExtraId(entry.id) === foodItemId);
+    if (match) return match.id;
+    const staleName =
+      dessertById.get(selectionId)?.name
+      ?? dessertById.get(buildFoodDessertExtraId(foodItemId))?.name
+      ?? findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, selectionId)?.name
+      ?? findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, buildFoodDessertExtraId(foodItemId))?.name;
+    if (staleName) {
+      const target = normalizeKey(staleName);
+      const byName = catalog.find((entry) => normalizeKey(entry.name) === target);
+      return byName?.id ?? null;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** Compte les occurrences d'un dessert dans une liste de sélections (ids alias inclus). */
+function countDessertExtraInSelections(
+  selectionIds: string[],
+  dessert: { id: string; name: string },
+  catalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+): number {
+  return selectionIds.reduce((acc, selectionId) => {
+    if (selectionId === dessert.id) return acc + 1;
+    const canonical = resolveDessertCatalogId(selectionId, catalog, dessertById);
+    return canonical === dessert.id ? acc + 1 : acc;
+  }, 0);
+}
+
+/** Indique si un dessert du catalogue est présent dans les sélections du jour. */
+function isDessertExtraInSelections(
+  selectionIds: string[],
+  dessert: { id: string; name: string },
+  catalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+): boolean {
+  return countDessertExtraInSelections(selectionIds, dessert, catalog, dessertById) > 0;
+}
+
+/** Retourne le premier id réellement stocké qui correspond à un dessert catalogue. */
+function findStoredSelectionIdForDessert(
+  selectionIds: string[],
+  dessert: { id: string; name: string },
+  catalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+): string | null {
+  for (let i = selectionIds.length - 1; i >= 0; i--) {
+    const selectionId = selectionIds[i];
+    if (selectionId === dessert.id) return selectionId;
+    const canonical = resolveDessertCatalogId(selectionId, catalog, dessertById);
+    if (canonical === dessert.id) return selectionId;
+  }
+  return null;
+}
+
+/** Prépare l'affichage d'un extra non assigné en semaine pro (catalogue complet, y compris stock épuisé). */
+function resolveNextWeekUnassignedExtraRow(
+  extraId: string,
+  foodItems: FoodItem[],
+  dessertById: Map<string, { name: string; mealPayload?: Meal }>,
+  allDessertCatalog: Array<{ id: string; name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): { labelId: string; custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
+  const catalogId = resolveDessertCatalogId(extraId, allDessertCatalog, dessertById, dessertExtraStockSnapshots);
+  const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, dessertById, catalogId ?? undefined);
+  if (resolved) {
+    return {
+      labelId: catalogId ?? extraId,
+      custom: resolved.custom,
+      fi: resolved.fi,
+    };
+  }
+  if (catalogId) {
+    return { labelId: catalogId, custom: null, fi: undefined };
+  }
+  const custom = parseCustomExtraId(extraId);
+  if (custom) return { labelId: extraId, custom, fi: undefined };
+  const fi = foodItems.find((f) => f.id === extraId && f.storage_type === "extras");
+  if (fi) return { labelId: extraId, custom: null, fi };
+  return null;
+}
+
+/** Indique si un id d'extra peut être affiché dans le popover planning (stock, dessert ou custom). */
+function isDisplayableExtraSelectionId(
+  selectionId: string,
+  foodItems: FoodItem[],
+  dessertCatalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): boolean {
+  if (foodItems.some((fi) => fi.id === selectionId && fi.storage_type === "extras")) return true;
+  if (parseCustomExtraId(selectionId)) return true;
+  return resolveDessertCatalogId(selectionId, dessertCatalog, dessertById, dessertExtraStockSnapshots) != null;
+}
+
+/** Compte les extras réellement affichables dans les sélections d'un jour. */
+function countDisplayableExtraSelections(
+  selectionIds: string[],
+  foodItems: FoodItem[],
+  dessertCatalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): number {
+  return selectionIds.reduce(
+    (count, selectionId) =>
+      isDisplayableExtraSelectionId(selectionId, foodItems, dessertCatalog, dessertById, dessertExtraStockSnapshots) ? count + 1 : count,
+    0,
+  );
+}
+
+/** Indique si un extra est déjà posé dans un créneau (ids alias / noms custom inclus). */
+function isExtraIdAssignedForDay(
+  extraId: string,
+  assignedIds: string[],
+  allDessertCatalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+): boolean {
+  if (assignedIds.includes(extraId)) return true;
+  const canonical = resolveDessertCatalogId(extraId, allDessertCatalog, dessertById);
+  const custom = parseCustomExtraId(extraId);
+  for (const assignedId of assignedIds) {
+    if (assignedId === extraId) return true;
+    if (canonical && resolveDessertCatalogId(assignedId, allDessertCatalog, dessertById) === canonical) {
+      return true;
+    }
+    if (custom) {
+      const assignedCustom = parseCustomExtraId(assignedId);
+      if (
+        assignedCustom &&
+        normalizeExtraDisplayName(assignedCustom.name) === normalizeExtraDisplayName(custom.name)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Lit les sélections extras d'un jour depuis les préférences, avec repli sur le snapshot post-reset. */
+function pickDayExtraSelections(
+  selections: Record<string, string[]>,
+  iso: string,
+  key: string,
+  fallback: string[],
+): string[] {
+  if (Object.prototype.hasOwnProperty.call(selections, iso)) {
+    return selections[iso] ?? [];
+  }
+  if (Object.prototype.hasOwnProperty.call(selections, key)) {
+    return selections[key] ?? [];
+  }
+  return fallback;
 }
 
 /** Formate l'étiquette d'un extra placé en incluant ses grammes et sa quantité s'ils existent. */
@@ -458,7 +699,8 @@ function groupAssignedExtraIds(ids: string[]): Array<{ id: string; count: number
 function resolveAssignedExtraForDisplay(
   extraId: string,
   foodItems: FoodItem[],
-  dessertById: Map<string, { mealPayload: Meal }>,
+  dessertById: Map<string, { mealPayload: Meal; name?: string }>,
+  catalogDessertId?: string,
 ): { custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
   const custom = parseCustomExtraId(extraId);
   if (custom) return { custom, fi: undefined };
@@ -467,8 +709,9 @@ function resolveAssignedExtraForDisplay(
   const fi =
     foodItems.find((f) => f.id === extraId)
     ?? (foodDessertItemId ? foodItems.find((f) => f.id === foodDessertItemId) : undefined);
+  const resolvedCatalogId = catalogDessertId ?? extraId;
 
-  if (fi || dessertById.has(extraId)) {
+  if (fi || dessertById.has(extraId) || dessertById.has(resolvedCatalogId)) {
     return { custom: null, fi };
   }
   return null;
@@ -763,7 +1006,7 @@ export function WeeklyPlanning({
 } = {}) {
   const { possibleMeals, meals, updatePlanning, reorderPossibleMeals, getMealsByCategory } = useMeals();
   const qc = useQueryClient();
-  const { getPreference, setPreference, isLoading: prefsLoading } = usePreferences();
+  const { getPreference, setPreference, setPreferencesBatch, isLoading: prefsLoading } = usePreferences();
   const { items: foodItems } = useFoodItems();
   const { foodSortModes, sortDirections } = useSortModes({ enabled: true });
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
@@ -815,6 +1058,20 @@ export function WeeklyPlanning({
   // Sélections de petit déjeuner par jour
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
   const dessertFoodItemIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
+  const ingredientMacroLibrary = getPreference<IngredientMacroLibraryItem[]>("ingredient_macro_library", []);
+  const dessertExtraStockSnapshots = getPreference<Record<string, Record<string, FoodItem[][]>>>('planning_dessert_extra_stock_snapshots', {});
+  const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
+  const nextExtraSelections = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
+  /** Cache local des desserts sélectionnés avant persistance du snapshot (évite la disparition à stock 0). */
+  const pendingDessertCatalogRef = useRef(new Map<string, {
+    id: string;
+    name: string;
+    cal: number;
+    prot: number;
+    fiber: number;
+    mealPayload: Meal;
+  }>());
+  const [pendingDessertCatalogTick, setPendingDessertCatalogTick] = useState(0);
   const { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_FIBER_GOAL: DAILY_FIBER_GOAL_PREF_FROM_HOOK, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const possiblePetitDej = possibleMeals.filter(pm => pm.meals?.category === 'petit_dejeuner');
@@ -865,9 +1122,15 @@ export function WeeklyPlanning({
         return required.length === 1;
       })
       .map((meal) => {
-        const cal = getMealCal(meal) ?? 0;
-        const prot = getMealPro(meal) ?? 0;
-        const fiber = getMealFiber(meal, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0;
+        let cal = getMealCal(meal) ?? 0;
+        let prot = getMealPro(meal) ?? 0;
+        let fiber = getMealFiber(meal, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0;
+        if (cal <= 0 && prot <= 0 && fiber <= 0) {
+          const fallback = resolveSingleIngredientMealDessertMacros(meal as Meal, foodItems, ingredientMacroLibrary);
+          cal = fallback.cal;
+          prot = fallback.pro;
+          fiber = fallback.fiber;
+        }
         const mealPayload = buildMealTransferPayload(meal as Meal);
         return {
           id: buildDessertExtraId(meal.name, cal, prot),
@@ -884,12 +1147,53 @@ export function WeeklyPlanning({
         if (!extrasByCustomId.has(extra.id)) extrasByCustomId.set(extra.id, extra);
       });
 
-    buildFoodDessertExtras(foodItems, dessertFoodItemIds).forEach((extra) => {
-      if (!extrasByCustomId.has(extra.id)) extrasByCustomId.set(extra.id, extra);
+    buildFoodDessertExtras(foodItems, dessertFoodItemIds, ingredientMacroLibrary).forEach((extra) => {
+      const nameKey = normalizeKey(extra.name);
+      for (const [existingId, existingExtra] of [...extrasByCustomId]) {
+        if (normalizeKey(existingExtra.name) === nameKey) {
+          extrasByCustomId.delete(existingId);
+        }
+      }
+      extrasByCustomId.set(extra.id, extra);
     });
 
-    return Array.from(extrasByCustomId.values());
-  }, [buildMealTransferPayload, dessertFoodItemIds, foodItems, foodMacroIndex, getMealsByCategory, meals]);
+    const selectedFoodDessertIds = [
+      ...Object.values(extraSelections).flat(),
+      ...Object.values(nextExtraSelections).flat(),
+    ].filter((id): id is string => !!parseFoodDessertExtraId(id));
+
+    const supplementedFoodDesserts = supplementFoodDessertExtrasFromSnapshots(
+      Array.from(extrasByCustomId.values()).filter((extra) => extra.id.startsWith("food-dessert::")),
+      dessertExtraStockSnapshots,
+      ingredientMacroLibrary,
+      selectedFoodDessertIds,
+    );
+    for (const extra of supplementedFoodDesserts) {
+      extrasByCustomId.set(extra.id, extra);
+    }
+
+    for (const selectedId of selectedFoodDessertIds) {
+      if (findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, selectedId)) {
+        pendingDessertCatalogRef.current.delete(selectedId);
+      }
+    }
+    for (const [pendingId, pendingEntry] of pendingDessertCatalogRef.current) {
+      if (selectedFoodDessertIds.includes(pendingId)) {
+        extrasByCustomId.set(pendingId, pendingEntry);
+      }
+    }
+
+    const deduped = deduplicateDessertExtraCatalog(
+      Array.from(extrasByCustomId.values()),
+      foodItems,
+      selectedFoodDessertIds,
+    );
+    return stripDessertCatalogDuplicatesForSelections(
+      deduped,
+      selectedFoodDessertIds,
+      dessertExtraStockSnapshots,
+    );
+  }, [buildMealTransferPayload, dessertExtraStockSnapshots, dessertFoodItemIds, extraSelections, foodItems, foodMacroIndex, getMealsByCategory, ingredientMacroLibrary, meals, nextExtraSelections, pendingDessertCatalogTick]);
   /** Desserts à ingrédient unique actuellement ajoutables (stock > 0). */
   const singleIngredientDessertExtras = useMemo(() => {
     const withExpiry = allSingleIngredientDessertExtras
@@ -920,6 +1224,31 @@ export function WeeklyPlanning({
     () => new Map(allSingleIngredientDessertExtras.map((d) => [d.id, d])),
     [allSingleIngredientDessertExtras]
   );
+
+  /**
+   * Mémorise localement un dessert avant déduction du dernier stock pour qu'il reste affichable en « Sélectionnés ».
+   */
+  const rememberPendingDessertExtra = useCallback((dessertExtraId: string) => {
+    const entry = singleIngredientDessertById.get(dessertExtraId);
+    if (!entry) return;
+    pendingDessertCatalogRef.current.set(dessertExtraId, entry);
+    setPendingDessertCatalogTick((tick) => tick + 1);
+  }, [singleIngredientDessertById]);
+
+  /**
+   * Somme les macros des extras d'un jour en incluant le catalogue desserts et les snapshots (stock épuisé).
+   */
+  const sumDayExtras = useCallback(
+    (ids: string[] | undefined) =>
+      aggregateExtraSelectionMacros(
+        ids,
+        foodItems,
+        ingredientMacroLibrary,
+        singleIngredientDessertById,
+        dessertExtraStockSnapshots,
+      ),
+    [dessertExtraStockSnapshots, foodItems, ingredientMacroLibrary, singleIngredientDessertById],
+  );
   /** Disponibilité en stock de chaque dessert (sert notamment à masquer le bouton +). */
   const canAddDessertById = useMemo(
     () =>
@@ -949,11 +1278,18 @@ export function WeeklyPlanning({
 
   /** Écrit la mémoire des snapshots de stock des desserts extras dans les préférences utilisateur. */
   const writeDessertExtraStockSnapshots = useCallback((value: Record<string, Record<string, FoodItem[][]>>) => {
-    setPreference.mutate({ key: 'planning_dessert_extra_stock_snapshots', value });
+    return setPreference.mutateAsync({ key: 'planning_dessert_extra_stock_snapshots', value });
   }, [setPreference]);
 
-  /** Ajoute un snapshot de stock pour une occurrence de dessert extra sur un jour donné. */
-  const pushDessertExtraSnapshot = useCallback((dessertExtraId: string, iso: string, key: string, snapshot: FoodItem[]) => {
+  /**
+   * Construit le store de snapshots après ajout d'une occurrence, sans écrire immédiatement en base.
+   */
+  const buildDessertExtraSnapshotStoreAfterPush = useCallback((
+    dessertExtraId: string,
+    iso: string,
+    key: string,
+    snapshot: FoodItem[],
+  ): Record<string, Record<string, FoodItem[][]>> => {
     const day = iso || key;
     const store = { ...readDessertExtraStockSnapshots() };
     const dayStore = { ...(store[day] || {}) };
@@ -961,8 +1297,31 @@ export function WeeklyPlanning({
     cur.push(snapshot);
     dayStore[dessertExtraId] = cur;
     store[day] = dayStore;
-    writeDessertExtraStockSnapshots(store);
-  }, [readDessertExtraStockSnapshots, writeDessertExtraStockSnapshots]);
+    return store;
+  }, [readDessertExtraStockSnapshots]);
+
+  /** Ajoute un snapshot de stock pour une occurrence de dessert extra sur un jour donné. */
+  const pushDessertExtraSnapshot = useCallback(async (dessertExtraId: string, iso: string, key: string, snapshot: FoodItem[]) => {
+    const store = buildDessertExtraSnapshotStoreAfterPush(dessertExtraId, iso, key, snapshot);
+    await writeDessertExtraStockSnapshots(store);
+  }, [buildDessertExtraSnapshotStoreAfterPush, writeDessertExtraStockSnapshots]);
+
+  /**
+   * Persiste en une fois la sélection extras et, si besoin, le snapshot dessert associé.
+   */
+  const persistExtraSelectionAndSnapshot = useCallback(async (
+    selectionKey: 'planning_extra_selections' | 'next_week_extra_selections',
+    selectionValue: Record<string, string[]>,
+    snapshotStore?: Record<string, Record<string, FoodItem[][]>>,
+  ) => {
+    const entries: { key: string; value: Record<string, string[]> | Record<string, Record<string, FoodItem[][]>> }[] = [
+      { key: selectionKey, value: selectionValue },
+    ];
+    if (snapshotStore) {
+      entries.unshift({ key: 'planning_dessert_extra_stock_snapshots', value: snapshotStore });
+    }
+    await setPreferencesBatch.mutateAsync(entries);
+  }, [setPreferencesBatch]);
 
   /** Retire et renvoie le dernier snapshot mémorisé pour restaurer exactement une occurrence de dessert. */
   const popDessertExtraSnapshot = useCallback((dessertExtraId: string, iso: string, key: string): FoodItem[] | null => {
@@ -981,30 +1340,40 @@ export function WeeklyPlanning({
   }, [readDessertExtraStockSnapshots, writeDessertExtraStockSnapshots]);
 
   /** Applique une occurrence d’ajout/retrait dessert avec décompte réel + restauration via snapshot. */
-  const applyDessertExtraStockDelta = useCallback(async (dessertExtraId: string, delta: 1 | -1, iso: string, key: string) => {
-    if (weekOffset !== 0) return false;
+  const applyDessertExtraStockDelta = useCallback(async (
+    dessertExtraId: string,
+    delta: 1 | -1,
+    iso: string,
+    key: string,
+    options?: { persistSnapshot?: boolean },
+  ): Promise<{ ok: boolean; snapshots?: FoodItem[] }> => {
+    // Semaine courante et aperçu semaine prochaine : décompte immédiat. Archive (-1) : lecture seule.
+    if (weekOffset < 0) return { ok: false };
     const dessert = singleIngredientDessertById.get(dessertExtraId);
-    if (!dessert) return false;
+    if (!dessert) return { ok: false };
     const isInfiniteDessertStock = getMealMultiple(dessert.mealPayload, stockMap) === Infinity;
     if (delta > 0) {
+      rememberPendingDessertExtra(dessertExtraId);
       const res = await deductIngredientsFromStock(dessert.mealPayload);
       // Une déduction valide peut être un UPDATE (pas seulement un DELETE) :
       // on s'appuie donc sur la présence de snapshots touchés, pas sur consumedIds.
       // Si tout le stock concerné est infini (ex. Shaker whey), il n'y a rien à snapshotter.
-      if (!res || ((res.snapshots?.length ?? 0) === 0 && !isInfiniteDessertStock)) return false;
-      if ((res.snapshots?.length ?? 0) === 0) return true;
-      pushDessertExtraSnapshot(dessertExtraId, iso, key, res.snapshots || []);
+      if (!res || ((res.snapshots?.length ?? 0) === 0 && !isInfiniteDessertStock)) return { ok: false };
+      if ((res.snapshots?.length ?? 0) === 0) return { ok: true };
+      if (options?.persistSnapshot !== false) {
+        await pushDessertExtraSnapshot(dessertExtraId, iso, key, res.snapshots || []);
+      }
       qc.invalidateQueries({ queryKey: ["food_items"] });
-      return true;
+      return { ok: true, snapshots: res.snapshots };
     }
     const snapshot = popDessertExtraSnapshot(dessertExtraId, iso, key);
-    if (!snapshot && isInfiniteDessertStock) return true;
+    if (!snapshot && isInfiniteDessertStock) return { ok: true };
     // Sans snapshot, on ne restaure pas pour éviter d'inventer du stock qui n'a jamais été décrémenté.
-    if (!snapshot) return false;
+    if (!snapshot) return { ok: false };
     await restoreIngredientsToStock(dessert.mealPayload, snapshot);
     qc.invalidateQueries({ queryKey: ["food_items"] });
-    return true;
-  }, [deductIngredientsFromStock, popDessertExtraSnapshot, pushDessertExtraSnapshot, qc, restoreIngredientsToStock, singleIngredientDessertById, stockMap, weekOffset]);
+    return { ok: true };
+  }, [deductIngredientsFromStock, popDessertExtraSnapshot, pushDessertExtraSnapshot, qc, rememberPendingDessertExtra, restoreIngredientsToStock, singleIngredientDessertById, stockMap, weekOffset]);
 
   const setBreakfastForDay = (day: string, selId: string | null) => {
     const updated = { ...breakfastSelections };
@@ -1227,7 +1596,6 @@ export function WeeklyPlanning({
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const extraFibers = getPreference<Record<string, number>>('planning_extra_fibers', {});
-  const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
   const testItemIds = getPreference<string[]>('food_test_ids', []);
   const extrasDividerAfterId = getPreference<string | null>(FOOD_EXTRAS_DIVIDER_PREF_KEY, null);
   const testItemIdSet = new Set(testItemIds);
@@ -1269,7 +1637,6 @@ export function WeeklyPlanning({
   const nextManualFibers = getPreference<Record<string, number>>('next_week_manual_fibers', {});
   const nextExtraCalories = getPreference<Record<string, number>>('next_week_extra_calories', {});
   const nextExtraProteins = getPreference<Record<string, number>>('next_week_extra_proteins', {});
-  const nextExtraSelections = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
   const nextExtraFibers = getPreference<Record<string, number>>('next_week_extra_fibers', {});
   const nextExtraSlotAssignments = getPreference<Record<string, string[]>>('next_week_extra_slot_assignments', {});
   const nextBreakfastManualCalories = getPreference<Record<string, number>>('next_week_breakfast_manual_calories', {});
@@ -1424,7 +1791,7 @@ export function WeeklyPlanning({
       dayPro += (bMP[iso] || bMP[key] || 0);
 
       // Extra (manuel + liste : inclut les ids `custom::…` de la sauvegarde)
-      const selExtra = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
+      const selExtra = sumDayExtras(bES[iso] || bES[key]);
       const eCal = (bEC[iso] || bEC[key] || 0) + selExtra.cal;
       const ePro = (bEP[iso] || bEP[key] || 0) + selExtra.pro;
       dayCal += eCal;
@@ -1659,8 +2026,13 @@ export function WeeklyPlanning({
     slot: 'matin' | 'midi' | 'soir' | 'gouter',
   ) => {
     if (!extraId) return;
-    ensureNextExtraSelectedForDay(extraId, iso, key);
-    const selectedForDay = nextExtraSelections[iso] || nextExtraSelections[key] || [];
+    const updatedSel = { ...nextExtraSelections };
+    const cur = updatedSel[iso] || updatedSel[key] || [];
+    if (!cur.includes(extraId)) {
+      updatedSel[iso] = [...cur, extraId];
+      delete updatedSel[key];
+    }
+    const selectedForDay = updatedSel[iso] || updatedSel[key] || [];
     const occurrenceCount = Math.max(1, selectedForDay.filter((id) => id === extraId).length);
     const assignments = { ...nextExtraSlotAssignments };
     const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
@@ -1676,6 +2048,7 @@ export function WeeklyPlanning({
     const targetCur = assignments[targetKey] || [];
     const withoutCurrentExtra = targetCur.filter((id) => id !== extraId);
     assignments[targetKey] = [...withoutCurrentExtra, ...Array(occurrenceCount).fill(extraId)];
+    setPreference.mutate({ key: 'next_week_extra_selections', value: updatedSel });
     setPreference.mutate({ key: 'next_week_extra_slot_assignments', value: assignments });
   };
 
@@ -1694,16 +2067,79 @@ export function WeeklyPlanning({
   };
 
   // Désélectionne complètement un extra du jour pour la semaine suivante.
-  const deselectNextExtraForDay = (extraId: string, iso: string, key: string) => {
+  const deselectNextExtraForDay = async (extraId: string, iso: string, key: string) => {
     if (!extraId) return;
     const updatedSel = { ...nextExtraSelections };
     const cur = updatedSel[iso] || updatedSel[key] || [];
-    const next = cur.filter((id) => id !== extraId);
+    const dessert = singleIngredientDessertById.get(extraId);
+    const matchingIds = dessert
+      ? cur.filter((id) =>
+          id === extraId ||
+          resolveDessertCatalogId(id, allSingleIngredientDessertExtras, singleIngredientDessertById) === extraId,
+        )
+      : cur.filter((id) => id === extraId);
+    const count = matchingIds.length;
+    if (singleIngredientDessertById.has(extraId) && count > 0) {
+      for (let i = 0; i < count; i++) {
+        await applyDessertExtraStockDelta(extraId, -1, iso, key);
+      }
+    }
+    const removeSet = new Set(matchingIds);
+    const next = cur.filter((id) => !removeSet.has(id));
     if (iso) updatedSel[iso] = next;
     else updatedSel[key] = next;
     delete updatedSel[key];
     setPreference.mutate({ key: 'next_week_extra_selections', value: updatedSel });
-    unassignNextExtraFromAllDaySlots(extraId, iso, key);
+    for (const id of new Set([...matchingIds, extraId])) {
+      unassignNextExtraFromAllDaySlots(id, iso, key);
+    }
+  };
+
+  /**
+   * Ajoute une occurrence d'extra en semaine prochaine et déduit le stock dessert si applicable.
+   */
+  const addNextWeekExtraOccurrence = async (extraId: string, iso: string, key: string): Promise<boolean> => {
+    let snapshotStore: Record<string, Record<string, FoodItem[][]>> | undefined;
+    if (singleIngredientDessertById.has(extraId)) {
+      const { ok, snapshots } = await applyDessertExtraStockDelta(extraId, 1, iso, key, { persistSnapshot: false });
+      if (!ok) return false;
+      if (snapshots?.length) {
+        snapshotStore = buildDessertExtraSnapshotStoreAfterPush(extraId, iso, key, snapshots);
+      }
+    }
+    const current = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
+    const updated = { ...current };
+    updated[iso] = [...(updated[iso] || updated[key] || []), extraId];
+    delete updated[key];
+    await persistExtraSelectionAndSnapshot('next_week_extra_selections', updated, snapshotStore);
+    return true;
+  };
+
+  /**
+   * Retire une occurrence d'extra en semaine prochaine et restaure le stock dessert si applicable.
+   */
+  const removeOneNextWeekExtraOccurrence = async (extraId: string, iso: string, key: string) => {
+    const currentPrefs = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
+    const current = currentPrefs[iso] || currentPrefs[key] || [];
+    const dessert = singleIngredientDessertById.get(extraId);
+    const storedId = dessert
+      ? findStoredSelectionIdForDessert(current, dessert, allSingleIngredientDessertExtras, singleIngredientDessertById)
+      : extraId;
+    if (!storedId || !current.includes(storedId)) return;
+    if (singleIngredientDessertById.has(extraId)) {
+      await applyDessertExtraStockDelta(extraId, -1, iso, key);
+    }
+    const updated = removeOneExtraOccurrenceForDay(currentPrefs, iso, key, storedId);
+    setPreference.mutate({ key: 'next_week_extra_selections', value: updated });
+    const remaining = (updated[iso] || updated[key] || []).filter((id) => {
+      if (!dessert) return id === storedId;
+      return id === storedId || resolveDessertCatalogId(id, allSingleIngredientDessertExtras, singleIngredientDessertById) === extraId;
+    }).length;
+    if (remaining <= 0) {
+      for (const id of new Set([storedId, extraId])) {
+        unassignNextExtraFromAllDaySlots(id, iso, key);
+      }
+    }
   };
 
   // Déplace un extra entre deux jours/créneaux pour la semaine suivante.
@@ -2411,13 +2847,13 @@ export function WeeklyPlanning({
 
           const breakfastAssignedIds =
             extraSlotAssignments[`${iso}-matin`] ?? extraSlotAssignments[`${key}-matin`] ?? [];
-          const breakfastAssigned = sumExtrasFromSelectionIds(breakfastAssignedIds, foodItems);
+          const breakfastAssigned = sumDayExtras(breakfastAssignedIds);
           const breakfastTotalCals = baseBreakfastCals + matinCals + breakfastAssigned.cal;
           const breakfastTotalPro = baseBreakfastPro + matinPro + breakfastAssigned.pro;
           const breakfastTotalFiber = baseBreakfastFiber + matinFiber + breakfastAssigned.fiber;
           const gouterAssignedIds =
             extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
-          const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
+          const gouterAssigned = sumDayExtras(gouterAssignedIds);
           const gouterMeals = getMealsForSlot(key, 'gouter', iso);
           const gouterMealCals = gouterMeals.reduce((sum, pm) => sum + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
           const gouterMealPro = gouterMeals.reduce((sum, pm) => sum + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
@@ -2868,7 +3304,7 @@ export function WeeklyPlanning({
                   const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
                   const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-                  const slotAssigned = sumExtrasFromSelectionIds(slotAssignedIds, foodItems);
+                  const slotAssigned = sumDayExtras(slotAssignedIds);
                   const slotDrink = Boolean(drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]);
                   const slotCals = slotCalsMeals + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
                   const slotPro = slotProMeals + slotAssigned.pro;
@@ -3086,7 +3522,14 @@ export function WeeklyPlanning({
                   const extraDropKey = `extra-${iso}`;
                   const isExtraDragOver = dragOverSlot === extraDropKey;
                   const unassignedExtraIds = getUnassignedExtraSelectionIds(extraSelections, extraSlotAssignments, iso, key);
-                  const unassignedExtraMacros = sumExtrasFromSelectionIds(unassignedExtraIds, foodItems);
+                  const unassignedExtraMacros = sumDayExtras(unassignedExtraIds);
+                  const hasDisplayableExtraSelections = countDisplayableExtraSelections(
+                    extraSelections[iso] || extraSelections[key] || [],
+                    foodItems,
+                    allSingleIngredientDessertExtras,
+                    singleIngredientDessertById,
+                    dessertExtraStockSnapshots,
+                  ) > 0;
                   return (
                 <div
                   className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isExtraDragOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3"}`}
@@ -3157,7 +3600,7 @@ export function WeeklyPlanning({
                       }}>
                         <PopoverTrigger asChild>
                           <button
-                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${((getPreference<Record<string, string[]>>('planning_extra_selections', {})[iso || ""]?.length || 0) > 0) ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
+                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
                             title="Ajouter un Extra"
                           >
                             <Plus className="h-3 w-3" />
@@ -3264,7 +3707,9 @@ export function WeeklyPlanning({
                               const currentIds = extraSels[iso] || [];
                               const assignedIds = new Set(getAssignedExtraIdsForDayLocal(iso, key));
                               const daySlotKey = iso || key;
-                              const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) => !currentIds.includes(d.id));
+                              const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) =>
+                                !isDessertExtraInSelections(currentIds, d, allSingleIngredientDessertExtras, singleIngredientDessertById),
+                              );
 
                               // Réordonne les extras sélectionnés (standards + custom) en conservant les quantités.
                               const reorderSelectedExtras = (sourceId: string, targetId: string) => {
@@ -3356,17 +3801,23 @@ export function WeeklyPlanning({
                               /** Rend une ligne d'extra sélectionné avec une clé stable par section pour accepter les doublons. */
                               const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom", occurrenceIndex: number) => {
                                 const c = parseCustomExtraId(id);
-                                const dessertExtra = singleIngredientDessertById.get(id);
+                                const catalogId = resolveDessertCatalogId(
+                                  id,
+                                  allSingleIngredientDessertExtras,
+                                  singleIngredientDessertById,
+                                  dessertExtraStockSnapshots,
+                                ) ?? id;
+                                const dessertExtra = singleIngredientDessertById.get(catalogId);
                                 const fi = c ? null : (extrasById.get(id) ?? (dessertExtra ? foodItems.find((f) => f.id === parseFoodDessertExtraId(id) ?? undefined) : undefined));
                                 if (!c && !fi && !dessertExtra) return null;
                                 const isDessertExtra = !!dessertExtra;
-                                const canAddDessert = !isDessertExtra || canAddDessertById.get(id) === true;
-                                const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(id) ?? 0) : null;
+                                const canAddDessert = !isDessertExtra || canAddDessertById.get(catalogId) === true;
+                                const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(catalogId) ?? 0) : null;
                                 const count = currentIds.filter((cid) => cid === id).length;
                                 const label = c ? c.name : (dessertExtra?.name ?? fi?.name ?? id);
                                 const portionMacros = dessertExtra
                                   ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
-                                  : (fi ? getExtraPortionMacros(fi) : { cal: 0, pro: 0, fiber: 0 });
+                                  : (fi ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { perUnit: true }) : { cal: 0, pro: 0, fiber: 0 });
                                 const prot = c ? c.prot : portionMacros.pro;
                                 const cal = c ? c.cal : portionMacros.cal;
                                 const fiber = c ? (dessertExtra?.fiber ?? 0) : portionMacros.fiber;
@@ -3446,7 +3897,8 @@ export function WeeklyPlanning({
                                           onClick={async () => {
                                             if (isDessertExtra) {
                                               try {
-                                                const ok = await applyDessertExtraStockDelta(id, 1, iso, key);
+                                                let snapshotStore: Record<string, Record<string, FoodItem[][]>> | undefined;
+                                                const { ok, snapshots } = await applyDessertExtraStockDelta(catalogId, 1, iso, key, { persistSnapshot: false });
                                                 if (!ok) {
                                                   toast({
                                                     title: "Stock insuffisant",
@@ -3455,6 +3907,14 @@ export function WeeklyPlanning({
                                                   });
                                                   return;
                                                 }
+                                                if (snapshots?.length) {
+                                                  snapshotStore = buildDessertExtraSnapshotStoreAfterPush(catalogId, iso, key, snapshots);
+                                                }
+                                                const updated = { ...extraSels };
+                                                const current = updated[iso] || [];
+                                                if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
+                                                await persistExtraSelectionAndSnapshot('planning_extra_selections', updated, snapshotStore);
+                                                return;
                                               } catch (e) {
                                                 toast({
                                                   title: "Stock insuffisant",
@@ -3492,7 +3952,7 @@ export function WeeklyPlanning({
                               };
                               const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
-                                const macros = getExtraPortionMacros(fi);
+                                const macros = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { perUnit: true });
                                 return (
                                   <div
                                     key={fi.id}
@@ -3650,7 +4110,7 @@ export function WeeklyPlanning({
                                       {selectedBottomIds.map((id, index) => renderSelectedRowById(id, "bottom", index))}
                                     </>
                                   )}
-                                  {singleIngredientDessertExtras.length > 0 && (
+                                  {(allSingleIngredientDessertExtras.some((d) => currentIds.includes(d.id)) || singleIngredientDessertExtras.length > 0) && (
                                     <>
                                       <Separator className="my-2 opacity-50" />
                                       <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
@@ -3663,7 +4123,8 @@ export function WeeklyPlanning({
                                           <div className="flex items-center gap-1.5 shrink-0">
                                             <button onClick={async () => {
                                               try {
-                                                const ok = await applyDessertExtraStockDelta(d.id, 1, iso, key);
+                                                let snapshotStore: Record<string, Record<string, FoodItem[][]>> | undefined;
+                                                const { ok, snapshots } = await applyDessertExtraStockDelta(d.id, 1, iso, key, { persistSnapshot: false });
                                                 if (!ok) {
                                                   toast({
                                                     title: "Stock insuffisant",
@@ -3672,10 +4133,13 @@ export function WeeklyPlanning({
                                                   });
                                                   return;
                                                 }
+                                                if (snapshots?.length) {
+                                                  snapshotStore = buildDessertExtraSnapshotStoreAfterPush(d.id, iso, key, snapshots);
+                                                }
                                                 const updated = { ...extraSels };
                                                 const current = updated[iso] || [];
                                                 if (iso) updated[iso] = [...current, d.id]; else updated[key] = [...current, d.id];
-                                                setPreference.mutate({ key: 'planning_extra_selections', value: updated });
+                                                await persistExtraSelectionAndSnapshot('planning_extra_selections', updated, snapshotStore);
                                               } catch (e) {
                                                 toast({
                                                   title: "Stock insuffisant",
@@ -4075,10 +4539,10 @@ export function WeeklyPlanning({
                 const midiAssignedIds = bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? [];
                 const soirAssignedIds = bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? [];
                 const gouterAssignedIds = bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? [];
-                const matinAssigned = sumExtrasFromSelectionIds(matinAssignedIds, foodItems);
-                const midiAssigned = sumExtrasFromSelectionIds(midiAssignedIds, foodItems);
-                const soirAssigned = sumExtrasFromSelectionIds(soirAssignedIds, foodItems);
-                const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
+                const matinAssigned = sumDayExtras(matinAssignedIds);
+                const midiAssigned = sumDayExtras(midiAssignedIds);
+                const soirAssigned = sumDayExtras(soirAssignedIds);
+                const gouterAssigned = sumDayExtras(gouterAssignedIds);
 
                 const resMatin = processCards(matinCards);
                 bfSlotCal += resMatin.cals + matinAssigned.cal;
@@ -4111,7 +4575,7 @@ export function WeeklyPlanning({
                 // Extras (sauvegarde : mêmes ids que le planning courant, y compris extras saisis à la main)
                 dayTotal += (bEC[iso] || bEC[key] || 0);
                 dayPro += (bEP[iso] || bEP[key] || 0);
-                const backupExtraSum = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
+                const backupExtraSum = sumDayExtras(bES[iso] || bES[key]);
                 const backupAssignedExtraCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
                 const backupAssignedExtraPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
                 const backupUnassignedExtraCal = Math.max(0, backupExtraSum.cal - backupAssignedExtraCal);
@@ -4334,11 +4798,11 @@ export function WeeklyPlanning({
                             <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                             <div className="flex flex-col items-center gap-1 mt-1 w-full opacity-60">
                               {(() => {
-                                const sel = sumExtrasFromSelectionIds(bES[iso] || bES[key], foodItems);
-                                const matinAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? [], foodItems);
-                                const midiAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? [], foodItems);
-                                const soirAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? [], foodItems);
-                                const gouterAssigned = sumExtrasFromSelectionIds(bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? [], foodItems);
+                                const sel = sumDayExtras(bES[iso] || bES[key]);
+                                const matinAssigned = sumDayExtras(bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? []);
+                                const midiAssigned = sumDayExtras(bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? []);
+                                const soirAssigned = sumDayExtras(bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? []);
+                                const gouterAssigned = sumDayExtras(bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? []);
                                 const assignedCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
                                 const assignedPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
                                 const extraCal = Math.max(0, sel.cal - assignedCal);
@@ -4385,7 +4849,10 @@ export function WeeklyPlanning({
                                       const dessertExtra = singleIngredientDessertById.get(extraId);
                                       const isFoodDessert = !!parseFoodDessertExtraId(extraId);
                                       const portionMacros = fi
-                                        ? getExtraPortionMacros(fi, isFoodDessert ? { perUnit: true } : undefined)
+                                        ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, {
+                                            perUnit: isFoodDessert,
+                                            asDessertFood: isFoodDessert,
+                                          })
                                         : { cal: 0, pro: 0, fiber: 0 };
                                       const prot = custom ? custom.prot : portionMacros.pro;
                                       const cal = custom ? custom.cal : portionMacros.cal;
@@ -4544,7 +5011,13 @@ export function WeeklyPlanning({
             const effExtraCal = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal;
             const effExtraPro = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro;
             const effExtraFiber = nextExtraFibers[iso] ?? nextExtraFibers[key] ?? baseExtraFiber;
-            const effExtraSel = nextExtraSelections[iso] ?? nextExtraSelections[key] ?? baseExtraSel;
+            const effExtraSel = pickDayExtraSelections(nextExtraSelections, iso, key, baseExtraSel);
+            const effExtraSelMerged = mergeExtraDaySelectionIds(
+              effExtraSel,
+              nextExtraSlotAssignments,
+              iso,
+              key,
+            );
 
             // Macros calculées pour le petit déj (gère les transferts de cartes, pm: et l'analyse des ingrédients)
             const nxtBfCal = effBfMeal
@@ -4582,7 +5055,7 @@ export function WeeklyPlanning({
 
             const nextBreakfastAssignedIds =
               nextExtraSlotAssignments[`${iso}-matin`] ?? nextExtraSlotAssignments[`${key}-matin`] ?? [];
-            const nextBreakfastAssigned = sumExtrasFromSelectionIds(nextBreakfastAssignedIds, foodItems);
+            const nextBreakfastAssigned = sumDayExtras(nextBreakfastAssignedIds);
             const nextBreakfastTotalCals = effectiveNxtBfCal + matinCals + nextBreakfastAssigned.cal;
             const nextBreakfastTotalPro = effectiveNxtBfPro + matinPro + nextBreakfastAssigned.pro;
             const nextBreakfastTotalFiber = effectiveNxtBfFiber + matinFiber + nextBreakfastAssigned.fiber;
@@ -4602,7 +5075,7 @@ export function WeeklyPlanning({
               const slotMeals = getMealsForSlot(key, time, iso);
               dayTotal += slotMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
             }
-            const nextExtraSelMacros = sumExtrasFromSelectionIds(effExtraSel, foodItems);
+            const nextExtraSelMacros = sumDayExtras(effExtraSelMerged);
             dayTotal += effExtraCal + nextExtraSelMacros.cal;
 
             const extraSelCalSum = nextExtraSelMacros.cal;
@@ -4633,13 +5106,22 @@ export function WeeklyPlanning({
               nxtDayFiber += slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
               const slotAssignedIds =
                 nextExtraSlotAssignments[kIso] ?? nextExtraSlotAssignments[kKey] ?? [];
-              nxtDayFiber += sumExtrasFromSelectionIds(slotAssignedIds, foodItems).fiber;
+              nxtDayFiber += sumDayExtras(slotAssignedIds).fiber;
             }
             nxtDayFiber += effExtraFiber + nextExtraSelMacros.fiber;
 
-            const nextAssignedExtraSet = new Set(getAssignedExtraIdsForDay(nextExtraSlotAssignments, iso, key));
-            const nextUnassignedExtraIds = effExtraSel.filter((id) => !nextAssignedExtraSet.has(id));
-            const nextUnassignedExtraMacros = sumExtrasFromSelectionIds(nextUnassignedExtraIds, foodItems);
+            const nextAssignedExtraIds = getAssignedExtraIdsForDay(nextExtraSlotAssignments, iso, key);
+            const nextUnassignedExtraIds = effExtraSelMerged.filter(
+              (id) => !isExtraIdAssignedForDay(id, nextAssignedExtraIds, allSingleIngredientDessertExtras, singleIngredientDessertById),
+            );
+            const nextUnassignedExtraMacros = sumDayExtras(nextUnassignedExtraIds);
+            const hasDisplayableNextWeekExtraSelections = countDisplayableExtraSelections(
+              effExtraSel,
+              foodItems,
+              allSingleIngredientDessertExtras,
+              singleIngredientDessertById,
+              dessertExtraStockSnapshots,
+            ) > 0;
 
             return (
               <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
@@ -4813,7 +5295,7 @@ export function WeeklyPlanning({
                     const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
                     const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
                     const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-                    const slotAssigned = sumExtrasFromSelectionIds(slotAssignedIds, foodItems);
+                    const slotAssigned = sumDayExtras(slotAssignedIds);
                     const slotDrink = Boolean(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]);
                     const slotCals = slotCalsMeals + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
                     const slotPro = slotProMeals + slotAssigned.pro;
@@ -4974,7 +5456,7 @@ export function WeeklyPlanning({
                       <div className="flex items-center gap-1 mt-1">
                         <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => setOpenExtrasDay(open ? `next-${iso}` : null)}>
                           <PopoverTrigger asChild>
-                            <button className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${effExtraSel.length > 0 ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`} title="Ajouter un Extra">
+                            <button className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableNextWeekExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`} title="Ajouter un Extra">
                               <Plus className="h-3 w-3" />
                             </button>
                           </PopoverTrigger>
@@ -4987,13 +5469,31 @@ export function WeeklyPlanning({
                               <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> Extras disponibles</p>
                               <Zap className="w-3 h-3 text-amber-400 animate-pulse" />
                             </div>
-                            {nextUnassignedExtraIds.length > 0 && (
-                              <div className="mb-3 pb-3 border-b border-white/5 space-y-1">
-                                <p className="text-[9px] font-semibold text-orange-500 px-1">Sélectionnés — glisse vers un créneau</p>
-                                {groupAssignedExtraIds(nextUnassignedExtraIds).map(({ id: extraId, count }, index) => {
-                                  const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                                  if (!resolved) return null;
-                                  const { custom, fi } = resolved;
+                            {(() => {
+                              const unassignedRows = groupAssignedExtraIds(nextUnassignedExtraIds)
+                                .map(({ id: extraId, count }, index) => {
+                                  const row = resolveNextWeekUnassignedExtraRow(
+                                    extraId,
+                                    foodItems,
+                                    singleIngredientDessertById,
+                                    allSingleIngredientDessertExtras,
+                                    dessertExtraStockSnapshots,
+                                  );
+                                  if (!row) return null;
+                                  const catalogId = resolveDessertCatalogId(
+                                    extraId,
+                                    allSingleIngredientDessertExtras,
+                                    singleIngredientDessertById,
+                                    dessertExtraStockSnapshots,
+                                  );
+                                  const resolvedId = catalogId ?? extraId;
+                                  const dessertExtra = singleIngredientDessertById.get(resolvedId);
+                                  const isDessertExtra = !!dessertExtra;
+                                  const canAddDessert = !isDessertExtra || canAddDessertById.get(resolvedId) === true;
+                                  const displayName = row.custom?.name || dessertExtra?.name || row.fi?.name || resolvedId;
+                                  const portionMacros = dessertExtra
+                                    ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
+                                    : (row.fi ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary, { perUnit: true }) : { cal: row.custom?.cal ?? 0, pro: row.custom?.prot ?? 0, fiber: 0 });
                                   return (
                                     <div
                                       key={`next-pop-sel-${extraId}-${index}`}
@@ -5008,15 +5508,79 @@ export function WeeklyPlanning({
                                         setDraggedSelectedExtraId(null);
                                         setDraggedSelectedExtraOrigin(null);
                                       }}
-                                      className="w-full p-2 rounded-xl border bg-orange-500/10 border-orange-500/20 flex items-center gap-2 cursor-grab active:cursor-grabbing"
+                                      className="w-full p-2 rounded-xl border bg-orange-500/10 border-orange-500/20 flex items-start gap-3 cursor-grab active:cursor-grabbing"
                                     >
-                                      <p className="text-[11px] font-bold text-orange-600 break-words leading-snug flex-1">{getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}</p>
-                                      <button onClick={() => deselectNextExtraForDay(extraId, iso, key)} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-[11px] font-bold text-orange-600 break-words leading-snug">{displayName}</p>
+                                        {isDessertExtra && (
+                                          <p className="text-[9px] text-muted-foreground/50 font-medium">
+                                            x{dessertPossibleCountById.get(resolvedId) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(resolvedId) ?? 0)}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              await removeOneNextWeekExtraOccurrence(resolvedId, iso, key);
+                                            } catch {
+                                              toast({
+                                                title: "Stock non modifié",
+                                                description: "Impossible de retirer cette occurrence.",
+                                                variant: "destructive",
+                                              });
+                                            }
+                                          }}
+                                          className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold"
+                                        >−</button>
+                                        <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
+                                        {canAddDessert && (
+                                          <button
+                                            onClick={async () => {
+                                              try {
+                                                const ok = await addNextWeekExtraOccurrence(resolvedId, iso, key);
+                                                if (!ok) {
+                                                  toast({
+                                                    title: "Stock insuffisant",
+                                                    description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                    variant: "destructive",
+                                                  });
+                                                }
+                                              } catch {
+                                                toast({
+                                                  title: "Stock insuffisant",
+                                                  description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                  variant: "destructive",
+                                                });
+                                              }
+                                            }}
+                                            className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
+                                          >+</button>
+                                        )}
+                                        {portionMacros.pro > 0 && (
+                                          <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
+                                            🍗 {Math.round(portionMacros.pro)}
+                                          </div>
+                                        )}
+                                        {portionMacros.cal > 0 && (
+                                          <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
+                                            <Flame className="w-2.5 h-2.5" />
+                                            {Math.round(portionMacros.cal)}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   );
-                                })}
+                                })
+                                .filter(Boolean);
+                              if (unassignedRows.length === 0) return null;
+                              return (
+                              <div className="mb-3 pb-3 border-b border-white/5 space-y-1">
+                                <p className="text-[9px] font-semibold text-orange-500 px-1">Sélectionnés — glisse vers un créneau</p>
+                                {unassignedRows}
                               </div>
-                            )}
+                              );
+                            })()}
                             <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
                               {(() => {
                                 const availableExtras = foodItems.filter(fi => fi.storage_type === 'extras' && !testItemIdSet.has(fi.id));
@@ -5025,10 +5589,10 @@ export function WeeklyPlanning({
                                   foodSortModes['extras'] || "manual",
                                   sortDirections['food-extras'] !== false
                                 );
-                                const selectedDessertExtras = singleIngredientDessertExtras.filter((d) => effExtraSel.includes(d.id));
-                                const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) => !effExtraSel.includes(d.id));
-                                const selected = sortedItems.filter(fi => effExtraSel.includes(fi.id));
-                                const others = sortedItems.filter(fi => !effExtraSel.includes(fi.id));
+                                const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) =>
+                                  !isDessertExtraInSelections(effExtraSelMerged, d, allSingleIngredientDessertExtras, singleIngredientDessertById),
+                                );
+                                const others = sortedItems.filter(fi => !effExtraSelMerged.includes(fi.id));
                                 const { above: catalogAbove } = splitSortedExtrasByDivider(
                                   sortedItems,
                                   extrasDividerAfterId,
@@ -5036,7 +5600,8 @@ export function WeeklyPlanning({
                                 const aboveIds = new Set(catalogAbove.map((fi) => fi.id));
                                 const othersAbove = others.filter((fi) => aboveIds.has(fi.id));
                                 const renderRow = (fi: FoodItem) => {
-                                  const count = effExtraSel.filter(id => id === fi.id).length;
+                                  const count = effExtraSelMerged.filter(id => id === fi.id).length;
+                                  const macros = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { perUnit: true });
                                   return (
                                     <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
                                       <div className="flex-1 min-w-0">
@@ -5051,15 +5616,15 @@ export function WeeklyPlanning({
                                           <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
                                         </>)}
                                         <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), fi.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
-                                        {getExtraPortionMacros(fi).pro > 0 && (
+                                        {macros.pro > 0 && (
                                           <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
-                                            🍗 {getExtraPortionMacros(fi).pro}
+                                            🍗 {macros.pro}
                                           </div>
                                         )}
-                                        {getExtraPortionMacros(fi).cal > 0 && (
+                                        {macros.cal > 0 && (
                                           <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
                                             <Flame className="w-2.5 h-2.5" />
-                                            {getExtraPortionMacros(fi).cal}
+                                            {macros.cal}
                                           </div>
                                         )}
                                       </div>
@@ -5068,33 +5633,39 @@ export function WeeklyPlanning({
                                 };
                                 return (
                                   <>
-                                    {singleIngredientDessertExtras.length > 0 && (
+                                    {unselectedDessertExtras.length > 0 && (
                                       <>
                                         <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                        {selectedDessertExtras.map((d, index) => {
-                                          const count = effExtraSel.filter((id) => id === d.id).length;
-                                          return (
-                                            <div key={`next-selected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-start gap-3 bg-orange-500/20 border-orange-500/40 shadow-inner">
-                                              <div className="flex-1 min-w-0">
-                                                <p className="text-[11px] font-bold transition-colors break-words leading-snug text-orange-600">{d.name}</p>
-                                              </div>
-                                              <div className="flex items-center gap-1.5 shrink-0">
-                                                <button onClick={() => { const u = { ...nextExtraSelections }; const c = u[iso] || u[key] || []; const idx = c.lastIndexOf(d.id); if (idx >= 0) u[iso] = [...c.slice(0, idx), ...c.slice(idx + 1)]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
-                                                <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                                <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), d.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
-                                                {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">🍗 {Math.round(d.prot)}</div>}
-                                                <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
                                         {unselectedDessertExtras.map((d, index) => (
                                           <div key={`next-unselected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-start gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
                                             <div className="flex-1 min-w-0">
                                               <p className="text-[11px] font-bold transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
+                                              <p className="text-[9px] text-muted-foreground/50 font-medium">
+                                                x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}
+                                              </p>
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">
-                                              <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), d.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
+                                              <button
+                                                onClick={async () => {
+                                                  try {
+                                                    const ok = await addNextWeekExtraOccurrence(d.id, iso, key);
+                                                    if (!ok) {
+                                                      toast({
+                                                        title: "Stock insuffisant",
+                                                        description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                        variant: "destructive",
+                                                      });
+                                                    }
+                                                  } catch {
+                                                    toast({
+                                                      title: "Stock insuffisant",
+                                                      description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
+                                                      variant: "destructive",
+                                                    });
+                                                  }
+                                                }}
+                                                className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
+                                              >+</button>
                                               {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">🍗 {Math.round(d.prot)}</div>}
                                               <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
                                             </div>
@@ -5140,7 +5711,7 @@ export function WeeklyPlanning({
               const extraSnap = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
               total += nextExtraCalories[iso] ?? nextExtraCalories[key] ?? extraSnap?.cal ?? 0;
               totalPro += nextExtraProteins[iso] ?? nextExtraProteins[key] ?? extraSnap?.prot ?? 0;
-              const nextExtraSum = sumExtrasFromSelectionIds(nextExtraSelections[iso] ?? nextExtraSelections[key] ?? extraSnap?.itemIds ?? [], foodItems);
+              const nextExtraSum = sumDayExtras(nextExtraSelections[iso] ?? nextExtraSelections[key] ?? extraSnap?.itemIds ?? []);
               total += nextExtraSum.cal;
               totalPro += nextExtraSum.pro;
             }

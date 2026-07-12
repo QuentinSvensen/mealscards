@@ -43,7 +43,7 @@ import {
 import { ExtrasMovableDivider } from "@/components/planning/ExtrasMovableDivider";
 import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams } from "@/lib/stockUtils";
 import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
-import { DESSERT_FOOD_PREF_KEY } from "@/lib/foodDessertUtils";
+import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey, removeDessertFoodNameKey, shouldMarkNewFoodAsDessert, reconcileDessertFoodPreferences } from "@/lib/foodDessertUtils";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { useMeals } from "@/hooks/useMeals";
 import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
@@ -938,6 +938,32 @@ export function FoodItems() {
   const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
   const dessertFoodItemIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
   const dessertFoodItemIdSet = new Set(dessertFoodItemIds);
+  const dessertFoodNameKeys = getPreference<string[]>(DESSERT_FOOD_NAME_KEYS_PREF_KEY, []);
+  const dessertExtraStockSnapshots = getPreference<Record<string, Record<string, FoodItem[][]>>>(
+    'planning_dessert_extra_stock_snapshots',
+    {},
+  );
+
+  /** Réaligne dessert (ids + noms) quand le stock change — recréation, suppression, etc. */
+  useEffect(() => {
+    if (isLoading || setPreference.isPending) return;
+    const reconciled = reconcileDessertFoodPreferences(
+      items,
+      dessertFoodItemIds,
+      dessertFoodNameKeys,
+      dessertExtraStockSnapshots,
+    );
+    const nextDessertIds = JSON.stringify(reconciled.dessertIds);
+    const currentDessertIds = JSON.stringify(dessertFoodItemIds);
+    const nextNameKeys = JSON.stringify(reconciled.nameKeys);
+    const currentNameKeys = JSON.stringify(dessertFoodNameKeys);
+    if (nextDessertIds !== currentDessertIds) {
+      setPreference.mutate({ key: DESSERT_FOOD_PREF_KEY, value: reconciled.dessertIds });
+    }
+    if (nextNameKeys !== currentNameKeys) {
+      setPreference.mutate({ key: DESSERT_FOOD_NAME_KEYS_PREF_KEY, value: reconciled.nameKeys });
+    }
+  }, [dessertExtraStockSnapshots, dessertFoodItemIds, dessertFoodNameKeys, isLoading, items, setPreference]);
   const manualMacroFields = getPreference<FoodManualMacroFields>(FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, {});
 
   const [newName, setNewName] = useState("");
@@ -1145,14 +1171,60 @@ export function FoodItems() {
     });
   }, [morningMealFoodItemIdSet, morningMealFoodItemIds, setPreference]);
 
-  /** Retire un aliment de la catégorie « dessert planning » stockée en préférence. */
-  const removeDessertFoodId = useCallback((id: string) => {
-    if (!dessertFoodItemIdSet.has(id)) return;
+  /** Retire l'id dessert et mémorise le nom si la fiche était en mode dessert (recréation future). */
+  const detachDessertFoodId = useCallback((id: string, opts?: { rememberName?: string }) => {
+    const wasDessert = dessertFoodItemIdSet.has(id);
+    if (wasDessert) {
+      setPreference.mutate({
+        key: DESSERT_FOOD_PREF_KEY,
+        value: dessertFoodItemIds.filter((storedId) => storedId !== id),
+      });
+    }
+    if (opts?.rememberName && wasDessert) {
+      const nextNameKeys = addDessertFoodNameKey(dessertFoodNameKeys, opts.rememberName);
+      if (nextNameKeys.length !== dessertFoodNameKeys.length) {
+        setPreference.mutate({ key: DESSERT_FOOD_NAME_KEYS_PREF_KEY, value: nextNameKeys });
+      }
+    }
+  }, [dessertFoodItemIdSet, dessertFoodItemIds, dessertFoodNameKeys, setPreference]);
+
+  /** Active le mode dessert sur une fiche et mémorise son nom pour les recréations futures. */
+  const assignDessertFoodMode = useCallback((item: FoodItem) => {
+    const nextIds = [...dessertFoodItemIds.filter((id) => id !== item.id), item.id];
+    const nextNameKeys = addDessertFoodNameKey(dessertFoodNameKeys, item.name);
+    setPreference.mutate({ key: DESSERT_FOOD_PREF_KEY, value: nextIds });
+    if (nextNameKeys.length !== dessertFoodNameKeys.length) {
+      setPreference.mutate({ key: DESSERT_FOOD_NAME_KEYS_PREF_KEY, value: nextNameKeys });
+    }
+  }, [dessertFoodItemIds, dessertFoodNameKeys, setPreference]);
+
+  /** Désactive complètement le mode dessert (id + mémoire nom). */
+  const clearDessertFoodMode = useCallback((item: FoodItem) => {
+    if (!dessertFoodItemIdSet.has(item.id)) return;
     setPreference.mutate({
       key: DESSERT_FOOD_PREF_KEY,
-      value: dessertFoodItemIds.filter((storedId) => storedId !== id),
+      value: dessertFoodItemIds.filter((storedId) => storedId !== item.id),
     });
-  }, [dessertFoodItemIdSet, dessertFoodItemIds, setPreference]);
+    const nextNameKeys = removeDessertFoodNameKey(dessertFoodNameKeys, item.name);
+    if (nextNameKeys.length !== dessertFoodNameKeys.length) {
+      setPreference.mutate({ key: DESSERT_FOOD_NAME_KEYS_PREF_KEY, value: nextNameKeys });
+    }
+  }, [dessertFoodItemIdSet, dessertFoodItemIds, dessertFoodNameKeys, setPreference]);
+
+  /** @deprecated Alias pour FoodSection. */
+  const removeDessertFoodId = (id: string) => detachDessertFoodId(id);
+
+  /** Supprime une fiche aliment et conserve la mémoire dessert si besoin. */
+  const handleDeleteFoodItem = useCallback((id: string) => {
+    const deleted = items.find((item) => item.id === id);
+    removeMorningMealId(id);
+    if (deleted && dessertFoodItemIdSet.has(id)) {
+      detachDessertFoodId(id, { rememberName: deleted.name });
+    } else {
+      detachDessertFoodId(id);
+    }
+    deleteItem.mutate(id);
+  }, [deleteItem, dessertFoodItemIdSet, detachDessertFoodId, items, removeMorningMealId]);
 
   /** Fait tourner le mode repas : désactivé -> repas entier -> repas matin -> dessert -> désactivé. */
   const cycleMealMode = useCallback((item: FoodItem) => {
@@ -1162,7 +1234,7 @@ export function FoodItems() {
     if (!item.is_meal && !isMorningMeal && !isDessertFood) {
       handleUpdate(item.id, { is_meal: true });
       removeMorningMealId(item.id);
-      removeDessertFoodId(item.id);
+      detachDessertFoodId(item.id);
       return;
     }
     if (item.is_meal && !isMorningMeal && !isDessertFood) {
@@ -1174,28 +1246,26 @@ export function FoodItems() {
     }
     if (isMorningMeal && !isDessertFood) {
       removeMorningMealId(item.id);
-      setPreference.mutate({
-        key: DESSERT_FOOD_PREF_KEY,
-        value: [...dessertFoodItemIds.filter((id) => id !== item.id), item.id],
-      });
+      assignDessertFoodMode(item);
       handleUpdate(item.id, { is_meal: false });
       return;
     }
     if (isDessertFood) {
-      removeDessertFoodId(item.id);
+      clearDessertFoodMode(item);
       handleUpdate(item.id, { is_meal: false });
       return;
     }
     handleUpdate(item.id, { is_meal: false });
     removeMorningMealId(item.id);
-    removeDessertFoodId(item.id);
+    detachDessertFoodId(item.id);
   }, [
+    assignDessertFoodMode,
+    clearDessertFoodMode,
     dessertFoodItemIdSet,
-    dessertFoodItemIds,
+    detachDessertFoodId,
     handleUpdate,
     morningMealFoodItemIdSet,
     morningMealFoodItemIds,
-    removeDessertFoodId,
     removeMorningMealId,
     setPreference,
   ]);
@@ -1296,6 +1366,13 @@ export function FoodItems() {
           if (pendingManualMacroFields.protein) updates.protein = protein;
           if (pendingManualMacroFields.fiber) updates.fiber = fiber;
           markManualFoodMacroFields(created.id, updates);
+          if (created?.id && shouldMarkNewFoodAsDessert(pendingName, dessertFoodNameKeys)) {
+            assignDessertFoodMode({
+              ...(created as FoodItem),
+              id: created.id,
+              name: pendingName,
+            });
+          }
           const baselineFi = {
             id: created.id,
             name: pendingName,
@@ -1328,6 +1405,18 @@ export function FoodItems() {
       },
     });
   };
+
+  const handleDuplicate = useCallback((id: string) => {
+    const source = items.find((item) => item.id === id);
+    const sourceWasDessert = source ? dessertFoodItemIdSet.has(source.id) : false;
+    duplicateItem.mutate(id, {
+      onSuccess: (result) => {
+        if (result?.newId && sourceWasDessert && source) {
+          assignDessertFoodMode({ ...source, id: result.newId });
+        }
+      },
+    });
+  }, [assignDessertFoodMode, dessertFoodItemIdSet, duplicateItem, items]);
 
   const handleReorder = (storageType: StorageType, fromIndex: number, toIndex: number) => {
     const sectionItems = getSortedItems(storageType);
@@ -1674,11 +1763,9 @@ export function FoodItems() {
                   remaining.length > 0 ? resolveExtrasDividerAfterId(remaining, null) : null,
                 );
               }
-              removeMorningMealId(id);
-              removeDessertFoodId(id);
-              deleteItem.mutate(id);
+              handleDeleteFoodItem(id);
             }}
-            onDuplicate={(id) => duplicateItem.mutate(id)}
+            onDuplicate={handleDuplicate}
             sortMode={foodSortModes[section.type] || "manual"}
             onToggleSort={() => toggleFoodSort(section.type)}
             sortDirection={sortDirections[`food-${section.type}`] !== false}
@@ -1718,11 +1805,9 @@ export function FoodItems() {
                     remaining.length > 0 ? resolveExtrasDividerAfterId(remaining, null) : null,
                   );
                 }
-                removeMorningMealId(id);
-                removeDessertFoodId(id);
-                deleteItem.mutate(id);
+                handleDeleteFoodItem(id);
               }}
-              onDuplicate={(id) => duplicateItem.mutate(id)}
+              onDuplicate={handleDuplicate}
               sortMode={foodSortModes[section.type] || "manual"}
               onToggleSort={() => toggleFoodSort(section.type)}
               sortDirection={sortDirections[`food-${section.type}`] !== false}
@@ -1982,11 +2067,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                   isMorningMeal={morningMealFoodItemIdSet.has(item.id)}
                   isDessertFood={dessertFoodItemIdSet.has(item.id)}
                   onCycleMealMode={() => cycleMealMode(item)}
-                  onDelete={() => {
-                    removeMorningMealId(item.id);
-                    removeDessertFoodId(item.id);
-                    onDelete(item.id);
-                  }}
+                  onDelete={() => onDelete(item.id)}
                   onDuplicate={() => onDuplicate(item.id)}
                   onMoveToExtras={storageType === 'test' ? () => onChangeStorage(item.id, 'extras') : undefined}
                   draggableEnabled={!isTouchDevice}

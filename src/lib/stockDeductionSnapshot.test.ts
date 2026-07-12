@@ -3,7 +3,9 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import {
   attachPortionDeduction,
   mergeDeductionSnapshotMaps,
+  remapDessertFoodPreferenceIds,
   remapMorningMealPreferenceIds,
+  wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "./stockDeductionSnapshot";
 
@@ -46,6 +48,26 @@ describe("stockDeductionSnapshot", () => {
     );
     const restored = [makeFoodItem({ id: "new-id", name: "Barre Optimum Caramel" })];
     const next = remapMorningMealPreferenceIds([snap], restored, ["old-id"]);
+    expect(next).toEqual(["new-id"]);
+  });
+
+  it("conserve le flag dessert dans le snapshot de déduction", () => {
+    const snap = attachPortionDeduction(
+      makeFoodItem({ id: "old-id", name: "Vacherin vanille framboise Picard" }),
+      { grams: 0, quantity: 1 },
+      { wasDessertFood: true },
+    );
+    expect(wasDessertFoodSnapshot(snap)).toBe(true);
+  });
+
+  it("réattribue la préférence dessert vers la nouvelle fiche aliment", () => {
+    const snap = attachPortionDeduction(
+      makeFoodItem({ id: "old-id", name: "Vacherin vanille framboise Picard" }),
+      { grams: 0, quantity: 1 },
+      { wasDessertFood: true },
+    );
+    const restored = [makeFoodItem({ id: "new-id", name: "Vacherin vanille framboise Picard", is_meal: false })];
+    const next = remapDessertFoodPreferenceIds([snap], restored, ["old-id"]);
     expect(next).toEqual(["new-id"]);
   });
 

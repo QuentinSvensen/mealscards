@@ -47,7 +47,9 @@ import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTran
 import {
   attachPortionDeduction,
   mergeDeductionSnapshotMaps,
+  remapDessertFoodPreferenceIds,
   remapMorningMealPreferenceIds,
+  wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -63,6 +65,7 @@ import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeekly
 import { buildWeekDates } from "@/lib/planningWeekUtils";
 import { pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
 import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 
 /**
  * Enveloppe un import dynamique : en cas d'erreur de chunk, tente un rechargement (cache SW, sessionStorage).
@@ -597,11 +600,18 @@ const Index = () => {
     (fi: FoodItem) => getPreference<string[]>(MORNING_MEAL_PREF_KEY, []).includes(fi.id),
     [getPreference],
   );
+  const wasDessertFoodItem = useCallback(
+    (fi: FoodItem) => getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []).includes(fi.id),
+    [getPreference],
+  );
 
   const attachFoodDeductionSnapshot = useCallback(
     (fi: FoodItem, portion: { grams: number; quantity: number }) =>
-      attachPortionDeduction(fi, portion, { wasMorningMeal: wasMorningMealFoodItem(fi) }),
-    [wasMorningMealFoodItem],
+      attachPortionDeduction(fi, portion, {
+        wasMorningMeal: wasMorningMealFoodItem(fi),
+        wasDessertFood: wasDessertFoodItem(fi),
+      }),
+    [wasDessertFoodItem, wasMorningMealFoodItem],
   );
 
   /** Réapplique « repas matin » sur la fiche aliment recréée après retour depuis Possible. */
@@ -618,6 +628,52 @@ const Index = () => {
       }
     },
     [getPreference, setPreference],
+  );
+
+  /** Réapplique « dessert » sur la fiche aliment recréée après retour depuis Possible. */
+  const syncDessertFoodPrefsAfterRestore = useCallback(
+    (snapshots: FoodItem[], restoredFoodItems: FoodItem[]) => {
+      const dessertIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
+      const dessertNameKeys = getPreference<string[]>(DESSERT_FOOD_NAME_KEYS_PREF_KEY, []);
+      if (!snapshots.some((snap) => wasDessertFoodSnapshot(snap) || dessertIds.includes(snap.id))) return;
+      const nextIds = remapDessertFoodPreferenceIds(snapshots, restoredFoodItems, dessertIds);
+      let nextNameKeys = [...dessertNameKeys];
+      for (const snap of snapshots) {
+        if (wasDessertFoodSnapshot(snap) || dessertIds.includes(snap.id)) {
+          nextNameKeys = addDessertFoodNameKey(nextNameKeys, snap.name);
+        }
+      }
+      for (const id of nextIds) {
+        const restored = restoredFoodItems.find((fi) => fi.id === id);
+        if (restored?.name) nextNameKeys = addDessertFoodNameKey(nextNameKeys, restored.name);
+      }
+      const idsChanged =
+        nextIds.length !== dessertIds.length ||
+        nextIds.some((id) => !dessertIds.includes(id));
+      const nameKeysChanged =
+        nextNameKeys.length !== dessertNameKeys.length ||
+        nextNameKeys.some((key) => !dessertNameKeys.includes(key));
+      if (idsChanged) {
+        setPreference.mutate({ key: DESSERT_FOOD_PREF_KEY, value: nextIds });
+      }
+      if (nameKeysChanged) {
+        setPreference.mutate({ key: DESSERT_FOOD_NAME_KEYS_PREF_KEY, value: nextNameKeys });
+      }
+    },
+    [getPreference, setPreference],
+  );
+
+  /** Réaligne repas matin et dessert après recréation d'une fiche aliment (nouvel id). */
+  const syncFoodItemRolePrefsAfterRecreate = useCallback(
+    async (snapshots: FoodItem[]) => {
+      if (!snapshots.length) return;
+      const { data, error } = await supabase.from("food_items").select("*");
+      if (error) return;
+      const restored = (data ?? []) as FoodItem[];
+      syncMorningMealPrefsAfterRestore(snapshots, restored);
+      syncDessertFoodPrefsAfterRestore(snapshots, restored);
+    },
+    [syncDessertFoodPrefsAfterRestore, syncMorningMealPrefsAfterRestore],
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1298,6 +1354,7 @@ const Index = () => {
                             if (snapshots && snapshots.length > 0) {
                               restoredFoodItems = await restoreIngredientsToStock({} as Meal, snapshots);
                               syncMorningMealPrefsAfterRestore(snapshots, restoredFoodItems);
+                              syncDessertFoodPrefsAfterRestore(snapshots, restoredFoodItems);
                             } else if (pm?.meals) {
                               const mealForRestore = pm.ingredients_override
                                 ? { ...pm.meals, ingredients: pm.ingredients_override }
@@ -1605,6 +1662,7 @@ const Index = () => {
                                       } as any);
                                     }
                                     qc.invalidateQueries({ queryKey: ["food_items"] });
+                                    await syncFoodItemRolePrefsAfterRecreate([sn]);
                                   }
                                 }
                               }
@@ -1675,6 +1733,7 @@ const Index = () => {
                                       quantity: delta
                                     } as any);
                                     qc.invalidateQueries({ queryKey: ["food_items"] });
+                                    await syncFoodItemRolePrefsAfterRecreate([sn]);
                                   } else if (delta < 0) {
                                     toast({ title: "⚠️ Stock insuffisant", description: `Plus de "${pm.meals.name}" en stock.` });
                                   }

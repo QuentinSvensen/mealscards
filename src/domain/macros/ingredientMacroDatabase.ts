@@ -192,9 +192,10 @@ function getMealLineBasisLabel(line: { qty?: string; count?: string }): string |
 
 // Déduit la base macro depuis la fiche Aliment quand l'ingrédient existe dans le stock.
 function getFoodItemBasisLabel(foodItem: FoodItem): string | null {
-  if (foodItem.grams?.trim()) return "100g";
-  if (foodItem.quantity != null && foodItem.quantity > 0) return "Quantité";
   if (foodItem.storage_type === "extras") return getExtraMacroBasisLabel(foodItem);
+  // Quantité prioritaire : les macros saisies sont par unité, pas au 100 g.
+  if (foodItem.quantity != null && foodItem.quantity > 0) return "Quantité";
+  if (foodItem.grams?.trim()) return "100g";
   return null;
 }
 
@@ -312,18 +313,6 @@ export function collectIngredientMacroEntries(
     collectFromText(pm.id, pm.meals?.name ?? "Possible", "override", pm.ingredients_override);
   }
 
-  for (const foodItem of foodItems) {
-    if (!foodItem.name?.trim()) continue;
-    const key = normalizeKey(foodItem.name);
-    if (!key) continue;
-    const entry = entries.get(key);
-    if (!entry) continue;
-    const basisLabel = getFoodItemBasisLabel(foodItem);
-    if (basisLabel) entry.basisLabel = basisLabel;
-    entry.foodIds.add(foodItem.id);
-    entries.set(key, entry);
-  }
-
   for (const item of macroLibrary) {
     const key = item.key || normalizeKey(item.displayName);
     if (!key) continue;
@@ -336,6 +325,20 @@ export function collectIngredientMacroEntries(
     entry.hasConflictingCalories = false;
     entry.hasConflictingProtein = false;
     entry.hasConflictingFiber = false;
+    entries.set(key, entry);
+  }
+
+  // La fiche Aliment prime toujours sur la base affichée (quantité vs 100 g).
+  for (const foodItem of foodItems) {
+    if (!foodItem.name?.trim()) continue;
+    const key = normalizeKey(foodItem.name);
+    if (!key) continue;
+    const basisLabel = getFoodItemBasisLabel(foodItem);
+    if (!basisLabel) continue;
+    const entry = entries.get(key);
+    if (!entry) continue;
+    entry.basisLabel = basisLabel;
+    entry.foodIds.add(foodItem.id);
     entries.set(key, entry);
   }
 
