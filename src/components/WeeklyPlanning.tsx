@@ -3925,7 +3925,7 @@ export function WeeklyPlanning({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-foreground">Total semaine</span>
                 <span className="text-xs text-muted-foreground font-medium">
-                  Moy. {rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">(7j)</span>
+                  Moy. {rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">(14j)</span>
                 </span>
               </div>
               <div className="flex items-center gap-3 flex-wrap ml-auto">

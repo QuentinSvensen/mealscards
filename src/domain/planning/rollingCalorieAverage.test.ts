@@ -32,13 +32,15 @@ describe("computeRolling7DayCalorieAverage", () => {
       "2026-07-11",
       "2026-07-12",
     ]);
+    const backupIsos = Array.from({ length: 13 }, (_, i) => {
+      const d = new Date(refDate);
+      d.setDate(d.getDate() - (i + 1));
+      return d.toISOString().slice(0, 10);
+    });
     const backupCtx: BackupCalorieDayContext = {
       ...emptyCtx,
       manualCalories: Object.fromEntries(
-        ["2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05"].map((iso) => [
-          `${iso}-soir`,
-          2300,
-        ]),
+        backupIsos.map((iso) => [`${iso}-soir`, 2300]),
       ),
     };
 
@@ -51,7 +53,7 @@ describe("computeRolling7DayCalorieAverage", () => {
       refDate,
     });
 
-    // 6 jours backup à 2300 + aujourd'hui 2300 = 2300/j
+    // 13 jours backup à 2300 + aujourd'hui 2300 = 2300/j
     expect(avg).toBe(2300);
   });
 
@@ -68,6 +70,6 @@ describe("computeRolling7DayCalorieAverage", () => {
       refDate,
     });
 
-    expect(avg).toBe(Math.round(2300 / 7));
+    expect(avg).toBe(Math.round(2300 / 14));
   });
 });

@@ -12,7 +12,7 @@ import { isBackupBreakfastPmAlreadyInMatinSlot } from "./breakfastBreakdown";
 import { mergeBackupCardOverrides } from "./mergeBackupOverrides";
 
 const DRINK_CALORIES = 150;
-const ROLLING_DAYS = 7;
+const ROLLING_DAYS = 14;
 
 /** Contexte de la sauvegarde planning utilisé pour reconstituer les totaux journaliers passés. */
 export interface BackupCalorieDayContext {
@@ -229,7 +229,7 @@ export function computeBackupDayTotalCalories(
 }
 
 /**
- * Moyenne calorique sur les 7 derniers jours calendaires (aujourd'hui → J-6).
+ * Moyenne calorique sur les 14 derniers jours calendaires (aujourd'hui → J-13).
  * Les jours de la semaine courante utilisent le planning live ; les jours plus anciens
  * utilisent la sauvegarde `possible_meals_backup` lorsqu'elle est disponible.
  */
