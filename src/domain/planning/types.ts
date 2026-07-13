@@ -54,6 +54,10 @@ export interface PossibleMealsFullBackup {
   proOverrides: Record<string, string>;
   daily_goal: number | null;
   protein_goal: number | null;
+  /** Début de la semaine archivée (lundi), si connu. */
+  weekStartISO?: string | null;
+  /** Fin de la semaine archivée (dimanche), si connue. */
+  weekEndISO?: string | null;
 }
 
 /** Clés de préférences lues avant un reset (saisie planning + objectifs). */

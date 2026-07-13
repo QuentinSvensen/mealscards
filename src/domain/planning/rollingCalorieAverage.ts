@@ -2,17 +2,29 @@ import { format } from "date-fns";
 import type { Meal } from "@/hooks/useMeals";
 import { TIMES } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { getCardDisplayCalories, getCardDisplayProtein } from "@/hooks/useCalorieBalance";
+import { getCardDisplayCalories } from "@/hooks/useCalorieBalance";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
-import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
-import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
+import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import { PLANNING_DAY_KEYS } from "@/lib/planningWeekUtils";
+import {
+  aggregateExtraSelectionMacros,
+  buildPlanningDessertCatalogById,
+  mergeExtraDaySelectionIds,
+  pickPlanningDayValue,
+} from "@/lib/planningExtraMacros";
 import type { PossibleMealBackupCard } from "./types";
 import { isBackupBreakfastPmAlreadyInMatinSlot } from "./breakfastBreakdown";
+import { isIsoWithinRange } from "./dailyCalorieHistory";
 import { mergeBackupCardOverrides } from "./mergeBackupOverrides";
 
 const DRINK_CALORIES = 150;
-const ROLLING_DAYS = 14;
+const DEFAULT_ROLLING_DAYS = 14;
+
+/** Nombre de jours de la fenêtre glissante 7 jours (comparatif court terme). */
+export const ROLLING_WINDOW_7_DAYS = 7;
+
+/** Nombre de jours de la fenêtre glissante 14 jours (moyenne longue). */
+export const ROLLING_WINDOW_14_DAYS = DEFAULT_ROLLING_DAYS;
 
 /** Contexte de la sauvegarde planning utilisé pour reconstituer les totaux journaliers passés. */
 export interface BackupCalorieDayContext {
@@ -31,22 +43,18 @@ export interface BackupCalorieDayContext {
   proOverrides: Record<string, string>;
 }
 
+/** Paramètres macros desserts pour recalculer les extras d'une sauvegarde. */
+export interface BackupExtraMacroParams {
+  dessertFoodItemIds: string[];
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>>;
+  macroLibrary: IngredientMacroLibraryItem[];
+}
+
 /** Retourne la clé jour du planning (lundi…dimanche) pour une date calendaire. */
 export function getPlanningDayKeyForDate(date: Date): string {
   const dow = date.getDay();
   if (dow === 0) return "dimanche";
   return PLANNING_DAY_KEYS[dow - 1];
-}
-
-/** Décode un extra personnalisé encodé dans un id `custom::…`. */
-function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
-  if (!id.startsWith("custom::")) return null;
-  const parts = id.slice(8).split("::");
-  return {
-    name: parts[0] || "Personnalisé",
-    cal: parseFloat((parts[1] || "0").replace(",", ".")) || 0,
-    prot: parseFloat((parts[2] || "0").replace(",", ".")) || 0,
-  };
 }
 
 /** Lit les kcal depuis une chaîne affichée sur une fiche repas. */
@@ -56,38 +64,24 @@ function parseMealCalories(cal: string | null | undefined): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-/** Somme kcal / prot des extras (stock, dessert aliment ou `custom::…`). */
-function sumExtrasFromSelectionIds(
+/**
+ * Somme kcal / prot / fibres des extras sélectionnés dans une sauvegarde
+ * (catalogue desserts, snapshots et extras `custom::…`).
+ */
+function sumBackupExtrasFromSelectionIds(
   ids: string[] | undefined,
   foodItems: FoodItem[],
-): { cal: number; pro: number } {
-  let cal = 0;
-  let pro = 0;
-  for (const id of ids ?? []) {
-    const custom = parseCustomExtraId(id);
-    if (custom) {
-      cal += custom.cal;
-      pro += custom.prot;
-      continue;
-    }
-    const foodDessertItemId = parseFoodDessertExtraId(id);
-    if (foodDessertItemId) {
-      const dessertFi = foodItems.find((f) => f.id === foodDessertItemId);
-      if (dessertFi) {
-        const macros = getExtraPortionMacros(dessertFi, { perUnit: true });
-        cal += macros.cal;
-        pro += macros.pro;
-      }
-      continue;
-    }
-    const fi = foodItems.find((f) => f.id === id);
-    if (fi) {
-      const macros = getExtraPortionMacros(fi);
-      cal += macros.cal;
-      pro += macros.pro;
-    }
-  }
-  return { cal, pro };
+  dessertCatalogById: Map<string, { cal: number; prot: number; fiber?: number }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>>,
+  macroLibrary: IngredientMacroLibraryItem[],
+): { cal: number; pro: number; fiber: number } {
+  return aggregateExtraSelectionMacros(
+    ids,
+    foodItems,
+    macroLibrary,
+    dessertCatalogById,
+    dessertExtraStockSnapshots,
+  );
 }
 
 /**
@@ -144,7 +138,28 @@ export function computeBackupDayTotalCalories(
   foodItems: FoodItem[],
   isAvailable?: (name: string) => boolean,
   foodMacroIndex?: FoodItemMacroIndex,
+  extraMacroParams?: BackupExtraMacroParams,
 ): number {
+  const dessertCatalogById = extraMacroParams
+    ? buildPlanningDessertCatalogById(
+      foodItems,
+      extraMacroParams.dessertFoodItemIds,
+      extraMacroParams.macroLibrary,
+      ctx.extraSelections,
+      ctx.extraSlotAssignments,
+      extraMacroParams.dessertExtraStockSnapshots,
+    )
+    : new Map<string, { cal: number; prot: number; fiber?: number }>();
+
+  const sumExtras = (ids: string[] | undefined) =>
+    sumBackupExtrasFromSelectionIds(
+      ids,
+      foodItems,
+      dessertCatalogById,
+      extraMacroParams?.dessertExtraStockSnapshots ?? {},
+      extraMacroParams?.macroLibrary ?? [],
+    );
+
   const dayCards = ctx.cards.filter((c) => c.day_of_week === iso || c.day_of_week === key);
   const midiCards = dayCards.filter((c) => c.meal_time === "midi");
   const soirCards = dayCards.filter((c) => c.meal_time === "soir");
@@ -156,7 +171,7 @@ export function computeBackupDayTotalCalories(
   let soirSlotCal = 0;
   let gouterSlotCal = 0;
 
-  const bfSel = ctx.breakfastSelections[iso] || ctx.breakfastSelections[key];
+  const bfSel = pickPlanningDayValue(ctx.breakfastSelections, iso, key);
   if (bfSel?.startsWith("meal:")) {
     const m = mealsById.get(bfSel.slice(5));
     if (m) bfSlotCal += parseMealCalories(m.calories);
@@ -168,7 +183,7 @@ export function computeBackupDayTotalCalories(
       bfSlotCal += getCardDisplayCalories(fullPm, ctx.calOverrides[pm.id], isAvailable);
     }
   } else {
-    bfSlotCal += ctx.breakfastManualCalories[iso] || ctx.breakfastManualCalories[key] || 0;
+    bfSlotCal += pickPlanningDayValue(ctx.breakfastManualCalories, iso, key) ?? 0;
   }
 
   const processCards = (slotCards: PossibleMealBackupCard[]) => {
@@ -186,10 +201,10 @@ export function computeBackupDayTotalCalories(
   const midiAssignedIds = ctx.extraSlotAssignments[`${iso}-midi`] ?? ctx.extraSlotAssignments[`${key}-midi`] ?? [];
   const soirAssignedIds = ctx.extraSlotAssignments[`${iso}-soir`] ?? ctx.extraSlotAssignments[`${key}-soir`] ?? [];
   const gouterAssignedIds = ctx.extraSlotAssignments[`${iso}-gouter`] ?? ctx.extraSlotAssignments[`${key}-gouter`] ?? [];
-  const matinAssigned = sumExtrasFromSelectionIds(matinAssignedIds, foodItems);
-  const midiAssigned = sumExtrasFromSelectionIds(midiAssignedIds, foodItems);
-  const soirAssigned = sumExtrasFromSelectionIds(soirAssignedIds, foodItems);
-  const gouterAssigned = sumExtrasFromSelectionIds(gouterAssignedIds, foodItems);
+  const matinAssigned = sumExtras(matinAssignedIds);
+  const midiAssigned = sumExtras(midiAssignedIds);
+  const soirAssigned = sumExtras(soirAssignedIds);
+  const gouterAssigned = sumExtras(gouterAssignedIds);
 
   bfSlotCal += processCards(matinCards) + matinAssigned.cal;
 
@@ -212,66 +227,94 @@ export function computeBackupDayTotalCalories(
   if (ctx.drinkChecks[`${iso}-gouter`] || ctx.drinkChecks[`${key}-gouter`]) gouterSlotCal += DRINK_CALORIES;
 
   let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal + gouterSlotCal;
-  dayTotal += ctx.extraCalories[iso] || ctx.extraCalories[key] || 0;
+  dayTotal += pickPlanningDayValue(ctx.extraCalories, iso, key) ?? 0;
 
-  const backupExtraSum = sumExtrasFromSelectionIds(ctx.extraSelections[iso] || ctx.extraSelections[key], foodItems);
+  const mergedSelectionIds = mergeExtraDaySelectionIds(
+    pickPlanningDayValue(ctx.extraSelections, iso, key) ?? [],
+    ctx.extraSlotAssignments,
+    iso,
+    key,
+  );
+  const backupExtraSum = sumExtras(mergedSelectionIds);
   const backupAssignedExtraCal =
     matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
   dayTotal += Math.max(0, backupExtraSum.cal - backupAssignedExtraCal);
 
-  for (const time of TIMES) {
-    if (ctx.drinkChecks[`${iso}-${time}`] || ctx.drinkChecks[`${key}-${time}`]) {
-      // Déjà compté par créneau ci-dessus pour midi/soir ; conservé pour cohérence avec l’ancien total backup.
-    }
-  }
-
   return dayTotal;
 }
 
+/** Jour calendaire résolu pour la moyenne glissante. */
+export interface RollingCalorieDayBreakdown {
+  /** Décalage par rapport à aujourd'hui (0 = aujourd'hui, 7 = J-7). */
+  offset: number;
+  iso: string;
+  key: string;
+  calories: number;
+  source: "live" | "history" | "backup" | "none";
+}
+
+/** Moyenne sur une fenêtre glissante de N jours (7 → 14). */
+export interface RollingCalorieWindowAverage {
+  windowDays: number;
+  average: number;
+  daysCounted: number;
+  /** Décalage du jour le plus ancien inclus (ex. 6 pour 7j, 7 pour 8j). */
+  oldestOffset: number;
+  /** Variation vs la fenêtre précédente (undefined pour 7j). */
+  deltaFromPrevious?: number;
+}
+
+type RollingCalorieResolveParams = Omit<
+  Parameters<typeof computeRollingDayCalorieAverage>[0],
+  "rollingDays" | "refDate"
+> & { refDate?: Date };
+
 /**
- * Moyenne calorique sur les 14 derniers jours calendaires (aujourd'hui → J-13).
- * Les jours de la semaine courante utilisent le planning live ; les jours plus anciens
- * utilisent la sauvegarde `possible_meals_backup` lorsqu'elle est disponible.
+ * Résout les kcal journalières sur `maxDays` (aujourd'hui → J-(maxDays-1))
+ * avec la même priorité live → historique → sauvegarde.
  */
-export function computeRolling7DayCalorieAverage(params: {
-  getLiveDayCalories: (dayKey: string, isoDate?: string) => number;
-  currentWeekIsos: Set<string>;
-  backupCtx: BackupCalorieDayContext | null;
-  mealsById: Map<string, Meal>;
-  foodItems: FoodItem[];
-  isAvailable?: (name: string) => boolean;
-  foodMacroIndex?: FoodItemMacroIndex;
-  refDate?: Date;
-}): number {
+export function resolveRollingDayCalories(
+  params: RollingCalorieResolveParams,
+  maxDays = ROLLING_WINDOW_14_DAYS,
+): RollingCalorieDayBreakdown[] {
   const {
     getLiveDayCalories,
     currentWeekIsos,
+    dailyCalorieHistory,
     backupCtx,
+    backupWeekRange,
     mealsById,
     foodItems,
     isAvailable,
     foodMacroIndex,
+    extraMacroParams,
     refDate = new Date(),
   } = params;
 
   const today = new Date(refDate);
   today.setHours(0, 0, 0, 0);
-  let total = 0;
+  const daily: RollingCalorieDayBreakdown[] = [];
 
-  for (let i = 0; i < ROLLING_DAYS; i++) {
+  for (let i = 0; i < maxDays; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const iso = format(d, "yyyy-MM-dd");
     const key = getPlanningDayKeyForDate(d);
-    const liveCal = getLiveDayCalories(key, iso);
+    let calories = 0;
+    let source: RollingCalorieDayBreakdown["source"] = "none";
 
     if (currentWeekIsos.has(iso)) {
-      total += liveCal;
-      continue;
-    }
-
-    if (backupCtx) {
-      const backupCal = computeBackupDayTotalCalories(
+      calories = getLiveDayCalories(key, iso);
+      source = calories > 0 ? "live" : "none";
+    } else if (dailyCalorieHistory[iso] != null && dailyCalorieHistory[iso] > 0) {
+      calories = dailyCalorieHistory[iso];
+      source = "history";
+    } else if (
+      backupCtx
+      && backupWeekRange
+      && isIsoWithinRange(iso, backupWeekRange.startISO, backupWeekRange.endISO)
+    ) {
+      calories = computeBackupDayTotalCalories(
         backupCtx,
         iso,
         key,
@@ -279,12 +322,79 @@ export function computeRolling7DayCalorieAverage(params: {
         foodItems,
         isAvailable,
         foodMacroIndex,
+        extraMacroParams,
       );
-      total += backupCal > 0 ? backupCal : liveCal;
-    } else {
-      total += liveCal;
+      source = calories > 0 ? "backup" : "none";
     }
+
+    daily.push({ offset: i, iso, key, calories, source });
   }
 
-  return Math.round(total / ROLLING_DAYS);
+  return daily;
+}
+
+/**
+ * Compare les moyennes 7j → 14j et détaille chaque jour pour repérer
+ * celui qui fait chuter la moyenne après J-7.
+ */
+export function computeRollingCalorieDiagnostics(
+  params: RollingCalorieResolveParams,
+): {
+  daily: RollingCalorieDayBreakdown[];
+  windows: RollingCalorieWindowAverage[];
+} {
+  const daily = resolveRollingDayCalories(params, ROLLING_WINDOW_14_DAYS);
+  const windows: RollingCalorieWindowAverage[] = [];
+
+  for (let windowDays = ROLLING_WINDOW_7_DAYS; windowDays <= ROLLING_WINDOW_14_DAYS; windowDays++) {
+    const slice = daily.slice(0, windowDays).filter((entry) => entry.calories > 0);
+    const total = slice.reduce((sum, entry) => sum + entry.calories, 0);
+    const average = slice.length > 0 ? Math.round(total / slice.length) : 0;
+    const prev = windows[windows.length - 1];
+    windows.push({
+      windowDays,
+      average,
+      daysCounted: slice.length,
+      oldestOffset: windowDays - 1,
+      deltaFromPrevious: prev != null ? average - prev.average : undefined,
+    });
+  }
+
+  return { daily, windows };
+}
+
+/**
+ * Moyenne calorique sur une fenêtre glissante (aujourd'hui → J-(N-1)).
+ * Priorité par jour : planning live → historique persisté → sauvegarde archivée.
+ */
+export function computeRollingDayCalorieAverage(params: {
+  getLiveDayCalories: (dayKey: string, isoDate?: string) => number;
+  currentWeekIsos: Set<string>;
+  dailyCalorieHistory: Record<string, number>;
+  backupCtx: BackupCalorieDayContext | null;
+  backupWeekRange: { startISO: string; endISO: string } | null;
+  mealsById: Map<string, Meal>;
+  foodItems: FoodItem[];
+  isAvailable?: (name: string) => boolean;
+  foodMacroIndex?: FoodItemMacroIndex;
+  extraMacroParams?: BackupExtraMacroParams;
+  refDate?: Date;
+  rollingDays?: number;
+}): { average: number; daysCounted: number } {
+  const rollingDays = params.rollingDays ?? DEFAULT_ROLLING_DAYS;
+  const daily = resolveRollingDayCalories(params, rollingDays);
+  const withData = daily.filter((entry) => entry.calories > 0);
+  const total = withData.reduce((sum, entry) => sum + entry.calories, 0);
+
+  return {
+    average: withData.length > 0 ? Math.round(total / withData.length) : 0,
+    daysCounted: withData.length,
+  };
+}
+
+/** Alias rétrocompatible : moyenne glissante sur 14 jours. */
+export function computeRolling7DayCalorieAverage(
+  params: Omit<Parameters<typeof computeRollingDayCalorieAverage>[0], "rollingDays">,
+): { average: number; daysCounted: number } {
+  return computeRollingDayCalorieAverage({ ...params, rollingDays: ROLLING_WINDOW_14_DAYS });
 }

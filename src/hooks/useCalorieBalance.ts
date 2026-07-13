@@ -17,8 +17,21 @@ import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from '@/hooks/use
 import { usePreferences } from '@/hooks/usePreferences';
 import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
 import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
-import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
-import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
+import {
+  DESSERT_FOOD_PREF_KEY,
+} from "@/lib/foodDessertUtils";
+import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import {
+  aggregateExtraSelectionMacros,
+  buildPlanningDessertCatalogById,
+  mergeExtraDaySelectionIds,
+  pickPlanningDayValue,
+  pickPlanningSlotValue,
+} from "@/lib/planningExtraMacros";
+import {
+  computePlanningDayTotalCalories,
+  type PlanningDayCalorieState,
+} from "@/domain/planning/planningDayCalories";
 
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 
@@ -62,46 +75,6 @@ function parseFiber(fiber: string | null | undefined): number {
 function parsePositiveOverride(value: string | null | undefined): number | null {
   const parsed = parseCalories(value);
   return parsed > 0 ? parsed : null;
-}
-
-/** Décode un id d’extra personnalisé au format `custom::…` (nom, kcal, prot). */
-function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
-  if (!id.startsWith('custom::')) return null;
-  const parts = id.slice(8).split('::');
-  return {
-    name: parts[0] || 'Personnalisé',
-    cal: parseFloat((parts[1] || '0').replace(',', '.')) || 0,
-    prot: parseFloat((parts[2] || '0').replace(',', '.')) || 0,
-  };
-}
-
-/**
- * Résout les macros d'un extra sélectionné dans le planning
- * (aliment stock, dessert aliment `food-dessert::…` ou entrée `custom::…`).
- */
-function getExtraSelectionMacros(
-  id: string,
-  foodItems: FoodItem[],
-): { cal: number; pro: number; fiber: number } {
-  const custom = parseCustomExtraId(id);
-  if (custom) return { cal: custom.cal, pro: custom.prot, fiber: 0 };
-
-  const foodDessertId = parseFoodDessertExtraId(id);
-  if (foodDessertId) {
-    const item = foodItems.find((fi) => fi.id === foodDessertId);
-    if (item) {
-      const macros = getExtraPortionMacros(item, { perUnit: true });
-      return { cal: macros.cal, pro: macros.pro, fiber: macros.fiber };
-    }
-    return { cal: 0, pro: 0, fiber: 0 };
-  }
-
-  const item = foodItems.find((fi) => fi.id === id);
-  if (item) {
-    const macros = getExtraPortionMacros(item);
-    return { cal: macros.cal, pro: macros.pro, fiber: macros.fiber };
-  }
-  return { cal: 0, pro: 0, fiber: 0 };
 }
 
 /**
@@ -247,7 +220,14 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
+  const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
   const extraSlotAssignments = getPreference<Record<string, string[]>>('planning_extra_slot_assignments', {});
+  const dessertFoodItemIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
+  const dessertExtraStockSnapshots = getPreference<Record<string, Record<string, FoodItem[][]>>>(
+    'planning_dessert_extra_stock_snapshots',
+    {},
+  );
+  const ingredientMacroLibrary = getPreference<IngredientMacroLibraryItem[]>("ingredient_macro_library", []);
   const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
@@ -268,93 +248,112 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     return !!pm.day_of_week && !!pm.meal_time;
   }), [possibleMeals]);
 
+  const dessertCatalogById = useMemo(
+    () =>
+      buildPlanningDessertCatalogById(
+        foodItems,
+        dessertFoodItemIds,
+        ingredientMacroLibrary,
+        extraSelections,
+        extraSlotAssignments,
+        dessertExtraStockSnapshots,
+      ),
+    [
+      dessertExtraStockSnapshots,
+      dessertFoodItemIds,
+      extraSelections,
+      extraSlotAssignments,
+      foodItems,
+      ingredientMacroLibrary,
+    ],
+  );
+
+  const sumDayExtraMacros = useMemo(
+    () => (ids: string[] | undefined) =>
+      aggregateExtraSelectionMacros(
+        ids,
+        foodItems,
+        ingredientMacroLibrary,
+        dessertCatalogById,
+        dessertExtraStockSnapshots,
+      ),
+    [dessertCatalogById, dessertExtraStockSnapshots, foodItems, ingredientMacroLibrary],
+  );
+
+  const planningDayCalorieState = useMemo(
+    (): PlanningDayCalorieState => ({
+      possibleMeals: planningMeals,
+      allMeals,
+      petitDejMeals,
+      foodItems,
+      breakfastSelections,
+      manualCalories,
+      extraCalories,
+      extraSelections,
+      extraSlotAssignments,
+      dessertFoodItemIds,
+      dessertExtraStockSnapshots,
+      ingredientMacroLibrary,
+      breakfastManualCalories,
+      drinkChecks,
+      calOverrides,
+      isAvailable,
+    }),
+    [
+      planningMeals,
+      allMeals,
+      petitDejMeals,
+      foodItems,
+      breakfastSelections,
+      manualCalories,
+      extraCalories,
+      extraSelections,
+      extraSlotAssignments,
+      dessertFoodItemIds,
+      dessertExtraStockSnapshots,
+      ingredientMacroLibrary,
+      breakfastManualCalories,
+      drinkChecks,
+      calOverrides,
+      isAvailable,
+    ],
+  );
+
+  const getDayCalories = (dayKey: string, isoDate?: string): number =>
+    computePlanningDayTotalCalories(planningDayCalorieState, dayKey, isoDate);
+
   const getMealsForSlot = (dayKey: string, time: string, isoDate?: string) =>
-    planningMeals.filter((pm) => 
-      (pm.day_of_week === dayKey || (isoDate && pm.day_of_week === isoDate)) && 
-      pm.meal_time === time
+    planningMeals.filter((pm) =>
+      (pm.day_of_week === dayKey || (isoDate && pm.day_of_week === isoDate)) &&
+      pm.meal_time === time,
     );
 
-  /** Résout un ID de sélection de petit-déjeuner en un objet de type Meal.
-   *  Prend en charge le format préfixé (pm:xxx / meal:xxx) et les anciens IDs simples. */
+  /** Résout un ID de sélection de petit-déjeuner en un objet de type Meal. */
   const getBreakfastForDay = (dayKey: string, isoDate?: string): Meal | null => {
-    const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
+    const selId = pickPlanningDayValue(breakfastSelections, isoDate, dayKey);
     if (!selId) return null;
 
-    // Format préfixé
-    if (selId.startsWith('pm:')) {
+    if (selId.startsWith("pm:")) {
       const pmId = selId.slice(3);
-      const pm = possibleMeals.find(p => p.id === pmId);
+      const pm = possibleMeals.find((p) => p.id === pmId);
       if (!pm?.meals) return null;
-      // Retourner un objet de type repas avec les ingrédients surchargés intégrés
       const m = pm.meals;
       return { ...m, ingredients: pm.ingredients_override ?? m.ingredients } as Meal;
     }
-    if (selId.startsWith('meal:')) {
+    if (selId.startsWith("meal:")) {
       const mealId = selId.slice(5);
-      return petitDejMeals.find(m => m.id === mealId)
-        || allMeals.find(m => m.id === mealId && m.category === 'petit_dejeuner')
-        || null;
+      return (
+        petitDejMeals.find((m) => m.id === mealId) ||
+        allMeals.find((m) => m.id === mealId && m.category === "petit_dejeuner") ||
+        null
+      );
     }
 
-    // Héritage : ID de repas simple (rétrocompatibilité)
-    return petitDejMeals.find((m) => m.id === selId)
-      || allMeals.find(m => m.id === selId && m.category === 'petit_dejeuner')
-      || null;
-  };
-
-  const getDayCalories = (dayKey: string, isoDate?: string): number => {
-    const slotTimes = ['matin', ...TIMES, 'gouter'] as string[];
-    const mealCals = slotTimes.reduce((total, time) => {
-      const slotMeals = getMealsForSlot(dayKey, time, isoDate);
-      if (slotMeals.length > 0) {
-        return total + slotMeals.reduce((s, pm) =>
-          s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailable)
-          , 0);
-      }
-      const manualKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
-      return total + (manualCalories[manualKey] || 0);
-    }, 0);
-
-    const breakfast = getBreakfastForDay(dayKey, isoDate);
-    let breakfastCal = 0;
-    if (breakfast) {
-      const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
-      // S'il s'agit d'une sélection de repas possible, utiliser les calories affichées sur la carte (respecte les overrides)
-      if (selId?.startsWith('pm:')) {
-        const pmId = selId.slice(3);
-        const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
-        if (possiblePdj && (possiblePdj.day_of_week === dayKey || (isoDate && possiblePdj.day_of_week === isoDate)) && possiblePdj.meal_time === 'matin') {
-          // Déjà compté dans mealCals via les calculs du créneau 'matin' !
-          breakfastCal = 0;
-        } else {
-          breakfastCal = possiblePdj ? getCardDisplayCalories(possiblePdj, undefined, isAvailable) : parseCalories(breakfast.calories);
-        }
-      } else {
-        // Utilise les calories calculées à partir des ingrédients (cohérent avec l'affichage du sélecteur), repli sur meal.calories
-        breakfastCal = getDisplayedCalories(breakfast, null, undefined, isAvailable) || 0;
-      }
-    } else {
-      const manualKey = isoDate || dayKey;
-      breakfastCal = breakfastManualCalories[manualKey] || 0;
-    }
-
-    const manualExtraKey = isoDate || dayKey;
-    const extraManual = extraCalories[manualExtraKey] || 0;
-    
-    const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-    const selectionKey = isoDate || dayKey;
-    const selectedExtraIds = extraSelections[selectionKey] || [];
-    const extraSelectedCal = selectedExtraIds.reduce(
-      (sum, id) => sum + getExtraSelectionMacros(id, foodItems).cal,
-      0,
+    return (
+      petitDejMeals.find((m) => m.id === selId) ||
+      allMeals.find((m) => m.id === selId && m.category === "petit_dejeuner") ||
+      null
     );
-
-    const drinkCal = [...TIMES, 'gouter'].reduce((sum, time) => {
-      const drinkKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
-      return sum + (drinkChecks[drinkKey] ? DRINK_CALORIES : 0);
-    }, 0);
-
-    return mealCals + breakfastCal + extraManual + extraSelectedCal + drinkCal;
   };
 
   const getDayProtein = (dayKey: string, isoDate?: string): number => {
@@ -364,14 +363,13 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       if (slotMeals.length > 0) {
         return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
       }
-      const manualKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
-      return total + (manualProteins[manualKey] || 0);
+      return total + (pickPlanningSlotValue(manualProteins, isoDate, dayKey, time) ?? 0);
     }, 0);
 
     const breakfast = getBreakfastForDay(dayKey, isoDate);
     let breakfastPro = 0;
     if (breakfast) {
-      const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
+      const selId = pickPlanningDayValue(breakfastSelections, isoDate, dayKey);
       if (selId?.startsWith('pm:')) {
         const pmId = selId.slice(3);
         const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
@@ -386,22 +384,21 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         breakfastPro = getDisplayedProtein(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
       }
     } else {
-      const manualKey = isoDate || dayKey;
-      breakfastPro = breakfastManualProteins[manualKey] || 0;
+      breakfastPro = pickPlanningDayValue(breakfastManualProteins, isoDate, dayKey) ?? 0;
     }
 
-    const manualExtraKey = isoDate || dayKey;
-    const extraManual = extraProteins[manualExtraKey] || 0;
-    
-    const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-    const selectionKey = isoDate || dayKey;
-    const selectedExtraIds = extraSelections[selectionKey] || [];
-    const extraSelectedPro = selectedExtraIds.reduce(
-      (sum, id) => sum + getExtraSelectionMacros(id, foodItems).pro,
-      0,
-    );
+    const extraManual = pickPlanningDayValue(extraProteins, isoDate, dayKey) ?? 0;
 
-    return mealPro + breakfastPro + extraManual + extraSelectedPro;
+    const dayIso = isoDate ?? "";
+    const selectedExtraIds = mergeExtraDaySelectionIds(
+      pickPlanningDayValue(extraSelections, isoDate, dayKey) ?? [],
+      extraSlotAssignments,
+      dayIso,
+      dayKey,
+    );
+    const extraSelected = sumDayExtraMacros(selectedExtraIds);
+
+    return mealPro + breakfastPro + extraManual + extraSelected.pro;
   };
 
   const getDayFiber = (dayKey: string, isoDate?: string): number => {
@@ -411,14 +408,13 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       if (slotMeals.length > 0) {
         return total + slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, fiberOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
       }
-      const manualKey = isoDate ? `${isoDate}-${time}` : `${dayKey}-${time}`;
-      return total + (manualFibers[manualKey] || 0);
+      return total + (pickPlanningSlotValue(manualFibers, isoDate, dayKey, time) ?? 0);
     }, 0);
 
     const breakfast = getBreakfastForDay(dayKey, isoDate);
     let breakfastFiber = 0;
     if (breakfast) {
-      const selId = isoDate ? breakfastSelections[isoDate] : breakfastSelections[dayKey];
+      const selId = pickPlanningDayValue(breakfastSelections, isoDate, dayKey);
       if (selId?.startsWith('pm:')) {
         const pmId = selId.slice(3);
         const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
@@ -431,22 +427,21 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         breakfastFiber = getDisplayedFiber(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
       }
     } else {
-      const manualKey = isoDate || dayKey;
-      breakfastFiber = breakfastManualFibers[manualKey] || 0;
+      breakfastFiber = pickPlanningDayValue(breakfastManualFibers, isoDate, dayKey) ?? 0;
     }
 
-    const manualExtraKey = isoDate || dayKey;
-    const extraManual = extraFibers[manualExtraKey] || 0;
+    const extraManual = pickPlanningDayValue(extraFibers, isoDate, dayKey) ?? 0;
 
-    const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-    const selectionKey = isoDate || dayKey;
-    const selectedExtraIds = extraSelections[selectionKey] || [];
-    const extraSelectedFiber = selectedExtraIds.reduce(
-      (sum, id) => sum + getExtraSelectionMacros(id, foodItems).fiber,
-      0,
+    const dayIso = isoDate ?? "";
+    const selectedExtraIds = mergeExtraDaySelectionIds(
+      pickPlanningDayValue(extraSelections, isoDate, dayKey) ?? [],
+      extraSlotAssignments,
+      dayIso,
+      dayKey,
     );
+    const extraSelected = sumDayExtraMacros(selectedExtraIds);
 
-    return mealFiber + breakfastFiber + extraManual + extraSelectedFiber;
+    return mealFiber + breakfastFiber + extraManual + extraSelected.fiber;
   };
 
   const getTargetCalorieThreshold = () => {

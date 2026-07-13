@@ -45,6 +45,16 @@ import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
+import {
+  buildUpdatedDailyCalorieHistory,
+  captureLiveWeekTotalsForHistory,
+  ensurePreviousWeekCalorieHistory,
+  PLANNING_DAILY_CALORIE_HISTORY_KEY,
+  resolveBackupWeekRange,
+  withExplicitBackupWeekRange,
+} from "@/domain/planning/dailyCalorieHistory";
+import { asNumberRecord } from "@/domain/planning/jsonCoerce";
+import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
@@ -69,7 +79,12 @@ import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacro
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
-import { computeRolling7DayCalorieAverage, parseBackupCalorieContext } from "@/domain/planning/rollingCalorieAverage";
+import { computeRollingDayCalorieAverage, ROLLING_WINDOW_14_DAYS, ROLLING_WINDOW_7_DAYS, parseBackupCalorieContext } from "@/domain/planning/rollingCalorieAverage";
+import {
+  aggregateExtraSelectionMacros,
+  getAssignedExtraIdsForDay,
+  mergeExtraDaySelectionIds,
+} from "@/lib/planningExtraMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
 import { PlanningHeader } from "@/components/planning/PlanningHeader";
@@ -292,62 +307,6 @@ function resolvePlanningExtraFoodMacros(
   return getExtraPortionMacros(fi, options?.perUnit ? { perUnit: true } : undefined);
 }
 
-/** Somme kcal / prot / fibres des extras (aliments stock, desserts aliment ou entrées `custom::…`). */
-function aggregateExtraSelectionMacros(
-  ids: string[] | undefined,
-  foodItems: FoodItem[],
-  macroLibrary: IngredientMacroLibraryItem[] = [],
-  dessertCatalogById: Map<string, { cal: number; prot: number; fiber?: number }> = new Map(),
-  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
-): { cal: number; pro: number; fiber: number } {
-  let cal = 0;
-  let pro = 0;
-  let fiber = 0;
-  for (const id of ids ?? []) {
-    const custom = parseCustomExtraId(id);
-    if (custom) {
-      cal += custom.cal;
-      pro += custom.prot;
-      continue;
-    }
-    const foodDessertItemId = parseFoodDessertExtraId(id);
-    if (foodDessertItemId) {
-      const dessertFi = foodItems.find((f) => f.id === foodDessertItemId);
-      if (dessertFi) {
-        const macros = resolveFoodDessertPortionMacros(dessertFi, macroLibrary);
-        cal += macros.cal;
-        pro += macros.pro;
-        fiber += macros.fiber;
-      } else {
-        const catalogDessert = dessertCatalogById.get(id);
-        if (catalogDessert) {
-          cal += catalogDessert.cal;
-          pro += catalogDessert.prot;
-          fiber += catalogDessert.fiber ?? 0;
-        } else {
-          const snapshotFi = findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, id);
-          if (snapshotFi) {
-            const macros = resolveFoodDessertPortionMacros(snapshotFi, macroLibrary);
-            cal += macros.cal;
-            pro += macros.pro;
-            fiber += macros.fiber;
-          }
-        }
-      }
-      continue;
-    }
-    const fi = foodItems.find((f) => f.id === id);
-    if (fi) {
-      const macros = getExtraPortionMacros(fi);
-      cal += macros.cal;
-      pro += macros.pro;
-      fiber += macros.fiber;
-    }
-  }
-  return { cal, pro, fiber };
-}
-
-/** Formate le titre d'un bouton de sauvegarde planning avec calories, protéines et fibres. */
 function formatPlanningSnapshotTitle(
   snap: PlanningSnapshotEntry | undefined,
   options: { itemCount?: number; nameFallback?: boolean } = {},
@@ -356,21 +315,6 @@ function formatPlanningSnapshotTitle(
   if (options.nameFallback && snap.name) return `Sauvegardé: ${snap.name} (Double-clic pour oublier)`;
   const itemPart = options.itemCount !== undefined ? `, ${options.itemCount} items` : "";
   return `Sauvegardé: ${snap.cal || 0} kcal / ${snap.prot || 0} prot / ${snap.fiber || 0} fib${itemPart} (Double-clic pour oublier)`;
-}
-
-/** Liste les ids d'extras déjà assignés à un créneau (matin/midi/soir/goûter) pour une journée. */
-function getAssignedExtraIdsForDay(
-  extraSlotAssignments: Record<string, string[]>,
-  iso: string,
-  key: string,
-): string[] {
-  const slots: Array<"matin" | "midi" | "soir" | "gouter"> = ["matin", "midi", "soir", "gouter"];
-  const out = new Set<string>();
-  for (const slot of slots) {
-    for (const id of extraSlotAssignments[`${iso}-${slot}`] ?? []) out.add(id);
-    for (const id of extraSlotAssignments[`${key}-${slot}`] ?? []) out.add(id);
-  }
-  return [...out];
 }
 
 /** Retourne les extras sélectionnés du jour qui ne sont pas encore placés dans un créneau. */
@@ -383,26 +327,6 @@ function getUnassignedExtraSelectionIds(
   const ids = extraSelections[iso] || extraSelections[key] || [];
   const assignedSet = new Set(getAssignedExtraIdsForDay(extraSlotAssignments, iso, key));
   return ids.filter((id) => !assignedSet.has(id));
-}
-
-/**
- * Fusionne les sélections du jour avec les extras déjà posés dans un créneau.
- * Corrige l'affichage quand un extra est dans SOIR/MIDI mais absent de next_week_extra_selections.
- */
-function mergeExtraDaySelectionIds(
-  selectedIds: string[],
-  extraSlotAssignments: Record<string, string[]>,
-  iso: string,
-  key: string,
-): string[] {
-  const merged = [...selectedIds];
-  const assigned = getAssignedExtraIdsForDay(extraSlotAssignments, iso, key);
-  for (const id of new Set(assigned)) {
-    const assignedCount = assigned.filter((entry) => entry === id).length;
-    const selectedCount = merged.filter((entry) => entry === id).length;
-    for (let i = selectedCount; i < assignedCount; i++) merged.push(id);
-  }
-  return merged;
 }
 
 /** Normalise un nom d'extra pour comparer recettes et aliments dessert. */
@@ -2605,20 +2529,127 @@ export function WeeklyPlanning({
 
   const weekTotal = weekDates.reduce((sum, d) => sum + getDayCalories(d.key, d.iso), 0);
 
-  const rolling7DayAvg = useMemo(() => {
+  const repairedDailyCalorieHistory = useMemo(() => {
+    const previousWeekDates = buildWeekDates(-1, new Date());
+    const backupRaw = getPreference<unknown>("possible_meals_backup", null);
+    const backupCtx = parseBackupCalorieContext(backupRaw, calOverrides, proOverrides);
+    const backupFull =
+      backupRaw && typeof backupRaw === "object" && !Array.isArray(backupRaw)
+        ? (backupRaw as PossibleMealsFullBackup)
+        : null;
+    return ensurePreviousWeekCalorieHistory(
+      asNumberRecord(getPreference<unknown>(PLANNING_DAILY_CALORIE_HISTORY_KEY, null)),
+      backupFull,
+      backupCtx,
+      previousWeekDates,
+      allMealsById,
+      foodItems,
+      dessertFoodItemIds,
+      dessertExtraStockSnapshots,
+      ingredientMacroLibrary,
+      isAvailableCb,
+    );
+  }, [
+    getPreference,
+    calOverrides,
+    proOverrides,
+    allMealsById,
+    foodItems,
+    dessertFoodItemIds,
+    dessertExtraStockSnapshots,
+    ingredientMacroLibrary,
+    isAvailableCb,
+  ]);
+
+  useEffect(() => {
+    const stored = asNumberRecord(getPreference<unknown>(PLANNING_DAILY_CALORIE_HISTORY_KEY, null));
+    const changed = JSON.stringify(stored) !== JSON.stringify(repairedDailyCalorieHistory);
+    if (!changed) return;
+    setPreference.mutate({ key: PLANNING_DAILY_CALORIE_HISTORY_KEY, value: repairedDailyCalorieHistory });
+  }, [getPreference, repairedDailyCalorieHistory, setPreference]);
+
+  /** Corrige la plage ISO de la sauvegarde si elle ne couvre pas toute la semaine précédente. */
+  const backupRangePatchedRef = useRef(false);
+  useEffect(() => {
+    if (backupRangePatchedRef.current) return;
+    const backupRaw = getPreference<unknown>("possible_meals_backup", null);
+    const backupFull =
+      backupRaw && typeof backupRaw === "object" && !Array.isArray(backupRaw)
+        ? (backupRaw as PossibleMealsFullBackup)
+        : null;
+    if (!backupFull) return;
+    const previousWeekDates = buildWeekDates(-1, new Date());
+    const startISO = previousWeekDates[0]?.iso ?? "";
+    const endISO = previousWeekDates[previousWeekDates.length - 1]?.iso ?? "";
+    if (!startISO || !endISO) return;
+    const patched = withExplicitBackupWeekRange(backupFull, startISO, endISO);
+    if (patched === backupFull) {
+      backupRangePatchedRef.current = true;
+      return;
+    }
+    backupRangePatchedRef.current = true;
+    setPreference.mutate({ key: "possible_meals_backup", value: patched });
+  }, [getPreference, setPreference]);
+
+  const rollingCalorieStats = useMemo(() => {
     const currentWeekIsos = new Set(buildWeekDates(0, new Date()).map((d) => d.iso));
     const backupRaw = getPreference<unknown>("possible_meals_backup", null);
     const backupCtx = parseBackupCalorieContext(backupRaw, calOverrides, proOverrides);
-    return computeRolling7DayCalorieAverage({
+    const backupFull =
+      backupRaw && typeof backupRaw === "object" && !Array.isArray(backupRaw)
+        ? (backupRaw as PossibleMealsFullBackup)
+        : null;
+    const rollingParams = {
       getLiveDayCalories: getDayCalories,
       currentWeekIsos,
+      dailyCalorieHistory: repairedDailyCalorieHistory,
       backupCtx,
+      backupWeekRange: resolveBackupWeekRange(backupFull),
       mealsById: allMealsById,
       foodItems,
       isAvailable: isAvailableCb,
       foodMacroIndex,
+      extraMacroParams: {
+        dessertFoodItemIds,
+        dessertExtraStockSnapshots,
+        macroLibrary: ingredientMacroLibrary,
+      },
+    };
+    const rolling7 = computeRollingDayCalorieAverage({
+      ...rollingParams,
+      rollingDays: ROLLING_WINDOW_7_DAYS,
     });
-  }, [getDayCalories, getPreference, calOverrides, proOverrides, allMealsById, foodItems, isAvailableCb, foodMacroIndex]);
+    const rolling14 = computeRollingDayCalorieAverage({
+      ...rollingParams,
+      rollingDays: ROLLING_WINDOW_14_DAYS,
+    });
+    return {
+      rolling7DayAvg: rolling7.average,
+      rolling7DaysCounted: rolling7.daysCounted,
+      rolling14DayAvg: rolling14.average,
+      rolling14DaysCounted: rolling14.daysCounted,
+    };
+  }, [
+    getDayCalories,
+    getPreference,
+    calOverrides,
+    proOverrides,
+    allMealsById,
+    foodItems,
+    isAvailableCb,
+    foodMacroIndex,
+    dessertFoodItemIds,
+    dessertExtraStockSnapshots,
+    ingredientMacroLibrary,
+    repairedDailyCalorieHistory,
+  ]);
+
+  const {
+    rolling7DayAvg,
+    rolling7DaysCounted,
+    rolling14DayAvg,
+    rolling14DaysCounted,
+  } = rollingCalorieStats;
 
   const handleRestoreBackup = async () => {
     if (restoreLockRef.current) return;
@@ -2749,14 +2780,28 @@ export function WeeklyPlanning({
       const freshPM =
         (qc.getQueryData<PossibleMeal[]>(["possible_meals"]) as PossibleMeal[] | undefined) ?? possibleMeals;
 
-      const fullBackup = buildFullBackupPayload(freshPM, prefMap);
-      await upsertPossibleMealsFullBackup(userId, fullBackup);
-
       const previousWeekDates = buildWeekDates(-1, new Date());
       const preservedPreviousWeek = {
         startISO: previousWeekDates[0]?.iso ?? "",
         endISO: previousWeekDates[previousWeekDates.length - 1]?.iso ?? "",
       };
+
+      const fullBackup = buildFullBackupPayload(freshPM, prefMap, {
+        startISO: preservedPreviousWeek.startISO,
+        endISO: preservedPreviousWeek.endISO,
+      });
+      await upsertPossibleMealsFullBackup(userId, fullBackup);
+
+      const backupCtx = parseBackupCalorieContext(fullBackup, calOverrides, proOverrides);
+      if (backupCtx) {
+        const liveDayTotals = captureLiveWeekTotalsForHistory(previousWeekDates, getDayCalories);
+        const nextHistory = buildUpdatedDailyCalorieHistory(
+          asNumberRecord(prefMap[PLANNING_DAILY_CALORIE_HISTORY_KEY]),
+          liveDayTotals,
+        );
+        setPreference.mutate({ key: PLANNING_DAILY_CALORIE_HISTORY_KEY, value: nextHistory });
+      }
+
       const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM, preservedPreviousWeek);
       await deletePossibleMealsByIds(ids);
 
@@ -4389,7 +4434,10 @@ export function WeeklyPlanning({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-foreground">Total semaine</span>
                 <span className="text-xs text-muted-foreground font-medium">
-                  Moy. {rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">(14j)</span>
+                  Moy. {rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling7DaysCounted}j)</span>
+                </span>
+                <span className="text-xs text-muted-foreground/70 font-medium">
+                  · Moy. {rolling14DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling14DaysCounted}j)</span>
                 </span>
               </div>
               <div className="flex items-center gap-3 flex-wrap ml-auto">

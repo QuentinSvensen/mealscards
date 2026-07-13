@@ -34,7 +34,8 @@ export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): 
 /** Construit l’objet complet de sauvegarde (cartes + saisies + objectifs) avant reset. */
 export function buildFullBackupPayload(
   freshPossible: PossibleMeal[],
-  prefMap: PlanningPrefMap
+  prefMap: PlanningPrefMap,
+  weekRange?: { startISO: string; endISO: string },
 ): PossibleMealsFullBackup {
   const dg = prefMap["planning_daily_goal"];
   const pg = prefMap["planning_protein_goal"];
@@ -56,5 +57,7 @@ export function buildFullBackupPayload(
     proOverrides: asPlanningOverrideRecord(prefMap["planning_pro_overrides"]),
     daily_goal: typeof dg === "number" ? dg : null,
     protein_goal: typeof pg === "number" ? pg : null,
+    weekStartISO: weekRange?.startISO ?? null,
+    weekEndISO: weekRange?.endISO ?? null,
   };
 }

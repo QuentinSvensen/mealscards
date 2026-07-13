@@ -54,9 +54,16 @@ import {
 } from "@/lib/stockDeductionSnapshot";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
+import {
+  buildUpdatedDailyCalorieHistory,
+  captureLiveWeekTotalsForHistory,
+  PLANNING_DAILY_CALORIE_HISTORY_KEY,
+} from "@/domain/planning/dailyCalorieHistory";
+import { captureLiveWeekTotalsFromPrefMap } from "@/domain/planning/planningDayCalories";
+import { asNumberRecord, asPlanningOverrideRecord, asStringArrayRecord } from "@/domain/planning/jsonCoerce";
+import { parseBackupCalorieContext } from "@/domain/planning/rollingCalorieAverage";
 import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
 import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
-import { asStringArrayRecord } from "@/domain/planning/jsonCoerce";
 import { remapPlanningRecordToTargetWeek } from "@/domain/planning/remapPlanningKeys";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
@@ -500,15 +507,39 @@ const Index = () => {
         const freshPossible =
           (qc.getQueryData<PossibleMeal[]>(["possible_meals"]) as PossibleMeal[] | undefined) ?? possibleMeals;
 
-        const fullBackup = buildFullBackupPayload(freshPossible, prefMap);
-        await upsertPossibleMealsFullBackup(userId, fullBackup);
-
         const previousWeekStart = new Date(mostRecentSunday);
         previousWeekStart.setDate(previousWeekStart.getDate() - 6);
         const preservedPreviousWeek = {
           startISO: previousWeekStart.toISOString().split("T")[0],
           endISO: mostRecentSunday.toISOString().split("T")[0],
         };
+        const archivedWeekDates = buildWeekDates(0, previousWeekStart);
+        const fullBackup = buildFullBackupPayload(freshPossible, prefMap, {
+          startISO: archivedWeekDates[0]?.iso ?? preservedPreviousWeek.startISO,
+          endISO: archivedWeekDates[archivedWeekDates.length - 1]?.iso ?? preservedPreviousWeek.endISO,
+        });
+        await upsertPossibleMealsFullBackup(userId, fullBackup);
+
+        const backupCtx = parseBackupCalorieContext(
+          fullBackup,
+          asPlanningOverrideRecord(prefMap["planning_cal_overrides"]),
+          asPlanningOverrideRecord(prefMap["planning_pro_overrides"]),
+        );
+        if (backupCtx) {
+          const liveDayTotals = captureLiveWeekTotalsFromPrefMap(
+            prefMap,
+            freshPossible,
+            meals,
+            foodItems,
+            archivedWeekDates,
+          );
+          const nextHistory = buildUpdatedDailyCalorieHistory(
+            asNumberRecord(prefMap[PLANNING_DAILY_CALORIE_HISTORY_KEY]),
+            liveDayTotals,
+          );
+          setPreference.mutate({ key: PLANNING_DAILY_CALORIE_HISTORY_KEY, value: nextHistory });
+        }
+
         const cutoffISO = mostRecentSunday.toISOString().split("T")[0];
         const mealsToDelete = filterPossibleMealsToDeleteForWeeklyClear(freshPossible, cutoffISO, preservedPreviousWeek);
         await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
