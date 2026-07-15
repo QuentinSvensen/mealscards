@@ -6,6 +6,7 @@ import {
   mergeExtraDaySelectionIds,
   pickPlanningDayValue,
   pickPlanningSlotValue,
+  scaleExtraDisplayMacrosByCount,
 } from "./planningExtraMacros";
 
 function makeFoodItem(overrides: Partial<FoodItem> = {}): FoodItem {
@@ -57,5 +58,18 @@ describe("planningExtraMacros", () => {
       "vendredi",
     );
     expect(merged).toEqual([buildFoodDessertExtraId("deleted-id")]);
+  });
+
+  it("multiplie les macros affichées par le nombre d'occurrences", () => {
+    expect(scaleExtraDisplayMacrosByCount({ cal: 81, pro: 1, fiber: 0 }, 3)).toEqual({
+      cal: 243,
+      pro: 3,
+      fiber: 0,
+    });
+    expect(scaleExtraDisplayMacrosByCount({ cal: 81, pro: 1, fiber: 0 }, 2)).toEqual({
+      cal: 162,
+      pro: 2,
+      fiber: 0,
+    });
   });
 });

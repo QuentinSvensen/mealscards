@@ -183,3 +183,20 @@ export function aggregateExtraSelectionMacros(
   }
   return { cal, pro, fiber };
 }
+
+/**
+ * Multiplie les macros d'une portion par un nombre d'occurrences
+ * pour l'affichage des lignes d'extras dans le planning.
+ */
+export function scaleExtraDisplayMacrosByCount(
+  macros: { cal: number; pro: number; fiber: number },
+  count: number,
+): { cal: number; pro: number; fiber: number } {
+  const q = Math.max(1, Math.round(count));
+  if (q <= 1) return macros;
+  return {
+    cal: Math.round(macros.cal * q),
+    pro: Math.round(macros.pro * q),
+    fiber: Math.round(macros.fiber * q),
+  };
+}

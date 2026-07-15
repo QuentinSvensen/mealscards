@@ -84,6 +84,7 @@ import {
   aggregateExtraSelectionMacros,
   getAssignedExtraIdsForDay,
   mergeExtraDaySelectionIds,
+  scaleExtraDisplayMacrosByCount,
 } from "@/lib/planningExtraMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
@@ -3862,7 +3863,7 @@ export function WeeklyPlanning({
                                 const label = c ? c.name : (dessertExtra?.name ?? fi?.name ?? id);
                                 const portionMacros = dessertExtra
                                   ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
-                                  : (fi ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { perUnit: true }) : { cal: 0, pro: 0, fiber: 0 });
+                                  : (fi ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary) : { cal: 0, pro: 0, fiber: 0 });
                                 const prot = c ? c.prot : portionMacros.pro;
                                 const cal = c ? c.cal : portionMacros.cal;
                                 const fiber = c ? (dessertExtra?.fiber ?? 0) : portionMacros.fiber;
@@ -3997,7 +3998,8 @@ export function WeeklyPlanning({
                               };
                               const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
                                 const count = currentIds.filter(id => id === fi.id).length;
-                                const macros = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { perUnit: true });
+                                const perOccurrence = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary);
+                                const macros = scaleExtraDisplayMacrosByCount(perOccurrence, count > 0 ? count : 1);
                                 return (
                                   <div
                                     key={fi.id}
@@ -4896,15 +4898,15 @@ export function WeeklyPlanning({
                                       const { custom, fi } = resolved;
                                       const dessertExtra = singleIngredientDessertById.get(extraId);
                                       const isFoodDessert = !!parseFoodDessertExtraId(extraId);
-                                      const portionMacros = fi
-                                        ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, {
-                                            perUnit: isFoodDessert,
-                                            asDessertFood: isFoodDessert,
-                                          })
-                                        : { cal: 0, pro: 0, fiber: 0 };
-                                      const prot = custom ? custom.prot : portionMacros.pro;
-                                      const cal = custom ? custom.cal : portionMacros.cal;
-                                      const fiber = custom ? 0 : (dessertExtra?.fiber ?? portionMacros.fiber);
+                                      const perOccurrence = custom
+                                        ? { cal: custom.cal, pro: custom.prot, fiber: dessertExtra?.fiber ?? 0 }
+                                        : fi
+                                          ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { asDessertFood: isFoodDessert })
+                                          : { cal: 0, pro: 0, fiber: 0 };
+                                      const portionMacros = scaleExtraDisplayMacrosByCount(perOccurrence, count);
+                                      const prot = portionMacros.pro;
+                                      const cal = portionMacros.cal;
+                                      const fiber = portionMacros.fiber;
                                       const label = getAssignedExtraLabel(
                                         extraId,
                                         count,
@@ -5539,9 +5541,10 @@ export function WeeklyPlanning({
                                   const isDessertExtra = !!dessertExtra;
                                   const canAddDessert = !isDessertExtra || canAddDessertById.get(resolvedId) === true;
                                   const displayName = row.custom?.name || dessertExtra?.name || row.fi?.name || resolvedId;
-                                  const portionMacros = dessertExtra
+                                  const perOccurrence = dessertExtra
                                     ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
-                                    : (row.fi ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary, { perUnit: true }) : { cal: row.custom?.cal ?? 0, pro: row.custom?.prot ?? 0, fiber: 0 });
+                                    : (row.fi ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary) : { cal: row.custom?.cal ?? 0, pro: row.custom?.prot ?? 0, fiber: 0 });
+                                  const portionMacros = scaleExtraDisplayMacrosByCount(perOccurrence, count);
                                   return (
                                     <div
                                       key={`next-pop-sel-${extraId}-${index}`}
@@ -5649,7 +5652,8 @@ export function WeeklyPlanning({
                                 const othersAbove = others.filter((fi) => aboveIds.has(fi.id));
                                 const renderRow = (fi: FoodItem) => {
                                   const count = effExtraSelMerged.filter(id => id === fi.id).length;
-                                  const macros = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { perUnit: true });
+                                  const perOccurrence = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary);
+                                  const macros = scaleExtraDisplayMacrosByCount(perOccurrence, count > 0 ? count : 1);
                                   return (
                                     <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
                                       <div className="flex-1 min-w-0">
