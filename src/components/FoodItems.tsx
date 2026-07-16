@@ -41,8 +41,8 @@ import {
   splitSortedExtrasByDivider,
 } from "@/lib/extrasDividerUtils";
 import { ExtrasMovableDivider } from "@/components/planning/ExtrasMovableDivider";
-import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams } from "@/lib/stockUtils";
-import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
+import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams, isCountOnlyFoodItem, isFoodItemFullySealed } from "@/lib/stockUtils";
+import { resolveFoodItemCounterStartForDisplay, useMealTransfers, buildPossiblePlanningSnapshot } from "@/hooks/useMealTransfers";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey, removeDessertFoodNameKey, shouldMarkNewFoodAsDessert, reconcileDessertFoodPreferences } from "@/lib/foodDessertUtils";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { useMeals } from "@/hooks/useMeals";
@@ -324,6 +324,8 @@ interface FoodItemCardProps {
   item: FoodItem;
   possibleMeals: PossibleMeal[];
   baselineTotalGrams?: number | null;
+  /** Quantité d'origine à l'ajout (détecte un prélèvement unitaire sans grammes). */
+  baselineQuantity?: number | null;
   onUpdate: (updates: Partial<FoodItem>) => void;
   manualMacroFields: FoodManualMacroFields;
   isMorningMeal: boolean;
@@ -339,7 +341,7 @@ interface FoodItemCardProps {
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manualMacroFields, isMorningMeal, isDessertFood, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantity, onUpdate, manualMacroFields, isMorningMeal, isDessertFood, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -353,6 +355,7 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manua
     possibleMeals,
     undefined,
     baselineTotalGrams,
+    baselineQuantity,
   );
   const isFuture = effectiveCounterStart ? new Date(effectiveCounterStart) > new Date() : false;
   const counterDays = computeCounterDays(effectiveCounterStart);
@@ -803,14 +806,18 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, onUpdate, manua
 
         {/* Bascule du compteur */}
         <button
-          onClick={() => onUpdate({ counter_start_date: item.counter_start_date ? null : new Date().toISOString() })}
+          onClick={() => onUpdate({
+            counter_start_date: (item.counter_start_date || effectiveCounterStart)
+              ? null
+              : new Date().toISOString(),
+          })}
           className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
-          title={item.counter_start_date
+          title={effectiveCounterStart
             ? (isFuture ? formattedProgDate : `Arrêter compteur${counterHours !== null ? ` (${counterHours}h)` : ''}`)
             : 'Démarrer compteur'}
         >
           <Timer className="h-2.5 w-2.5" />
-          {item.counter_start_date ? (isFuture ? 'Prog.' : 'Stop') : 'Compteur'}
+          {effectiveCounterStart ? (isFuture ? 'Prog.' : 'Stop') : 'Compteur'}
         </button>
 
         {/* Bascule No-counter (logique de compteur automatique) */}
@@ -926,12 +933,6 @@ export function FoodItems() {
 
   const { getPreference, setPreference, isLoading: prefsLoading } = usePreferences();
   const isLoading = itemsLoading || prefsLoading;
-  const counterReconcileDone = useRef(false);
-  useEffect(() => {
-    if (isLoading || !possibleMeals.length || counterReconcileDone.current) return;
-    counterReconcileDone.current = true;
-    void reconcileMissedProgCounters(possibleMeals);
-  }, [isLoading, possibleMeals, reconcileMissedProgCounters]);
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
   const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
@@ -1013,6 +1014,34 @@ export function FoodItems() {
   const testItemIdSet = new Set(testItemIds);
   const foodLibraryAmountMemory = getPreference<FoodLibraryAmountMemory>(FOOD_LIBRARY_AMOUNT_PREF_KEY, {});
   const foodStockBaselines = getPreference<Record<string, FoodStockBaseline>>(FOOD_STOCK_BASELINE_PREF_KEY, {});
+
+  // Synchro Prog. + démarrage compteurs à chaque changement de planning
+  // OU dès qu'un lot ouvert n'a pas encore de compteur.
+  const lastFoodPlanningSnapshotRef = useRef<string>("");
+  const foodProgReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (isLoading) return;
+    const snapshot = buildPossiblePlanningSnapshot(possibleMeals);
+    const needsCounterStart = items.some((fi) => {
+      if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return false;
+      if (fi.counter_start_date?.trim()) return false;
+      if (isCountOnlyFoodItem(fi)) {
+        const b = foodStockBaselines[fi.id]?.quantity;
+        return b != null && b > 0 && (fi.quantity ?? 1) < b;
+      }
+      return !isFoodItemFullySealed(fi);
+    });
+    const planningChanged = snapshot !== lastFoodPlanningSnapshotRef.current;
+    if (!planningChanged && !needsCounterStart) return;
+    if (planningChanged) lastFoodPlanningSnapshotRef.current = snapshot;
+    if (foodProgReconcileTimerRef.current) clearTimeout(foodProgReconcileTimerRef.current);
+    foodProgReconcileTimerRef.current = setTimeout(() => {
+      void reconcileMissedProgCounters(possibleMeals, foodStockBaselines);
+    }, 150);
+    return () => {
+      if (foodProgReconcileTimerRef.current) clearTimeout(foodProgReconcileTimerRef.current);
+    };
+  }, [isLoading, possibleMeals, items, reconcileMissedProgCounters, foodStockBaselines]);
 
   /** Mémorise la première valeur de création et l'option indivisible pour les prochains ajouts du même aliment. */
   const rememberInitialFoodLibraryAmount = useCallback((
@@ -2062,6 +2091,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                     foodStockBaselines[item.id],
                     parseQty(foodLibraryAmountMemory[getFoodLibraryAmountKey(item.name)]?.grams) || null,
                   )}
+                  baselineQuantity={foodStockBaselines[item.id]?.quantity ?? null}
                   onUpdate={(updates) => onUpdate(item.id, updates)}
                   manualMacroFields={manualMacroFields}
                   isMorningMeal={morningMealFoodItemIdSet.has(item.id)}

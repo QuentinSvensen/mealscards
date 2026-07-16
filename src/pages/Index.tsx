@@ -43,7 +43,8 @@ import {
   recipeHasFiniteCounterableIngredients,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
-import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
+import { useMealTransfers, computePlannedCounterDate, buildPossiblePlanningSnapshot } from "@/hooks/useMealTransfers";
+import { isCountOnlyFoodItem, isFoodItemFullySealed } from "@/lib/stockUtils";
 import {
   attachPortionDeduction,
   mergeDeductionSnapshotMaps,
@@ -237,12 +238,37 @@ const Index = () => {
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
   const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
   const { deductIngredientsFromStock, restoreIngredientsToStock, adjustStockForIngredientChange, deductNameMatchStock, updateFoodItemCountersForPlanning, reconcileMissedProgCounters } = useMealTransfers(foodItems);
-  const progReconcileDone = useRef(false);
+  const foodStockBaselines = getPreference<Record<string, { quantity?: number | null; totalGrams?: number }>>(
+    "food_item_stock_baselines",
+    {},
+  );
+  // Synchro compteurs (démarrage + Prog.) à chaque changement de planning
+  // OU dès qu'un lot ouvert n'a pas encore de compteur (filet de sécurité).
+  const lastPlanningSnapshotRef = useRef<string>("");
+  const progReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!unlocked || isLoading || !possibleMeals.length || progReconcileDone.current) return;
-    progReconcileDone.current = true;
-    void reconcileMissedProgCounters(possibleMeals);
-  }, [unlocked, isLoading, possibleMeals, reconcileMissedProgCounters]);
+    if (!unlocked || isLoading) return;
+    const snapshot = buildPossiblePlanningSnapshot(possibleMeals);
+    const needsCounterStart = foodItems.some((fi) => {
+      if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return false;
+      if (fi.counter_start_date?.trim()) return false;
+      if (isCountOnlyFoodItem(fi)) {
+        const b = foodStockBaselines[fi.id]?.quantity;
+        return b != null && b > 0 && (fi.quantity ?? 1) < b;
+      }
+      return !isFoodItemFullySealed(fi);
+    });
+    const planningChanged = snapshot !== lastPlanningSnapshotRef.current;
+    if (!planningChanged && !needsCounterStart) return;
+    if (planningChanged) lastPlanningSnapshotRef.current = snapshot;
+    if (progReconcileTimerRef.current) clearTimeout(progReconcileTimerRef.current);
+    progReconcileTimerRef.current = setTimeout(() => {
+      void reconcileMissedProgCounters(possibleMeals, foodStockBaselines);
+    }, 150);
+    return () => {
+      if (progReconcileTimerRef.current) clearTimeout(progReconcileTimerRef.current);
+    };
+  }, [unlocked, isLoading, possibleMeals, foodItems, foodStockBaselines, reconcileMissedProgCounters]);
 
   // Précharger TOUS les fragments lazy + pré-récupérer TOUTES les données une fois déverrouillé (idle callback)
   const preloadDone = useRef(false);
@@ -712,7 +738,24 @@ const Index = () => {
   // ═══════════════════════════════════════════════════════════════════════════
   const handleMoveToPossibleGeneral = async (mealId: string, source?: string, pmId?: string | null) => {
     if (pmId) {
+      const pm = possibleMeals.find((p) => p.id === pmId);
       updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
+      // Resync compteurs : ce créneau ne doit plus maintenir un Prog. orphelin.
+      if (pm) {
+        const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+        const remainingMeals = possibleMeals.map((p) =>
+          p.id === pmId ? { ...p, day_of_week: null, meal_time: null } : p,
+        );
+        void updateFoodItemCountersForPlanning(
+          null,
+          ing ?? null,
+          null,
+          null,
+          pm.counter_start_date ?? null,
+          null,
+          remainingMeals,
+        );
+      }
       return;
     }
 
@@ -1317,10 +1360,21 @@ const Index = () => {
                             const snapshot = [
                               attachFoodDeductionSnapshot(fi, { grams: portionGrams, quantity: portionQty }),
                             ];
+                            const shouldStart = fi.storage_type !== 'surgele' && !fi.no_counter;
+                            const movedCounterDate = fi.counter_start_date || (shouldStart ? new Date().toISOString() : null);
                             if (!fi.is_infinite) {
                               const currentQty = fi.quantity ?? 1;
                               if (currentQty <= 1) { await supabase.from("food_items").delete().eq("id", fi.id); }
-                              else { await supabase.from("food_items").update({ quantity: currentQty - 1 } as any).eq("id", fi.id); }
+                              else {
+                                // Unitaire avec compteur auto : démarrer le compteur sur le stock restant.
+                                // Paquets grammes scellés restants : pas de compteur (boîte intacte).
+                                const isCountOnly = parseQty(fi.grams) <= 0;
+                                const startOnRemaining = isCountOnly && !!movedCounterDate;
+                                await supabase.from("food_items").update({
+                                  quantity: currentQty - 1,
+                                  ...(startOnRemaining ? { counter_start_date: movedCounterDate } : {}),
+                                } as any).eq("id", fi.id);
+                              }
                               qc.invalidateQueries({ queryKey: ["food_items"] });
                             }
                             const fiKey = normalizeKey(fi.name);
@@ -1339,13 +1393,11 @@ const Index = () => {
                               }
                             }
 
-                            const shouldStart = fi.storage_type !== 'surgele' && !fi.no_counter;
-                            const finalCd = fi.counter_start_date || (shouldStart ? new Date().toISOString() : null);
                             const pmResult = await addMealToPossibleDirectly.mutateAsync({
                               name: fi.name, category: cat.value,
                               calories, protein, fiber, grams: fi.grams,
                               expiration_date: fi.expiration_date,
-                              counter_start_date: finalCd
+                              counter_start_date: movedCounterDate
                             });
                             if (pmResult?.id) updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
                           }}

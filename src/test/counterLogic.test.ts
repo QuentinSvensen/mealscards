@@ -590,9 +590,240 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
     expect(computeCounterDays(resolved)).toBe(0);
     vi.useRealTimers();
   });
+
+  it("Melon entamé (400→200g) + repas planifié plus tard → affiche Prog. (pas 0j)", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const saturdayPm = {
+      ...futurePm,
+      id: "pm-melon",
+      day_of_week: "2026-07-18",
+      meal_time: "soir",
+      ingredients_override: "200g Melon",
+      meals: { ingredients: "200g Melon" },
+    } as PossibleMeal;
+    const melon: FoodItem = {
+      ...tenders,
+      id: "melon1",
+      name: "Melon",
+      grams: "400|200",
+      quantity: null,
+      // Déduction a posé « maintenant » ; la planification est arrivée après (> 60 s).
+      counter_start_date: "2026-07-16T11:00:00.000Z",
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(melon, [saturdayPm], fixedNow);
+    expect(resolved).toBe(computePlannedCounterDate("2026-07-18", "soir"));
+    expect(new Date(resolved!).getTime()).toBeGreaterThan(fixedNow.getTime());
+  });
+
+  it("buildPossiblePlanningSnapshot change quand on planifie un repas", async () => {
+    const { buildPossiblePlanningSnapshot } = await import("@/hooks/useMealTransfers");
+    const before = buildPossiblePlanningSnapshot([
+      { ...futurePm, id: "a", day_of_week: null, meal_time: null } as PossibleMeal,
+    ]);
+    const after = buildPossiblePlanningSnapshot([
+      { ...futurePm, id: "a", day_of_week: "2026-07-18", meal_time: "soir" } as PossibleMeal,
+    ]);
+    expect(before).not.toBe(after);
+  });
+
+  it("lot grammes entamé (400|200) sans compteur : display infère une ouverture", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const melon: FoodItem = {
+      ...tenders,
+      id: "melon-open",
+      name: "Melon",
+      grams: "400|200",
+      quantity: null,
+      counter_start_date: null,
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(melon, [], fixedNow);
+    expect(resolved).toBeTruthy();
+    expect(new Date(resolved!).getTime()).toBeLessThanOrEqual(fixedNow.getTime());
+  });
+
+  it("unitaire qty réduite + compteur auto : display montre un compteur", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const blanc: FoodItem = {
+      ...tenders,
+      id: "bd-open",
+      name: "Blanc de dinde",
+      grams: null,
+      quantity: 2,
+      counter_start_date: null,
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(blanc, [], fixedNow, null, 4);
+    expect(resolved).toBeTruthy();
+  });
+
+  it("unitaire intact + compteur auto : pas de compteur fantôme", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const blanc: FoodItem = {
+      ...tenders,
+      id: "bd-ok",
+      name: "Blanc de dinde",
+      grams: null,
+      quantity: 4,
+      counter_start_date: null,
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(blanc, [], fixedNow, null, 4);
+    expect(resolved).toBeNull();
+  });
+
+  it("Melon entamé + Possible NON planifié sibling → garde l'ouverture maintenant (pas Prog.)", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const plannedPm = {
+      ...futurePm,
+      id: "pm-melon-plan",
+      day_of_week: "2026-07-18",
+      meal_time: "soir",
+      ingredients_override: "200g Melon",
+      meals: { ingredients: "200g Melon" },
+    } as PossibleMeal;
+    const unplannedPm = {
+      ...futurePm,
+      id: "pm-melon-now",
+      day_of_week: null,
+      meal_time: null,
+      ingredients_override: "100g Melon",
+      meals: { ingredients: "100g Melon" },
+    } as PossibleMeal;
+    const melon: FoodItem = {
+      ...tenders,
+      id: "melon1",
+      name: "Melon",
+      grams: "400|100",
+      quantity: null,
+      counter_start_date: "2026-07-16T11:00:00.000Z",
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(
+      melon,
+      [plannedPm, unplannedPm],
+      fixedNow,
+    );
+    expect(resolved).toBe("2026-07-16T11:00:00.000Z");
+  });
+
+  it("Blanc de dinde unitaire (#4→#2) + repas planifié ce soir → affiche Prog.", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const tonightPm = {
+      ...futurePm,
+      id: "pm-croque",
+      day_of_week: "2026-07-16",
+      meal_time: "soir",
+      ingredients_override: "4 Pain de mie, 2 Blanc de dinde, 40g Gruyère",
+      meals: { ingredients: "4 Pain de mie, 2 Blanc de dinde, 40g Gruyère" },
+    } as PossibleMeal;
+    const blanc: FoodItem = {
+      ...tenders,
+      id: "bd1",
+      name: "Blanc de dinde",
+      grams: null,
+      quantity: 2,
+      counter_start_date: null,
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(
+      blanc,
+      [tonightPm],
+      fixedNow,
+      null,
+      4,
+    );
+    expect(resolved).toBe(computePlannedCounterDate("2026-07-16", "soir"));
+    expect(new Date(resolved!).getTime()).toBeGreaterThan(fixedNow.getTime());
+  });
+
+  it("paquet Blanc de dinde intact (#4) : pas de compteur même si un homonyme est dans un Possible", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const tonightPm = {
+      ...futurePm,
+      id: "pm-croque",
+      day_of_week: "2026-07-16",
+      meal_time: "soir",
+      ingredients_override: "2 Blanc de dinde",
+      meals: { ingredients: "2 Blanc de dinde" },
+    } as PossibleMeal;
+    const intact: FoodItem = {
+      ...tenders,
+      id: "bd-intact",
+      name: "Blanc de dinde",
+      grams: null,
+      quantity: 4,
+      counter_start_date: computePlannedCounterDate("2026-07-16", "soir"),
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(
+      intact,
+      [tonightPm],
+      fixedNow,
+      null,
+      4,
+    );
+    expect(resolved).toBeNull();
+  });
+
+  it("Tenders 2×400g scellés : pas de compteur même avec baseline totale plus élevée", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const sealed = {
+      ...tenders,
+      quantity: 2,
+      grams: "400",
+      counter_start_date: "2026-07-15T10:00:00.000Z",
+    };
+    // Baseline d'origine 1200 (3 paquets) après conso d'un paquet entier → restants scellés
+    const resolved = resolveFoodItemCounterStartForDisplay(sealed, [], fixedNow, 1200);
+    expect(resolved).toBeNull();
+  });
+
+  it("Tenders 2×400g scellés : pas de compteur même avec baseline biblio plus élevée", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const sealed = { ...tenders, quantity: 2, grams: "400", counter_start_date: null };
+    const resolved = resolveFoodItemCounterStartForDisplay(sealed, [], fixedNow, null);
+    expect(resolved).toBeNull();
+  });
 });
 
-describe("resolveFoodItemStockVisualHint", () => {
+describe("resolveFoodItemBaselineTotalGrams (régression Tenders)", () => {
+  it("n'utilise pas une biblio incompatible quand une baseline enregistrée existe", async () => {
+    const { resolveFoodItemBaselineTotalGrams } = await import("@/lib/stockUtils");
+    const fi = {
+      id: "t1",
+      name: "Tenders",
+      grams: "400",
+      quantity: 2,
+    } as FoodItem;
+    const baseline = resolveFoodItemBaselineTotalGrams(fi, { totalGrams: 800 }, 500);
+    expect(baseline).toBeNull();
+  });
+
+  it("détecte une vraie entame via baseline enregistrée sur pot unique", async () => {
+    const { resolveFoodItemBaselineTotalGrams, isFoodItemPhysicallyOpened } = await import("@/lib/stockUtils");
+    const fi = {
+      id: "t1",
+      name: "Sauce",
+      grams: "225",
+      quantity: null,
+    } as FoodItem;
+    const baseline = resolveFoodItemBaselineTotalGrams(fi, { totalGrams: 450 }, null);
+    expect(baseline).toBe(450);
+    expect(isFoodItemPhysicallyOpened(fi, baseline)).toBe(true);
+  });
+
+  it("ne marque pas entamé un multi-paquet scellé sous la baseline d'origine", async () => {
+    const { isFoodItemPhysicallyOpened } = await import("@/lib/stockUtils");
+    const fi = {
+      id: "t1",
+      name: "Tenders",
+      grams: "400",
+      quantity: 2,
+    } as FoodItem;
+    expect(isFoodItemPhysicallyOpened(fi, 1200)).toBe(false);
+  });
+});describe("resolveFoodItemStockVisualHint", () => {
   const tenders: FoodItem = {
     id: "t1",
     name: "Tenders",
@@ -621,7 +852,7 @@ describe("resolveFoodItemStockVisualHint", () => {
   });
 
   it("marque entamé + compteur attendu sous le poids d'origine", () => {
-    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225" };
+    const sauce = { ...tenders, name: "Sauce tikka masala", grams: "225", quantity: null };
     const hint = resolveFoodItemStockVisualHint(sauce, [], "2026-06-29T12:00:00.000Z", undefined, 450);
     expect(hint.isPhysicallyOpened).toBe(true);
     expect(hint.counterExpected).toBe(true);

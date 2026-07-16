@@ -519,9 +519,30 @@ export function isFoodItemFullySealed(fi: FoodItem): boolean {
   return Math.abs(total - q * perUnit) < 0.01;
 }
 
+/** Indique si l'aliment est suivi uniquement à l'unité (sans grammage renseigné). */
+export function isCountOnlyFoodItem(fi: FoodItem): boolean {
+  return parseQty(fi.grams) <= 0;
+}
+
+/**
+ * Indique si la quantité unitaire a baissé par rapport à la référence enregistrée à l'ajout.
+ * Sert aux aliments sans grammes (ex. Blanc de dinde #4 → #2 = paquet entamé).
+ */
+export function isFoodItemQuantityReduced(
+  fi: FoodItem,
+  baselineQuantity?: number | null,
+): boolean {
+  if (!isCountOnlyFoodItem(fi)) return false;
+  if (baselineQuantity == null || baselineQuantity <= 0) return false;
+  return (fi.quantity ?? 1) < baselineQuantity;
+}
+
 /**
  * Résout le poids total de référence (paquet d'origine) pour détecter une entame.
  * Priorité : baseline enregistrée à l'ajout → encodage « unité|reste » → défaut bibliothèque.
+ * La bibliothèque n'est utilisée que sans baseline enregistrée, et seulement si le grammage
+ * unitaire de la fiche est absent ou compatible (évite 2×400g scellés marqués entamés si
+ * la biblio suggère 500g).
  */
 export function resolveFoodItemBaselineTotalGrams(
   fi: FoodItem,
@@ -539,22 +560,37 @@ export function resolveFoodItemBaselineTotalGrams(
     const q = fi.quantity ?? 1;
     if (unit > 0) candidates.push(unit * q);
   }
-  if (libraryUnitGrams && libraryUnitGrams > 0) {
-    candidates.push(libraryUnitGrams * (fi.quantity ?? 1));
+  if (!recordedBaseline?.totalGrams && libraryUnitGrams && libraryUnitGrams > 0) {
+    const cardUnit = parseQty(fi.grams);
+    if (cardUnit <= 0 || Math.abs(cardUnit - libraryUnitGrams) < 0.01) {
+      candidates.push(libraryUnitGrams * (fi.quantity ?? 1));
+    }
   }
   const aboveCurrent = candidates.filter((b) => b > current + 0.01);
   return aboveCurrent.length > 0 ? Math.max(...aboveCurrent) : null;
 }
 
 /**
- * Indique si le lot est physiquement entamé (reliquat, quantité réduite, ou sous le poids d'origine).
+ * Indique si le lot est physiquement entamé (reliquat, quantité unitaire réduite, ou
+ * pot unique sans multi-quantité sous le poids d'origine).
+ * Les multi-paquets encore scellés (ex. 2×400g ou 1×400g restant après conso d'un autre)
+ * ne sont PAS considérés entamés même si le total est sous la baseline d'origine.
  */
 export function isFoodItemPhysicallyOpened(
   fi: FoodItem,
   baselineTotalGrams?: number | null,
+  baselineQuantity?: number | null,
 ): boolean {
+  if (isCountOnlyFoodItem(fi)) {
+    return isFoodItemQuantityReduced(fi, baselineQuantity);
+  }
   if (!isFoodItemFullySealed(fi)) return true;
-  if (baselineTotalGrams != null && baselineTotalGrams > 0) {
+  // Pot unique (pas de #quantité) : poids total baissé sans encodage « unit|reste »
+  if (
+    baselineTotalGrams != null &&
+    baselineTotalGrams > 0 &&
+    fi.quantity == null
+  ) {
     return getFoodItemTotalGrams(fi) < baselineTotalGrams - 0.01;
   }
   return false;
