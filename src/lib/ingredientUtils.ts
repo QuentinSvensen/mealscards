@@ -815,6 +815,73 @@ export function ingredientsForPossibleCardDisplay(ingredients: string | null | u
 }
 
 /**
+ * Liste les ingrédients optionnels uniques d'une recette (pour la pop-up avant transfert vers Possible).
+ */
+export function listUniqueOptionalIngredients(
+  ingredients: string | null | undefined,
+): { key: string; label: string }[] {
+  if (!ingredients?.trim()) return [];
+  const seen = new Set<string>();
+  const out: { key: string; label: string }[] = [];
+  for (const line of parseIngredientsToLines(ingredients)) {
+    if (!line.isOptional || !line.name.trim()) continue;
+    const key = normalizeKey(line.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const qtyPart = [formatQtyDisplay(line.qty), line.count.trim()].filter(Boolean).join(" ");
+    const label = [qtyPart, line.name.trim()].filter(Boolean).join(" ").trim();
+    out.push({ key, label: label || line.name.trim() });
+  }
+  return out;
+}
+
+/**
+ * Produit un override Possible : retire le « ? » des optionnels cochés (includeKeys).
+ * La recette maître n'est pas modifiée — à utiliser uniquement pour ingredients_override.
+ */
+export function applyOptionalInclusionsToIngredients(
+  ingredients: string | null | undefined,
+  includeKeys: Set<string>,
+): string | null {
+  if (!ingredients?.trim() || includeKeys.size === 0) return ingredients ?? null;
+  const lines = parseIngredientsToLines(ingredients);
+  let changed = false;
+  for (const line of lines) {
+    if (!line.isOptional || !line.name.trim()) continue;
+    if (includeKeys.has(normalizeKey(line.name))) {
+      line.isOptional = false;
+      changed = true;
+    }
+  }
+  if (!changed) return ingredients ?? null;
+  return serializeIngredients(lines) ?? ingredients ?? null;
+}
+
+/**
+ * Enrichit un override déjà consommé (sans optionnels) en y ajoutant les optionnels
+ * choisis comme ingrédients normaux, depuis la recette d'origine.
+ */
+export function appendIncludedOptionalsToOverride(
+  consumedOverride: string | null,
+  originalIngredients: string | null | undefined,
+  includeKeys: Set<string>,
+): string | null {
+  if (includeKeys.size === 0) return consumedOverride;
+  if (!consumedOverride?.trim()) {
+    return applyOptionalInclusionsToIngredients(originalIngredients, includeKeys);
+  }
+
+  const includedLines = parseIngredientsToLines(originalIngredients ?? null)
+    .filter((l) => l.isOptional && l.name.trim() && includeKeys.has(normalizeKey(l.name)))
+    .map((l) => ({ ...l, isOptional: false, isOr: false, isAnd: false }));
+  if (includedLines.length === 0) return consumedOverride;
+
+  const added = serializeIngredients(includedLines);
+  if (!added) return consumedOverride;
+  return `${consumedOverride}, ${added}`;
+}
+
+/**
  * Construit une table nom normalisé → nom affiché depuis une recette de référence.
  * Sert à réafficher les apostrophes/accents quand un override a été généré avec des noms normalisés.
  */

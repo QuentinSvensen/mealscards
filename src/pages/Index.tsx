@@ -29,7 +29,14 @@ import {
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, smartFoodContains,
   extractIngredientMacros,
+  listUniqueOptionalIngredients,
+  applyOptionalInclusionsToIngredients,
+  appendIncludedOptionalsToOverride,
 } from "@/lib/ingredientUtils";
+import {
+  OptionalIngredientsMoveDialog,
+  type OptionalIngredientChoice,
+} from "@/components/OptionalIngredientsMoveDialog";
 import {
   buildStockMap, buildFoodItemIndex, findStockKey, pickBestAlternative,
   getMealMultiple, getMealFractionalRatio,
@@ -733,6 +740,41 @@ const Index = () => {
     [syncDessertFoodPrefsAfterRestore, syncMorningMealPrefsAfterRestore],
   );
 
+  // Pop-up optionnels : état + promesse résolue par Continuer / Annuler
+  const [optionalMoveDialog, setOptionalMoveDialog] = useState<{
+    mealName: string;
+    optionals: OptionalIngredientChoice[];
+  } | null>(null);
+  const [optionalIncludeKeys, setOptionalIncludeKeys] = useState<Set<string>>(() => new Set());
+  const optionalMoveResolveRef = useRef<((keys: Set<string> | null) => void) | null>(null);
+
+  /** Demande à l'utilisateur quels optionnels inclure sur la carte Possible (null = annulation). */
+  const askOptionalIngredientInclusions = (mealName: string, optionals: OptionalIngredientChoice[]) =>
+    new Promise<Set<string> | null>((resolve) => {
+      optionalMoveResolveRef.current = resolve;
+      setOptionalIncludeKeys(new Set());
+      setOptionalMoveDialog({ mealName, optionals });
+    });
+
+  /** Ferme la pop-up optionnels et résout la promesse en attente. */
+  const finishOptionalMoveDialog = (keys: Set<string> | null) => {
+    const resolve = optionalMoveResolveRef.current;
+    optionalMoveResolveRef.current = null;
+    setOptionalMoveDialog(null);
+    setOptionalIncludeKeys(new Set());
+    resolve?.(keys);
+  };
+
+  /** Alterne l'inclusion d'un ingrédient optionnel dans la sélection de la pop-up. */
+  const toggleOptionalIncludeKey = (key: string) => {
+    setOptionalIncludeKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Transfert d'un repas vers la liste "Possible" (avec déduction de stock)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -762,6 +804,18 @@ const Index = () => {
     const meal = meals.find(m => m.id === mealId);
     if (!meal) return;
 
+    // Pop-up si des optionnels existent (Tous / Au choix → Possible uniquement)
+    let includedOptionalKeys = new Set<string>();
+    const fromMasterOrAvailable = source === "master" || source === "available";
+    if (fromMasterOrAvailable) {
+      const optionals = listUniqueOptionalIngredients(meal.ingredients);
+      if (optionals.length > 0) {
+        const choice = await askOptionalIngredientInclusions(meal.name, optionals);
+        if (choice === null) return;
+        includedOptionalKeys = choice;
+      }
+    }
+
     // 1. Analyser le stock avant déduction pour l'expiration (sans déduire)
     const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
 
@@ -790,13 +844,29 @@ const Index = () => {
       }
     }
 
+    // Override Possible : optionnels cochés deviennent obligatoires (recette maître inchangée)
+    let ingredientsOverride: string | null = null;
+    if (consumedIngredientsFromDeduction && consumedIngredientsFromDeduction !== meal.ingredients) {
+      ingredientsOverride = appendIncludedOptionalsToOverride(
+        consumedIngredientsFromDeduction,
+        meal.ingredients,
+        includedOptionalKeys,
+      );
+    } else if (includedOptionalKeys.size > 0) {
+      ingredientsOverride = applyOptionalInclusionsToIngredients(meal.ingredients, includedOptionalKeys);
+    }
+
     // 3. Calculer les calories/protéines AVANT déduction pour les « figer » sur la nouvelle carte
     const isAvailBefore = (name: string) => {
       const fi = foodItems.find(f => strictNameMatch(f.name, name));
       return !!fi && (fi.is_infinite || (fi.quantity ?? 0) > 0 || parseQty(fi.grams) > 0);
     };
-    const preCal = getDisplayedCalories(meal, undefined, undefined, isAvailBefore);
-    const prePro = getDisplayedProtein(meal, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
+    const mealForMacros =
+      ingredientsOverride && ingredientsOverride !== meal.ingredients
+        ? { ...meal, ingredients: ingredientsOverride }
+        : meal;
+    const preCal = getDisplayedCalories(mealForMacros, undefined, undefined, isAvailBefore);
+    const prePro = getDisplayedProtein(mealForMacros, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
 
     // 4. Carte « Possible » = copie logique avant déduction stock
     const finalCounterDate =
@@ -812,8 +882,29 @@ const Index = () => {
 
     if (result?.id) {
       if (snapshots.length > 0) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
-      if (consumedIngredientsFromDeduction && consumedIngredientsFromDeduction !== meal.ingredients) {
-        updatePossibleIngredients.mutate({ id: result.id, ingredients_override: consumedIngredientsFromDeduction });
+
+      // Au choix + optionnels inclus : déduire le stock supplémentaire (comme une édition d'override)
+      if (
+        source !== "master" &&
+        includedOptionalKeys.size > 0 &&
+        ingredientsOverride
+      ) {
+        const oldForStock = consumedIngredientsFromDeduction ?? meal.ingredients;
+        const extraSnaps = await adjustStockForIngredientChange(
+          oldForStock,
+          ingredientsOverride,
+          snapshots,
+        );
+        if (extraSnaps.length > 0) {
+          updateSnapshots((prev) => ({
+            ...prev,
+            [result.id]: [...(prev[result.id] ?? snapshots), ...extraSnaps],
+          }));
+        }
+      }
+
+      if (ingredientsOverride && ingredientsOverride !== meal.ingredients) {
+        updatePossibleIngredients.mutate({ id: result.id, ingredients_override: ingredientsOverride });
       }
       if (source === "master") setMasterSourcePmIds(prev => new Set([...prev, result.id]));
       if (source === "available" && typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
@@ -1022,6 +1113,16 @@ const Index = () => {
         </div>
       </header>
       <Chronometer open={chronoOpen} onOpenChange={setChronoOpen} />
+
+      <OptionalIngredientsMoveDialog
+        open={!!optionalMoveDialog}
+        mealName={optionalMoveDialog?.mealName ?? ""}
+        optionals={optionalMoveDialog?.optionals ?? []}
+        includeKeys={optionalIncludeKeys}
+        onToggleKey={toggleOptionalIncludeKey}
+        onConfirm={() => finishOptionalMoveDialog(new Set(optionalIncludeKeys))}
+        onCancel={() => finishOptionalMoveDialog(null)}
+      />
 
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
         <Suspense fallback={<div className="flex justify-center py-8 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}>

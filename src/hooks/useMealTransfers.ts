@@ -1137,18 +1137,102 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   // ═════════════════════════════════════════════════════════════════════════
 
   /**
+   * Accumulateur de writes stock : mémorise les lignes autoritatives renvoyées par le primaire
+   * (read-after-write via `.select()`), les suppressions et les insertions, afin de patcher le cache
+   * React Query immédiatement (latence visuelle ≤ 1s) sans refetch sur une réplique en retard.
+   */
+  type StockWriteAccumulator = {
+    authoritativeById: Map<string, FoodItem>;
+    deletedIds: Set<string>;
+    insertedItems: FoodItem[];
+    working: FoodItem[];
+  };
+
+  /** Crée un accumulateur de writes stock à partir d'une base d'items (copie défensive). */
+  const createStockAccumulator = (base: FoodItem[]): StockWriteAccumulator => ({
+    authoritativeById: new Map(),
+    deletedIds: new Set(),
+    insertedItems: [],
+    working: base.map((d) => ({ ...d })),
+  });
+
+  /** UPDATE avec read-after-write : mémorise la ligne renvoyée par le primaire dans l'accumulateur. */
+  const accStockUpdate = async (
+    acc: StockWriteAccumulator,
+    label: string,
+    id: string,
+    payload: Record<string, unknown>,
+  ) => {
+    const res = await safeMutate(label, () =>
+      supabase.from("food_items").update(payload as any).eq("id", id).select("*").single(),
+    );
+    if (res?.data?.id) {
+      const mapped = mapFoodItemRow(res.data);
+      acc.authoritativeById.set(id, mapped);
+      const idx = acc.working.findIndex((f) => f.id === id);
+      if (idx >= 0) acc.working[idx] = mapped;
+    }
+  };
+
+  /** INSERT avec read-after-write : mémorise la ligne créée dans l'accumulateur. */
+  const accStockInsert = async (
+    acc: StockWriteAccumulator,
+    label: string,
+    row: Record<string, unknown>,
+  ) => {
+    const res = await safeMutate(label, () =>
+      (supabase as any).from("food_items").insert(row).select("*").single(),
+    );
+    if (res?.data?.id) {
+      const mapped = mapFoodItemRow(res.data);
+      acc.insertedItems.push(mapped);
+      acc.working.push(mapped);
+    }
+  };
+
+  /** DELETE : mémorise l'id supprimé dans l'accumulateur. */
+  const accStockDelete = async (acc: StockWriteAccumulator, label: string, id: string) => {
+    await safeMutate(label, () => supabase.from("food_items").delete().eq("id", id));
+    acc.deletedIds.add(id);
+    acc.authoritativeById.delete(id);
+    const idx = acc.working.findIndex((f) => f.id === id);
+    if (idx >= 0) acc.working.splice(idx, 1);
+  };
+
+  /**
+   * Applique immédiatement l'accumulateur au cache React Query et re-bloque le realtime,
+   * au lieu d'un invalidate + refetch qui pourrait retomber sur une réplique Supabase en retard.
+   */
+  const commitStockAccumulator = async (acc: StockWriteAccumulator) => {
+    await qc.cancelQueries({ queryKey: ["food_items"] });
+    qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+      if (!Array.isArray(old)) return acc.working;
+      const next = old
+        .filter((fi) => !acc.deletedIds.has(fi.id))
+        .map((fi) => acc.authoritativeById.get(fi.id) ?? fi);
+      for (const ins of acc.insertedItems) {
+        if (!next.some((f) => f.id === ins.id)) next.push(ins);
+      }
+      return next;
+    });
+    suppressStockRealtimeBriefly();
+  };
+
+  /**
    * Rend au stock uniquement la portion déduite pour une carte Possible (grammes ou unités).
+   * Écrit via l'accumulateur (read-after-write) et travaille sur `acc.working` pour rester cohérent
+   * entre plusieurs snapshots sans refetch intermédiaire.
    */
   const addPortionBackToStockItem = async (
     snap: FoodItem,
     portion: { grams: number; quantity: number },
-    currentFoodItems: FoodItem[]
+    acc: StockWriteAccumulator,
   ) => {
     const { grams: neededGrams, quantity: neededCount } = portion;
     if (neededGrams <= 0 && neededCount <= 0) return;
 
     const name = snap.name;
-    const matchingItems = currentFoodItems
+    const matchingItems = acc.working
       .filter((fi) => (snap.id ? fi.id === snap.id : strictNameMatch(fi.name, name)) && !fi.is_infinite)
       .sort(sortStockDeductionPriority);
 
@@ -1156,31 +1240,25 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       const template = stripPortionDeductionMeta(snap);
       const { id: _id, created_at: _ca, ...rest } = template as Record<string, unknown>;
       if (neededCount > 0) {
-        await safeMutate("Restauration portion (recréation count)", () =>
-          (supabase as any).from("food_items").insert({
-            ...rest,
-            quantity: neededCount,
-          })
-        );
+        await accStockInsert(acc, "Restauration portion (recréation count)", {
+          ...rest,
+          quantity: neededCount,
+        });
       } else if (neededGrams > 0) {
         const unitGrams = parseQty(template.grams);
         if (unitGrams > 0) {
           const fullUnits = Math.floor(neededGrams / unitGrams);
           const rem = Math.round((neededGrams - fullUnits * unitGrams) * 10) / 10;
-          await safeMutate("Restauration portion (recréation grams)", () =>
-            (supabase as any).from("food_items").insert({
-              ...rest,
-              quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
-              grams: encodeStoredGrams(unitGrams, rem > 0 ? rem : null),
-            })
-          );
+          await accStockInsert(acc, "Restauration portion (recréation grams)", {
+            ...rest,
+            quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
+            grams: encodeStoredGrams(unitGrams, rem > 0 ? rem : null),
+          });
         } else {
-          await safeMutate("Restauration portion (recréation simple)", () =>
-            (supabase as any).from("food_items").insert({
-              ...rest,
-              grams: formatNumeric(neededGrams),
-            })
-          );
+          await accStockInsert(acc, "Restauration portion (recréation simple)", {
+            ...rest,
+            grams: formatNumeric(neededGrams),
+          });
         }
       }
       return;
@@ -1199,9 +1277,10 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const synthetic = { ...fi, quantity: newQty } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
         const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
-        await safeMutate("Restauration portion (count)", () =>
-        supabase.from("food_items").update({ quantity: Math.ceil(newQty), ...counterUpdate } as any).eq("id", fi.id)
-      );
+        await accStockUpdate(acc, "Restauration portion (count)", fi.id, {
+          quantity: Math.ceil(newQty),
+          ...counterUpdate,
+        });
     }
     if (neededGrams > 0) {
       const fiGrams = parseQty(fi.grams);
@@ -1215,25 +1294,21 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
         const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
-        await safeMutate("Restauration portion (grams)", () =>
-          supabase.from("food_items").update({
-            quantity: newQty,
-            grams: newGramsStr,
-            ...counterUpdate,
-          } as any).eq("id", fi.id)
-        );
+        await accStockUpdate(acc, "Restauration portion (grams)", fi.id, {
+          quantity: newQty,
+          grams: newGramsStr,
+          ...counterUpdate,
+        });
       } else {
         const currentTotal = fiGrams;
         const newG = formatNumeric(currentTotal + neededGrams);
         const synthetic = { ...fi, grams: newG } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
         const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
-        await safeMutate("Restauration portion (simple)", () =>
-          supabase.from("food_items").update({
-            grams: newG,
-            ...counterUpdate,
-          } as any).eq("id", fi.id)
-        );
+        await accStockUpdate(acc, "Restauration portion (simple)", fi.id, {
+          grams: newG,
+          ...counterUpdate,
+        });
       }
     }
   };
@@ -1250,22 +1325,26 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     snapshots?: FoodItem[],
     options?: RestoreIngredientsOptions,
   ): Promise<FoodItem[]> => {
+    // Bloquer le realtime avant les writes pour que le refetch réplica ne réécrase pas notre cache.
+    suppressStockRealtimeBriefly();
+
     if (snapshots && snapshots.length > 0) {
       const usePortionRestore = snapshots.some(hasPortionDeductionMeta);
       if (usePortionRestore) {
-        let currentFoodItems = await fetchAllFoodItems();
-
+        // Base = cache React Query (déjà à jour après la déduction), enrichi au fil des writes.
+        const acc = createStockAccumulator(getLiveFoodItems());
         for (const snap of snapshots) {
           const portion = getPortionDeduction(snap);
-          await addPortionBackToStockItem(snap, portion, currentFoodItems);
-          currentFoodItems = await fetchAllFoodItems();
+          await addPortionBackToStockItem(snap, portion, acc);
         }
-        await invalidateStock();
-        return currentFoodItems;
+        await commitStockAccumulator(acc);
+        return acc.working;
       }
 
-      // Mode legacy : upsert de l'état complet (anciens snapshots sans delta)
-      await safeMutate("Restauration du stock", () =>
+      // Mode legacy : upsert de l'état complet (anciens snapshots sans delta).
+      // Read-after-write via `.select()` pour patcher le cache immédiatement, sans refetch stale.
+      const acc = createStockAccumulator(getLiveFoodItems());
+      const results = await safeMutate("Restauration du stock", () =>
         Promise.all(snapshots.map((fi) => {
           const clean = stripPortionDeductionMeta(fi);
           const sealed = isFoodFullySealed(clean);
@@ -1278,18 +1357,29 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             sort_order: clean.sort_order, created_at: clean.created_at, is_meal: clean.is_meal,
             is_infinite: clean.is_infinite, is_dry: clean.is_dry, storage_type: clean.storage_type,
             quantity: clean.quantity, food_type: clean.food_type,
-          });
+          }).select("*").single();
         }))
       );
-      await invalidateStock();
-      return fetchAllFoodItems();
+      if (Array.isArray(results)) {
+        for (const res of results) {
+          const row = res?.data;
+          if (!row?.id) continue;
+          const mapped = mapFoodItemRow(row);
+          const idx = acc.working.findIndex((f) => f.id === mapped.id);
+          if (idx >= 0) { acc.working[idx] = mapped; acc.authoritativeById.set(mapped.id, mapped); }
+          else { acc.working.push(mapped); acc.insertedItems.push(mapped); }
+        }
+      }
+      await commitStockAccumulator(acc);
+      return acc.working;
     }
 
     // Mode 2 : restauration estimée depuis la recette
     if (!meal.ingredients?.trim()) return [];
 
-    // IMPORTANT : Récupérer les données fraîches de Supabase pour éviter les erreurs dues au cache React périmé
-    let currentFoodItems = await fetchAllFoodItems();
+    // Base = cache React Query (à jour après déduction), enrichi au fil des writes read-after-write.
+    const acc = createStockAccumulator(getLiveFoodItems());
+    const currentFoodItems = acc.working;
 
     const groups = parseIngredientGroups(meal.ingredients);
     for (const group of groups) {
@@ -1314,63 +1404,57 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const recreatedMeta = resolveRecreatedFoodItemMeta(templateFi, name, storageFallback, options);
 
           if (neededCount > 0) {
-            await safeMutate("Restauration stock (recréation count)", () =>
-              (supabase as any).from("food_items").insert({
-                name: templateFi?.name ?? name,
-                quantity: neededCount,
-                grams: templateFi?.grams ?? null,
-                calories: templateFi?.calories ?? null,
-                protein: templateFi?.protein ?? null,
-                is_indivisible: templateFi?.is_indivisible ?? false,
-                expiration_date: recreatedMeta.expiration_date,
-                counter_start_date: recreatedMeta.counter_start_date,
-                no_counter: templateFi?.no_counter ?? false,
-                is_meal: templateFi?.is_meal ?? false,
-                is_infinite: false,
-                is_dry: templateFi?.is_dry ?? false,
-                storage_type: storageFallback,
-                food_type: templateFi?.food_type ?? null,
-              })
-            );
+            await accStockInsert(acc, "Restauration stock (recréation count)", {
+              name: templateFi?.name ?? name,
+              quantity: neededCount,
+              grams: templateFi?.grams ?? null,
+              calories: templateFi?.calories ?? null,
+              protein: templateFi?.protein ?? null,
+              is_indivisible: templateFi?.is_indivisible ?? false,
+              expiration_date: recreatedMeta.expiration_date,
+              counter_start_date: recreatedMeta.counter_start_date,
+              no_counter: templateFi?.no_counter ?? false,
+              is_meal: templateFi?.is_meal ?? false,
+              is_infinite: false,
+              is_dry: templateFi?.is_dry ?? false,
+              storage_type: storageFallback,
+              food_type: templateFi?.food_type ?? null,
+            });
           } else if (neededGrams > 0 && unitGrams > 0) {
             const fullUnits = Math.floor(neededGrams / unitGrams);
             const rem = Math.round((neededGrams - fullUnits * unitGrams) * 10) / 10;
-            await safeMutate("Restauration stock (recréation grams)", () =>
-              (supabase as any).from("food_items").insert({
-                name: templateFi?.name ?? name,
-                quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
-                grams: encodeStoredGrams(unitGrams, rem > 0 ? rem : null),
-                calories: templateFi?.calories ?? null,
-                protein: templateFi?.protein ?? null,
-                is_indivisible: templateFi?.is_indivisible ?? false,
-                expiration_date: recreatedMeta.expiration_date,
-                counter_start_date: recreatedMeta.counter_start_date,
-                no_counter: templateFi?.no_counter ?? false,
-                is_meal: templateFi?.is_meal ?? false,
-                is_infinite: false,
-                is_dry: templateFi?.is_dry ?? false,
-                storage_type: storageFallback,
-                food_type: templateFi?.food_type ?? null,
-              })
-            );
+            await accStockInsert(acc, "Restauration stock (recréation grams)", {
+              name: templateFi?.name ?? name,
+              quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
+              grams: encodeStoredGrams(unitGrams, rem > 0 ? rem : null),
+              calories: templateFi?.calories ?? null,
+              protein: templateFi?.protein ?? null,
+              is_indivisible: templateFi?.is_indivisible ?? false,
+              expiration_date: recreatedMeta.expiration_date,
+              counter_start_date: recreatedMeta.counter_start_date,
+              no_counter: templateFi?.no_counter ?? false,
+              is_meal: templateFi?.is_meal ?? false,
+              is_infinite: false,
+              is_dry: templateFi?.is_dry ?? false,
+              storage_type: storageFallback,
+              food_type: templateFi?.food_type ?? null,
+            });
           } else if (neededGrams > 0) {
-            await safeMutate("Restauration stock (recréation simple)", () =>
-              (supabase as any).from("food_items").insert({
-                name: templateFi?.name ?? name,
-                grams: formatNumeric(neededGrams),
-                calories: templateFi?.calories ?? null,
-                protein: templateFi?.protein ?? null,
-                is_indivisible: templateFi?.is_indivisible ?? false,
-                expiration_date: recreatedMeta.expiration_date,
-                counter_start_date: recreatedMeta.counter_start_date,
-                no_counter: templateFi?.no_counter ?? false,
-                is_meal: templateFi?.is_meal ?? false,
-                is_infinite: false,
-                is_dry: templateFi?.is_dry ?? false,
-                storage_type: storageFallback,
-                food_type: templateFi?.food_type ?? null,
-              })
-            );
+            await accStockInsert(acc, "Restauration stock (recréation simple)", {
+              name: templateFi?.name ?? name,
+              grams: formatNumeric(neededGrams),
+              calories: templateFi?.calories ?? null,
+              protein: templateFi?.protein ?? null,
+              is_indivisible: templateFi?.is_indivisible ?? false,
+              expiration_date: recreatedMeta.expiration_date,
+              counter_start_date: recreatedMeta.counter_start_date,
+              no_counter: templateFi?.no_counter ?? false,
+              is_meal: templateFi?.is_meal ?? false,
+              is_infinite: false,
+              is_dry: templateFi?.is_dry ?? false,
+              storage_type: storageFallback,
+              food_type: templateFi?.food_type ?? null,
+            });
           }
           continue;
         }
@@ -1378,9 +1462,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const fi = matchingItems[0];
         if (neededCount > 0) {
           const newQty = (fi.quantity ?? 1) + neededCount;
-          await safeMutate("Restauration stock (count)", () =>
-            supabase.from("food_items").update({ quantity: Math.ceil(newQty) } as any).eq("id", fi.id)
-          );
+          await accStockUpdate(acc, "Restauration stock (count)", fi.id, { quantity: Math.ceil(newQty) });
         } else if (neededGrams > 0) {
           const fiGrams = parseQty(fi.grams);
           if (fi.quantity && fi.quantity >= 1 && fiGrams > 0) {
@@ -1392,24 +1474,20 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             const newGramsStr = encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null);
             const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
             const clearCtr = isFoodFullySealed(synthetic);
-            await safeMutate("Restauration stock (grams)", () =>
-              supabase.from("food_items").update({
-                quantity: newQty,
-                grams: newGramsStr,
-                ...(clearCtr ? { counter_start_date: null } : {}),
-              } as any).eq("id", fi.id)
-            );
+            await accStockUpdate(acc, "Restauration stock (grams)", fi.id, {
+              quantity: newQty,
+              grams: newGramsStr,
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            });
           } else {
             const currentTotal = fiGrams;
             const newG = formatNumeric(currentTotal + neededGrams);
             const synthetic = { ...fi, grams: newG } as FoodItem;
             const clearCtr = isFoodFullySealed(synthetic);
-            await safeMutate("Restauration stock (simple)", () =>
-              supabase.from("food_items").update({
-                grams: newG,
-                ...(clearCtr ? { counter_start_date: null } : {}),
-              } as any).eq("id", fi.id)
-            );
+            await accStockUpdate(acc, "Restauration stock (simple)", fi.id, {
+              grams: newG,
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            });
           }
         }
       }
@@ -1429,28 +1507,24 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const newGramsStr = encodeStoredGrams(unit, remainder > 0 ? remainder : null);
           const synthetic = { ...nameMatch, quantity: newQty, grams: newGramsStr } as FoodItem;
           const clearCtr = isFoodFullySealed(synthetic);
-          await safeMutate("Restauration nom", () =>
-            supabase.from("food_items").update({
-              quantity: newQty,
-              grams: newGramsStr,
-              ...(clearCtr ? { counter_start_date: null } : {}),
-            } as any).eq("id", nameMatch.id)
-          );
+          await accStockUpdate(acc, "Restauration nom", nameMatch.id, {
+            quantity: newQty,
+            grams: newGramsStr,
+            ...(clearCtr ? { counter_start_date: null } : {}),
+          });
         } else {
           const newG = formatNumeric(unit + mealGrams);
           const synthetic = { ...nameMatch, grams: newG } as FoodItem;
           const clearCtr = isFoodFullySealed(synthetic);
-          await safeMutate("Restauration nom (simple)", () =>
-            supabase.from("food_items").update({
-              grams: newG,
-              ...(clearCtr ? { counter_start_date: null } : {}),
-            } as any).eq("id", nameMatch.id)
-          );
+          await accStockUpdate(acc, "Restauration nom (simple)", nameMatch.id, {
+            grams: newG,
+            ...(clearCtr ? { counter_start_date: null } : {}),
+          });
         }
       }
     }
-    await invalidateStock();
-    return fetchAllFoodItems();
+    await commitStockAccumulator(acc);
+    return acc.working;
   };
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -1471,26 +1545,61 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const newSnapshots: FoodItem[] = [];
     const existingSnapshotIds = new Set(snapshots?.map(s => s.id) ?? []);
 
-    // Récupérer les données fraîches pour éviter les doubles déductions
-    const { data: freshItems } = await supabase.from("food_items").select("*").order("sort_order", { ascending: true });
-    const currentFoodItems: FoodItem[] = (freshItems ?? []).map((d: any) => ({
-      ...d,
-      is_meal: d.is_meal ?? false,
-      is_infinite: d.is_infinite ?? false,
-      is_dry: d.is_dry ?? false,
-      is_indivisible: d.is_indivisible ?? false,
-      no_counter: d.no_counter ?? false,
-      storage_type: d.storage_type ?? (d.is_dry ? "sec" : "frigo"),
-      quantity: d.quantity ?? null,
-      food_type: d.food_type ?? null,
-      protein: d.protein ?? null,
-    })) as FoodItem[];
+    // Préférer le cache React Query (déjà à jour après une déduction précédente) pour éviter
+    // de recalculer les deltas sur une lecture réplica potentiellement en retard.
+    const cachedItems = qc.getQueryData<FoodItem[]>(["food_items"]);
+    const currentFoodItems: FoodItem[] = Array.isArray(cachedItems) && cachedItems.length > 0
+      ? cachedItems.map((d) => ({ ...d }))
+      : (await fetchAllFoodItems()).map((d) => ({ ...d }));
+
+    const deletedIds = new Set<string>();
+    const authoritativeById = new Map<string, FoodItem>();
+    const insertedItems: FoodItem[] = [];
+
+    /** Persiste une mise à jour et mémorise la ligne renvoyée par le primaire (pas de refetch). */
+    const persistStockUpdate = async (label: string, id: string, payload: Record<string, unknown>) => {
+      const res = await safeMutate(label, () =>
+        supabase.from("food_items").update(payload as any).eq("id", id).select("*").single(),
+      );
+      const row = res?.data;
+      if (row?.id) {
+        const mapped = mapFoodItemRow(row);
+        authoritativeById.set(id, mapped);
+        const idx = currentFoodItems.findIndex((f) => f.id === id);
+        if (idx >= 0) currentFoodItems[idx] = mapped;
+      }
+    };
+
+    /** Supprime une fiche stock et retire-la du cache local de travail. */
+    const persistStockDelete = async (label: string, id: string) => {
+      await safeMutate(label, () => supabase.from("food_items").delete().eq("id", id));
+      deletedIds.add(id);
+      authoritativeById.delete(id);
+      const idx = currentFoodItems.findIndex((f) => f.id === id);
+      if (idx >= 0) currentFoodItems.splice(idx, 1);
+    };
+
+    /** Recrée une fiche stock et mémorise la ligne créée. */
+    const persistStockInsert = async (label: string, row: Record<string, unknown>) => {
+      const res = await safeMutate(label, () =>
+        supabase.from("food_items").insert(row as any).select("*").single(),
+      );
+      const data = res?.data;
+      if (data?.id) {
+        const mapped = mapFoodItemRow(data);
+        insertedItems.push(mapped);
+        currentFoodItems.push(mapped);
+      }
+    };
+
+    // Bloquer le realtime avant les writes (évite qu'un refetch réplica écrase le cache).
+    suppressStockRealtimeBriefly();
 
     // Construire les maps d'utilisation ancien vs nouveau
     const oldGroups = oldIngredients ? parseIngredientGroups(oldIngredients) : [];
     const newGroups = newIngredients ? parseIngredientGroups(newIngredients) : [];
 
-    /** Construit une map nom → { grams, count } des quantités utilisées */
+    /** Construit une map nom → { grams, count } des quantités utilisées (ignore les optionnels). */
     const buildUsageMap = (groups: any[][][]) => {
       const map = new Map<string, { grams: number; count: number }>();
       for (const group of groups) {
@@ -1498,6 +1607,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         if (group.length > 0) {
           const bundle = group[0]; // On prend la première alternative par défaut pour le delta
           for (const item of bundle) {
+            if (item.optional) continue;
             const prev = map.get(item.name) ?? { grams: 0, count: 0 };
             map.set(item.name, { grams: prev.grams + (item.qty || 0), count: prev.count + (item.count || 0) });
           }
@@ -1524,32 +1634,38 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         let toDeduct = deltaGrams;
         for (const fi of matchingItems) {
           if (toDeduct <= 0) break;
-          const totalAvail = getFoodItemTotalGrams(fi);
+          if (deletedIds.has(fi.id)) continue;
+          const liveFi = authoritativeById.get(fi.id) ?? fi;
+          const totalAvail = getFoodItemTotalGrams(liveFi);
           if (totalAvail <= 0) continue;
           const deduct = Math.min(totalAvail, toDeduct);
           const remaining = totalAvail - deduct;
           toDeduct -= deduct;
           if (!existingSnapshotIds.has(fi.id)) {
-            newSnapshots.push({ ...fi });
+            newSnapshots.push({ ...liveFi });
             existingSnapshotIds.add(fi.id);
           }
           if (remaining <= 0) {
-            await safeMutate("Ajustement stock", () => supabase.from("food_items").delete().eq("id", fi.id));
+            await persistStockDelete("Ajustement stock", fi.id);
           } else {
-            const perUnit = parseQty(fi.grams);
-            if (fi.quantity && fi.quantity >= 1 && perUnit > 0) {
+            const perUnit = parseQty(liveFi.grams);
+            if (liveFi.quantity && liveFi.quantity >= 1 && perUnit > 0) {
               const fullUnits = Math.floor(remaining / perUnit);
               const rem = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
-              const shouldStart = rem > 0 && !fi.counter_start_date && shouldStartCounter(fi);
-              const shouldClear = rem <= 0 && fi.counter_start_date;
-              await safeMutate("Ajustement stock", () =>
-                supabase.from("food_items").update({ quantity: rem > 0 ? Math.max(1, fullUnits + 1) : fullUnits, grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null), ...(shouldStart ? { counter_start_date: new Date().toISOString() } : {}), ...(shouldClear ? { counter_start_date: null } : {}) } as any).eq("id", fi.id)
-              );
+              const shouldStart = rem > 0 && !liveFi.counter_start_date && shouldStartCounter(liveFi);
+              const shouldClear = rem <= 0 && liveFi.counter_start_date;
+              await persistStockUpdate("Ajustement stock", fi.id, {
+                quantity: rem > 0 ? Math.max(1, fullUnits + 1) : fullUnits,
+                grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+                ...(shouldStart ? { counter_start_date: new Date().toISOString() } : {}),
+                ...(shouldClear ? { counter_start_date: null } : {}),
+              });
             } else {
-              const shouldStart = remaining > 0 && remaining < parseQty(fi.grams) && !fi.counter_start_date && shouldStartCounter(fi);
-              await safeMutate("Ajustement stock", () =>
-                supabase.from("food_items").update({ grams: formatNumeric(remaining), ...(shouldStart ? { counter_start_date: new Date().toISOString() } : {}) } as any).eq("id", fi.id)
-              );
+              const shouldStart = remaining > 0 && remaining < parseQty(liveFi.grams) && !liveFi.counter_start_date && shouldStartCounter(liveFi);
+              await persistStockUpdate("Ajustement stock", fi.id, {
+                grams: formatNumeric(remaining),
+                ...(shouldStart ? { counter_start_date: new Date().toISOString() } : {}),
+              });
             }
           }
         }
@@ -1558,24 +1674,29 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       else if (deltaGrams < 0) {
         const toAdd = -deltaGrams;
         const snapshotFi = snapshots?.find(s => strictNameMatch(s.name, ingName));
-        const fi = snapshotFi ? (currentFoodItems.find(f => f.id === snapshotFi.id) ?? null) : (matchingItems[0] ?? null);
+        const fi = snapshotFi
+          ? (currentFoodItems.find(f => f.id === snapshotFi.id) ?? null)
+          : (matchingItems.find((f) => !deletedIds.has(f.id)) ?? null);
 
-        if (fi) {
-          const perUnit = parseQty(fi.grams);
-          if (fi.quantity && fi.quantity >= 1 && perUnit > 0) {
-            const currentTotal = getFoodItemTotalGrams(fi);
+        if (fi && !deletedIds.has(fi.id)) {
+          const liveFi = authoritativeById.get(fi.id) ?? fi;
+          const perUnit = parseQty(liveFi.grams);
+          if (liveFi.quantity && liveFi.quantity >= 1 && perUnit > 0) {
+            const currentTotal = getFoodItemTotalGrams(liveFi);
             const newTotal = currentTotal + toAdd;
             const fullUnits = Math.floor(newTotal / perUnit);
             const rem = Math.round((newTotal - fullUnits * perUnit) * 10) / 10;
-            const shouldClear = rem <= 0 && fi.counter_start_date;
-            await safeMutate("Ajustement stock", () =>
-              supabase.from("food_items").update({ quantity: rem > 0 ? fullUnits + 1 : fullUnits, grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null), ...(shouldClear ? { counter_start_date: null } : {}) } as any).eq("id", fi.id)
-            );
+            const shouldClear = rem <= 0 && liveFi.counter_start_date;
+            await persistStockUpdate("Ajustement stock", fi.id, {
+              quantity: rem > 0 ? fullUnits + 1 : fullUnits,
+              grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+              ...(shouldClear ? { counter_start_date: null } : {}),
+            });
           } else {
-            const current = parseQty(fi.grams);
-            await safeMutate("Ajustement stock", () =>
-              supabase.from("food_items").update({ grams: formatNumeric(current + toAdd) } as any).eq("id", fi.id)
-            );
+            const current = parseQty(liveFi.grams);
+            await persistStockUpdate("Ajustement stock", fi.id, {
+              grams: formatNumeric(current + toAdd),
+            });
           }
         } else if (snapshotFi) {
           // Item entièrement consommé et supprimé → le recréer depuis le snapshot
@@ -1584,18 +1705,18 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           if (snapshotFi.quantity !== null && snapshotFi.quantity >= 1 && perUnit > 0) {
             const fullUnits = Math.floor(toAdd / perUnit);
             const rem = Math.round((toAdd - fullUnits * perUnit) * 10) / 10;
-            await safeMutate("Ajustement stock (recréation)", () =>
-              supabase.from("food_items").insert({
-                ...rest,
-                quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
-                grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
-                counter_start_date: snapshotFi.counter_start_date,
-              } as any)
-            );
+            await persistStockInsert("Ajustement stock (recréation)", {
+              ...rest,
+              quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
+              grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+              counter_start_date: snapshotFi.counter_start_date,
+            });
           } else {
-            await safeMutate("Ajustement stock (recréation)", () =>
-              supabase.from("food_items").insert({ ...rest, grams: formatNumeric(toAdd), counter_start_date: snapshotFi.counter_start_date } as any)
-            );
+            await persistStockInsert("Ajustement stock (recréation)", {
+              ...rest,
+              grams: formatNumeric(toAdd),
+              counter_start_date: snapshotFi.counter_start_date,
+            });
           }
         }
       }
@@ -1605,34 +1726,34 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         let toDeduct = deltaCount;
         for (const fi of matchingItems) {
           if (toDeduct <= 0) break;
-          const fiCount = fi.quantity ?? 1;
+          if (deletedIds.has(fi.id)) continue;
+          const liveFi = authoritativeById.get(fi.id) ?? fi;
+          const fiCount = liveFi.quantity ?? 1;
           const deduct = Math.min(fiCount, toDeduct);
           toDeduct -= deduct;
           const remaining = fiCount - deduct;
           if (!existingSnapshotIds.has(fi.id)) {
-            newSnapshots.push({ ...fi });
+            newSnapshots.push({ ...liveFi });
             existingSnapshotIds.add(fi.id);
           }
           if (remaining <= 0) {
-            await safeMutate("Ajustement stock (count)", () => supabase.from("food_items").delete().eq("id", fi.id));
+            await persistStockDelete("Ajustement stock (count)", fi.id);
           } else {
             const nowIso = new Date().toISOString();
             const bumpCtr =
-              shouldStartCounter(fi) &&
-              needsCounterUpdate(fi, nowIso) &&
-              isCountOnlyFoodItem(fi);
+              shouldStartCounter(liveFi) &&
+              needsCounterUpdate(liveFi, nowIso) &&
+              isCountOnlyFoodItem(liveFi);
             const clearCtr =
               !bumpCtr &&
-              fi.counter_start_date &&
-              isFoodFullySealed({ ...fi, quantity: remaining } as FoodItem) &&
-              !isCountOnlyFoodItem(fi);
-            await safeMutate("Ajustement stock (count)", () =>
-              supabase.from("food_items").update({
-                quantity: remaining,
-                ...(bumpCtr ? { counter_start_date: nowIso } : {}),
-                ...(clearCtr ? { counter_start_date: null } : {}),
-              } as any).eq("id", fi.id),
-            );
+              liveFi.counter_start_date &&
+              isFoodFullySealed({ ...liveFi, quantity: remaining } as FoodItem) &&
+              !isCountOnlyFoodItem(liveFi);
+            await persistStockUpdate("Ajustement stock (count)", fi.id, {
+              quantity: remaining,
+              ...(bumpCtr ? { counter_start_date: nowIso } : {}),
+              ...(clearCtr ? { counter_start_date: null } : {}),
+            });
           }
         }
       }
@@ -1640,26 +1761,40 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       else if (deltaCount < 0) {
         const toAdd = -deltaCount;
         const snapshotFi = snapshots?.find(s => strictNameMatch(s.name, ingName));
-        const fi = snapshotFi ? (currentFoodItems.find(f => f.id === snapshotFi.id) ?? null) : (matchingItems[0] ?? null);
+        const fi = snapshotFi
+          ? (currentFoodItems.find(f => f.id === snapshotFi.id) ?? null)
+          : (matchingItems.find((f) => !deletedIds.has(f.id)) ?? null);
 
-        if (fi) {
-          await safeMutate("Ajustement stock (count)", () =>
-            supabase.from("food_items").update({ quantity: (fi.quantity ?? 1) + toAdd } as any).eq("id", fi.id)
-          );
+        if (fi && !deletedIds.has(fi.id)) {
+          const liveFi = authoritativeById.get(fi.id) ?? fi;
+          await persistStockUpdate("Ajustement stock (count)", fi.id, {
+            quantity: (liveFi.quantity ?? 1) + toAdd,
+          });
         } else if (snapshotFi) {
           const { created_at, quantity, grams, ...rest } = snapshotFi as Record<string, any>;
-          await safeMutate("Ajustement stock (recréation count)", () =>
-            supabase.from("food_items").insert({
-              ...rest,
-              quantity: toAdd,
-              grams: grams,
-              counter_start_date: snapshotFi.counter_start_date
-            } as any)
-          );
+          await persistStockInsert("Ajustement stock (recréation count)", {
+            ...rest,
+            quantity: toAdd,
+            grams: grams,
+            counter_start_date: snapshotFi.counter_start_date,
+          });
         }
       }
     }
-    await invalidateStock();
+
+    // Mise à jour immédiate du cache (pas de refetch qui pourrait retomber sur une réplique stale).
+    await qc.cancelQueries({ queryKey: ["food_items"] });
+    qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+      if (!Array.isArray(old)) return currentFoodItems;
+      const next = old
+        .filter((fi) => !deletedIds.has(fi.id))
+        .map((fi) => authoritativeById.get(fi.id) ?? fi);
+      for (const ins of insertedItems) {
+        if (!next.some((f) => f.id === ins.id)) next.push(ins);
+      }
+      return next;
+    });
+    suppressStockRealtimeBriefly();
     return newSnapshots;
   };
 
@@ -1682,6 +1817,44 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const nameMatch = liveFoodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
     if (!nameMatch) return none;
 
+    // Bloquer le realtime avant les writes : sinon l'événement Supabase peut déclencher un refetch
+    // sur une réplique en retard qui écraserait notre mise à jour immédiate du cache.
+    suppressStockRealtimeBriefly();
+
+    // Ligne autoritative renvoyée par le primaire (UPDATE) ou id supprimé, pour patcher le cache
+    // React Query sans refetch stale (latence visuelle ≤ 1s).
+    let authoritativeRow: FoodItem | null = null;
+    let deletedId: string | null = null;
+
+    /** Persiste une mise à jour et mémorise la ligne renvoyée par le primaire (pas de refetch). */
+    const persistNameUpdate = async (label: string, payload: Record<string, unknown>) => {
+      const res = await safeMutate(label, () =>
+        supabase.from("food_items").update(payload as any).eq("id", nameMatch.id).select("*").single(),
+      );
+      if (res?.data?.id) authoritativeRow = mapFoodItemRow(res.data);
+    };
+
+    /** Supprime la fiche stock et mémorise l'id pour le retirer du cache local. */
+    const persistNameDelete = async (label: string) => {
+      await safeMutate(label, () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+      deletedId = nameMatch.id;
+    };
+
+    /**
+     * Applique immédiatement le résultat au cache React Query (suppression ou ligne autoritative)
+     * et re-bloque le realtime, au lieu de faire un invalidate + refetch potentiellement stale.
+     */
+    const commitNameCache = async () => {
+      await qc.cancelQueries({ queryKey: ["food_items"] });
+      qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
+        if (!Array.isArray(old)) return old;
+        if (deletedId) return old.filter((fi) => fi.id !== deletedId);
+        if (authoritativeRow) return old.map((fi) => (fi.id === authoritativeRow!.id ? authoritativeRow! : fi));
+        return old;
+      });
+      suppressStockRealtimeBriefly();
+    };
+
     // Calculer le poids de base à déduire. Si le repas n'a pas de poids, on prend celui de l'aliment.
     let baseG = parseQty(meal.grams);
     if (baseG <= 0 && nameMatch.grams) {
@@ -1696,7 +1869,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       // Pas de grammes spécifiés → déduire 1 unité (ex. repas « Blanc de dinde » sans grammage)
       const currentQty = nameMatch.quantity ?? 1;
       if (currentQty <= 1) {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        await persistNameDelete("Déduction nom");
       } else {
         const bumpCounter = canStartCounter && needsCounterUpdate(nameMatch, counterToSet, forcedCounterDate);
         const clearCtr =
@@ -1704,15 +1877,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           nameMatch.counter_start_date &&
           isFoodFullySealed({ ...nameMatch, quantity: currentQty - 1 } as FoodItem) &&
           !isCountOnlyFoodItem(nameMatch);
-        await safeMutate("Déduction nom", () =>
-          supabase.from("food_items").update({
-            quantity: currentQty - 1,
-            ...(bumpCounter ? { counter_start_date: counterToSet } : {}),
-            ...(clearCtr ? { counter_start_date: null } : {}),
-          } as any).eq("id", nameMatch.id),
-        );
+        await persistNameUpdate("Déduction nom", {
+          quantity: currentQty - 1,
+          ...(bumpCounter ? { counter_start_date: counterToSet } : {}),
+          ...(clearCtr ? { counter_start_date: null } : {}),
+        });
       }
-      await invalidateStock();
+      await commitNameCache();
       return { gramsDeducted: 0, quantityDeducted: 1 };
     }
 
@@ -1722,44 +1893,44 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       const totalAvailable = getFoodItemTotalGrams(nameMatch);
       const remaining = totalAvailable - mealGrams;
       if (remaining <= 0) {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        await persistNameDelete("Déduction nom");
       } else {
         const fullUnits = Math.floor(remaining / perUnit);
         const remainder = Math.round((remaining - fullUnits * perUnit) * 10) / 10;
         if (remainder > 0) {
           // Ne pas écraser un compteur déjà lancé (passé) : on garde la date d'ouverture d'origine.
           const bumpCounter = canStartCounter && needsCounterUpdate(nameMatch, counterToSet, forcedCounterDate);
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({
+          await persistNameUpdate("Déduction nom", {
             quantity: Math.max(1, fullUnits + 1),
             grams: encodeStoredGrams(perUnit, remainder),
             ...(bumpCounter ? { counter_start_date: counterToSet } : {})
-          } as any).eq("id", nameMatch.id));
+          });
         } else if (fullUnits > 0) {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").update({
+          await persistNameUpdate("Déduction nom", {
             quantity: fullUnits,
             grams: formatNumeric(perUnit),
             ...(nameMatch.counter_start_date ? { counter_start_date: null } : {})
-          } as any).eq("id", nameMatch.id));
+          });
         } else {
-          await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+          await persistNameDelete("Déduction nom");
         }
       }
     } else {
       const current = parseQty(nameMatch.grams);
       const remaining = Math.max(0, current - mealGrams);
       if (remaining <= 0) {
-        await safeMutate("Déduction nom", () => supabase.from("food_items").delete().eq("id", nameMatch.id));
+        await persistNameDelete("Déduction nom");
       } else {
         const isNewUnit = remaining > 0 && remaining < current;
         // Ne pas réinitialiser un compteur déjà lancé (passé) lors d'une consommation partielle.
         const bumpCounter = canStartCounter && isNewUnit && needsCounterUpdate(nameMatch, counterToSet, forcedCounterDate);
-        await safeMutate("Déduction nom", () => supabase.from("food_items").update({
+        await persistNameUpdate("Déduction nom", {
           grams: formatNumeric(remaining),
           ...(bumpCounter ? { counter_start_date: counterToSet } : {})
-        } as any).eq("id", nameMatch.id));
+        });
       }
     }
-    await invalidateStock();
+    await commitNameCache();
     return { gramsDeducted: mealGrams, quantityDeducted: 0 };
   };
 

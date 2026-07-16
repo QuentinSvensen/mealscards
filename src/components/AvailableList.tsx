@@ -732,10 +732,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         return 0;
       };
       items.sort((a, b) => {
-        // Les articles is_meal sont toujours regroupés en bas, sous le séparateur "Repas seuls".
-        const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-        const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-        if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+        // Seuls les repas seuls sans date restent en bas ; ceux avec péremption suivent le tri macros.
+        const aPinnedBottom = a.type === 'isMeal' && !a.fi.expiration_date ? 1 : 0;
+        const bPinnedBottom = b.type === 'isMeal' && !b.fi.expiration_date ? 1 : 0;
+        if (aPinnedBottom !== bPinnedBottom) return aPinnedBottom - bPinnedBottom;
         return dir * (getVal(a) - getVal(b));
       });
     } else if (sortMode === "manual") {
@@ -1987,10 +1987,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               }
 
               filteredUnified.sort((a, b) => {
-                // Les repas seuls restent groupés sous leur séparateur, même en tri péremption.
-                const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-                const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-                if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
+                // Seuls les repas seuls SANS date restent sous le séparateur « Repas seuls ».
+                // Ceux avec une date de péremption s'intercalent dans le tri général.
+                const aPinnedBottom = a.type === 'isMeal' && !a.sortDate ? 1 : 0;
+                const bPinnedBottom = b.type === 'isMeal' && !b.sortDate ? 1 : 0;
+                if (aPinnedBottom !== bPinnedBottom) return aPinnedBottom - bPinnedBottom;
 
                 const baseCmp = compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
                 if (baseCmp !== 0) return baseCmp;
@@ -2010,7 +2011,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               // Find where past/today ends and future begins
               const todayStr = new Date().toISOString().slice(0, 10);
               let dateSeparatorInserted = false;
-              const firstIsMealIdx = showMealItemsInAvailable ? filteredUnified.findIndex(u => u.type === 'isMeal') : -1;
+              const firstIsMealNoDateIdx = showMealItemsInAvailable
+                ? filteredUnified.findIndex((u) => u.type === 'isMeal' && !u.sortDate)
+                : -1;
 
               return filteredUnified.map((u, idx) => {
                 const elements: React.ReactNode[] = [];
@@ -2029,7 +2032,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                   }
                 }
 
-                const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
+                const sep = (idx === firstIsMealNoDateIdx && firstIsMealNoDateIdx > 0) ? (
                   <div key={`sep-ismeal`} className="flex items-center gap-2 my-2">
                     <Separator className="flex-1" />
                     <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>
@@ -2049,9 +2052,17 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
             // manual or calories: use unified items
             const unifiedItems = buildUnifiedItems();
-            const firstIsMealIdx = showMealItemsInAvailable ? unifiedItems.findIndex(u => u.type === 'isMeal') : -1;
+            const firstIsMealNoDateIdx = showMealItemsInAvailable
+              ? unifiedItems.findIndex((u) => u.type === 'isMeal' && !u.fi.expiration_date)
+              : -1;
+            // En manuel : séparateur avant le premier repas seul (tous regroupés).
+            // En calories/protéines : séparateur seulement avant ceux sans date.
+            const firstPinnedIsMealIdx =
+              sortMode === "manual"
+                ? (showMealItemsInAvailable ? unifiedItems.findIndex((u) => u.type === 'isMeal') : -1)
+                : firstIsMealNoDateIdx;
             return unifiedItems.map((u, idx) => {
-              const sep = (idx === firstIsMealIdx && firstIsMealIdx > 0) ? (
+              const sep = (idx === firstPinnedIsMealIdx && firstPinnedIsMealIdx > 0) ? (
                 <div key={`sep-ismeal-m`} className="flex items-center gap-2 my-2">
                   <Separator className="flex-1" />
                   <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>

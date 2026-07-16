@@ -7,6 +7,9 @@ import {
   normalizeForMatch, normalizeKey,
   formatPlannedCounterOpenFr,
   getCounterDaysBadgeTooltip,
+  listUniqueOptionalIngredients,
+  applyOptionalInclusionsToIngredients,
+  appendIncludedOptionalsToOverride,
 } from "@/lib/ingredientUtils";
 import { buildFoodItemIndex } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -236,5 +239,34 @@ describe("getCounterDaysBadgeTooltip (ouverture future)", () => {
     expect(tip).toContain("Jeudi 15 12h");
     expect(tip).toContain("1 jour(s)");
     expect(tip).toContain("compteur pas encore démarré");
+  });
+});
+
+// ─── Optionnels → Possible ───────────────────────────────────────────────────
+
+describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
+  const recipe = "200g Poulet{165}, ?80g Poitrine, 100g Riz{130}, ?Fromage";
+
+  it("liste les optionnels uniques avec label", () => {
+    const list = listUniqueOptionalIngredients(recipe);
+    expect(list.map((o) => o.key)).toEqual(["poitrine", "fromage"]);
+    expect(list[0].label).toMatch(/Poitrine/i);
+  });
+
+  it("retire le ? uniquement pour les clés cochées (override Possible)", () => {
+    const override = applyOptionalInclusionsToIngredients(recipe, new Set(["poitrine"]));
+    expect(override).toContain("80g Poitrine");
+    expect(override).not.toMatch(/\?80g Poitrine|\?Poitrine/i);
+    expect(override).toMatch(/\?Fromage/);
+    // La sérialisation peut reformater, mais Poulet reste non optionnel
+    expect(override).toMatch(/Poulet/);
+  });
+
+  it("ajoute les optionnels inclus à un override déjà consommé", () => {
+    const consumed = "200g Poulet{165}, 100g Riz{130}";
+    const merged = appendIncludedOptionalsToOverride(consumed, recipe, new Set(["poitrine"]));
+    expect(merged).toContain("Poulet");
+    expect(merged).toMatch(/80g Poitrine/);
+    expect(merged).not.toMatch(/\?/);
   });
 });
