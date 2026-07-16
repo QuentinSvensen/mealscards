@@ -222,8 +222,10 @@ export function PossibleMealCard({
     [foodItems],
   );
 
+  // ⚠️ Ne PAS faire de `return` conditionnel ici : tous les hooks (useMemo ci-dessous) doivent être
+  // appelés à chaque rendu (règle des Hooks React). Le garde `if (!meal) return null` est déplacé
+  // après le dernier hook. Les valeurs dérivées utilisent donc `meal?.` par sécurité.
   const meal = pm.meals;
-  if (!meal) return null;
 
   /** Recalcule une macro depuis l'aliment-repas source (valeur au 100 g × grammes de la portion Possible). */
   const getFoodMealPortionMacro = (field: "calories" | "protein" | "fiber"): number | null => {
@@ -239,15 +241,15 @@ export function PossibleMealCard({
 
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
-    pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
+    pm.ingredients_override != null ? pm.ingredients_override : meal?.ingredients;
   const displayIngredientsWithReferenceNames = useMemo(
     () =>
       pm.ingredients_override != null
-        ? restoreIngredientDisplayNamesFromReference(displayIngredients, meal.ingredients)
+        ? restoreIngredientDisplayNamesFromReference(displayIngredients, meal?.ingredients)
         : displayIngredients,
-    [displayIngredients, meal.ingredients, pm.ingredients_override],
+    [displayIngredients, meal?.ingredients, pm.ingredients_override],
   );
-  const cardColorIngredients = meal.ingredients?.trim()
+  const cardColorIngredients = meal?.ingredients?.trim()
     ? meal.ingredients
     : displayIngredientsWithReferenceNames;
   const cardDisplayIngredients = useMemo(
@@ -267,7 +269,7 @@ export function PossibleMealCard({
   // Détecter le ratio de mise à l'échelle à partir de l'override vs les ingrédients originaux
   // Retourne le ratio uniquement si TOUS les ingrédients non optionnels ont le même ratio
   const detectScaleRatio = (): number | null => {
-    if (!pm.ingredients_override) return null;
+    if (!pm.ingredients_override || !meal) return null;
     // Pour les cartes infinies/simples sans ingrédients, synthétiser la même base utilisée lors de la mise à l'échelle
     const baseIngStr = meal.ingredients
       ? meal.ingredients
@@ -301,7 +303,7 @@ export function PossibleMealCard({
 
     if (baseMap.size === 0 || overMap.size === 0) return null;
 
-    let detectedRatios: number[] = [];
+    const detectedRatios: number[] = [];
     let commonCount = 0;
 
     for (const [key, baseVal] of baseMap.entries()) {
@@ -341,7 +343,7 @@ export function PossibleMealCard({
   const todayISO = format(new Date(), 'yyyy-MM-dd');
 
   // PRIORITÉ : compteur actif en stock, puis résolution parent, puis carte.
-  const cardIngredients = pm.ingredients_override ?? meal.ingredients;
+  const cardIngredients = pm.ingredients_override ?? meal?.ingredients;
   const activeCounterFromStock = useMemo(
     () =>
       cardIngredients && foodItems?.length
@@ -383,6 +385,9 @@ export function PossibleMealCard({
         : true,
     [cardIngredients, foodItems, foodMacroIndex, activeCounterFromStock, isPlannedFull, plannedStart],
   );
+
+  // Garde placé APRÈS tous les hooks : une carte sans repas source n'est pas rendue.
+  if (!meal) return null;
 
   const counterDaysRaw = getAdaptedCounterDays(
     effectiveCounterStart,

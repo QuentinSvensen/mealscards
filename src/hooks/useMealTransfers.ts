@@ -765,12 +765,6 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     return foodItems;
   };
 
-  /** Invalide puis re-fetch le stock pour synchroniser immédiatement l'UI. */
-  const invalidateStock = async () => {
-    await qc.invalidateQueries({ queryKey: ["food_items"] });
-    await qc.refetchQueries({ queryKey: ["food_items"], type: "active" });
-  };
-
   // Signale à la subscription realtime globale qu'un update optimiste vient d'être appliqué :
   // elle doit ignorer son invalidation automatique pendant plusieurs secondes pour laisser la
   // réplique Supabase rattraper son retard et ne pas écraser notre cache local.
@@ -2237,7 +2231,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     );
 
     // 4. Patcher le cache avec les lignes authoritatives renvoyées par le primaire.
-    //    NE PAS appeler invalidateStock() ensuite : le refetch irait sur une réplique en retard
+    //    NE PAS invalider + refetch le stock ensuite : le refetch irait sur une réplique en retard
     //    et écraserait notre mise à jour par l'ancienne valeur « maintenant ».
     if (Array.isArray(updateResults)) {
       const authoritativeById = new Map<string, FoodItem>();

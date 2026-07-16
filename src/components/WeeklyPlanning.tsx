@@ -3867,7 +3867,7 @@ export function WeeklyPlanning({
                                   dessertExtraStockSnapshots,
                                 ) ?? id;
                                 const dessertExtra = singleIngredientDessertById.get(catalogId);
-                                const fi = c ? null : (extrasById.get(id) ?? (dessertExtra ? foodItems.find((f) => f.id === parseFoodDessertExtraId(id) ?? undefined) : undefined));
+                                const fi = c ? null : (extrasById.get(id) ?? (dessertExtra ? foodItems.find((f) => f.id === parseFoodDessertExtraId(id)) : undefined));
                                 if (!c && !fi && !dessertExtra) return null;
                                 const isDessertExtra = !!dessertExtra;
                                 const canAddDessert = !isDessertExtra || canAddDessertById.get(catalogId) === true;
