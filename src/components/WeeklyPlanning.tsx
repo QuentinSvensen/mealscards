@@ -84,6 +84,7 @@ import {
   aggregateExtraSelectionMacros,
   getAssignedExtraIdsForDay,
   mergeExtraDaySelectionIds,
+  pickPlanningSlotValue,
   scaleExtraDisplayMacrosByCount,
 } from "@/lib/planningExtraMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
@@ -3352,9 +3353,21 @@ export function WeeklyPlanning({
                   const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotAssigned = sumDayExtras(slotAssignedIds);
                   const slotDrink = Boolean(drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]);
-                  const slotCals = slotCalsMeals + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
-                  const slotPro = slotProMeals + slotAssigned.pro;
-                  const slotFiber = slotFiberMeals + slotAssigned.fiber;
+                  // Sans carte repas : total = inputs manuels + extras (+ boisson).
+                  // Avec cartes : total = cartes + extras (+ boisson) — les inputs sont masqués.
+                  const hasSlotMeals = slotMeals.length > 0;
+                  const slotManualCal = hasSlotMeals
+                    ? 0
+                    : (pickPlanningSlotValue(manualCalories, iso, key, time) ?? 0);
+                  const slotManualPro = hasSlotMeals
+                    ? 0
+                    : (pickPlanningSlotValue(manualProteins, iso, key, time) ?? 0);
+                  const slotManualFiber = hasSlotMeals
+                    ? 0
+                    : (pickPlanningSlotValue(manualFibers, iso, key, time) ?? 0);
+                  const slotCals = slotCalsMeals + slotManualCal + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
+                  const slotPro = slotProMeals + slotManualPro + slotAssigned.pro;
+                  const slotFiber = slotFiberMeals + slotManualFiber + slotAssigned.fiber;
                   return (
                     <div
                       key={time}
@@ -5347,15 +5360,20 @@ export function WeeklyPlanning({
                     const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
                     const slotAssigned = sumDayExtras(slotAssignedIds);
                     const slotDrink = Boolean(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]);
-                    const slotCals = slotCalsMeals + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
-                    const slotPro = slotProMeals + slotAssigned.pro;
-                    const slotFiber = slotFiberMeals + slotAssigned.fiber;
                     const manualCal = nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.cal ?? 0;
                     const manualPro = nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.prot ?? 0;
                     const manualFiber = nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.fiber ?? 0;
+                    // Sans carte : total = inputs manuels + extras (+ boisson).
+                    const hasSlotMeals = slotMeals.length > 0;
+                    const slotManualCal = hasSlotMeals ? 0 : manualCal;
+                    const slotManualPro = hasSlotMeals ? 0 : manualPro;
+                    const slotManualFiber = hasSlotMeals ? 0 : manualFiber;
+                    const slotCals = slotCalsMeals + slotManualCal + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
+                    const slotPro = slotProMeals + slotManualPro + slotAssigned.pro;
+                    const slotFiber = slotFiberMeals + slotManualFiber + slotAssigned.fiber;
                     const showSlotTotals = slotMeals.length > 0
                       ? (slotCals > 0 || slotPro > 0 || slotFiber > 0)
-                      : (manualCal > 0 || manualPro > 0 || manualFiber > 0);
+                      : (slotCals > 0 || slotPro > 0 || slotFiber > 0);
                     return (
                       <div
                         key={time}
