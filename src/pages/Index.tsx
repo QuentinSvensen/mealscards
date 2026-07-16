@@ -977,7 +977,7 @@ const Index = () => {
       )}
 
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
-        <div className="relative max-w-6xl mx-auto flex items-center gap-2 sm:gap-3">
+        <div className="relative max-w-6xl mx-auto flex items-center gap-1.5 sm:gap-3 min-w-0">
           <div className="flex items-center gap-1 shrink-0">
             <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
             {blockedCount !== null &&
@@ -986,12 +986,9 @@ const Index = () => {
                 <ShieldAlert className="h-2 w-2" />{blockedCount}
               </span>
             }
-          </div>
-
-          <div className="absolute left-1/2 -translate-x-[calc(100%+140px)] md:-translate-x-[calc(100%+262px)]">
             <button
               onClick={() => setMainPage("macros")}
-              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-2 md:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
               title="Macro ingrédients"
             >
               <span className="text-[11px] leading-tight md:hidden">🌾</span>
@@ -1000,8 +997,8 @@ const Index = () => {
             </button>
           </div>
 
-          <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-            <div className="bg-muted rounded-full p-0.5 w-full max-w-[16.75rem] md:max-w-md py-1 md:py-[6px] my-0 px-0 flex items-center justify-center gap-px md:gap-[2px]">
+          <div className="flex-1 min-w-0 flex justify-center">
+            <div className="bg-muted rounded-full p-0.5 w-full max-w-[12.5rem] sm:max-w-[16.75rem] md:max-w-md py-1 md:py-[6px] flex items-center justify-center gap-px md:gap-[2px]">
               {([
                 { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
                 { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
@@ -1009,16 +1006,16 @@ const Index = () => {
                 { page: "courses" as MainPage, icon: <ShoppingCart className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
               ] as const).map(({ page, icon, label, activeColor }) => (
                 <button key={page} onClick={() => setMainPage(page)}
-                  className={`pointer-events-auto flex-1 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-0.5 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
+                  className={`flex-1 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-0.5 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
                   {icon}
-                  <span className={`text-[8px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
+                  <span className={`text-[7px] sm:text-[8px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
                 </button>
               ))}
             </div>
           </div>
 
           <button onClick={() => setChronoOpen(true)}
-            className="ml-auto text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2.5 py-1">
+            className="text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2 sm:px-2.5 py-1">
             <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
             <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
           </button>

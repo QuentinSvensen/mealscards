@@ -1919,7 +1919,18 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
   const touchDragRef = useRef<{ itemId: string; itemIdx: number; ghost: HTMLElement; startX: number; startY: number; origTop: number; origLeft: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const touchTargetElRef = useRef<HTMLElement | null>(null);
   const [touchDragActive, setTouchDragActive] = useState(false);
+
+  /** Restaure le scroll natif après annulation / fin d'un drag tactile. */
+  const clearTouchLock = () => {
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
+    if (touchTargetElRef.current) {
+      touchTargetElRef.current.style.touchAction = "";
+      touchTargetElRef.current = null;
+    }
+  };
 
   useEffect(() => {
     const finishTouchDrag = (touch: Touch) => {
@@ -1928,8 +1939,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
 
       touchDragRef.current = null;
       setTouchDragActive(false);
-      document.body.style.overflow = "";
-      document.body.style.touchAction = "";
+      clearTouchLock();
 
       s.ghost.style.visibility = "hidden";
       const el = document.elementFromPoint(touch.clientX, touch.clientY);
@@ -1944,7 +1954,8 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
 
     const onTouchMove = (e: TouchEvent) => {
       if (!touchDragRef.current) {
-        // Only cancel long press if finger moved more than 10px
+        // Pendant l'attente du long-press : bloquer le scroll si le doigt reste quasi immobile,
+        // sinon annuler le drag et laisser scroller.
         if (longPressTimerRef.current && touchStartPosRef.current) {
           const touch = e.touches[0];
           const dx = touch.clientX - touchStartPosRef.current.x;
@@ -1953,6 +1964,9 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
             clearTimeout(longPressTimerRef.current);
             longPressTimerRef.current = null;
             touchStartPosRef.current = null;
+            clearTouchLock();
+          } else {
+            e.preventDefault();
           }
         }
         return;
@@ -1969,7 +1983,11 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
         clearTimeout(longPressTimerRef.current);
         longPressTimerRef.current = null;
       }
-      if (!touchDragRef.current) return;
+      if (!touchDragRef.current) {
+        clearTouchLock();
+        touchStartPosRef.current = null;
+        return;
+      }
       const touch = e.changedTouches[0];
       if (touch) finishTouchDrag(touch);
     };
@@ -1984,8 +2002,8 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
         touchDragRef.current = null;
       }
       setTouchDragActive(false);
-      document.body.style.overflow = "";
-      document.body.style.touchAction = "";
+      clearTouchLock();
+      touchStartPosRef.current = null;
     };
 
     window.addEventListener("touchmove", onTouchMove, { passive: false });
@@ -1999,6 +2017,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
     };
   }, [onReorder]);
 
+  /** Démarre un long-press tactile pour réordonner une carte (tri manuel uniquement). */
   const handleTouchStart = (e: React.TouchEvent, item: FoodItem, sectionIdx: number) => {
     if (sortMode !== "manual") return;
     const touch = e.touches[0];
@@ -2006,6 +2025,9 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
     const rect = el.getBoundingClientRect();
 
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    touchTargetElRef.current = el;
+    // Bloquer le scroll natif dès le début du geste (sinon le navigateur « vole » le touch avant 500ms).
+    el.style.touchAction = "none";
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
 
     longPressTimerRef.current = setTimeout(() => {
@@ -2027,7 +2049,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
         origLeft: rect.left,
       };
       setTouchDragActive(true);
-    }, 500);
+    }, 350);
   };
 
   return (
@@ -2082,6 +2104,8 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                 <div
                   data-food-idx={sectionIdx}
                   onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
+                  className={sortMode === "manual" && isTouchDevice ? "touch-manipulation select-none" : undefined}
+                  style={sortMode === "manual" && isTouchDevice ? { WebkitUserSelect: "none", userSelect: "none" } : undefined}
                 >
                   <FoodItemCard
                   item={item}
