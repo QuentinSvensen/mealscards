@@ -1094,6 +1094,30 @@ export function findEarliestFutureCounterDate(
 }
 
 /**
+ * Détermine la date de départ à utiliser pour le badge compteur quand le lot est UNIQUEMENT
+ * programmé (« Prog. ») en stock, c'est-à-dire qu'aucun ingrédient comptable n'est réellement ouvert
+ * (aucun compteur passé/actif) mais qu'au moins un porte un compteur FUTUR.
+ *
+ * Dans ce cas, le badge doit refléter cette date future (→ getAdaptedCounterDays renvoie null le jour
+ * même, ou une estimation Xj si le repas est planifié après). On ne doit JAMAIS retomber sur un
+ * counter_start_date figé et obsolète (artefact de déduction/planification) qui afficherait un « Xj »
+ * actif fantôme alors que l'ingrédient n'est pas encore entamé.
+ *
+ * Retourne `undefined` dès qu'une ouverture réelle (passée/active) existe : dans ce cas la priorité
+ * revient à cette ouverture réelle (logique standard inchangée).
+ */
+export function getProgrammedOnlyCounterStart(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+): string | undefined {
+  const active = findEarliestActiveCounterDate(ingredients, foodItems, index, fixedNow);
+  if (active) return undefined;
+  return findEarliestFutureCounterDate(ingredients, foodItems, index, fixedNow);
+}
+
+/**
  * Identifie les clés normalisées des ingrédients de la recette dont un food_item porte précisément
  * la date `base` (tolérance : chaîne identique ou à la minute près). Ces ingrédients sont ceux qui
  * dictent la valeur `earliestCounterDate` retournée par `analyzeMealIngredients`.

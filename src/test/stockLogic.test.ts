@@ -12,9 +12,12 @@ import {
   resolveCounterStartForPossibleBadge,
   analyzeMealIngredients,
   findEarliestActiveCounterDate,
+  findEarliestFutureCounterDate,
+  getProgrammedOnlyCounterStart,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
 } from "@/lib/stockUtils";
+import { getAdaptedCounterDays } from "@/lib/ingredientUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { Meal } from "@/hooks/useMeals";
 
@@ -631,6 +634,62 @@ describe("restoreIngredientDisplayNamesFromReference", () => {
       "34g Flocon d'avoine, 70g Whey",
     );
     expect(out).toBe("25.5g Flocon d'avoine, 52.5g Whey");
+  });
+});
+
+describe("getProgrammedOnlyCounterStart (badge carte Possible)", () => {
+  it("renvoie la date FUTURE quand un ingrédient est seulement en Prog. (pas encore ouvert)", () => {
+    // Bug Croque Monsieur : seul Blanc de dinde porte un compteur futur (Prog.), les autres ingrédients
+    // n'ont aucun compteur. Le badge doit s'appuyer sur cette date future, pas sur une date passée figée.
+    const fixedNow = new Date("2026-07-17T07:34:00.000Z");
+    const progDate = "2026-07-17T17:00:00.000Z"; // vendredi soir, futur par rapport à now
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: progDate }),
+      makeFoodItem({ name: "Pain de mie", quantity: 4, grams: null }),
+      makeFoodItem({ name: "Gruyère", grams: "200" }),
+      makeFoodItem({ name: "Fuet", grams: "150" }),
+      makeFoodItem({ name: "Chorizo", grams: "150" }),
+    ];
+    const ingredients = "4 Pain de mie, 2 Blanc de dinde, 40g Gruyère, 30g Fuet, 30g Chorizo";
+
+    expect(findEarliestActiveCounterDate(ingredients, foodItems, undefined, fixedNow)).toBeUndefined();
+    expect(findEarliestFutureCounterDate(ingredients, foodItems, undefined, fixedNow)).toBe(progDate);
+    expect(getProgrammedOnlyCounterStart(ingredients, foodItems, undefined, fixedNow)).toBe(progDate);
+  });
+
+  it("le badge n'affiche AUCUN Xj actif quand le repas est planifié le même jour que l'ouverture Prog.", () => {
+    // Reproduction exacte du bug : carte planifiée vendredi soir, ouverture Prog. vendredi soir → 0j → rien.
+    const fixedNow = new Date("2026-07-17T07:34:00.000Z");
+    const progDate = "2026-07-17T17:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: progDate }),
+    ];
+    const ingredients = "2 Blanc de dinde, 40g Gruyère";
+    const effectiveStart = getProgrammedOnlyCounterStart(ingredients, foodItems, undefined, fixedNow);
+    expect(effectiveStart).toBe(progDate);
+    // getAdaptedCounterDays sur la date FUTURE (le même jour) → null (aucun badge), au lieu d'un 1j fantôme.
+    expect(getAdaptedCounterDays(effectiveStart!, "2026-07-17", undefined, "soir", fixedNow)).toBeNull();
+  });
+
+  it("laisse la priorité à l'ouverture réelle passée (retourne undefined si un lot est déjà ouvert)", () => {
+    const fixedNow = new Date("2026-07-17T07:34:00.000Z");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: "2026-07-16T10:00:00.000Z" }),
+    ];
+    const ingredients = "2 Blanc de dinde, 40g Gruyère";
+    expect(getProgrammedOnlyCounterStart(ingredients, foodItems, undefined, fixedNow)).toBeUndefined();
+  });
+
+  it("conserve l'estimation Xj quand le repas est planifié APRÈS l'ouverture Prog.", () => {
+    // Ex. lot programmé vendredi soir, repas planifié samedi soir → 1j (estimation légitime).
+    const fixedNow = new Date("2026-07-17T07:34:00.000Z");
+    const progDate = "2026-07-17T17:00:00.000Z";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: progDate }),
+    ];
+    const ingredients = "2 Blanc de dinde, 40g Gruyère";
+    const effectiveStart = getProgrammedOnlyCounterStart(ingredients, foodItems, undefined, fixedNow);
+    expect(getAdaptedCounterDays(effectiveStart!, "2026-07-18", undefined, "soir", fixedNow)).toBe(1);
   });
 });
 

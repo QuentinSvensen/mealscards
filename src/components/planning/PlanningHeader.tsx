@@ -13,12 +13,15 @@ export interface PlanningHeaderProps {
   restoreBusy: boolean;
   onRestoreBackup: () => void;
   dailyGoal: number;
+  dailyGoalLow: number;
   nextDailyGoal: number;
+  nextDailyGoalLow: number;
   dailyProteinGoal: number;
   nextProteinGoal: number;
   dailyFiberGoal: number;
   nextFiberGoal: number;
   onGlobalCalBlur: (value: number) => void;
+  onGlobalCalLowBlur: (value: number) => void;
   onGlobalProtBlur: (value: number) => void;
   onGlobalFiberBlur: (value: number) => void;
   backupTotals: PlanningHeaderBackupTotals | null;
@@ -33,16 +36,21 @@ export function PlanningHeader({
   restoreBusy,
   onRestoreBackup,
   dailyGoal,
+  dailyGoalLow,
   nextDailyGoal,
+  nextDailyGoalLow,
   dailyProteinGoal,
   nextProteinGoal,
   dailyFiberGoal,
   nextFiberGoal,
   onGlobalCalBlur,
+  onGlobalCalLowBlur,
   onGlobalProtBlur,
   onGlobalFiberBlur,
   backupTotals,
 }: PlanningHeaderProps) {
+  // Borne basse affichée selon la semaine (courante ou suivante).
+  const displayedGoalLow = weekOffset === 1 ? nextDailyGoalLow : dailyGoalLow;
   return (
     <div className="rounded-2xl bg-card/80 backdrop-blur-sm p-3 flex items-center gap-3 flex-wrap">
       {weekOffset === 0 && (
@@ -74,8 +82,26 @@ export function PlanningHeader({
             <input
               type="number"
               inputMode="numeric"
+              defaultValue={displayedGoalLow > 0 ? displayedGoalLow : ""}
+              key={`global-cal-low-${displayedGoalLow}`}
+              placeholder="min"
+              title="Borne basse de la fourchette (optionnelle)"
+              onBlur={e => {
+                const raw = e.target.value.trim();
+                onGlobalCalLowBlur(raw === "" ? 0 : parseInt(raw));
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              className="w-14 h-6 text-xs bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-500/80 placeholder:text-orange-300/30 focus:outline-none focus:border-orange-400/50 text-center"
+            />
+            <span className="text-[9px] text-orange-400/50">–</span>
+            <input
+              type="number"
+              inputMode="numeric"
               defaultValue={weekOffset === 1 ? nextDailyGoal : dailyGoal}
               key={`global-cal-${weekOffset === 1 ? nextDailyGoal : dailyGoal}`}
+              title="Borne haute de la fourchette (cible des calories restantes)"
               onBlur={e => {
                 const val = parseInt(e.target.value);
                 if (val && val > 0) onGlobalCalBlur(val);

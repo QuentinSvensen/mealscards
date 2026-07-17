@@ -59,6 +59,7 @@ import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
+import { formatCalorieGoalTarget } from "@/domain/planning/calorieGoalRange";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
@@ -998,7 +999,7 @@ export function WeeklyPlanning({
     mealPayload: Meal;
   }>());
   const [pendingDessertCatalogTick, setPendingDessertCatalogTick] = useState(0);
-  const { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_FIBER_GOAL: DAILY_FIBER_GOAL_PREF_FROM_HOOK, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
+  const { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_GOAL_LOW, DAILY_FIBER_GOAL: DAILY_FIBER_GOAL_PREF_FROM_HOOK, getBreakfastForDay } = useCalorieBalance(isAvailableCb);
   const petitDejMeals = getMealsByCategory('petit_dejeuner');
   const possiblePetitDej = possibleMeals.filter(pm => pm.meals?.category === 'petit_dejeuner');
   /** Transforme une fiche repas en payload complet utilisable par les transferts de stock. */
@@ -1545,6 +1546,7 @@ export function WeeklyPlanning({
   const DAILY_PROTEIN_GOAL_PREF = getPreference<number>('planning_protein_goal', DAILY_PROTEIN_GOAL);
   const DAILY_FIBER_GOAL_PREF = getPreference<number>('planning_fiber_goal', DAILY_FIBER_GOAL_PREF_FROM_HOOK || DAILY_FIBER_GOAL);
   const NEXT_DAILY_GOAL = getPreference<number>('next_week_daily_goal', DAILY_GOAL);
+  const NEXT_DAILY_GOAL_LOW = getPreference<number>('next_week_daily_goal_low', DAILY_GOAL_LOW);
   const NEXT_PROTEIN_GOAL = getPreference<number>('next_week_protein_goal', DAILY_PROTEIN_GOAL_PREF);
   const NEXT_FIBER_GOAL = getPreference<number>('next_week_fiber_goal', DAILY_FIBER_GOAL_PREF);
   const [editingGoal, setEditingGoal] = useState(false);
@@ -2747,6 +2749,21 @@ export function WeeklyPlanning({
     }
   };
 
+  /**
+   * Enregistre la borne basse de la fourchette calorique (semaine courante et brouillon suivant).
+   * Validation souple : 0 (ou vide) désactive la fourchette ; sinon la borne basse est bornée
+   * à la borne haute pour ne jamais la dépasser.
+   */
+  const handleGlobalCalLowBlur = (val: number) => {
+    const currentHigh = weekOffset === 1 ? NEXT_DAILY_GOAL : DAILY_GOAL;
+    const clamped = val && val > 0 ? Math.min(val, currentHigh) : 0;
+    if (weekOffset === 1) setPreference.mutate({ key: "next_week_daily_goal_low", value: clamped });
+    else {
+      setPreference.mutate({ key: "planning_daily_goal_low", value: clamped });
+      setPreference.mutate({ key: "next_week_daily_goal_low", value: clamped });
+    }
+  };
+
   const handleGlobalProtBlur = (val: number) => {
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_protein_goal", value: val });
     else {
@@ -2842,12 +2859,15 @@ export function WeeklyPlanning({
         restoreBusy={restoreBusy}
         onRestoreBackup={handleRestoreBackup}
         dailyGoal={DAILY_GOAL}
+        dailyGoalLow={DAILY_GOAL_LOW}
         nextDailyGoal={NEXT_DAILY_GOAL}
+        nextDailyGoalLow={NEXT_DAILY_GOAL_LOW}
         dailyProteinGoal={DAILY_PROTEIN_GOAL_PREF}
         nextProteinGoal={NEXT_PROTEIN_GOAL}
         dailyFiberGoal={DAILY_FIBER_GOAL_PREF}
         nextFiberGoal={NEXT_FIBER_GOAL}
         onGlobalCalBlur={handleGlobalCalBlur}
+        onGlobalCalLowBlur={handleGlobalCalLowBlur}
         onGlobalProtBlur={handleGlobalProtBlur}
         onGlobalFiberBlur={handleGlobalFiberBlur}
         backupTotals={backupTotals}
@@ -3250,7 +3270,7 @@ export function WeeklyPlanning({
                     title="Cliquer pour modifier l'objectif"
                   >
                     <Flame className="h-2.5 w-2.5 text-orange-500" />
-                    {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {DAILY_GOAL}</span>
+                    {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(DAILY_GOAL_LOW, DAILY_GOAL)}</span>
                   </button>
                   {editingGoal && (
                     <div className="flex items-center gap-1">
@@ -5326,7 +5346,7 @@ export function WeeklyPlanning({
                   <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
                     <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
                       <Flame className="h-2.5 w-2.5 text-orange-500" />
-                      {Math.round(dayTotal)} <span className="text-muted-foreground/50 font-normal">/ {NEXT_DAILY_GOAL}</span>
+                      {Math.round(dayTotal)} <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL)}</span>
                     </span>
                     {dayTotal > 0 && (
                       <span className={`text-[10px] font-bold whitespace-nowrap ${NEXT_DAILY_GOAL - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>

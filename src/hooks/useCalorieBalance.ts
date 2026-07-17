@@ -234,6 +234,8 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
   const fiberOverrides = getPreference<Record<string, string>>('planning_fiber_overrides', {});
   const DAILY_GOAL = getPreference<number>('planning_daily_goal', DEFAULT_DAILY_GOAL);
+  // Borne basse optionnelle de la fourchette calorique (0 = fourchette désactivée). La borne haute (DAILY_GOAL) reste la cible des calculs.
+  const DAILY_GOAL_LOW = getPreference<number>('planning_daily_goal_low', 0);
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
@@ -479,5 +481,5 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     return Math.max(0, DAILY_PROTEIN_GOAL - todayConsumed);
   };
 
-  return { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_PROTEIN_GOAL, DAILY_FIBER_GOAL, getRecordSelectedExtraIds: (day: string) => (getPreference<Record<string, string[]>>('planning_extra_selections', {})[day] || []), getBreakfastForDay, getTargetCalorieThreshold, getRemainingProtein };
+  return { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_GOAL_LOW, DAILY_PROTEIN_GOAL, DAILY_FIBER_GOAL, getRecordSelectedExtraIds: (day: string) => (getPreference<Record<string, string[]>>('planning_extra_selections', {})[day] || []), getBreakfastForDay, getTargetCalorieThreshold, getRemainingProtein };
 }

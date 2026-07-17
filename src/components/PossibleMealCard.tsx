@@ -35,7 +35,7 @@ import {
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, recipeHasFiniteCounterableIngredients, pickEarliestPastCounterStart } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, getProgrammedOnlyCounterStart, recipeHasFiniteCounterableIngredients, pickEarliestPastCounterStart } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -351,6 +351,17 @@ export function PossibleMealCard({
         : undefined,
     [cardIngredients, foodItems, foodMacroIndex],
   );
+  // Lot uniquement PROGRAMMÉ (« Prog. ») en stock : aucun ingrédient réellement ouvert, mais un compteur
+  // futur existe. On récupère cette date future pour piloter le badge à sa place, plutôt qu'un
+  // counter_start_date figé et obsolète qui afficherait un faux « Xj » actif (cf. bug Croque Monsieur :
+  // seul Blanc de dinde est en Prog., la carte ne doit donc pas montrer 1j).
+  const programmedOnlyCounterStart = useMemo(
+    () =>
+      cardIngredients && foodItems?.length
+        ? getProgrammedOnlyCounterStart(cardIngredients, foodItems, foodMacroIndex)
+        : undefined,
+    [cardIngredients, foodItems, foodMacroIndex],
+  );
   // Carte planifiée (jour + créneau) : le départ du compteur correspond à l'ouverture du lot LA PLUS
   // PRÉCOCE connue — le minimum entre le compteur FIGÉ sur la carte (au moment de la planification) et la
   // date RÉSOLUE en direct par le parent (ouverture en stock / carte voisine consommant le lot).
@@ -365,9 +376,13 @@ export function PossibleMealCard({
     () => pickEarliestPastCounterStart(realtimeCounterStartDate, pm.counter_start_date),
     [realtimeCounterStartDate, pm.counter_start_date],
   );
-  const effectiveCounterStart = isPlannedFull
-    ? plannedStart
-    : pickEarliestPastCounterStart(activeCounterFromStock, realtimeCounterStartDate, pm.counter_start_date);
+  // Priorité absolue au lot « Prog. seul » : la date future prime sur toute date figée (carte/temps réel)
+  // afin que le badge reflète l'état réel du stock (ingrédient pas encore ouvert) au lieu d'un « Xj » fantôme.
+  const effectiveCounterStart = programmedOnlyCounterStart
+    ? programmedOnlyCounterStart
+    : isPlannedFull
+      ? plannedStart
+      : pickEarliestPastCounterStart(activeCounterFromStock, realtimeCounterStartDate, pm.counter_start_date);
 
   // Le badge compteur n'a de sens que si la recette possède réellement un ingrédient porteur de compteur
   // (lot fini non surgelé encore en stock) OU si un compteur est déjà actif sur le stock (y compris manuel).
