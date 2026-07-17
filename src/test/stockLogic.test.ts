@@ -14,6 +14,7 @@ import {
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
   getProgrammedOnlyCounterStart,
+  getRecipeMaxActiveFoodCounterDays,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
 } from "@/lib/stockUtils";
@@ -692,6 +693,52 @@ describe("getProgrammedOnlyCounterStart (badge carte Possible)", () => {
     const ingredients = "2 Blanc de dinde, 40g Gruyère";
     const effectiveStart = getProgrammedOnlyCounterStart(ingredients, foodItems, undefined, fixedNow);
     expect(getAdaptedCounterDays(effectiveStart!, "2026-07-18", undefined, "soir", fixedNow)).toBe(1);
+  });
+});
+
+describe("getRecipeMaxActiveFoodCounterDays (badge aligné Aliments)", () => {
+  it("prend le max des compteurs Aliments ouverts, pas une date figée de carte", () => {
+    // Après 19h : Blanc de dinde ouvert aujourd'hui 19h → 0j en Aliments.
+    // Même si une date figée hier existe côté carte, le badge doit suivre l'aliment (0j).
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: "2026-07-17T19:00:00.000+02:00" }),
+      makeFoodItem({ name: "Pain de mie", quantity: 4, grams: null }),
+    ];
+    const ingredients = "4 Pain de mie, 2 Blanc de dinde, 50g Gruyère, 30g Chorizo";
+    expect(getRecipeMaxActiveFoodCounterDays(ingredients, foodItems, undefined, fixedNow)).toBe(0);
+  });
+
+  it("choisit le plus haut compteur quand plusieurs aliments sont ouverts", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: "2026-07-17T19:00:00.000+02:00" }),
+      makeFoodItem({ name: "Chorizo", grams: "150", counter_start_date: "2026-07-15T12:00:00.000+02:00" }),
+    ];
+    const ingredients = "2 Blanc de dinde, 30g Chorizo";
+    expect(getRecipeMaxActiveFoodCounterDays(ingredients, foodItems, undefined, fixedNow)).toBe(2);
+  });
+
+  it("ignore les compteurs Prog. futurs (retourne null)", () => {
+    const fixedNow = new Date("2026-07-17T07:34:00.000Z");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: "2026-07-17T17:00:00.000Z" }),
+    ];
+    expect(getRecipeMaxActiveFoodCounterDays("2 Blanc de dinde", foodItems, undefined, fixedNow)).toBeNull();
+  });
+
+  it("retourne null quand aucun aliment n'est ouvert (consommés juste après ouverture)", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: null }),
+      makeFoodItem({ name: "Pain de mie", quantity: 4, grams: null }),
+    ];
+    expect(getRecipeMaxActiveFoodCounterDays(
+      "4 Pain de mie, 2 Blanc de dinde, 50g Gruyère",
+      foodItems,
+      undefined,
+      fixedNow,
+    )).toBeNull();
   });
 });
 

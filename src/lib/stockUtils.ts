@@ -1118,6 +1118,38 @@ export function getProgrammedOnlyCounterStart(
 }
 
 /**
+ * Retourne le plus haut compteur (en jours) parmi les aliments Aliments déjà ouverts
+ * qui composent la recette — aligné sur le badge des fiches de l'onglet Aliments.
+ * Ignore les compteurs futurs (« Prog. ») ; retourne null s'aucun lot n'est réellement ouvert.
+ */
+export function getRecipeMaxActiveFoodCounterDays(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+): number | null {
+  let maxDays: number | null = null;
+  if (!ingredients?.trim()) return null;
+  const groups = parseIngredientGroups(ingredients);
+  const stockMap = buildStockMap(foodItems);
+  for (const group of groups) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const alt = pickBestAlternative(group, stockMap) ?? group[0];
+    if (!alt) continue;
+    for (const item of alt) {
+      if (item.optional || !item.name) continue;
+      for (const fi of lookupFoodItems(item.name, foodItems, index)) {
+        if (!hasActiveFoodItemCounter(fi, fixedNow)) continue;
+        const days = computeCounterDays(fi.counter_start_date, fixedNow);
+        if (days === null) continue;
+        if (maxDays === null || days > maxDays) maxDays = days;
+      }
+    }
+  }
+  return maxDays;
+}
+
+/**
  * Identifie les clés normalisées des ingrédients de la recette dont un food_item porte précisément
  * la date `base` (tolérance : chaîne identique ou à la minute près). Ces ingrédients sont ceux qui
  * dictent la valeur `earliestCounterDate` retournée par `analyzeMealIngredients`.

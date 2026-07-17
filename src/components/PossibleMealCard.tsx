@@ -30,12 +30,12 @@ import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
   computeIngredientProtein, computeIngredientFiber, cleanIngredientText, normalizeKey,
-  hasNegativeMetric, getMealColor, getAdaptedCounterDays, getDateForDayKey,
-  extractMetrics, parseIngredientLineRaw, getCounterDaysBadgeTooltip,
+  hasNegativeMetric, getMealColor, getDateForDayKey,
+  extractMetrics, parseIngredientLineRaw,
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, findEarliestActiveCounterDate, getProgrammedOnlyCounterStart, recipeHasFiniteCounterableIngredients, pickEarliestPastCounterStart } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, getRecipeMaxActiveFoodCounterDays } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -342,81 +342,21 @@ export function PossibleMealCard({
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const todayISO = format(new Date(), 'yyyy-MM-dd');
 
-  // PRIORITÉ : compteur actif en stock, puis résolution parent, puis carte.
+  // PRIORITÉ : badge compteur = max des compteurs Aliments encore ouverts dans la recette.
+  // Si aucun lot n'est ouvert (consommés juste après ouverture), pas de badge du tout.
   const cardIngredients = pm.ingredients_override ?? meal?.ingredients;
-  const activeCounterFromStock = useMemo(
+  const foodMaxCounterDays = useMemo(
     () =>
       cardIngredients && foodItems?.length
-        ? findEarliestActiveCounterDate(cardIngredients, foodItems, foodMacroIndex)
-        : undefined,
+        ? getRecipeMaxActiveFoodCounterDays(cardIngredients, foodItems, foodMacroIndex)
+        : null,
     [cardIngredients, foodItems, foodMacroIndex],
-  );
-  // Lot uniquement PROGRAMMÉ (« Prog. ») en stock : aucun ingrédient réellement ouvert, mais un compteur
-  // futur existe. On récupère cette date future pour piloter le badge à sa place, plutôt qu'un
-  // counter_start_date figé et obsolète qui afficherait un faux « Xj » actif (cf. bug Croque Monsieur :
-  // seul Blanc de dinde est en Prog., la carte ne doit donc pas montrer 1j).
-  const programmedOnlyCounterStart = useMemo(
-    () =>
-      cardIngredients && foodItems?.length
-        ? getProgrammedOnlyCounterStart(cardIngredients, foodItems, foodMacroIndex)
-        : undefined,
-    [cardIngredients, foodItems, foodMacroIndex],
-  );
-  // Carte planifiée (jour + créneau) : le départ du compteur correspond à l'ouverture du lot LA PLUS
-  // PRÉCOCE connue — le minimum entre le compteur FIGÉ sur la carte (au moment de la planification) et la
-  // date RÉSOLUE en direct par le parent (ouverture en stock / carte voisine consommant le lot).
-  // Prendre le minimum :
-  //  - préserve une vraie ouverture antérieure déjà figée (une autre carte qui entame le lot MAINTENANT
-  //    ne raccourcit pas le compteur d'une carte dont le lot était ouvert plus tôt → effet « figé ») ;
-  //  - reflète une ouverture PLUS PRÉCOCE non encore figée (ex. « Patatoes + Tenders » non planifié entame
-  //    les Tenders maintenant → la carte « Riz + Tenders » de lundi affiche 0j ; ou une carte planifiée
-  //    antérieure qui ouvre le lot → décalage Xj).
-  const isPlannedFull = Boolean(pm.day_of_week?.trim() && pm.meal_time?.trim());
-  const plannedStart = useMemo(
-    () => pickEarliestPastCounterStart(realtimeCounterStartDate, pm.counter_start_date),
-    [realtimeCounterStartDate, pm.counter_start_date],
-  );
-  // Priorité absolue au lot « Prog. seul » : la date future prime sur toute date figée (carte/temps réel)
-  // afin que le badge reflète l'état réel du stock (ingrédient pas encore ouvert) au lieu d'un « Xj » fantôme.
-  const effectiveCounterStart = programmedOnlyCounterStart
-    ? programmedOnlyCounterStart
-    : isPlannedFull
-      ? plannedStart
-      : pickEarliestPastCounterStart(activeCounterFromStock, realtimeCounterStartDate, pm.counter_start_date);
-
-  // Le badge compteur n'a de sens que si la recette possède réellement un ingrédient porteur de compteur
-  // (lot fini non surgelé encore en stock) OU si un compteur est déjà actif sur le stock (y compris manuel).
-  // Évite un « 0j » résiduel sur une carte dont l'aliment a été entièrement consommé et n'existe plus.
-  // Une carte entièrement planifiée porte un compteur FIGÉ au moment de la planification : on lui fait
-  // confiance même si l'ingrédient comptable n'est plus en stock (consommé), pour rester cohérent avec
-  // l'onglet Planning qui affiche ce compteur sans cette restriction. Le gate « backing » ne sert alors
-  // qu'à masquer un compteur résiduel sur une carte NON planifiée dont l'aliment a disparu.
-  const counterHasBacking = useMemo(
-    () =>
-      foodItems?.length
-        ? recipeHasFiniteCounterableIngredients(cardIngredients, foodItems, foodMacroIndex) ||
-          activeCounterFromStock != null ||
-          (isPlannedFull && !!plannedStart)
-        : true,
-    [cardIngredients, foodItems, foodMacroIndex, activeCounterFromStock, isPlannedFull, plannedStart],
   );
 
   // Garde placé APRÈS tous les hooks : une carte sans repas source n'est pas rendue.
   if (!meal) return null;
 
-  const counterDaysRaw = getAdaptedCounterDays(
-    effectiveCounterStart,
-    pm.day_of_week,
-    pm.created_at,
-    pm.meal_time,
-  );
-  // Afficher tout compteur > 0 même si le stock a été entièrement déduit (carte fraîchement passée
-  // en « possible » avec un counter_start_date). Ne masquer que le 0j sans appui (stock épuisé,
-  // pas de compteur figé sur une carte planifiée).
-  const counterDays =
-    counterDaysRaw != null && (counterDaysRaw > 0 || counterHasBacking)
-      ? counterDaysRaw
-      : null;
+  const counterDays = foodMaxCounterDays;
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;
@@ -684,7 +624,7 @@ export function PossibleMealCard({
                     : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30'
                   : 'bg-white/25 text-white'
                   }`}
-                title={getCounterDaysBadgeTooltip(effectiveCounterStart ?? null, pm.day_of_week, pm.meal_time, counterDays)}
+                title={`${counterDays} jour(s) — max des aliments de la recette`}
               >
                 <Timer className="h-3 w-3" /> {counterDays}j
               </button>
@@ -744,7 +684,7 @@ export function PossibleMealCard({
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
                 : 'bg-white/25 text-white'
                 }`}
-              title={getCounterDaysBadgeTooltip(effectiveCounterStart ?? null, pm.day_of_week, pm.meal_time, counterDays)}
+              title={`${counterDays} jour(s) — max des aliments de la recette`}
             >
               <Timer className="h-3 w-3" /> {counterDays}j
             </button>

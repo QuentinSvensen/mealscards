@@ -63,10 +63,10 @@ export function formatIsoInFrance(iso: string | null | undefined): string {
  * Calcule le nombre de jours écoulés depuis counter_start_date.
  * Retourne null si pas de compteur ou si le compteur est dans le futur (programmé).
  */
-export function computeCounterDays(counterStartDate: string | null | undefined): number | null {
+export function computeCounterDays(counterStartDate: string | null | undefined, fixedNow?: Date): number | null {
   if (!counterStartDate) return null;
   const start = parseISO(counterStartDate);
-  const now = new Date();
+  const now = fixedNow || new Date();
   if (now < start) return null;
   return differenceInDays(now, start);
 }

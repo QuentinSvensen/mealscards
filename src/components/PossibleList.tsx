@@ -20,13 +20,12 @@ import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, getRecipeMaxActiveFoodCounterDays } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
-import { getAdaptedCounterDays, getCounterDaysBadgeTooltip } from "@/lib/ingredientUtils";
 import { fr } from "date-fns/locale";
 
 const DAY_LABELS_FULL: Record<string, string> = {
@@ -289,29 +288,11 @@ export function PossibleList({
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
             const displayPro = ingPro !== null ? String(ingPro) : meal.protein;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
-            const popupSnapshotOpening = displayIngredients
-              ? findEarliestActiveCounterDate(displayIngredients, deductionSnapshots[popupPm.id] ?? [], foodItemIndex)
-              : undefined;
-            const effectiveStart = pickEarliestPastCounterStart(
-              resolveCounterStartForPossibleBadge(
-                popupPm,
-                badgeSiblings,
-                analysis.earliestCounterDate,
-                popupPm.counter_start_date ?? undefined,
-                foodItems,
-                foodItemIndex,
-                undefined,
-                analysis.earliestActiveCounterDate,
-              ),
-              popupSnapshotOpening,
-              analysis.earliestActiveCounterDate,
-              analysis.earliestCounterDate,
-              popupPm.counter_start_date,
-            ) ?? null;
-            const counterDays = getAdaptedCounterDays(effectiveStart, popupPm.day_of_week, popupPm.created_at, popupPm.meal_time);
+            const foodMaxCounterDays = getRecipeMaxActiveFoodCounterDays(displayIngredients, foodItems, foodItemIndex);
+            const counterDays = foodMaxCounterDays;
             const counterBadgeTitle =
-              counterDays !== null && effectiveStart
-                ? getCounterDaysBadgeTooltip(effectiveStart, popupPm.day_of_week, popupPm.meal_time, counterDays)
+              counterDays !== null
+                ? `${counterDays} jour(s) — max des aliments de la recette`
                 : undefined;
 
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
