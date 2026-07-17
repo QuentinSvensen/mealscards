@@ -17,6 +17,8 @@ import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Th
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
+import { usePreferences } from "@/hooks/usePreferences";
+import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -91,6 +93,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [detailPopupOpen, setDetailPopupOpen] = useState(false);
+  const { getPreference } = usePreferences();
+  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const handleSave = () => {
     const val = editValue.trim();
@@ -215,6 +219,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                 </span>
               )}
               {(() => {
+                if (hideCalorieDisplay) return null;
                 const displayCal = headerCal;
                 const isComputed = computeIngredientCalories(meal.ingredients, isAvailableCb) !== null || hasDirectMacros;
                 return displayCal ? (

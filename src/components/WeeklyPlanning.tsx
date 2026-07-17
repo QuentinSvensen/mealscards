@@ -64,6 +64,7 @@ import {
   getCalorieRangeTotalColorClass,
   hasCalorieGoalRangeMin,
 } from "@/domain/planning/calorieGoalRange";
+import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
@@ -697,9 +698,11 @@ interface TouchDragState {
 /**
  * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
  */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, displayFiber, compact, hideIngredients, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, displayFiber, compact, hideIngredients, hideCalorieDisplay, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
   pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; displayFiber: string | null; compact: boolean;
   hideIngredients?: boolean;
+  /** Masque le badge / l’édition des calories (préférence « Masquer calories »). */
+  hideCalorieDisplay?: boolean;
   isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
@@ -716,10 +719,11 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
   const cardColorIngredients = meal.ingredients?.trim() ? meal.ingredients : pm.ingredients_override;
   const dateBadgeLabel = formatPlanningMiniCardDateLabel(pm.expiration_date);
   const dateBadgeIsExpiration = !!pm.expiration_date;
+  const visibleCal = hideCalorieDisplay ? null : displayCal;
 
   const macroControls = !compact ? (
     <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
-      {editingCal ? (
+      {!hideCalorieDisplay && (editingCal ? (
         <input
           autoFocus
           type="text"
@@ -753,7 +757,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
         >
           <Flame className="h-3 w-3" />
         </button>
-      )}
+      ))}
       {editingPro ? (
         <input
           autoFocus
@@ -833,7 +837,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             </div>
           </div>
         </div>
-        {!compact && (dateBadgeLabel || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
+        {!compact && (dateBadgeLabel || meal.grams || visibleCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
           <div className="mt-auto pt-0.5">
             <div className="flex items-end justify-between gap-1 min-w-0">
               <div className="flex flex-wrap items-center gap-1 min-w-0">
@@ -886,7 +890,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               </span>
             ) : null}
           </div>
-          {!compact && (dateBadgeLabel || meal.grams || displayCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
+          {!compact && (dateBadgeLabel || meal.grams || visibleCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
             <div className="pt-0.5">
               <div className="flex items-end justify-between gap-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-1 min-w-0">
@@ -1597,6 +1601,8 @@ export function WeeklyPlanning({
   const DAILY_FIBER_GOAL_PREF = getPreference<number>('planning_fiber_goal', DAILY_FIBER_GOAL_PREF_FROM_HOOK || DAILY_FIBER_GOAL);
   const NEXT_DAILY_GOAL = getPreference<number>('next_week_daily_goal', DAILY_GOAL);
   const NEXT_DAILY_GOAL_LOW = getPreference<number>('next_week_daily_goal_low', DAILY_GOAL_LOW);
+  /** Case « Masquer calories » (entête site) : remplace le chiffre kcal du jour par « Calories ». */
+  const hideDayCalorieTotals = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const NEXT_PROTEIN_GOAL = getPreference<number>('next_week_protein_goal', DAILY_PROTEIN_GOAL_PREF);
   const NEXT_FIBER_GOAL = getPreference<number>('next_week_fiber_goal', DAILY_FIBER_GOAL_PREF);
   const [editingGoal, setEditingGoal] = useState(false);
@@ -2529,6 +2535,7 @@ export function WeeklyPlanning({
         displayFiber={displayFiber}
         compact={compact}
         hideIngredients={hideIngredients}
+        hideCalorieDisplay={hideDayCalorieTotals}
         isTouchDevice={isTouchDevice}
         touchDragActive={touchDragActive}
         slotDragOver={slotDragOver}
@@ -3100,7 +3107,7 @@ export function WeeklyPlanning({
                                     updatePlanningWithCounters(pm.id, iso, 'matin');
                                   }
                                 }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : otherDaysLabel ? 'bg-amber-100/40 text-amber-900 dark:text-amber-100' : ''}`}>
-                                  {pm.meals?.name} {pm.ingredients_override ? '✏️' : ''} {(calDisplay || proDisplay) ? <span className="inline-flex items-center gap-0.5 ml-1 text-muted-foreground">({calDisplay ? <><Flame className="w-2.5 h-2.5 text-orange-500" />{calDisplay}</> : ''}{calDisplay && proDisplay ? ' · ' : ''}{proDisplay ? `🍗${proDisplay}` : ''})</span> : ''}
+                                  {pm.meals?.name} {pm.ingredients_override ? '✏️' : ''} {((!hideDayCalorieTotals && calDisplay) || proDisplay) ? <span className="inline-flex items-center gap-0.5 ml-1 text-muted-foreground">({!hideDayCalorieTotals && calDisplay ? <><Flame className="w-2.5 h-2.5 text-orange-500" />{calDisplay}</> : ''}{!hideDayCalorieTotals && calDisplay && proDisplay ? ' · ' : ''}{proDisplay ? `🍗${proDisplay}` : ''})</span> : ''}
                                   {otherDaysLabel && <span className="ml-1 text-[9px] text-amber-600 dark:text-amber-400 font-bold">📅 {otherDaysLabel}</span>}
                                 </button>
                               );
@@ -3121,7 +3128,7 @@ export function WeeklyPlanning({
                               if (isSelected) setBreakfastForDay(iso, null);
                               else setBreakfastForDay(iso, mealSelId);
                             }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : otherDaysLabel ? 'bg-amber-100/40 text-amber-900 dark:text-amber-100' : ''}`}>
-                              {m.name} {(calDisplay || proDisplay) ? <span className="inline-flex items-center gap-0.5 ml-1 text-muted-foreground">({calDisplay ? <><Flame className="w-2.5 h-2.5 text-orange-500" />{calDisplay}</> : ''}{calDisplay && proDisplay ? ' · ' : ''}{proDisplay ? `🍗${proDisplay}` : ''})</span> : ''}
+                              {m.name} {((!hideDayCalorieTotals && calDisplay) || proDisplay) ? <span className="inline-flex items-center gap-0.5 ml-1 text-muted-foreground">({!hideDayCalorieTotals && calDisplay ? <><Flame className="w-2.5 h-2.5 text-orange-500" />{calDisplay}</> : ''}{!hideDayCalorieTotals && calDisplay && proDisplay ? ' · ' : ''}{proDisplay ? `🍗${proDisplay}` : ''})</span> : ''}
                               {otherDaysLabel && <span className="ml-1 text-[9px] text-amber-600 dark:text-amber-400 font-bold">📅 {otherDaysLabel}</span>}
                             </button>
                           );
@@ -3239,7 +3246,7 @@ export function WeeklyPlanning({
                       })()}
                     >💾</button>
                   )}
-                {(breakfastTotalCals > 0 || breakfastTotalPro > 0 || breakfastTotalFiber > 0) && (
+                {(breakfastTotalCals > 0 || breakfastTotalPro > 0 || breakfastTotalFiber > 0) && !hideDayCalorieTotals && (
                   <div className={`${SLOT_MEAL_TOTAL_CLASS} ml-1 sm:ml-2`}>
                     {breakfastTotalCals > 0 && (
                       <span className="flex items-center gap-0.5">
@@ -3308,7 +3315,7 @@ export function WeeklyPlanning({
                   >
                     <Flame className="h-2.5 w-2.5 text-orange-500" />
                     <span className={getCalorieRangeTotalColorClass(dayCalories, DAILY_GOAL_LOW, DAILY_GOAL) ?? undefined}>
-                      {Math.round(dayCalories)}
+                      {hideDayCalorieTotals ? "Calories" : Math.round(dayCalories)}
                     </span>
                     {" "}
                     <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(DAILY_GOAL_LOW, DAILY_GOAL)}</span>
@@ -3335,7 +3342,7 @@ export function WeeklyPlanning({
                       <span className="text-[9px] text-muted-foreground">kcal/j</span>
                     </div>
                   )}
-                  {!editingGoal && dayCalories > 0 && !hasCalorieGoalRangeMin(DAILY_GOAL_LOW, DAILY_GOAL) && (
+                  {!editingGoal && !hideDayCalorieTotals && dayCalories > 0 && !hasCalorieGoalRangeMin(DAILY_GOAL_LOW, DAILY_GOAL) && (
                     <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_GOAL - dayCalories > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                       {DAILY_GOAL - dayCalories > 0 ? `reste ${Math.round(DAILY_GOAL - dayCalories)}` : `+${Math.round(dayCalories - DAILY_GOAL)}`}
                     </span>
@@ -3465,7 +3472,7 @@ export function WeeklyPlanning({
                             🥤 {slotDrink ? `+${DRINK_CALORIES}` : ''}
                           </button>
                         </div>
-                        {(slotCals > 0 || slotPro > 0 || slotFiber > 0) && (
+                        {(slotCals > 0 || slotPro > 0 || slotFiber > 0) && !hideDayCalorieTotals && (
                           <div className={SLOT_MEAL_TOTAL_CLASS}>
                             {slotCals > 0 && (
                               <span className="flex items-center gap-0.5">
@@ -4483,7 +4490,7 @@ export function WeeklyPlanning({
                         })}
                       </div>
                     )}
-                    {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && (
+                    {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && !hideDayCalorieTotals && (
                       <div className={SLOT_MEAL_TOTAL_CLASS}>
                         {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
                         {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
@@ -4505,24 +4512,33 @@ export function WeeklyPlanning({
           const datesUpToToday = todayIndexNum >= 0 ? weekDates.slice(0, todayIndexNum + 1) : [];
           const totalUpToToday = datesUpToToday.reduce((sum, d) => sum + getDayCalories(d.key, d.iso), 0);
           const avgCal = datesUpToToday.length > 0 ? Math.round(totalUpToToday / datesUpToToday.length) : 0;
+          /** Couleur d’un total/moyenne masqué : vert dans la fourchette, rouge au-dessus, blanc en dessous. */
+          const maskedCalColor = (value: number, low: number, high: number) =>
+            getCalorieRangeTotalColorClass(value, low, high) ?? "text-white";
+          const weekTotalColor = maskedCalColor(weekTotal, WEEKLY_GOAL_LOW, WEEKLY_GOAL);
+          const avg7Color = maskedCalColor(rolling7DayAvg, DAILY_GOAL_LOW, DAILY_GOAL);
+          const avg14Color = maskedCalColor(rolling14DayAvg, DAILY_GOAL_LOW, DAILY_GOAL);
+          const avgUpToColor = maskedCalColor(avgCal, DAILY_GOAL_LOW, DAILY_GOAL);
           return (
             <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-foreground">Total semaine</span>
                 <span className="text-xs text-muted-foreground font-medium">
-                  Moy. {rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling7DaysCounted}j)</span>
+                  Moy. {hideDayCalorieTotals ? <span className={avg7Color}>Calories</span> : rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling7DaysCounted}j)</span>
                 </span>
                 <span className="text-xs text-muted-foreground/70 font-medium">
-                  · Moy. {rolling14DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling14DaysCounted}j)</span>
+                  · Moy. {hideDayCalorieTotals ? <span className={avg14Color}>Calories</span> : rolling14DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling14DaysCounted}j)</span>
                 </span>
               </div>
               <div className="flex items-center gap-3 flex-wrap ml-auto">
                 <span className="text-xs text-muted-foreground font-medium">
-                  Moy. {avgCal} kcal/j <span className="text-muted-foreground/40">({datesUpToToday.length}j)</span>
+                  Moy. {hideDayCalorieTotals ? <span className={avgUpToColor}>Calories</span> : avgCal} kcal/j <span className="text-muted-foreground/40">({datesUpToToday.length}j)</span>
                 </span>
                 <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
                   <Flame className="h-4 w-4" />
-                  {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(WEEKLY_GOAL_LOW, WEEKLY_GOAL)}</span>
+                  {hideDayCalorieTotals ? <span className={weekTotalColor}>Calories</span> : Math.round(weekTotal)}
+                  {" "}
+                  <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(WEEKLY_GOAL_LOW, WEEKLY_GOAL)}</span>
                 </span>
               </div>
             </div>
@@ -4597,7 +4613,7 @@ export function WeeklyPlanning({
                 <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
                   {getCategoryEmoji(m.category)} {m.name}
                 </span>
-                {bCO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
+                {bCO[c.id] && !hideDayCalorieTotals && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
                 {bPO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🍗{bPO[c.id]}</span>}
               </div>
             );
@@ -4795,7 +4811,7 @@ export function WeeklyPlanning({
                             </span>
                           );
                         })()}
-                        {(bfSlotCal > 0 || bfSlotPro > 0) && (
+                        {(bfSlotCal > 0 || bfSlotPro > 0) && !hideDayCalorieTotals && (
                           <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
                             {bfSlotCal > 0 && (
                               <span className="flex items-center gap-0.5">
@@ -4817,9 +4833,13 @@ export function WeeklyPlanning({
                       <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
                         <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
                           <Flame className="h-2.5 w-2.5 text-orange-500" />
-                          {Math.round(dayTotal)} <span className="text-muted-foreground/50 font-normal">/ {backupTotals.archivedDailyGoal}</span>
+                          <span className={getCalorieRangeTotalColorClass(dayTotal, 0, backupTotals.archivedDailyGoal) ?? undefined}>
+                            {hideDayCalorieTotals ? "Calories" : Math.round(dayTotal)}
+                          </span>
+                          {" "}
+                          <span className="text-muted-foreground/50 font-normal">/ {backupTotals.archivedDailyGoal}</span>
                         </span>
-                        {dayTotal > 0 && (
+                        {dayTotal > 0 && !hideDayCalorieTotals && (
                           <span className={`text-[10px] font-bold whitespace-nowrap ${backupTotals.archivedDailyGoal - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                             {backupTotals.archivedDailyGoal - dayTotal > 0 ? `reste ${Math.round(backupTotals.archivedDailyGoal - dayTotal)}` : `+${Math.round(dayTotal - backupTotals.archivedDailyGoal)}`}
                           </span>
@@ -4854,7 +4874,7 @@ export function WeeklyPlanning({
                               {(() => {
                                 const sCal = time === 'midi' ? midiSlotCal : soirSlotCal;
                                 const sPro = time === 'midi' ? midiSlotPro : soirSlotPro;
-                                if (sCal <= 0 && sPro <= 0) return null;
+                                if (hideDayCalorieTotals || (sCal <= 0 && sPro <= 0)) return null;
                                 return (
                                   <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-4 sm:h-5">
                                     {sCal > 0 && (
@@ -5070,7 +5090,7 @@ export function WeeklyPlanning({
                             })}
                           </div>
                         )}
-                        {(gouterSlotCal > 0 || gouterSlotPro > 0) && (
+                        {(gouterSlotCal > 0 || gouterSlotPro > 0) && !hideDayCalorieTotals && (
                           <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
                             {gouterSlotCal > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterSlotCal)}</span>}
                             {gouterSlotCal > 0 && gouterSlotPro > 0 && <span className="opacity-30">•</span>}
@@ -5088,17 +5108,25 @@ export function WeeklyPlanning({
                 const weekTotalCals = dailyTotals.reduce((a, b) => a + b, 0);
                 const processedDays = dailyTotals.length;
                 const avgCal = processedDays > 0 ? Math.round(weekTotalCals / processedDays) : 0;
+                const weekGoalHigh = backupTotals.archivedDailyGoal * 7;
+                const dayGoal = backupTotals.archivedDailyGoal;
+                const weekTotalColor =
+                  getCalorieRangeTotalColorClass(weekTotalCals, 0, weekGoalHigh) ?? "text-white";
+                const avgColor =
+                  getCalorieRangeTotalColorClass(avgCal, 0, dayGoal) ?? "text-white";
 
                 return (
                   <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
                     <span className="text-sm font-bold text-foreground">Total semaine</span>
                     <div className="flex items-center gap-3 flex-wrap ml-auto">
                       <span className="text-xs text-muted-foreground font-medium">
-                        Moy. {avgCal} kcal/j <span className="text-muted-foreground/40">({processedDays}j)</span>
+                        Moy. {hideDayCalorieTotals ? <span className={avgColor}>Calories</span> : avgCal} kcal/j <span className="text-muted-foreground/40">({processedDays}j)</span>
                       </span>
                       <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
                         <Flame className="h-4 w-4" />
-                        {Math.round(weekTotalCals)} <span className="text-muted-foreground/50 font-normal text-xs">/ {backupTotals.archivedDailyGoal * 7}</span>
+                        {hideDayCalorieTotals ? <span className={weekTotalColor}>Calories</span> : Math.round(weekTotalCals)}
+                        {" "}
+                        <span className="text-muted-foreground/50 font-normal text-xs">/ {weekGoalHigh}</span>
                       </span>
                     </div>
                   </div>
@@ -5344,7 +5372,7 @@ export function WeeklyPlanning({
                       </PopoverContent>
                     </Popover>
 
-                    {hasNextBf && (
+                    {hasNextBf && !hideDayCalorieTotals && (
                       <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
                         {nextBreakfastTotalCals > 0 && (
                           <span className="flex items-center gap-0.5">
@@ -5388,12 +5416,12 @@ export function WeeklyPlanning({
                     <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
                       <Flame className="h-2.5 w-2.5 text-orange-500" />
                       <span className={getCalorieRangeTotalColorClass(dayTotal, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) ?? undefined}>
-                        {Math.round(dayTotal)}
+                        {hideDayCalorieTotals ? "Calories" : Math.round(dayTotal)}
                       </span>
                       {" "}
                       <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL)}</span>
                     </span>
-                    {dayTotal > 0 && !hasCalorieGoalRangeMin(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) && (
+                    {dayTotal > 0 && !hideDayCalorieTotals && !hasCalorieGoalRangeMin(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) && (
                       <span className={`text-[10px] font-bold whitespace-nowrap ${NEXT_DAILY_GOAL - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                         {NEXT_DAILY_GOAL - dayTotal > 0 ? `reste ${Math.round(NEXT_DAILY_GOAL - dayTotal)}` : `+${Math.round(dayTotal - NEXT_DAILY_GOAL)}`}
                       </span>
@@ -5436,9 +5464,9 @@ export function WeeklyPlanning({
                     const slotCals = slotCalsMeals + slotManualCal + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
                     const slotPro = slotProMeals + slotManualPro + slotAssigned.pro;
                     const slotFiber = slotFiberMeals + slotManualFiber + slotAssigned.fiber;
-                    const showSlotTotals = slotMeals.length > 0
+                    const showSlotTotals = !hideDayCalorieTotals && (slotMeals.length > 0
                       ? (slotCals > 0 || slotPro > 0 || slotFiber > 0)
-                      : (slotCals > 0 || slotPro > 0 || slotFiber > 0);
+                      : (slotCals > 0 || slotPro > 0 || slotFiber > 0));
                     return (
                       <div
                         key={time}
@@ -5851,13 +5879,24 @@ export function WeeklyPlanning({
               totalPro += nextExtraSum.pro;
             }
             const avgCal = Math.round(total / 7);
+            const nextWeekGoalLow = NEXT_DAILY_GOAL_LOW > 0 ? NEXT_DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0;
+            const nextWeekGoalHigh = NEXT_DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
+            const weekTotalColor =
+              getCalorieRangeTotalColorClass(total, nextWeekGoalLow, nextWeekGoalHigh) ?? "text-white";
+            const avgColor =
+              getCalorieRangeTotalColorClass(avgCal, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) ?? "text-white";
             return (
               <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
                 <span className="text-sm font-bold text-foreground">Total prévu</span>
                 <div className="flex items-center gap-3 flex-wrap ml-auto">
-                  <span className="text-xs text-muted-foreground font-medium">Moy. {avgCal} kcal/j</span>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    Moy. {hideDayCalorieTotals ? <span className={avgColor}>Calories</span> : avgCal} kcal/j
+                  </span>
                   <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-                    <Flame className="h-4 w-4" /> {Math.round(total)} <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW > 0 ? NEXT_DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0, NEXT_DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER)}</span>
+                    <Flame className="h-4 w-4" />
+                    {hideDayCalorieTotals ? <span className={weekTotalColor}>Calories</span> : Math.round(total)}
+                    {" "}
+                    <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(nextWeekGoalLow, nextWeekGoalHigh)}</span>
                   </span>
                 </div>
               </div>
@@ -5901,7 +5940,7 @@ export function WeeklyPlanning({
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">{getCategoryEmoji(meal.category)} {meal.name}</h3>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {displayCal && (
+                  {displayCal && !hideDayCalorieTotals && (
                     <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1">
                       <Flame className="h-3.5 w-3.5" /> {displayCal} kcal
                     </span>
@@ -5986,7 +6025,7 @@ export function WeeklyPlanning({
                   {getDisplayDay(popupBreakfast.day)}
                 </p>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {displayCal && (
+                  {displayCal && !hideDayCalorieTotals && (
                     <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1">
                       <Flame className="h-3.5 w-3.5" /> {displayCal} kcal
                     </span>

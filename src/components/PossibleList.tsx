@@ -23,6 +23,8 @@ import { StructuredIngredientInline } from "@/components/StructuredIngredientInl
 import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
+import { usePreferences } from "@/hooks/usePreferences";
+import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
@@ -126,6 +128,8 @@ export function PossibleList({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
   const [hidePastPlannedCards, setHidePastPlannedCards] = useState(true);
+  const { getPreference } = usePreferences();
+  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   // Indexer les articles alimentaires pour une recherche en O(1) dans analyzeMealIngredients
   const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
@@ -304,7 +308,7 @@ export function PossibleList({
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients?.trim() ? meal.ingredients : displayIngredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">{getCategoryEmoji(meal.category)} {meal.name}</h3>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {displayCal && (
+                  {displayCal && !hideCalorieDisplay && (
                     <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1" title="Calories">
                       <Flame className="h-3.5 w-3.5" /> {displayCal} kcal
                     </span>

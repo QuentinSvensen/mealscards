@@ -16,6 +16,7 @@ import { ChevronDown, ChevronRight, Drumstick, Wheat, ArrowUpDown, CalendarDays,
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePreferences } from "@/hooks/usePreferences";
+import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -42,6 +43,7 @@ interface UnParUnSectionProps {
 export function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleCollapse, onMoveToPossible, sortMode, onToggleSort, ingredientMacroAutofillSources }: UnParUnSectionProps) {
   const stockMap = buildStockMap(foodItems);
   const { getPreference, setPreference } = usePreferences();
+  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const [consumeDialogItem, setConsumeDialogItem] = useState<FoodItem | null>(null);
   const [consumeQty, setConsumeQty] = useState("");
   const [consumeGrams, setConsumeGrams] = useState("");
@@ -239,10 +241,12 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
    */
   const renderMacroBadgeGroup = (cal: number, pro: number | null, muted = false) => (
     <span className={`inline-flex items-center gap-0.5 shrink-0 ${muted ? "opacity-80" : ""}`}>
+      {!hideCalorieDisplay && (
       <span className="text-[10px] font-bold text-white bg-orange-500/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
         <Flame className="w-2.5 h-2.5" />
         {Math.round(cal)}
       </span>
+      )}
       {pro !== null && (
         <span className="text-[10px] font-bold text-white bg-blue-600/50 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
           🍗{Math.round(pro)}

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { colorFromName } from "@/lib/foodColors";
@@ -85,6 +86,7 @@ import { buildWeekDates } from "@/lib/planningWeekUtils";
 import { pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
 import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
+import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 
 /**
  * Enveloppe un import dynamique : en cas d'erreur de chunk, tente un rechargement (cache SW, sessionStorage).
@@ -237,6 +239,7 @@ const Index = () => {
 
   const { groups: shoppingGroups, items: shoppingItems, toggleSecondaryCheck: toggleShoppingSecondaryCheck, updateItemQuantity: updateShoppingItemQuantity } = useShoppingList({ enabled: unlocked });
   const { getPreference, setPreference, isLoading: isPreferencesLoading } = usePreferences({ enabled: unlocked });
+  const hideDayCalorieTotals = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const macroLibrary = getPreference<IngredientMacroLibraryItem[]>("ingredient_macro_library", EMPTY_MACRO_LIBRARY);
   const saveMacroLibrary = useCallback(
     (library: IngredientMacroLibraryItem[]) => {
@@ -1234,7 +1237,27 @@ const Index = () => {
                   </button>
                 ))}
               </div>
-              <div aria-hidden="true" />
+              <div className="flex justify-start pl-1 sm:pl-1.5 min-w-0">
+                <label
+                  htmlFor="site-hide-calorie-totals"
+                  className="flex items-center gap-1.5 cursor-pointer select-none shrink-0"
+                  title="Masque les totaux kcal (Planning) et les calories sur les cartes Repas ; « Seuil max » affiche « Calorie »"
+                >
+                  <Checkbox
+                    id="site-hide-calorie-totals"
+                    checked={hideDayCalorieTotals}
+                    onCheckedChange={(checked) => {
+                      setPreference.mutate({
+                        key: PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY,
+                        value: !!checked,
+                      });
+                    }}
+                  />
+                  <span className="hidden sm:inline text-[9px] md:text-[10px] text-muted-foreground whitespace-nowrap leading-tight">
+                    Masquer calories
+                  </span>
+                </label>
+              </div>
             </div>
 
             <button onClick={() => setChronoOpen(true)}

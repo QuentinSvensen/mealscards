@@ -32,6 +32,7 @@ import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientM
 import { autofillIngredientLinesMacros, resolveIngredientLineMacros } from "@/domain/macros/ingredientMacroDatabase";
 import { getExtraPortionMacros, parseFoodMacroValue } from "@/lib/extraMacroUtils";
 import { usePreferences } from "@/hooks/usePreferences";
+import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
   buildStockMap, findStockKey, getMealMultiple, getMealMultipleAtRatio, getMealFractionalRatio,
   analyzeMealIngredients,
@@ -266,6 +267,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const isPlat = category.value === "plat";
   const showMealItemsInAvailable = category.value === "plat" || category.value === "petit_dejeuner";
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
+  const hideCalorieDisplay = getAvailPref<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const morningMealFoodItemIds = getAvailPref<string[]>('morning_meal_food_item_ids', []);
   const morningMealFoodItemIdSet = new Set(morningMealFoodItemIds);
   const dessertFoodItemIds = getAvailPref<string[]>(DESSERT_FOOD_PREF_KEY, []);
@@ -1850,6 +1852,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                    <span className="text-[10px] text-muted-foreground">
                      Seuil max :
                    </span>
+                   {hideCalorieDisplay ? (
+                     <span className="text-sm font-bold text-foreground">Calorie</span>
+                   ) : (
+                     <>
                    <input
                      type="number"
                      inputMode="numeric"
@@ -1874,6 +1880,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                       title="Réinitialiser au seuil calculé"
                     >✕</button>
                   )}
+                     </>
+                   )}
                   <span className="text-[10px] text-muted-foreground mx-1">·</span>
                   <span className="text-sm font-bold text-blue-400">{Math.round(remainingProtein)}</span>
                   <span className="text-[10px] text-muted-foreground">g prot</span>
