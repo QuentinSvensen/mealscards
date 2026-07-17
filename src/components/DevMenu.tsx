@@ -63,6 +63,7 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
       if (m.ingredients) parts.push(`ing=${m.ingredients.replace(/\n/g, ', ')}`);
       if (m.oven_temp) parts.push(`oven_temp=${m.oven_temp}`);
       if (m.oven_minutes) parts.push(`oven_minutes=${m.oven_minutes}`);
+      if (m.description) parts.push(`desc=${m.description.replace(/\n/g, '\\n')}`);
       if (m.is_favorite) parts.push(`fav=1`);
       return `${m.name} (${parts.join('; ')})`;
     });
@@ -96,7 +97,9 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
         const { data: inserted, error: insertErr } = await supabase.from("meals").insert({
           name: name.trim(), category: cat, sort_order: count, is_available: true,
           calories: params.cal || null, protein: params.prot || null, grams: params.grams || null, ingredients: params.ing || null,
-          oven_temp: params.oven_temp || null, oven_minutes: params.oven_minutes || null, is_favorite: params.fav === '1',
+          oven_temp: params.oven_temp || null, oven_minutes: params.oven_minutes || null,
+          description: params.desc ? params.desc.replace(/\\n/g, '\n') : null,
+          is_favorite: params.fav === '1',
         } as any).select().single();
         if (insertErr) { skipped++; continue; }
         count++;

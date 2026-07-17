@@ -44,11 +44,12 @@ interface MasterListProps {
   onToggleFavorite: (id: string) => void;
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
+  onUpdateDescription: (id: string, description: string | null) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
   ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
 }
 
-export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onReorder, ingredientMacroAutofillSources }: MasterListProps) {
+export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onReorder, ingredientMacroAutofillSources }: MasterListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const stockMap = buildStockMap(foodItems);
@@ -134,6 +135,7 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
                 onToggleFavorite={() => onToggleFavorite(meal.id)}
                 onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
                 onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+                onUpdateDescription={(d) => onUpdateDescription(meal.id, d)}
                 missingIngredientNames={missingIngs.size > 0 ? missingIngs : undefined}
                 expirationLabel={expLabel} expirationDate={analysis.earliestExpiration} expirationIsToday={expIsTodayM}
                 expiredIngredientNames={analysis.expiredIngredientNames} expiringSoonIngredientNames={analysis.expiringSoonIngredientNames}

@@ -8,24 +8,26 @@
  * Fonctionnalités :
  * - Édition inline du nom, calories, protéines, fibres, grammes, cuisson
  * - Édition des ingrédients via IngredientEditor
+ * - Description (consignes) via menu, visible uniquement au double-clic
  * - Mémorisation React.memo avec comparaison personnalisée pour la performance
  * - StructuredIngredientInline : affiche les ingrédients avec OU, optionnels, manquants
  */
 import React, { useState, forwardRef } from "react";
-import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer, Hash, Link2, Timer } from "lucide-react";
+import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer, Timer, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   type IngLine,
   parseIngredientsToLines, serializeIngredients,
-  computeIngredientCalories, computeIngredientProtein, computeIngredientFiber, cleanIngredientText,
+  computeIngredientCalories, computeIngredientProtein, computeIngredientFiber,
   getMealColor, computeCounterHours
 } from "@/lib/ingredientUtils";
 import { findStockKey, type StockInfo, type FoodItemIndex, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber } from "@/lib/stockUtils";
@@ -46,6 +48,8 @@ interface MealCardProps {
   onToggleFavorite?: () => void;
   onUpdateOvenTemp?: (temp: string | null) => void;
   onUpdateOvenMinutes?: (minutes: string | null) => void;
+  /** Enregistre les consignes de préparation du repas. */
+  onUpdateDescription?: (description: string | null) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -73,7 +77,7 @@ interface MealCardProps {
 
 export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(function MealCard({
   meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams,
-  onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onDragStart,
+  onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onDragStart,
   onDragOver, onDrop, isHighlighted, hideDelete, expirationLabel, expirationDate,
   expirationIsToday, expiringIngredientName, expiredIngredientNames, expiringSoonIngredientNames,
   maxIngredientCounter, missingIngredientNames, counterIngredientNames, stockMap,
@@ -84,6 +88,9 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const [editValue, setEditValue] = useState("");
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
+  const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [detailPopupOpen, setDetailPopupOpen] = useState(false);
 
   const handleSave = () => {
     const val = editValue.trim();
@@ -95,6 +102,19 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     if (editing === "oven_temp") onUpdateOvenTemp?.(val || null);
     if (editing === "oven_minutes") onUpdateOvenMinutes?.(val || null);
     setEditing(null);
+  };
+
+  /** Ouvre l'éditeur de consignes de préparation. */
+  const openDescriptionEditor = () => {
+    setDescriptionDraft(meal.description || "");
+    setDescriptionEditorOpen(true);
+  };
+
+  /** Enregistre les consignes puis ferme l'éditeur. */
+  const saveDescription = () => {
+    const val = descriptionDraft.trim();
+    onUpdateDescription?.(val || null);
+    setDescriptionEditorOpen(false);
   };
 
   const openIngredients = () => {
@@ -123,8 +143,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     return stock.infinite || stock.grams > 0 || stock.count > 0;
   } : undefined;
 
-  const ovenTemp = (meal as any).oven_temp;
-  const ovenMinutes = (meal as any).oven_minutes;
+  const ovenTemp = meal.oven_temp;
+  const ovenMinutes = meal.oven_minutes;
   const hasCuisson = ovenTemp || ovenMinutes;
   const nutritionScore = getMealNutritionScore(meal, isAvailableCb);
   const headerCal = getDisplayedCalories(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
@@ -134,11 +154,17 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const hasDirectMacros = !hasIngredientMacros && (headerCal != null || (headerPro != null && headerPro !== 0) || (headerFiber != null && headerFiber !== 0));
 
   return (
+    <>
     <div
       draggable
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.closest("button")) return;
+        setDetailPopupOpen(true);
+      }}
       className={`group flex flex-col rounded-2xl px-4 py-3 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : ''}`}
       style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}
     >
@@ -275,6 +301,11 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                       <Thermometer className="mr-2 h-4 w-4" /> Durée (min)
                     </DropdownMenuItem>
                   )}
+                  {onUpdateDescription && (
+                    <DropdownMenuItem onClick={openDescriptionEditor}>
+                      <FileText className="mr-2 h-4 w-4" /> Description
+                    </DropdownMenuItem>
+                  )}
                   {!hideDelete && (
                     <DropdownMenuItem onClick={onDelete} className="text-destructive">
                       <Trash2 className="mr-2 h-4 w-4" /> Supprimer
@@ -315,6 +346,48 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
         </>
       )}
     </div>
+
+    {/* Éditeur des consignes de préparation */}
+    <Dialog open={descriptionEditorOpen} onOpenChange={setDescriptionEditorOpen}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Description — {meal.name}</DialogTitle>
+        </DialogHeader>
+        <textarea
+          autoFocus
+          value={descriptionDraft}
+          onChange={(e) => setDescriptionDraft(e.target.value)}
+          placeholder="Consignes de préparation…"
+          rows={6}
+          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px]"
+        />
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => setDescriptionEditorOpen(false)}>Annuler</Button>
+          <Button type="button" onClick={saveDescription}>Enregistrer</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Pop-up détail (double-clic) : consignes visibles ici uniquement */}
+    <Dialog open={detailPopupOpen} onOpenChange={setDetailPopupOpen}>
+      <DialogContent className="max-w-md p-0 overflow-hidden" aria-describedby={undefined}>
+        <DialogTitle className="sr-only">Détails du repas</DialogTitle>
+        <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
+          <h3 className="text-lg font-bold mb-3">{meal.name}</h3>
+          {meal.description?.trim() ? (
+            <div className="bg-black/20 rounded-xl p-3">
+              <p className="text-xs font-semibold text-white/60 mb-1.5 uppercase tracking-wide flex items-center gap-1">
+                <FileText className="h-3.5 w-3.5" /> Préparation
+              </p>
+              <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-white/50 italic">Aucune consigne de préparation</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }), (prevProps, nextProps) => {
   return prevProps.meal.id === nextProps.meal.id &&
@@ -327,6 +400,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     prevProps.meal.ingredients === nextProps.meal.ingredients &&
     prevProps.meal.oven_temp === nextProps.meal.oven_temp &&
     prevProps.meal.oven_minutes === nextProps.meal.oven_minutes &&
+    prevProps.meal.description === nextProps.meal.description &&
     prevProps.meal.is_favorite === nextProps.meal.is_favorite &&
     prevProps.isHighlighted === nextProps.isHighlighted &&
     prevProps.hideDelete === nextProps.hideDelete &&

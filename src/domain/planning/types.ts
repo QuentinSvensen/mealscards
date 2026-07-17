@@ -30,6 +30,7 @@ export interface PossibleMealBackupCard {
   meal_ingredients?: string | null;
   meal_oven_temp?: string | null;
   meal_oven_minutes?: string | null;
+  meal_description?: string | null;
 }
 
 /**

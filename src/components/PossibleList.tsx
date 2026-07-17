@@ -12,7 +12,7 @@
  * Popup détails : mêmes ingrédients structurés que partout ailleurs (StructuredIngredientInline).
  */
 import React, { useMemo, useState } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, CalendarClock, Flame, Weight, Timer, Thermometer } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, CalendarClock, Flame, Weight, Timer, Thermometer, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
@@ -362,6 +362,14 @@ export function PossibleList({
                   <p className="text-sm text-white/80 mt-2 flex items-center gap-1">
                     <Thermometer className="h-3.5 w-3.5" /> {meal.oven_temp && `${meal.oven_temp}°C`}{meal.oven_temp && meal.oven_minutes && ' · '}{meal.oven_minutes && `${meal.oven_minutes} min`}
                   </p>
+                )}
+                {meal.description?.trim() && (
+                  <div className="bg-black/20 rounded-xl p-3 mt-2">
+                    <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide flex items-center gap-1">
+                      <FileText className="h-3.5 w-3.5" /> Préparation
+                    </p>
+                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+                  </div>
                 )}
                 {popupPm.day_of_week && popupPm.meal_time && (
                   <p className="text-xs text-white/50 mt-3">

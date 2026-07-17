@@ -62,6 +62,8 @@ function makeMeal(overrides: Partial<Meal> & { name: string }): Meal {
     ingredients: null,
     oven_temp: null,
     oven_minutes: null,
+    description: null,
+    fiber: null,
     ...overrides,
   };
 }

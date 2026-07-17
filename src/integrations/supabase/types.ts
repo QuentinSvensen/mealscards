@@ -131,6 +131,7 @@ export type Database = {
           category: string
           color: string
           created_at: string
+          description: string | null
           fiber: string | null
           grams: string | null
           id: string
@@ -149,6 +150,7 @@ export type Database = {
           category?: string
           color?: string
           created_at?: string
+          description?: string | null
           fiber?: string | null
           grams?: string | null
           id?: string
@@ -167,6 +169,7 @@ export type Database = {
           category?: string
           color?: string
           created_at?: string
+          description?: string | null
           fiber?: string | null
           grams?: string | null
           id?: string

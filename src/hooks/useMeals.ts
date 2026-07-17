@@ -38,6 +38,8 @@ export interface Meal {
   is_favorite: boolean;
   oven_temp: string | null;
   oven_minutes: string | null;
+  /** Consignes de préparation (visibles dans la pop-up double-clic). */
+  description?: string | null;
 }
 
 export interface PossibleMeal {
@@ -279,6 +281,15 @@ export function useMeals(options?: { enabled?: boolean }) {
       if (error) throw error;
     },
     ...withMealOptimistic('oven_minutes'),
+  });
+
+  /** Met à jour les consignes de préparation d'un repas. */
+  const updateDescription = useMutation({
+    mutationFn: async ({ id, description }: { id: string; description: string | null }) => {
+      const { error } = await supabase.from("meals").update({ description } as any).eq("id", id);
+      if (error) throw error;
+    },
+    ...withMealOptimistic('description'),
   });
 
   const toggleFavorite = useMutation({
@@ -738,7 +749,7 @@ export function useMeals(options?: { enabled?: boolean }) {
   return {
     meals, possibleMeals, isLoading,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
-    updateOvenTemp, updateOvenMinutes,
+    updateOvenTemp, updateOvenMinutes, updateDescription,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, splitPossibleMealQuantity, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,

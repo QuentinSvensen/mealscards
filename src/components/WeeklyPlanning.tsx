@@ -24,7 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
-import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat } from "lucide-react";
+import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat, FileText } from "lucide-react";
 import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, getAdaptedCounterDays, getCounterDaysBadgeTooltip, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -1021,6 +1021,7 @@ export function WeeklyPlanning({
     is_favorite: meal.is_favorite,
     oven_temp: meal.oven_temp ?? null,
     oven_minutes: meal.oven_minutes ?? null,
+    description: meal.description ?? null,
   }), []);
 
   /** Liste complète des desserts "au choix" à ingrédient unique + Shaker whey. */
@@ -1459,6 +1460,7 @@ export function WeeklyPlanning({
               is_favorite: (breakfast as any).is_favorite ?? false,
               oven_temp: breakfast.oven_temp ?? null,
               oven_minutes: breakfast.oven_minutes ?? null,
+              description: (breakfast as Meal).description ?? null,
             } as Meal;
 
             if (mealObj.ingredients?.trim()) {
@@ -1621,6 +1623,7 @@ export function WeeklyPlanning({
       is_favorite: false,
       oven_temp: card.meal_oven_temp ?? null,
       oven_minutes: card.meal_oven_minutes ?? null,
+      description: card.meal_description ?? null,
     };
   };
 
@@ -5949,6 +5952,14 @@ export function WeeklyPlanning({
                 {(meal.oven_temp || meal.oven_minutes) && (
                   <p className="text-sm text-white/80 mt-2 flex items-center gap-1"><Thermometer className="h-3.5 w-3.5" /> {meal.oven_temp && `${meal.oven_temp}°C`}{meal.oven_temp && meal.oven_minutes && ' · '}{meal.oven_minutes && `${meal.oven_minutes} min`}</p>
                 )}
+                {meal.description?.trim() && (
+                  <div className="bg-black/20 rounded-xl p-3 mt-2">
+                    <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide flex items-center gap-1">
+                      <FileText className="h-3.5 w-3.5" /> Préparation
+                    </p>
+                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+                  </div>
+                )}
                 {popupPm.day_of_week && popupPm.meal_time && (
                   <p className="text-xs text-white/50 mt-3">
                     {getDisplayDay(popupPm.day_of_week)} — {TIME_LABELS[popupPm.meal_time]}
@@ -6005,6 +6016,14 @@ export function WeeklyPlanning({
                 )}
                 {(meal.oven_temp || meal.oven_minutes) && (
                   <p className="text-sm text-white/80 mt-2 flex items-center gap-1"><Thermometer className="h-3.5 w-3.5" /> {meal.oven_temp && `${meal.oven_temp}°C`}{meal.oven_temp && meal.oven_minutes && ' · '}{meal.oven_minutes && `${meal.oven_minutes} min`}</p>
+                )}
+                {meal.description?.trim() && (
+                  <div className="bg-black/20 rounded-xl p-3 mt-2">
+                    <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide flex items-center gap-1">
+                      <FileText className="h-3.5 w-3.5" /> Préparation
+                    </p>
+                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+                  </div>
                 )}
                 <p className="text-xs text-white/50 mt-3">
                   {DAY_LABELS[popupBreakfast.day]}

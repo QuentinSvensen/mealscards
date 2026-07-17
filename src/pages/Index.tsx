@@ -223,7 +223,7 @@ const Index = () => {
     isLoading,
     meals, possibleMeals,
     addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
-    updateOvenTemp, updateOvenMinutes,
+    updateOvenTemp, updateOvenMinutes, updateDescription,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
     updateExpiration, updatePlanning, updateCounter,
@@ -1132,15 +1132,15 @@ const Index = () => {
         </header>
 
         {mainPage === "repas" && (
-          <div className="border-b px-3 sm:px-4 py-1.5">
+          <div className="px-3 sm:px-4 pt-2 pb-2">
             <div className="max-w-6xl mx-auto flex items-center gap-2">
-              <div className="flex-1 min-w-0 overflow-x-auto rounded-2xl bg-muted p-0.5 flex items-center gap-0.5">
+              <div className="flex-1 min-w-0 overflow-x-auto inline-flex h-10 items-center justify-center rounded-2xl p-1 text-muted-foreground bg-[#2b3954]">
                 {CATEGORIES.map((c) => (
                   <button
                     key={c.value}
                     type="button"
                     onClick={() => setActiveCategory(c.value)}
-                    className={`text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl font-medium transition-colors whitespace-nowrap shrink-0 ${activeCategory === c.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
+                    className={`inline-flex items-center justify-center whitespace-nowrap rounded-xl px-1.5 sm:px-3 py-1 text-[9px] sm:text-xs font-medium transition-all ${activeCategory === c.value ? "bg-background text-foreground shadow-sm" : ""}`}
                   >
                     <span className="mr-0.5">{c.emoji}</span>
                     <span className="leading-tight">{c.label}</span>
@@ -1333,6 +1333,7 @@ const Index = () => {
                           }}
                           onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
                           onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
+                          onUpdateDescription={(id, description) => updateDescription.mutate({ id, description })}
                           onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
                           ingredientMacroAutofillSources={ingredientMacroAutofillSources} />
 

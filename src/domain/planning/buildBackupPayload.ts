@@ -28,6 +28,7 @@ export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): 
     meal_ingredients: pm.meals?.ingredients ?? null,
     meal_oven_temp: pm.meals?.oven_temp ?? null,
     meal_oven_minutes: pm.meals?.oven_minutes ?? null,
+    meal_description: pm.meals?.description ?? null,
   }));
 }
 
