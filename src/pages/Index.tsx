@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, Apple, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, ShieldAlert, Apple, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { DevMenu } from "@/components/DevMenu";
 import { Chronometer } from "@/components/Chronometer";
 import { PinLock } from "@/components/PinLock";
@@ -1199,24 +1199,33 @@ const Index = () => {
 
       <div ref={stickyChromeRef} className="sticky top-0 z-20 bg-background">
         <header className="border-b px-2 py-2 sm:px-4 sm:py-3">
-          <div className="max-w-6xl mx-auto flex items-center gap-1 sm:gap-3 min-w-0 w-full">
+          <div className="max-w-6xl mx-auto flex items-center gap-1 sm:gap-2 min-w-0 w-full">
             <div className="flex items-center gap-1 shrink-0">
               <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
+              {/* Badge PIN : visible seulement s’il reste de la place (sm+) */}
+              {blockedCount !== null && (
+                <span
+                  title={`${blockedCount} tentative${blockedCount > 1 ? "s" : ""} d'accès non autorisée${blockedCount > 1 ? "s" : ""} depuis la création`}
+                  className="hidden sm:flex items-center gap-0.5 text-[9px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1 py-0.5 cursor-default shrink-0"
+                >
+                  <ShieldAlert className="h-2 w-2" />{blockedCount}
+                </span>
+              )}
             </div>
 
-            <button
-              onClick={() => setMainPage("macros")}
-              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
-              title="Macro ingrédients"
-            >
-              <span className="text-[11px] leading-tight md:hidden">🌾</span>
-              <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
-              <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
-            </button>
+            {/* Groupe central : Macro collé à gauche de la nav, case collée à droite */}
+            <div className="flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <button
+                onClick={() => setMainPage("macros")}
+                className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+                title="Macro ingrédients"
+              >
+                <span className="text-[11px] leading-tight md:hidden">🌾</span>
+                <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
+                <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
+              </button>
 
-            {/* Zone nav : se rétrécit / clippe pour ne jamais chevaucher la case + date */}
-            <div className="flex-1 min-w-0 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 w-max mx-auto">
+              <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 shrink-0">
                 {([
                   { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
                   { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
@@ -1230,10 +1239,7 @@ const Index = () => {
                   </button>
                 ))}
               </div>
-            </div>
 
-            {/* Groupe droite : fond opaque pour masquer tout débordement de la nav */}
-            <div className="relative z-10 flex shrink-0 items-center gap-1 sm:gap-1.5 pl-1 bg-background">
               <label
                 htmlFor="site-hide-calorie-totals"
                 className="flex items-center justify-center gap-1.5 cursor-pointer select-none shrink-0"
@@ -1254,15 +1260,15 @@ const Index = () => {
                   Masquer calories
                 </span>
               </label>
-
-              <button onClick={() => setChronoOpen(true)}
-                className="text-[8px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-1.5 sm:px-2.5 py-0.5 sm:py-1"
-                title={format(new Date(), "EEEE d MMMM", { locale: fr })}
-              >
-                <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
-                <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
-              </button>
             </div>
+
+            <button onClick={() => setChronoOpen(true)}
+              className="text-[8px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-1.5 sm:px-2.5 py-0.5 sm:py-1"
+              title={format(new Date(), "EEEE d MMMM", { locale: fr })}
+            >
+              <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
+              <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
+            </button>
           </div>
         </header>
 

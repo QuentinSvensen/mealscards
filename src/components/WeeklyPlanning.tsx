@@ -25,12 +25,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat, FileText } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { format, parseISO, differenceInCalendarDays } from "date-fns";
+import { format, parseISO, differenceInCalendarDays, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
@@ -250,18 +250,50 @@ function getCategoryEmoji(cat?: string) {
   }
 }
 
-/** Indique si une date de péremption (jour calendaire) est strictement avant aujourd’hui. */
-function isExpiredDate(d: string | null) {
-  if (!d) return false;
-  return new Date(d) < new Date(new Date().toDateString());
+/**
+ * Résout la date ISO (yyyy-MM-dd) du créneau planifié.
+ * `day_of_week` peut être une clé (« samedi ») ou déjà une date ISO — les deux formats coexistent en base.
+ */
+function resolvePlannedDayIso(
+  dayOfWeek: string | null | undefined,
+  weekDates: { key: string; iso: string }[],
+): string | null {
+  if (!dayOfWeek) return null;
+  const fromWeek = weekDates.find((d) => d.key === dayOfWeek || d.iso === dayOfWeek);
+  if (fromWeek) return fromWeek.iso;
+  if (/^\d{4}-\d{2}-\d{2}/.test(dayOfWeek)) return dayOfWeek.slice(0, 10);
+  return null;
 }
 
-/** Indique si la péremption est dépassée par rapport au jour du planning (ou au calendrier si pas de jour). */
-function isExpiredOnDay(d: string | null, dayKey: string | null) {
-  if (!d) return false;
-  if (!dayKey) return isExpiredDate(d);
-  const targetDate = getDateForDayKey(dayKey);
-  return new Date(d) < targetDate;
+/**
+ * Indique si la carte doit s’afficher en rouge dans le Planning :
+ * jour de planification strictement après la date de péremption.
+ */
+function isExpiredOnPlannedDay(
+  expirationDate: string | null | undefined,
+  plannedDayIso: string | null | undefined,
+): boolean {
+  if (!expirationDate || !plannedDayIso) return false;
+  try {
+    const exp = startOfDay(parseISO(expirationDate.slice(0, 10)));
+    const planned = startOfDay(parseISO(plannedDayIso.slice(0, 10)));
+    return planned.getTime() > exp.getTime();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Classes CSS du badge de date sur une mini-carte Planning
+ * (bordure / texte rouge discrets si planifié après péremption — style d’origine).
+ */
+function getPlanningDateBadgeClassName(expired: boolean): string {
+  const base =
+    "inline-flex items-center gap-0.5 rounded px-1 py-0.5 border align-middle text-[9px] font-normal";
+  if (expired) {
+    return `${base} font-bold text-red-300 border-red-400/50 bg-red-500/20`;
+  }
+  return `${base} text-white/60 border-white/15 bg-white/5`;
 }
 
 /** Lit les kcal affichées sur une fiche repas (chaîne potentiellement avec unités). */
@@ -698,8 +730,8 @@ interface TouchDragState {
 /**
  * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
  */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, isComputedCal, displayPro, isComputedPro, displayFiber, compact, hideIngredients, hideCalorieDisplay, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; isComputedCal: boolean; displayPro: string | null; isComputedPro: boolean; displayFiber: string | null; compact: boolean;
+function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, displayPro, displayFiber, compact, hideIngredients, hideCalorieDisplay, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
+  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; displayPro: string | null; displayFiber: string | null; compact: boolean;
   hideIngredients?: boolean;
   /** Masque le badge / l’édition des calories (préférence « Masquer calories »). */
   hideCalorieDisplay?: boolean;
@@ -742,8 +774,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       ) : displayCal ? (
         <button
           onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-          className={`text-[9px] sm:text-xs font-black text-white px-1 sm:px-2 py-px sm:py-0.5 rounded-full flex items-center gap-0.5 shrink-0 max-w-full ${isComputedCal ? "bg-orange-500/60 hover:bg-orange-500/70" : "bg-black/30 hover:bg-black/40"
-            }`}
+          className="text-[9px] sm:text-xs font-black text-white px-1 sm:px-2 py-px sm:py-0.5 rounded-full flex items-center gap-0.5 shrink-0 max-w-full bg-black/30 hover:bg-black/40"
           title="Modifier les calories (temporaire)"
         >
           <Flame className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
@@ -777,7 +808,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       ) : displayPro ? (
         <button
           onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-          className={`text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px sm:py-0.5 rounded-full flex items-center justify-center shrink-0 max-w-full ${isComputedPro ? 'bg-blue-600/70 hover:bg-blue-600/80' : 'bg-black/30 hover:bg-black/40'}`}
+          className="text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px sm:py-0.5 rounded-full flex items-center justify-center shrink-0 max-w-full bg-black/30 hover:bg-black/40"
           title="Modifier les protéines (temporaire)"
         >
           🍗 {displayPro}
@@ -821,7 +852,6 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
       className={`${compact ? "w-fit max-w-full" : "w-full"} min-w-0 overflow-hidden rounded-xl text-white select-none
         ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
         transition-transform hover:scale-[1.01]
-        ${expired ? "ring-[3px] ring-red-500 shadow-lg shadow-red-500/30" : ""}
         ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
         ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
       `}
@@ -842,7 +872,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
             <div className="flex items-end justify-between gap-1 min-w-0">
               <div className="flex flex-wrap items-center gap-1 min-w-0">
                 {dateBadgeLabel && (
-                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border align-middle text-[9px] font-normal ${dateBadgeIsExpiration && expired ? "text-red-200 font-bold border-red-300/40 bg-red-400/10" : "text-white/60 border-white/15 bg-white/5"}`}>
+                  <span className={getPlanningDateBadgeClassName(dateBadgeIsExpiration && expired)}>
                     <Calendar className="h-2 w-2 inline" />
                     {dateBadgeLabel}
                   </span>
@@ -895,7 +925,7 @@ function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, c
               <div className="flex items-end justify-between gap-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-1 min-w-0">
                   {dateBadgeLabel && (
-                  <span className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 border text-[9px] font-normal ${dateBadgeIsExpiration && expired ? "text-red-300 font-bold border-red-400/50 bg-red-500/20" : "text-white/60 border-white/15 bg-white/5"}`}>
+                  <span className={getPlanningDateBadgeClassName(dateBadgeIsExpiration && expired)}>
                     <Calendar className="h-2 w-2 inline" />
                     {dateBadgeLabel}
                   </span>
@@ -2486,7 +2516,8 @@ export function WeeklyPlanning({
     const soonIngs = analysis.expiringSoonIngredientNames;
 
     const overrideCal = parsePositivePlanningOverride(calOverrides[pm.id]);
-    const expired = isExpiredOnDay(pm.expiration_date, pm.day_of_week);
+    const plannedDayIso = resolvePlannedDayIso(pm.day_of_week, weekDates);
+    const expired = isExpiredOnPlannedDay(pm.expiration_date, plannedDayIso);
 
     // Utiliser la détection de ratio partagée
     let displayMeal = meal;
@@ -2507,9 +2538,6 @@ export function WeeklyPlanning({
     const rawFiberNum = getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex);
     const displayFiber = rawFiberNum ? String(Math.round(rawFiberNum)) : null;
 
-    const isComputedCal = !overrideCal && computeIngredientCalories(displayIngredients, isAvailableCb) !== null;
-    const isComputedPro = !overridePro && computeIngredientProtein(displayIngredients, isAvailableCb) !== null;
-
     return (
       <PlanningMiniCard
         key={pm.id}
@@ -2529,9 +2557,7 @@ export function WeeklyPlanning({
           return target.getTime() < today.getTime();
         })()}
         displayCal={displayCal}
-        isComputedCal={isComputedCal}
         displayPro={displayPro}
-        isComputedPro={isComputedPro}
         displayFiber={displayFiber}
         compact={compact}
         hideIngredients={hideIngredients}
@@ -5937,7 +5963,8 @@ export function WeeklyPlanning({
             const displayFiber = popupFiber != null && popupFiber > 0 ? String(Math.round(popupFiber)) : null;
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
             const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
-            const expired = isExpiredOnDay(popupPm.expiration_date, popupPm.day_of_week);
+            const plannedDayIso = resolvePlannedDayIso(popupPm.day_of_week, weekDates);
+            const expired = isExpiredOnPlannedDay(popupPm.expiration_date, plannedDayIso);
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">{getCategoryEmoji(meal.category)} {meal.name}</h3>
@@ -5948,12 +5975,12 @@ export function WeeklyPlanning({
                     </span>
                   )}
                   {displayPro && (
-                    <span className="text-sm font-bold bg-blue-600/50 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1">
                       🍗 {displayPro}g
                     </span>
                   )}
                   {displayFiber && (
-                    <span className="text-sm font-bold bg-emerald-600/50 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
+                    <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
                       <Wheat className="h-3.5 w-3.5" /> {displayFiber}g
                     </span>
                   )}
@@ -5972,7 +5999,7 @@ export function WeeklyPlanning({
                   )}
                 </div>
                 {popupPm.expiration_date && (
-                  <p className={`text-sm mb-2 ${expired ? 'text-red-200 font-bold' : 'text-white/70'}`}>
+                  <p className={`text-sm mb-2 ${expired ? "text-red-300 font-bold" : "text-white/70"}`}>
                     📅 {format(parseISO(popupPm.expiration_date), "d MMMM yyyy", { locale: fr })}
                   </p>
                 )}
@@ -6033,12 +6060,12 @@ export function WeeklyPlanning({
                     </span>
                   )}
                   {displayPro && (
-                    <span className="text-sm font-bold bg-blue-600/50 px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1">
                       🍗 {displayPro}g
                     </span>
                   )}
                   {displayFiber && (
-                    <span className="text-sm font-bold bg-emerald-600/50 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
+                    <span className="text-sm font-bold bg-black/30 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
                       <Wheat className="h-3.5 w-3.5" /> {displayFiber}g
                     </span>
                   )}
