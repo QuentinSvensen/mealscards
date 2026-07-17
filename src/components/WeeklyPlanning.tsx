@@ -1547,6 +1547,7 @@ export function WeeklyPlanning({
   };
   const [flashedKeys, setFlashedKeys] = useState<Record<string, boolean>>({});
   const WEEKLY_GOAL = DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
+  const WEEKLY_GOAL_LOW = DAILY_GOAL_LOW > 0 ? DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0;
   const DAILY_PROTEIN_GOAL_PREF = getPreference<number>('planning_protein_goal', DAILY_PROTEIN_GOAL);
   const DAILY_FIBER_GOAL_PREF = getPreference<number>('planning_fiber_goal', DAILY_FIBER_GOAL_PREF_FROM_HOOK || DAILY_FIBER_GOAL);
   const NEXT_DAILY_GOAL = getPreference<number>('next_week_daily_goal', DAILY_GOAL);
@@ -4498,7 +4499,7 @@ export function WeeklyPlanning({
                 </span>
                 <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
                   <Flame className="h-4 w-4" />
-                  {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
+                  {Math.round(weekTotal)} <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(WEEKLY_GOAL_LOW, WEEKLY_GOAL)}</span>
                 </span>
               </div>
             </div>
@@ -5833,7 +5834,7 @@ export function WeeklyPlanning({
                 <div className="flex items-center gap-3 flex-wrap ml-auto">
                   <span className="text-xs text-muted-foreground font-medium">Moy. {avgCal} kcal/j</span>
                   <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-                    <Flame className="h-4 w-4" /> {Math.round(total)} <span className="text-muted-foreground/50 font-normal text-xs">/ {WEEKLY_GOAL}</span>
+                    <Flame className="h-4 w-4" /> {Math.round(total)} <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW > 0 ? NEXT_DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0, NEXT_DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER)}</span>
                   </span>
                 </div>
               </div>

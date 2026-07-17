@@ -976,6 +976,7 @@ export function FoodItems() {
   const [newManualMacroFields, setNewManualMacroFields] = useState<Partial<Record<FoodMacroField, boolean>>>({});
   const [newFoodType, setNewFoodType] = useState<FoodType>(null);
   const [newIsIndivisible, setNewIsIndivisible] = useState(false);
+  const [newMealMode, setNewMealMode] = useState<"off" | "repas" | "matin" | "dessert">("off");
   const [newExpiration, setNewExpiration] = useState<Date | undefined>(undefined);
   const [expCalOpen, setExpCalOpen] = useState(false);
   const [showStoragePrompt, setShowStoragePrompt] = useState(false);
@@ -1000,6 +1001,7 @@ export function FoodItems() {
   const [pendingManualMacroFields, setPendingManualMacroFields] = useState<Partial<Record<FoodMacroField, boolean>>>({});
   const [pendingFoodType, setPendingFoodType] = useState<FoodType>(null);
   const [pendingIsIndivisible, setPendingIsIndivisible] = useState(false);
+  const [pendingMealMode, setPendingMealMode] = useState<"off" | "repas" | "matin" | "dessert">("off");
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const testItemIds = getPreference<string[]>("food_test_ids", []);
@@ -1135,6 +1137,13 @@ export function FoodItems() {
     setNewQuantity(storedAmount?.quantity || "");
     setNewIsIndivisible(storedAmount?.is_indivisible ?? false);
     setSuggestedIsIndivisible(storedAmount?.is_indivisible ?? null);
+    if (shouldMarkNewFoodAsDessert(entry.name, dessertFoodNameKeys)) {
+      setNewMealMode("dessert");
+    } else if (entry.is_meal) {
+      setNewMealMode("repas");
+    } else {
+      setNewMealMode("off");
+    }
     if (entry.storage_type === "extras") {
       if (entry.calories) setNewCalories(entry.calories);
       if (entry.protein) setNewProtein(entry.protein);
@@ -1148,8 +1157,20 @@ export function FoodItems() {
       const qtyInput = document.querySelector<HTMLInputElement>('input[placeholder*="Quantité"]');
       qtyInput?.focus();
     }, 50);
-  }, [foodLibraryAmountMemory]);
+  }, [dessertFoodNameKeys, foodLibraryAmountMemory]);
 
+  /** Fait tourner le mode repas du formulaire de création. */
+  const cycleNewMealMode = () => {
+    setNewMealMode((prev) => {
+      if (prev === "off") return "repas";
+      if (prev === "repas") return "matin";
+      if (prev === "matin") return "dessert";
+      return "off";
+    });
+    setSuggestedIsMeal(null);
+  };
+
+  /** Met à jour un aliment en stock et synchronise la bibliothèque / macros. */
   const handleUpdate = useCallback((id: string, updates: Partial<FoodItem>) => {
     // 1. Mise à jour de l'aliment en stock
     updateItem.mutate({ id, ...updates });
@@ -1346,6 +1367,7 @@ export function FoodItems() {
     setPendingManualMacroFields(newManualMacroFields);
     setPendingFoodType(newFoodType);
     setPendingIsIndivisible(newIsIndivisible);
+    setPendingMealMode(newMealMode);
     setPendingExpiration(newExpiration ? format(newExpiration, 'yyyy-MM-dd') : null);
     setShowStoragePrompt(true);
   };
@@ -1357,8 +1379,13 @@ export function FoodItems() {
     const protein = pendingProtein.trim() || null;
     const fiber = pendingFiber.trim() || null;
     const finalNoCounter = suggestedNoCounter !== null ? suggestedNoCounter : ((storageType === 'extras' || storageType === 'test') ? true : !grams);
-    const finalIsMeal = suggestedIsMeal !== null ? suggestedIsMeal : false;
-    const finalIsIndivisible = Boolean(grams) && (suggestedIsIndivisible !== null ? suggestedIsIndivisible : pendingIsIndivisible);
+    const finalIsMeal =
+      pendingMealMode === "repas" || pendingMealMode === "matin"
+        ? true
+        : pendingMealMode === "dessert"
+          ? false
+          : (suggestedIsMeal !== null ? suggestedIsMeal : false);
+    const finalIsIndivisible = Boolean(grams) && pendingIsIndivisible;
     const persistedStorageType: StorageType = storageType === "test" ? "extras" : storageType;
 
     addItem.mutate({
@@ -1380,7 +1407,7 @@ export function FoodItems() {
         upsertEntry.mutate({
           name: pendingName,
           food_type: pendingFoodType,
-          is_meal: finalIsMeal,
+          is_meal: finalIsMeal || pendingMealMode === "dessert",
           no_counter: finalNoCounter,
           storage_type: persistedStorageType,
           calories,
@@ -1395,12 +1422,20 @@ export function FoodItems() {
           if (pendingManualMacroFields.protein) updates.protein = protein;
           if (pendingManualMacroFields.fiber) updates.fiber = fiber;
           markManualFoodMacroFields(created.id, updates);
-          if (created?.id && shouldMarkNewFoodAsDessert(pendingName, dessertFoodNameKeys)) {
-            assignDessertFoodMode({
-              ...(created as FoodItem),
-              id: created.id,
-              name: pendingName,
+          const createdFood = {
+            ...(created as FoodItem),
+            id: created.id,
+            name: pendingName,
+          };
+          if (pendingMealMode === "matin") {
+            setPreference.mutate({
+              key: MORNING_MEAL_PREF_KEY,
+              value: [...morningMealFoodItemIds.filter((id) => id !== created.id), created.id],
             });
+          } else if (pendingMealMode === "dessert") {
+            assignDessertFoodMode(createdFood);
+          } else if (pendingMealMode === "off" && shouldMarkNewFoodAsDessert(pendingName, dessertFoodNameKeys)) {
+            assignDessertFoodMode(createdFood);
           }
           const baselineFi = {
             id: created.id,
@@ -1423,8 +1458,8 @@ export function FoodItems() {
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
         }
-        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewManualMacroFields({}); setNewFoodType(null); setNewIsIndivisible(false); setNewExpiration(undefined);
-        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFiber(""); setPendingManualMacroFields({}); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingExpiration(null);
+        setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewManualMacroFields({}); setNewFoodType(null); setNewIsIndivisible(false); setNewMealMode("off"); setNewExpiration(undefined);
+        setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFiber(""); setPendingManualMacroFields({}); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingMealMode("off"); setPendingExpiration(null);
         setSuggestedStorageType(null); setSuggestedIsMeal(null); setSuggestedNoCounter(null); setSuggestedIsIndivisible(null);
         setShowStoragePrompt(false); toast({ title: "Aliment ajouté 🥕", duration: 800 });
       },
@@ -1695,7 +1730,42 @@ export function FoodItems() {
             )}
           </PopoverContent>
         </Popover>
-        <div className="flex gap-1 shrink-0">
+        <div className="flex gap-1 shrink-0 flex-wrap">
+          <button
+            type="button"
+            onClick={cycleNewMealMode}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newMealMode === "matin"
+              ? "bg-sky-500/20 text-sky-300 border-sky-400/50 font-bold"
+              : newMealMode === "dessert"
+                ? "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-400/50 font-bold"
+                : newMealMode === "repas"
+                  ? "bg-primary/20 text-foreground border-primary/40 font-bold"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}
+            title={
+              newMealMode === "matin"
+                ? "Repas matin (cliquer pour dessert)"
+                : newMealMode === "dessert"
+                  ? "Dessert (cliquer pour désactiver)"
+                  : newMealMode === "repas"
+                    ? "Repas entier (cliquer: Matin)"
+                    : "Marquer comme Repas / Matin / Dessert"
+            }
+          >
+            {newMealMode === "dessert" ? <Cake className="h-3 w-3" /> : <UtensilsCrossed className="h-3 w-3" />}
+            {newMealMode === "matin" ? "Matin" : newMealMode === "dessert" ? "Dessert" : newMealMode === "repas" ? "Repas" : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSuggestedIsIndivisible(null);
+              setNewIsIndivisible((prev) => !prev);
+            }}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newIsIndivisible ? "bg-orange-500/20 text-orange-300 border-orange-400/50 font-bold" : "bg-muted text-muted-foreground border-border"}`}
+            title={newIsIndivisible ? "Indivisible activé" : "Marquer comme indivisible"}
+          >
+            <Lock className="h-3 w-3" />Indiv.
+          </button>
           <button
             onClick={() => setNewFoodType(prev => prev === 'feculent' ? null : 'feculent')}
             className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newFoodType === 'feculent' ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'

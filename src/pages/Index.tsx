@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { colorFromName } from "@/lib/foodColors";
@@ -935,6 +935,19 @@ const Index = () => {
   const [showDevMenu, setShowDevMenu] = useState(false);
   const [chronoOpen, setChronoOpen] = useState(false);
   const [coursesTab, setCoursesTab] = useState<"liste" | "menu" | "boissons">("liste");
+  const stickyChromeRef = useRef<HTMLDivElement | null>(null);
+  const [stickyChromeHeight, setStickyChromeHeight] = useState(52);
+
+  /** Mesure la hauteur du bandeau sticky (header ± sous-onglets Repas). */
+  useEffect(() => {
+    const el = stickyChromeRef.current;
+    if (!el) return;
+    const update = () => setStickyChromeHeight(Math.ceil(el.getBoundingClientRect().height));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mainPage]);
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {};
@@ -1067,55 +1080,98 @@ const Index = () => {
         />
       )}
 
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
-        <div className="max-w-6xl mx-auto flex items-center gap-1.5 sm:gap-3 min-w-0">
-          <div className="flex items-center gap-1 shrink-0">
-            <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
-            {blockedCount !== null &&
-              <span title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
-                className="flex items-center gap-0.5 text-[9px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1 py-0.5 cursor-default shrink-0">
-                <ShieldAlert className="h-2 w-2" />{blockedCount}
-              </span>
-            }
-          </div>
-
-          <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center">
-            <div className="flex justify-end pr-1 sm:pr-1.5 min-w-0">
-              <button
-                onClick={() => setMainPage("macros")}
-                className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
-                title="Macro ingrédients"
-              >
-                <span className="text-[11px] leading-tight md:hidden">🌾</span>
-                <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
-                <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
-              </button>
+      <div ref={stickyChromeRef} className="sticky top-0 z-20 bg-background">
+        <header className="border-b px-2 py-2 sm:px-4 sm:py-3">
+          <div className="max-w-6xl mx-auto flex items-center gap-1.5 sm:gap-3 min-w-0">
+            <div className="flex items-center gap-1 shrink-0">
+              <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
+              {blockedCount !== null &&
+                <span title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
+                  className="flex items-center gap-0.5 text-[9px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1 py-0.5 cursor-default shrink-0">
+                  <ShieldAlert className="h-2 w-2" />{blockedCount}
+                </span>
+              }
             </div>
 
-            <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 shrink-0">
-              {([
-                { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
-                { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
-                { page: "planning" as MainPage, icon: <CalendarRange className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Planning", activeColor: "text-blue-500" },
-                { page: "courses" as MainPage, icon: <ShoppingCart className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
-              ] as const).map(({ page, icon, label, activeColor }) => (
-                <button key={page} onClick={() => setMainPage(page)}
-                  className={`shrink-0 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 px-1.5 sm:px-2 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
-                  {icon}
-                  <span className={`text-[8px] sm:text-[9px] md:text-sm whitespace-nowrap leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
+            <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center">
+              <div className="flex justify-end pr-1 sm:pr-1.5 min-w-0">
+                <button
+                  onClick={() => setMainPage("macros")}
+                  className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+                  title="Macro ingrédients"
+                >
+                  <span className="text-[11px] leading-tight md:hidden">🌾</span>
+                  <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
+                  <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
                 </button>
-              ))}
-            </div>
-            <div aria-hidden="true" />
-          </div>
+              </div>
 
-          <button onClick={() => setChronoOpen(true)}
-            className="text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2 sm:px-2.5 py-1">
-            <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
-            <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
-          </button>
-        </div>
-      </header>
+              <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 shrink-0">
+                {([
+                  { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
+                  { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
+                  { page: "planning" as MainPage, icon: <CalendarRange className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Planning", activeColor: "text-blue-500" },
+                  { page: "courses" as MainPage, icon: <ShoppingCart className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
+                ] as const).map(({ page, icon, label, activeColor }) => (
+                  <button key={page} onClick={() => setMainPage(page)}
+                    className={`shrink-0 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 px-1.5 sm:px-2 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
+                    {icon}
+                    <span className={`text-[8px] sm:text-[9px] md:text-sm whitespace-nowrap leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
+                  </button>
+                ))}
+              </div>
+              <div aria-hidden="true" />
+            </div>
+
+            <button onClick={() => setChronoOpen(true)}
+              className="text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2 sm:px-2.5 py-1">
+              <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
+              <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
+            </button>
+          </div>
+        </header>
+
+        {mainPage === "repas" && (
+          <div className="border-b px-3 sm:px-4 py-1.5">
+            <div className="max-w-6xl mx-auto flex items-center gap-2">
+              <div className="flex-1 min-w-0 overflow-x-auto rounded-2xl bg-muted p-0.5 flex items-center gap-0.5">
+                {CATEGORIES.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setActiveCategory(c.value)}
+                    className={`text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl font-medium transition-colors whitespace-nowrap shrink-0 ${activeCategory === c.value ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
+                  >
+                    <span className="mr-0.5">{c.emoji}</span>
+                    <span className="leading-tight">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" className="rounded-full gap-1 text-xs shrink-0" onClick={() => openDialog("all")}>
+                    <Plus className="h-3 w-3" /> <span className="hidden sm:inline">Ajouter</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent aria-describedby={undefined}>
+                  <DialogHeader><DialogTitle>Nouveau repas</DialogTitle></DialogHeader>
+                  <div className="flex flex-col gap-3">
+                    <Input autoFocus placeholder="Ex: Pâtes carbonara" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAdd()} className="rounded-xl" />
+                    <Select value={newCategory} onValueChange={(v) => setNewCategory(v as MealCategory)}>
+                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                      <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Button onClick={() => handleAdd("all")} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">Tous les repas</Button>
+                      <Button onClick={() => handleAdd("possible")} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">Possibles uniquement</Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        )}
+      </div>
       <Chronometer open={chronoOpen} onOpenChange={setChronoOpen} />
 
       <OptionalIngredientsMoveDialog
@@ -1128,7 +1184,7 @@ const Index = () => {
         onCancel={() => finishOptionalMoveDialog(null)}
       />
 
-      <main className="max-w-6xl mx-auto p-3 sm:p-4">
+      <main className={`max-w-6xl mx-auto px-3 pb-3 sm:px-4 sm:pb-4 ${mainPage === "repas" ? "pt-2 sm:pt-3" : "pt-3 sm:pt-4"}`}>
         <Suspense fallback={<div className="flex justify-center py-8 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}>
           {mainPage === "aliments" && (
             <ErrorBoundary section="Aliments">
@@ -1151,7 +1207,7 @@ const Index = () => {
           )}
           {mainPage === "courses" && (
             <ErrorBoundary section="Courses">
-              <div className="sticky top-[44px] sm:top-[52px] z-10 bg-background/95 backdrop-blur-sm pb-2 pt-1">
+              <div className="sticky z-10 bg-background pb-2 pt-1" style={{ top: stickyChromeHeight }}>
                 <div className="flex items-center gap-1 bg-muted rounded-full p-0.5 max-w-md mx-auto">
                   <button onClick={() => setCoursesTab("liste")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "liste" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🛒 Liste</button>
                   <button onClick={() => setCoursesTab("menu")} className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-colors ${coursesTab === "menu" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>🎲 Menu</button>
@@ -1240,40 +1296,8 @@ const Index = () => {
           )}
           {mainPage === "repas" &&
             <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as MealCategory)}>
-              <div className="flex items-center gap-2 mb-3 sm:mb-4">
-                <TabsList className="flex-1 overflow-x-auto rounded-2xl">
-                  {CATEGORIES.map((c) =>
-                    <TabsTrigger key={c.value} value={c.value} className="text-[9px] sm:text-xs px-1.5 sm:px-3 py-1 rounded-xl">
-                      <span className="mr-0.5">{c.emoji}</span>
-                      <span className="text-[9px] sm:text-xs leading-tight">{c.label}</span>
-                    </TabsTrigger>
-                  )}
-                </TabsList>
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button size="sm" className="rounded-full gap-1 text-xs shrink-0" onClick={() => openDialog("all")}>
-                      <Plus className="h-3 w-3" /> <span className="hidden sm:inline">Ajouter</span>
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent aria-describedby={undefined}>
-                    <DialogHeader><DialogTitle>Nouveau repas</DialogTitle></DialogHeader>
-                    <div className="flex flex-col gap-3">
-                      <Input autoFocus placeholder="Ex: Pâtes carbonara" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAdd()} className="rounded-xl" />
-                      <Select value={newCategory} onValueChange={(v) => setNewCategory(v as MealCategory)}>
-                        <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                        <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
-                      </Select>
-                      <div className="flex gap-2">
-                        <Button onClick={() => handleAdd("all")} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">Tous les repas</Button>
-                        <Button onClick={() => handleAdd("possible")} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">Possibles uniquement</Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-
               {CATEGORIES.map((cat) =>
-                <TabsContent key={cat.value} value={cat.value}>
+                <TabsContent key={cat.value} value={cat.value} className="mt-0">
                   <ErrorBoundary section={`Repas - ${cat.label}`}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                       <div className="flex flex-col gap-3 sm:gap-4 order-1">
