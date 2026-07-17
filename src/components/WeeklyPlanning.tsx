@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat, FileText } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay, formatFoodCounterStartTooltip } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -40,7 +40,7 @@ import {
   FOOD_EXTRAS_DIVIDER_PREF_KEY,
   splitSortedExtrasByDivider,
 } from "@/lib/extrasDividerUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, getRecipeMaxActiveFoodCounter, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, computePossibleFrozenCounterDays, mergeFrozenPossibleCounterDays, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -959,6 +959,45 @@ export function WeeklyPlanning({
   }, [stockMap]);
   const { updateFoodItemCountersForPlanning, deductIngredientsFromStock, restoreIngredientsToStock, deductNameMatchStock } = useMealTransfers(foodItems);
 
+  /** Jours de badge compteur figés par carte Possible (prefs). */
+  const frozenCounterDaysByPmId = getPreference<PossibleFrozenCounterDaysMap>(
+    POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
+    {},
+  );
+
+  /**
+   * Fige (ou re-fige) le badge compteur d’une carte Possible depuis les aliments à cet instant.
+   * Re-gel one-shot quand on pose jour+créneau (ex. Croque → 1j samedi soir).
+   * Ne remplace jamais une valeur numérique figée par `null` (merge).
+   * `baseStartDate` : vraie ouverture pour recalculer même si le stock est déjà en Prog.
+   */
+  const freezePossibleBadgeCounter = (
+    pmId: string,
+    ingredients: string | null | undefined,
+    dayKey?: string | null,
+    mealTime?: string | null,
+    createdAt?: string,
+    baseStartDate?: string | null,
+  ) => {
+    const days = computePossibleFrozenCounterDays(
+      ingredients,
+      foodItems,
+      foodMacroIndex,
+      undefined,
+      dayKey,
+      mealTime,
+      createdAt,
+      baseStartDate,
+    );
+    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
+    const merged = mergeFrozenPossibleCounterDays(current[pmId], days);
+    setPreference.mutate({
+      key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
+      value: { ...current, [pmId]: merged },
+    });
+  };
+
+  /** Met à jour le planning d’une carte Possible et recalcule les compteurs aliments + gel badge. */
   const updatePlanningWithCounters = (pmId: string, day: string | null, time: string | null) => {
     const pm = possibleMeals.find(p => p.id === pmId);
     let earliestCounter: string | null = null;
@@ -977,6 +1016,10 @@ export function WeeklyPlanning({
     if (pm) {
       const ing = pm.ingredients_override ?? pm.meals?.ingredients;
       const fallbackDate = earliestCounter || pm.counter_start_date || null;
+      // Re-gel AVANT de passer les aliments en Prog. (sinon le calcul renvoie null et efface le badge).
+      if (day?.trim() && time?.trim()) {
+        freezePossibleBadgeCounter(pmId, ing, day, time, pm.created_at, fallbackDate);
+      }
       updateFoodItemCountersForPlanning(pmId, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
     }
   };
@@ -2427,13 +2470,10 @@ export function WeeklyPlanning({
     const mealForAnalysis = { ...meal, ingredients: displayIngredients };
     const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
 
-    // Badge = max des compteurs Aliments ouverts dans la recette ; sinon aucun badge
-    // (aliments consommés juste après ouverture → pas de compteur fantôme).
-    const foodMaxCounter = getRecipeMaxActiveFoodCounter(displayIngredients, foodItems, foodMacroIndex);
-    const counterDays = foodMaxCounter?.days ?? null;
-    const counterBadgeTitle = foodMaxCounter
-      ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
-      : undefined;
+    // Badge = valeur figée (prefs) uniquement — plus de calcul live Aliments.
+    const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
+    const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+    const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
     const counterUrgent = counterDays !== null && counterDays >= 3;
 
     const expiredIngs = analysis.expiredIngredientNames;
@@ -5841,9 +5881,8 @@ export function WeeklyPlanning({
             const popupDisplayIngredients = ingredientsForPossibleCardDisplay(displayIngredients);
             const mealForAnalysis = { ...meal, ingredients: displayIngredients };
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
-            // Priorité absolue au lot « Prog. seul » (aucune ouverture réelle) : refléter la date future
-            // plutôt qu'un counter_start_date figé qui afficherait un faux « Xj » (cf. bug Croque Monsieur).
-            const foodMaxCounter = getRecipeMaxActiveFoodCounter(displayIngredients, foodItems, foodMacroIndex);
+            // Badge = valeur figée (prefs) uniquement.
+            const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
             const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
             const popupCal =
               parsePositivePlanningOverride(popupCalOverride) ??
@@ -5855,10 +5894,8 @@ export function WeeklyPlanning({
               getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayCal = popupCal ? String(Math.round(popupCal)) : null;
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
-            const counterDays = foodMaxCounter?.days ?? null;
-            const counterBadgeTitle = foodMaxCounter
-              ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
-              : undefined;
+            const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+            const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
             const expired = isExpiredOnDay(popupPm.expiration_date, popupPm.day_of_week);
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>

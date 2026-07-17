@@ -21,6 +21,7 @@ import {
   extractMetrics, computeIngredientCalories, computeIngredientProtein, computeIngredientFiber,
   extractIngredientMacros, applyIngredientMacros,
   computeCounterDays,
+  getAdaptedCounterDays,
   getTargetDate,
   type ParsedIngredient,
   type FoodItemMacroIndex,
@@ -1118,19 +1119,38 @@ export function getProgrammedOnlyCounterStart(
 }
 
 /**
+ * Indique si un food_item peut contribuer au badge compteur (stock fini, non surgelé, date présente).
+ * Contrairement à `hasActiveFoodItemCounter`, n’exige pas que le départ soit déjà passé
+ * (utile pour le gel avec planning : compteurs « Prog. » futurs inclus).
+ */
+function isFoodItemCounterCandidate(fi: FoodItem): boolean {
+  if (fi.is_infinite || fi.storage_type === "surgele" || !fi.counter_start_date?.trim()) return false;
+  if (fi.no_counter && parseQty(fi.grams) > 0) return false;
+  return !Number.isNaN(parseISO(fi.counter_start_date).getTime());
+}
+
+/**
  * Retourne le plus haut compteur actif (Aliments) de la recette, avec sa date de démarrage.
- * Ignore les compteurs futurs (« Prog. ») ; retourne null s'aucun lot n'est réellement ouvert.
+ * Sans planning : ignore les compteurs futurs (« Prog. ») ; null si aucun lot n’est réellement ouvert.
+ *
+ * Avec jour planifié (`dayKey`) : jours = max de `getAdaptedCounterDays` jusqu’au créneau du repas
+ * (ex. ouvert ven. 19h, repas sam. soir → 1j). Inclut aussi les compteurs Prog. futurs éligibles
+ * pour permettre le calcul du décalage ; sans `counter_start_date` du tout → null.
  */
 export function getRecipeMaxActiveFoodCounter(
   ingredients: string | null | undefined,
   foodItems: FoodItem[],
   index?: FoodItemIndex,
   fixedNow?: Date,
+  dayKey?: string | null,
+  mealTime?: string | null,
+  createdAt?: string,
 ): { days: number; startDate: string; foodName: string } | null {
   let best: { days: number; startDate: string; foodName: string } | null = null;
   if (!ingredients?.trim()) return null;
   const groups = parseIngredientGroups(ingredients);
   const stockMap = buildStockMap(foodItems);
+  const usePlannedSlot = !!dayKey?.trim();
   for (const group of groups) {
     if (group.every((b) => b.every((i) => i.optional))) continue;
     const alt = pickBestAlternative(group, stockMap) ?? group[0];
@@ -1138,8 +1158,16 @@ export function getRecipeMaxActiveFoodCounter(
     for (const item of alt) {
       if (item.optional || !item.name) continue;
       for (const fi of lookupFoodItems(item.name, foodItems, index)) {
-        if (!hasActiveFoodItemCounter(fi, fixedNow) || !fi.counter_start_date) continue;
-        const days = computeCounterDays(fi.counter_start_date, fixedNow);
+        if (!fi.counter_start_date) continue;
+        // Sans planning : uniquement compteurs déjà démarrés. Avec planning : actifs + Prog. futurs.
+        if (usePlannedSlot) {
+          if (!isFoodItemCounterCandidate(fi)) continue;
+        } else if (!hasActiveFoodItemCounter(fi, fixedNow)) {
+          continue;
+        }
+        const days = usePlannedSlot
+          ? getAdaptedCounterDays(fi.counter_start_date, dayKey, createdAt, mealTime, fixedNow)
+          : computeCounterDays(fi.counter_start_date, fixedNow);
         if (days === null) continue;
         const startMs = parseISO(fi.counter_start_date).getTime();
         const bestMs = best ? parseISO(best.startDate).getTime() : Infinity;
@@ -1158,14 +1186,100 @@ export function getRecipeMaxActiveFoodCounter(
 
 /**
  * Retourne uniquement le nombre de jours du plus haut compteur Aliments ouvert de la recette.
+ * Accepte les mêmes paramètres de planning optionnels que `getRecipeMaxActiveFoodCounter`.
  */
 export function getRecipeMaxActiveFoodCounterDays(
   ingredients: string | null | undefined,
   foodItems: FoodItem[],
   index?: FoodItemIndex,
   fixedNow?: Date,
+  dayKey?: string | null,
+  mealTime?: string | null,
+  createdAt?: string,
 ): number | null {
-  return getRecipeMaxActiveFoodCounter(ingredients, foodItems, index, fixedNow)?.days ?? null;
+  return getRecipeMaxActiveFoodCounter(
+    ingredients, foodItems, index, fixedNow, dayKey, mealTime, createdAt,
+  )?.days ?? null;
+}
+
+/** Clé user_preferences : jours de compteur figés par id de `possible_meals` (`null` = pas de badge). */
+export const POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY = "possible_frozen_counter_days";
+
+/** Map pmId → jours figés (`null` = gel sans badge, clé absente = pas encore gelé). */
+export type PossibleFrozenCounterDaysMap = Record<string, number | null>;
+
+/**
+ * Calcule la valeur à figer sur une carte Possible (max des compteurs Aliments ouverts).
+ * Même logique que `getRecipeMaxActiveFoodCounterDays` — à appeler uniquement au moment du gel
+ * (arrivée en Possible, ou re-gel one-shot quand on pose jour+créneau), jamais pour l’affichage live.
+ *
+ * `baseStartDate` (optionnel) : vraie ouverture passée / snapshot (ex. ven. 19h) quand le stock
+ * est déjà en Prog. sur le créneau du repas — permet de recalculer 1j (sam. soir) même après Prog.
+ */
+export function computePossibleFrozenCounterDays(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+  dayKey?: string | null,
+  mealTime?: string | null,
+  createdAt?: string,
+  baseStartDate?: string | null,
+): number | null {
+  const fromFoods = getRecipeMaxActiveFoodCounterDays(
+    ingredients, foodItems, index, fixedNow, dayKey, mealTime, createdAt,
+  );
+  if (!dayKey?.trim() || !baseStartDate?.trim()) return fromFoods;
+  const fromBase = getAdaptedCounterDays(
+    baseStartDate, dayKey, createdAt, mealTime, fixedNow,
+  );
+  if (fromBase === null) return fromFoods;
+  if (fromFoods === null) return fromBase;
+  return Math.max(fromFoods, fromBase);
+}
+
+/**
+ * Indique si un gel a déjà été enregistré pour cette carte Possible (y compris `null` = pas de badge).
+ */
+export function hasFrozenPossibleCounter(
+  map: PossibleFrozenCounterDaysMap | null | undefined,
+  pmId: string,
+): boolean {
+  return !!map && Object.prototype.hasOwnProperty.call(map, pmId);
+}
+
+/**
+ * Lit la valeur figée du badge compteur ; `undefined` si aucun gel n’existe encore pour cette carte.
+ */
+export function readFrozenPossibleCounterDays(
+  map: PossibleFrozenCounterDaysMap | null | undefined,
+  pmId: string,
+): number | null | undefined {
+  if (!hasFrozenPossibleCounter(map, pmId)) return undefined;
+  return map![pmId];
+}
+
+/**
+ * Infobulle du badge compteur figé sur une carte Possible (`undefined` si pas de badge).
+ */
+export function formatFrozenPossibleCounterTooltip(days: number | null | undefined): string | undefined {
+  if (days === null || days === undefined) return undefined;
+  return `${days}j (figé)`;
+}
+
+/**
+ * Fusionne une nouvelle valeur de gel avec l’ancienne pour un pmId.
+ * - `null` calculé n’écrase jamais une valeur numérique déjà figée (évite la disparition du badge
+ *   après passage des aliments en Prog.).
+ * - Un nouveau nombre remplace toujours l’ancien (re-planif dimanche→samedi : 2j → 1j).
+ * - Sinon → la nouvelle valeur (`null` si rien n’était figé).
+ */
+export function mergeFrozenPossibleCounterDays(
+  existing: number | null | undefined,
+  computed: number | null,
+): number | null {
+  if (computed === null && typeof existing === "number") return existing;
+  return computed;
 }
 
 /**
@@ -1379,7 +1493,17 @@ export function getDisplayedFiber(
 
   const ingredients = ingredientsOverride ?? meal.ingredients;
   const r = ingredientsOverride ? 1 : (ratio ?? 1);
-  const ingFiber = computeIngredientFiber(ingredients ?? null, isAvailable, r, foodItems, foodItemIndex);
+  let ingFiber = computeIngredientFiber(ingredients ?? null, isAvailable, r, foodItems, foodItemIndex);
+
+  // Override post-déduction sans marqueurs <fibres> : retomber sur la recette maître
+  // (évite la disparition du badge ~1s après l’arrivée en Possible).
+  if (
+    (ingFiber === null || !Number.isFinite(ingFiber)) &&
+    ingredientsOverride &&
+    meal.ingredients?.trim()
+  ) {
+    ingFiber = computeIngredientFiber(meal.ingredients, isAvailable, ratio ?? 1, foodItems, foodItemIndex);
+  }
 
   if (ingredientsOverride && !meal.ingredients && baseFiber !== null) {
     const total = (scaledBaseFiber || 0) + (ingFiber || 0);

@@ -16,8 +16,15 @@ import {
   getProgrammedOnlyCounterStart,
   getRecipeMaxActiveFoodCounter,
   getRecipeMaxActiveFoodCounterDays,
+  computePossibleFrozenCounterDays,
+  hasFrozenPossibleCounter,
+  readFrozenPossibleCounterDays,
+  formatFrozenPossibleCounterTooltip,
+  mergeFrozenPossibleCounterDays,
+  hasActiveFoodItemCounter,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
+  type PossibleFrozenCounterDaysMap,
 } from "@/lib/stockUtils";
 import { getAdaptedCounterDays } from "@/lib/ingredientUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -753,6 +760,188 @@ describe("getRecipeMaxActiveFoodCounterDays (badge aligné Aliments)", () => {
       startDate: start,
       foodName: "Blanc de dinde",
     });
+  });
+
+  it("avec créneau planifié : jours entre ouverture et repas (ven. 19h → sam. soir = 1j)", () => {
+    // Bug Croque Monsieur : badge vs maintenant = 0j ; doit afficher 1j jusqu’au repas demain soir.
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const start = "2026-07-17T19:00:00.000+02:00";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: start }),
+    ];
+    expect(getRecipeMaxActiveFoodCounterDays(
+      "2 Blanc de dinde",
+      foodItems,
+      undefined,
+      fixedNow,
+      "2026-07-18",
+      "soir",
+    )).toBe(1);
+  });
+
+  it("même jour soir que l'ouverture : 0 ou null selon getAdaptedCounterDays", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const start = "2026-07-17T19:00:00.000+02:00";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: start }),
+    ];
+    const expected = getAdaptedCounterDays(start, "2026-07-17", undefined, "soir", fixedNow);
+    expect(getRecipeMaxActiveFoodCounterDays(
+      "2 Blanc de dinde",
+      foodItems,
+      undefined,
+      fixedNow,
+      "2026-07-17",
+      "soir",
+    )).toBe(expected);
+  });
+
+  it("aucun aliment ouvert + créneau planifié → null (pas de badge)", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: null }),
+    ];
+    expect(getRecipeMaxActiveFoodCounter(
+      "2 Blanc de dinde",
+      foodItems,
+      undefined,
+      fixedNow,
+      "2026-07-18",
+      "soir",
+    )).toBeNull();
+  });
+
+  it("avec créneau planifié : compteur Prog. futur encore avant le repas → décalage (ven. 19h Prog. → sam. soir = 1j)", () => {
+    // Après updateFoodItemCountersForPlanning le lot peut être « Prog. » (start > now) ;
+    // le gel planning doit quand même pouvoir calculer le décalage jusqu’au créneau.
+    const fixedNow = new Date("2026-07-17T12:00:00.000+02:00");
+    const start = "2026-07-17T19:00:00.000+02:00"; // futur (Prog.) au moment du gel
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: start }),
+    ];
+    expect(hasActiveFoodItemCounter(foodItems[0], fixedNow)).toBe(false);
+    expect(getRecipeMaxActiveFoodCounterDays(
+      "2 Blanc de dinde",
+      foodItems,
+      undefined,
+      fixedNow,
+      "2026-07-18",
+      "soir",
+    )).toBe(1);
+  });
+});
+
+describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
+  it("aligne le gel sur getRecipeMaxActiveFoodCounterDays (vs maintenant)", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: "2026-07-17T19:00:00.000+02:00" }),
+      makeFoodItem({ name: "Chorizo", grams: "150", counter_start_date: "2026-07-15T12:00:00.000+02:00" }),
+    ];
+    const ingredients = "2 Blanc de dinde, 30g Chorizo";
+    expect(computePossibleFrozenCounterDays(ingredients, foodItems, undefined, fixedNow)).toBe(2);
+    expect(computePossibleFrozenCounterDays(ingredients, foodItems, undefined, fixedNow)).toBe(
+      getRecipeMaxActiveFoodCounterDays(ingredients, foodItems, undefined, fixedNow),
+    );
+  });
+
+  it("avec créneau planifié : fige 1j (ven. 19h → sam. soir)", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: "2026-07-17T19:00:00.000+02:00" }),
+    ];
+    expect(computePossibleFrozenCounterDays(
+      "2 Blanc de dinde",
+      foodItems,
+      undefined,
+      fixedNow,
+      "2026-07-18",
+      "soir",
+    )).toBe(1);
+  });
+
+  it("aucun aliment ouvert → null (gel sans badge)", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: null }),
+    ];
+    expect(computePossibleFrozenCounterDays("2 Blanc de dinde", foodItems, undefined, fixedNow)).toBeNull();
+  });
+
+  it("stock déjà Prog. sur le créneau + baseStartDate passée → 1j (récupération après Soir)", () => {
+    // ven. 17 19h = vraie ouverture ; sam. 18 19h = Prog. déjà posé sur le stock
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const fridayOpen = "2026-07-17T19:00:00.000+02:00";
+    const saturdayProg = "2026-07-18T19:00:00.000+02:00";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: saturdayProg }),
+    ];
+    // Sans base : Prog. = créneau → null
+    expect(
+      computePossibleFrozenCounterDays(
+        "2 Blanc de dinde", foodItems, undefined, fixedNow, "2026-07-18", "soir", undefined,
+      ),
+    ).toBeNull();
+    // Avec base = ouverture réelle ven. → 1j jusqu’à sam. soir
+    expect(
+      computePossibleFrozenCounterDays(
+        "2 Blanc de dinde", foodItems, undefined, fixedNow, "2026-07-18", "soir", undefined, fridayOpen,
+      ),
+    ).toBe(1);
+  });
+
+  it("Prog. lundi + repas mardi (autre recette) → 1j sur la carte la plus tardive", () => {
+    // Blanc prog. lundi 20 19h ; 2e recette planifiée mardi 21 19h → badge 1j
+    const fixedNow = new Date("2026-07-17T12:00:00.000+02:00");
+    const mondayProg = "2026-07-20T19:00:00.000+02:00";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 4, grams: null, counter_start_date: mondayProg }),
+    ];
+    expect(
+      computePossibleFrozenCounterDays(
+        "2 Blanc de dinde",
+        foodItems,
+        undefined,
+        fixedNow,
+        "2026-07-21",
+        "soir",
+      ),
+    ).toBe(1);
+  });
+
+  it("lit / écrit la map prefs : clé absente vs null figé", () => {
+    const map: PossibleFrozenCounterDaysMap = { "pm-a": 2, "pm-null": null };
+    expect(hasFrozenPossibleCounter(map, "pm-a")).toBe(true);
+    expect(hasFrozenPossibleCounter(map, "pm-null")).toBe(true);
+    expect(hasFrozenPossibleCounter(map, "pm-missing")).toBe(false);
+    expect(readFrozenPossibleCounterDays(map, "pm-a")).toBe(2);
+    expect(readFrozenPossibleCounterDays(map, "pm-null")).toBeNull();
+    expect(readFrozenPossibleCounterDays(map, "pm-missing")).toBeUndefined();
+    expect(formatFrozenPossibleCounterTooltip(2)).toBe("2j (figé)");
+    expect(formatFrozenPossibleCounterTooltip(null)).toBeUndefined();
+  });
+});
+
+describe("mergeFrozenPossibleCounterDays (re-gel sans effacer)", () => {
+  it("null calculé ne remplace pas un 0j / 1j déjà figé", () => {
+    expect(mergeFrozenPossibleCounterDays(0, null)).toBe(0);
+    expect(mergeFrozenPossibleCounterDays(1, null)).toBe(1);
+  });
+
+  it("nombre calculé remplace null figé ou absence", () => {
+    expect(mergeFrozenPossibleCounterDays(null, 1)).toBe(1);
+    expect(mergeFrozenPossibleCounterDays(undefined, 1)).toBe(1);
+  });
+
+  it("re-planif : nouveau nombre remplace l’ancien (2j → 1j)", () => {
+    expect(mergeFrozenPossibleCounterDays(2, 1)).toBe(1);
+    expect(mergeFrozenPossibleCounterDays(0, 1)).toBe(1);
+    expect(mergeFrozenPossibleCounterDays(1, 2)).toBe(2);
+  });
+
+  it("null + null → null", () => {
+    expect(mergeFrozenPossibleCounterDays(null, null)).toBeNull();
+    expect(mergeFrozenPossibleCounterDays(undefined, null)).toBeNull();
   });
 });
 

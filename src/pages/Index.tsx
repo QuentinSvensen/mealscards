@@ -44,10 +44,14 @@ import {
   getMissingIngredients, isFoodUsedInMeals,
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
-  getDisplayedCalories, getDisplayedProtein, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
+  getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
   recipeHasFiniteCounterableIngredients,
+  computePossibleFrozenCounterDays,
+  mergeFrozenPossibleCounterDays,
+  POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
+  type PossibleFrozenCounterDaysMap,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate, buildPossiblePlanningSnapshot } from "@/hooks/useMealTransfers";
@@ -657,6 +661,93 @@ const Index = () => {
       return next;
     });
   };
+
+  /** Jours de badge compteur figés par carte Possible (indépendants du stock live). */
+  const frozenCounterDaysByPmId = getPreference<PossibleFrozenCounterDaysMap>(
+    POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
+    {},
+  );
+
+  /**
+   * Fige (ou re-fige) le badge compteur d’une carte Possible à partir des aliments à cet instant.
+   * Appelé à l’arrivée en Possible, et one-shot quand on pose jour+créneau (ex. Croque → 1j samedi).
+   * Ne remplace jamais une valeur numérique figée par `null` (merge).
+   * `baseStartDate` : vraie ouverture (snapshot / carte) pour recalculer même si le stock est déjà en Prog.
+   */
+  const freezePossibleBadgeCounter = (
+    pmId: string,
+    ingredients: string | null | undefined,
+    dayKey?: string | null,
+    mealTime?: string | null,
+    createdAt?: string,
+    foodItemsForFreeze: FoodItem[] = foodItems,
+    baseStartDate?: string | null,
+  ) => {
+    const days = computePossibleFrozenCounterDays(
+      ingredients,
+      foodItemsForFreeze,
+      foodItemIndex,
+      undefined,
+      dayKey,
+      mealTime,
+      createdAt,
+      baseStartDate,
+    );
+    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
+    const merged = mergeFrozenPossibleCounterDays(current[pmId], days);
+    setPreference.mutate({
+      key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
+      value: { ...current, [pmId]: merged },
+    });
+  };
+
+  /** Supprime l’entrée de gel pour une carte Possible retirée. */
+  const clearFrozenPossibleBadgeCounter = (pmId: string) => {
+    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
+    if (!Object.prototype.hasOwnProperty.call(current, pmId)) return;
+    const { [pmId]: _removed, ...rest } = current;
+    setPreference.mutate({ key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, value: rest });
+  };
+
+  /** Copie la valeur figée d’une carte source vers une nouvelle carte (duplication). */
+  const copyFrozenPossibleBadgeCounter = (sourcePmId: string, targetPmId: string) => {
+    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
+    if (!Object.prototype.hasOwnProperty.call(current, sourcePmId)) return;
+    setPreference.mutate({
+      key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
+      value: { ...current, [targetPmId]: current[sourcePmId] },
+    });
+  };
+
+  // Backfill one-shot : cartes Possible déjà présentes sans entrée de gel (évite la perte de badge).
+  const freezeBackfillDoneRef = useRef(false);
+  useEffect(() => {
+    if (freezeBackfillDoneRef.current) return;
+    if (!unlocked || foodItems.length === 0 || possibleMeals.length === 0) return;
+    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
+    let next: PossibleFrozenCounterDaysMap = current;
+    let changed = false;
+    for (const pm of possibleMeals) {
+      if (Object.prototype.hasOwnProperty.call(next, pm.id)) continue;
+      const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+      const days = computePossibleFrozenCounterDays(
+        ing,
+        foodItems,
+        foodItemIndex,
+        undefined,
+        pm.day_of_week,
+        pm.meal_time,
+        pm.created_at,
+      );
+      next = { ...next, [pm.id]: days };
+      changed = true;
+    }
+    freezeBackfillDoneRef.current = true;
+    if (changed) {
+      setPreference.mutate({ key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, value: next });
+    }
+  }, [unlocked, foodItems, possibleMeals, foodItemIndex, getPreference, setPreference]);
+
   const [masterSourcePmIds, setMasterSourcePmIds] = useState<Set<string>>(new Set());
   const [unParUnSourcePmIds, setUnParUnSourcePmIds] = useState<Set<string>>(new Set());
 
@@ -867,6 +958,10 @@ const Index = () => {
         : meal;
     const preCal = getDisplayedCalories(mealForMacros, undefined, undefined, isAvailBefore);
     const prePro = getDisplayedProtein(mealForMacros, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
+    // Fibres depuis la recette maître d’abord (l’override post-déduction pouvait omettre <fibres>).
+    const preFiber =
+      getDisplayedFiber(meal, undefined, undefined, isAvailBefore, foodItems, foodItemIndex)
+      ?? getDisplayedFiber(mealForMacros, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
 
     // 4. Carte « Possible » = copie logique avant déduction stock
     const finalCounterDate =
@@ -920,6 +1015,20 @@ const Index = () => {
         const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
         setPreference.mutate({ key: 'planning_pro_overrides', value: { ...currentPros, [result.id]: String(prePro) } });
       }
+      if (preFiber !== null) {
+        const currentFibers = getPreference<Record<string, string>>('planning_fiber_overrides', {});
+        setPreference.mutate({ key: 'planning_fiber_overrides', value: { ...currentFibers, [result.id]: String(preFiber) } });
+      }
+
+      // 6. Figer le badge compteur à l’arrivée (stock capturé avant déduction via closure foodItems).
+      freezePossibleBadgeCounter(
+        result.id,
+        ingredientsOverride ?? meal.ingredients,
+        null,
+        null,
+        undefined,
+        foodItems,
+      );
     }
   };
 
@@ -992,7 +1101,12 @@ const Index = () => {
     const trimmedName = newName.trim();
     if (finalTarget === "possible") {
       addMealToPossibleDirectly.mutate({ name: trimmedName, category: newCategory }, {
-        onSuccess: () => { setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" }); }
+        onSuccess: (data) => {
+          if (data?.id) {
+            freezePossibleBadgeCounter(data.id, null, null, null, undefined, foodItems);
+          }
+          setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" });
+        }
       });
     } else {
       addMeal.mutate({ name: trimmedName, category: newCategory }, {
@@ -1379,6 +1493,14 @@ const Index = () => {
                               if (finalOverride && finalOverride !== meal.ingredients) {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: finalOverride });
                               }
+                              freezePossibleBadgeCounter(
+                                result.id,
+                                finalOverride ?? meal.ingredients,
+                                null,
+                                null,
+                                undefined,
+                                foodItems,
+                              );
                             }
                           }}
                           onMoveNameMatchToPossible={async (meal, fi, ratio) => {
@@ -1433,6 +1555,16 @@ const Index = () => {
                               if (result?.id && scaledIng) {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: scaledIng });
                               }
+                              if (result?.id) {
+                                freezePossibleBadgeCounter(
+                                  result.id,
+                                  scaledIng ?? baseIng,
+                                  null,
+                                  null,
+                                  undefined,
+                                  foodItems,
+                                );
+                              }
                             } else {
                               const portion = await deductNameMatchStock(meal, undefined, r);
                               const shouldStartOnMove = fi.storage_type !== 'surgele' && !fi.no_counter;
@@ -1463,10 +1595,30 @@ const Index = () => {
                                   oven_temp: meal.oven_temp,
                                   oven_minutes: meal.oven_minutes,
                                 });
-                                if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                                if (result?.id) {
+                                  updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                                  freezePossibleBadgeCounter(
+                                    result.id,
+                                    meal.ingredients || (parseQty(finalGrams) > 0 ? `${finalGrams} ${meal.name}` : null),
+                                    null,
+                                    null,
+                                    undefined,
+                                    foodItems,
+                                  );
+                                }
                               } else {
                                 const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date, counter_start_date: finalCd });
-                                if (result?.id) updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                                if (result?.id) {
+                                  updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
+                                  freezePossibleBadgeCounter(
+                                    result.id,
+                                    meal.ingredients,
+                                    null,
+                                    null,
+                                    undefined,
+                                    foodItems,
+                                  );
+                                }
                               }
                             }
                           }}
@@ -1526,7 +1678,18 @@ const Index = () => {
                               expiration_date: fi.expiration_date,
                               counter_start_date: movedCounterDate
                             });
-                            if (pmResult?.id) updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                            if (pmResult?.id) {
+                              updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
+                              // Gel à partir de l’état aliment avant consommation (snapshot / fi).
+                              freezePossibleBadgeCounter(
+                                pmResult.id,
+                                fi.grams ? `${fi.grams} ${fi.name}` : `1 ${fi.name}`,
+                                null,
+                                null,
+                                undefined,
+                                [{ ...fi, counter_start_date: movedCounterDate }],
+                              );
+                            }
                           }}
                           onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
                           onRename={(id, name) => renameMeal.mutate({ id, name })}
@@ -1539,6 +1702,7 @@ const Index = () => {
                           }}
                           onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
                           onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
+                          onUpdateDescription={(id, description) => updateDescription.mutate({ id, description })}
                           onAfterMoveToPossible={() => {
                             if (typeof window === "undefined") return;
                             if (!window.matchMedia("(max-width: 767px)").matches) return;
@@ -1552,11 +1716,15 @@ const Index = () => {
                           items={getSortedPossible(cat.value)}
                           allPossibleMeals={possibleMeals}
                           deductionSnapshots={effectiveDeductionSnapshots}
+                          frozenCounterDaysByPmId={frozenCounterDaysByPmId}
                           sortMode={sortModes[cat.value] || "manual"}
                           stockMap={stockMap}
                           onToggleSort={() => toggleSort(cat.value)}
                           onRandomPick={() => handleRandomPick(cat.value)}
-                          onRemove={(id) => { removeFromPossible.mutate(id); }}
+                          onRemove={(id) => {
+                            clearFrozenPossibleBadgeCounter(id);
+                            removeFromPossible.mutate(id);
+                          }}
                           onReturnWithoutDeduction={async (id) => {
                             const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
                             const snapshots = effectiveDeductionSnapshots[id];
@@ -1575,6 +1743,7 @@ const Index = () => {
                               });
                             }
                             updateSnapshots(prev => { const next = { ...prev }; delete next[id]; return next; });
+                            clearFrozenPossibleBadgeCounter(id);
                             removeFromPossible.mutate(id);
                             setUnParUnSourcePmIds(prev => { const next = new Set(prev); next.delete(id); return next; });
 
@@ -1590,6 +1759,7 @@ const Index = () => {
                           }}
                           onReturnToMaster={(id) => {
                             const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
+                            clearFrozenPossibleBadgeCounter(id);
                             removeFromPossible.mutate(id);
                             setMasterSourcePmIds(prev => { const next = new Set(prev); next.delete(id); return next; });
 
@@ -1605,6 +1775,7 @@ const Index = () => {
                           }}
                           onDelete={(id) => {
                             const pm = possibleMeals.find(p => p.id === id);
+                            clearFrozenPossibleBadgeCounter(id);
                             deletePossibleMeal.mutate(id);
 
                             if (pm) {
@@ -1630,6 +1801,7 @@ const Index = () => {
                                 if (snapshots.length > 0) {
                                   updateSnapshots(prev => ({ ...prev, [newId]: snapshots }));
                                 }
+                                copyFrozenPossibleBadgeCounter(id, newId);
 
                                 // 1. Copier les overrides de macros (calories/protéines)
                                 const currentCals = getPreference<Record<string, string>>('planning_cal_overrides', {});
@@ -1794,6 +1966,11 @@ const Index = () => {
                               if (hasFullPlanningSlot) {
                                 const fallbackDate =
                                   frozenCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null;
+                                // Re-gel AVANT de passer les aliments en Prog. : sinon hasActiveFoodItemCounter
+                                // devient false et le calcul renvoie null (badge écrasé / disparu).
+                                // `fallbackDate` = vraie ouverture (ex. ven. 19h) pour retrouver 1j même si
+                                // le stock est déjà Prog. sur sam. soir (re-sélection Soir après bug).
+                                freezePossibleBadgeCounter(id, ing, day, time, pm.created_at, foodItems, fallbackDate);
                                 updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, nextPossibleMeals);
                               }
                             }
@@ -1954,6 +2131,7 @@ const Index = () => {
                           }}
                           onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
                           onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
+                          onUpdateDescription={(id, description) => updateDescription.mutate({ id, description })}
                           onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
                           onExternalDrop={(mealId, source, pmId) => handleMoveToPossibleGeneral(mealId, source, pmId)}
                           highlightedId={highlightedId}
@@ -2092,6 +2270,14 @@ const Index = () => {
                               if (pmResult?.id) {
                                 updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
                                 setUnParUnSourcePmIds(prev => new Set([...prev, pmResult.id]));
+                                freezePossibleBadgeCounter(
+                                  pmResult.id,
+                                  ingredients,
+                                  null,
+                                  null,
+                                  undefined,
+                                  [{ ...fi, counter_start_date: movedCounterDate }],
+                                );
                               }
                             }}
                           />

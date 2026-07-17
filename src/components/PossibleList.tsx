@@ -18,9 +18,9 @@ import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
-import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay, formatFoodCounterStartTooltip } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, getRecipeMaxActiveFoodCounter } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -91,6 +91,7 @@ interface PossibleListProps {
   onUpdatePossibleIngredients: (pmId: string, newIngredients: string | null) => void;
   onUpdateOvenTemp?: (id: string, temp: string | null) => void;
   onUpdateOvenMinutes?: (id: string, minutes: string | null) => void;
+  onUpdateDescription?: (id: string, description: string | null) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onSplitQuantity?: (id: string, ratio: number, baseIngredients: string | null) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
@@ -105,6 +106,8 @@ interface PossibleListProps {
   allPossibleMeals?: PossibleMeal[];
   /** Snapshots de déduction par carte (état stock avant consommation, pour retrouver le compteur réel). */
   deductionSnapshots?: Record<string, FoodItem[]>;
+  /** Jours de compteur figés par id de carte Possible (prefs). */
+  frozenCounterDaysByPmId?: PossibleFrozenCounterDaysMap;
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
@@ -112,10 +115,11 @@ export function PossibleList({
   category, items, sortMode, stockMap, onToggleSort, onRandomPick, onRemove,
   onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate,
   onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams,
-  onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes,
+  onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription,
   onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems,
   ingredientMacroAutofillSources,
-  onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals, deductionSnapshots = {}
+  onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals, deductionSnapshots = {},
+  frozenCounterDaysByPmId = {},
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
@@ -211,6 +215,7 @@ export function PossibleList({
               )}
               <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
                 ingredientMacroSources={ingredientMacroAutofillSources}
+                frozenCounterDays={readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id)}
                 expiredIngredientNames={expiredIngs}
                 expiringSoonIngredientNames={soonIngs}
                 onRemove={() => onRemove(pm.id)}
@@ -240,6 +245,7 @@ export function PossibleList({
                 onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
                 onUpdateOvenTemp={onUpdateOvenTemp ? (t) => onUpdateOvenTemp(pm.meals.id, t) : undefined}
                 onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
+                onUpdateDescription={onUpdateDescription ? (d) => onUpdateDescription(pm.meals.id, d) : undefined}
                 onUpdateQuantity={unParUnSourcePmIds.has(pm.id) ? (qty) => onUpdateQuantity(pm.id, qty) : undefined}
                 onSplitQuantity={onSplitQuantity ? (ratio, baseIng) => onSplitQuantity(pm.id, ratio, baseIng) : undefined}
                 onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
@@ -288,11 +294,9 @@ export function PossibleList({
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
             const displayPro = ingPro !== null ? String(ingPro) : meal.protein;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
-            const foodMaxCounter = getRecipeMaxActiveFoodCounter(displayIngredients, foodItems, foodItemIndex);
-            const counterDays = foodMaxCounter?.days ?? null;
-            const counterBadgeTitle = foodMaxCounter
-              ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
-              : undefined;
+            const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
+            const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+            const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
 
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
 

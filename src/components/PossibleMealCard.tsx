@@ -13,7 +13,7 @@
  * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
@@ -23,6 +23,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { DAYS, TIMES } from "@/hooks/useMeals";
 import { format, parseISO } from "date-fns";
@@ -33,10 +34,9 @@ import {
   hasNegativeMetric, getMealColor, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw,
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
-  formatFoodCounterStartTooltip,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, getRecipeMaxActiveFoodCounter } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, formatFrozenPossibleCounterTooltip, parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -65,6 +65,8 @@ interface PossibleMealCardProps {
   onUpdatePossibleIngredients?: (newIngredients: string | null) => void;
   onUpdateOvenTemp?: (temp: string | null) => void;
   onUpdateOvenMinutes?: (minutes: string | null) => void;
+  /** Met à jour les consignes sur le repas maître (Tous). */
+  onUpdateDescription?: (description: string | null) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -74,6 +76,11 @@ interface PossibleMealCardProps {
   expiringSoonIngredientNames?: Set<string>;
   onDoubleClick?: () => void;
   realtimeCounterStartDate?: string | null;
+  /**
+   * Badge compteur figé à l’arrivée en Possible (ou au re-gel planning).
+   * `undefined` = pas encore gelé (pas de badge) ; `null` = gelé sans badge ; `number` = jours figés.
+   */
+  frozenCounterDays?: number | null;
   /** Fiches aliments (garde-manger) : complète les protéines quand les lignes n’ont que des kcal ou pas de [pro]. */
   foodItems?: FoodItem[];
   ingredientMacroSources?: IngredientMacroAutofillSources;
@@ -200,10 +207,10 @@ export function PossibleMealCard({
   onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
   onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateQuantity,
   onUpdateIngredients, onUpdatePossibleIngredients, 
-  onUpdateOvenTemp, onUpdateOvenMinutes,
+  onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription,
   onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
-  realtimeCounterStartDate, foodItems, ingredientMacroSources
+  realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
@@ -213,6 +220,8 @@ export function PossibleMealCard({
   const [calMobileOpen, setCalMobileOpen] = useState(false);
   const [editingIngredients, setEditingIngredients] = useState(false);
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
+  const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
+  const [descriptionDraft, setDescriptionDraft] = useState("");
 
   const foodMacroIndex = useMemo(
     () => (foodItems?.length ? buildFoodItemIndex(foodItems) : undefined),
@@ -343,24 +352,12 @@ export function PossibleMealCard({
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const todayISO = format(new Date(), 'yyyy-MM-dd');
 
-  // PRIORITÉ : badge compteur = max des compteurs Aliments encore ouverts dans la recette.
-  // Si aucun lot n'est ouvert (consommés juste après ouverture), pas de badge du tout.
-  const cardIngredients = pm.ingredients_override ?? meal?.ingredients;
-  const foodMaxCounter = useMemo(
-    () =>
-      cardIngredients && foodItems?.length
-        ? getRecipeMaxActiveFoodCounter(cardIngredients, foodItems, foodMacroIndex)
-        : null,
-    [cardIngredients, foodItems, foodMacroIndex],
-  );
-
+  // Badge compteur = valeur figée (prefs) uniquement — plus de calcul live Aliments.
   // Garde placé APRÈS tous les hooks : une carte sans repas source n'est pas rendue.
   if (!meal) return null;
 
-  const counterDays = foodMaxCounter?.days ?? null;
-  const counterBadgeTitle = foodMaxCounter
-    ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
-    : undefined;
+  const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+  const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;
@@ -453,6 +450,19 @@ export function PossibleMealCard({
         : lines,
     );
     setEditingIngredients(true);
+  };
+
+  /** Ouvre l'éditeur de consignes (repas maître / Tous). */
+  const openDescriptionEditor = () => {
+    setDescriptionDraft(meal?.description || "");
+    setDescriptionEditorOpen(true);
+  };
+
+  /** Enregistre les consignes sur le repas maître puis ferme l'éditeur. */
+  const saveDescription = () => {
+    const val = descriptionDraft.trim();
+    onUpdateDescription?.(val || null);
+    setDescriptionEditorOpen(false);
   };
 
   // Persiste les ingrédients validés depuis l'éditeur (lignes passées = état le plus récent).
@@ -586,6 +596,7 @@ export function PossibleMealCard({
   };
 
   return (
+    <>
     <div
       draggable
       onDragStart={onDragStart}
@@ -774,15 +785,26 @@ export function PossibleMealCard({
           })()}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayFiber = getFoodMealPortionMacro("fiber")
+            // Sans filtre stock d’abord (comme calories/protéines quand le stock est déjà déduit),
+            // puis avec isAvailableCb, puis repli sur meal.fiber parsé.
+            const fromLines =
+              getDisplayedPMFiber(pm, detectedRatio ?? undefined, undefined, foodItems, foodMacroIndex)
               ?? getDisplayedPMFiber(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const baseFiber = parseMacroDisplay(meal.fiber);
+            const scaledMealFiber =
+              baseFiber != null && detectedRatio != null && !pm.ingredients_override
+                ? baseFiber * detectedRatio
+                : baseFiber;
+            const rawDisplayFiber = getFoodMealPortionMacro("fiber")
+              ?? fromLines
+              ?? scaledMealFiber;
             const displayFiber = rawDisplayFiber != null ? Math.round(rawDisplayFiber) : null;
             const isComputedFiber = fiberLooksComputedOnPossibleCard(
               pm.ingredients_override != null,
               displayIngredients,
               meal.ingredients,
               scaleR,
-              isAvailableCb,
+              undefined,
               foodItems,
               foodMacroIndex,
             );
@@ -861,6 +883,11 @@ export function PossibleMealCard({
                   <Timer className="mr-2 h-4 w-4" /> Durée (min)
                 </DropdownMenuItem>
               )}
+              {onUpdateDescription && (
+                <DropdownMenuItem onClick={openDescriptionEditor}>
+                  <FileText className="mr-2 h-4 w-4" /> Description
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={openIngredients}>
                 <List className="mr-2 h-4 w-4" /> Ingrédients
               </DropdownMenuItem>
@@ -890,5 +917,27 @@ export function PossibleMealCard({
         </button>
       )}
     </div>
+
+    {/* Éditeur des consignes — met à jour le repas maître (Tous) */}
+    <Dialog open={descriptionEditorOpen} onOpenChange={setDescriptionEditorOpen}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Description — {meal.name}</DialogTitle>
+        </DialogHeader>
+        <textarea
+          autoFocus
+          value={descriptionDraft}
+          onChange={(e) => setDescriptionDraft(e.target.value)}
+          placeholder="Consignes de préparation…"
+          rows={6}
+          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px]"
+        />
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" onClick={() => setDescriptionEditorOpen(false)}>Annuler</Button>
+          <Button type="button" onClick={saveDescription}>Enregistrer</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

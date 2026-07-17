@@ -134,7 +134,7 @@ function expandOrGroupIngredientNames(item: ParsedIngredient): string[] {
 /**
  * Construit une chaîne d'ingrédients basée uniquement sur les alternatives réellement consommées.
  * Sert à afficher sur la carte "Possible" uniquement les choix "ou" effectivement déduits du stock.
- * Reprend les suffixes {cal} / [pro] depuis la recette maître pour l’éditeur et les calculs.
+ * Reprend les suffixes {cal} / [pro] / <fibres> depuis la recette maître pour l’éditeur et les calculs.
  * Les quantités unitaires utilisent « 4 Pain » (pas « x4 Pain ») pour rester parsables en colonnes.
  */
 function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[][], mealIngredients: string): string | null {
@@ -176,13 +176,14 @@ function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[]
   };
   const originalDisplayNameByKey = buildOriginalDisplayNameMap(mealIngredients);
 
-  /** Réinjecte les macros par nom (clé normalisée), comme serializeIngredients. */
+  /** Réinjecte les macros par nom (clé normalisée), comme serializeIngredients ({cal}, [pro], <fibres>). */
   const macroSuffixForDisplayName = (displayName: string): string => {
     const m = macroMap.get(normalizeKey(displayName));
     if (!m) return "";
     let s = "";
     if (m.cal) s += `{${m.cal}}`;
     if (m.pro) s += ` [${m.pro}]`;
+    if (m.fiber) s += ` <${m.fiber}>`;
     return s;
   };
 
