@@ -1118,17 +1118,16 @@ export function getProgrammedOnlyCounterStart(
 }
 
 /**
- * Retourne le plus haut compteur (en jours) parmi les aliments Aliments déjà ouverts
- * qui composent la recette — aligné sur le badge des fiches de l'onglet Aliments.
+ * Retourne le plus haut compteur actif (Aliments) de la recette, avec sa date de démarrage.
  * Ignore les compteurs futurs (« Prog. ») ; retourne null s'aucun lot n'est réellement ouvert.
  */
-export function getRecipeMaxActiveFoodCounterDays(
+export function getRecipeMaxActiveFoodCounter(
   ingredients: string | null | undefined,
   foodItems: FoodItem[],
   index?: FoodItemIndex,
   fixedNow?: Date,
-): number | null {
-  let maxDays: number | null = null;
+): { days: number; startDate: string; foodName: string } | null {
+  let best: { days: number; startDate: string; foodName: string } | null = null;
   if (!ingredients?.trim()) return null;
   const groups = parseIngredientGroups(ingredients);
   const stockMap = buildStockMap(foodItems);
@@ -1139,14 +1138,34 @@ export function getRecipeMaxActiveFoodCounterDays(
     for (const item of alt) {
       if (item.optional || !item.name) continue;
       for (const fi of lookupFoodItems(item.name, foodItems, index)) {
-        if (!hasActiveFoodItemCounter(fi, fixedNow)) continue;
+        if (!hasActiveFoodItemCounter(fi, fixedNow) || !fi.counter_start_date) continue;
         const days = computeCounterDays(fi.counter_start_date, fixedNow);
         if (days === null) continue;
-        if (maxDays === null || days > maxDays) maxDays = days;
+        const startMs = parseISO(fi.counter_start_date).getTime();
+        const bestMs = best ? parseISO(best.startDate).getTime() : Infinity;
+        if (
+          !best ||
+          days > best.days ||
+          (days === best.days && startMs < bestMs)
+        ) {
+          best = { days, startDate: fi.counter_start_date, foodName: fi.name };
+        }
       }
     }
   }
-  return maxDays;
+  return best;
+}
+
+/**
+ * Retourne uniquement le nombre de jours du plus haut compteur Aliments ouvert de la recette.
+ */
+export function getRecipeMaxActiveFoodCounterDays(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  fixedNow?: Date,
+): number | null {
+  return getRecipeMaxActiveFoodCounter(ingredients, foodItems, index, fixedNow)?.days ?? null;
 }
 
 /**

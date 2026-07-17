@@ -33,9 +33,10 @@ import {
   hasNegativeMetric, getMealColor, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw,
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
+  formatFoodCounterStartTooltip,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, getRecipeMaxActiveFoodCounterDays } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, getRecipeMaxActiveFoodCounter } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -345,10 +346,10 @@ export function PossibleMealCard({
   // PRIORITÉ : badge compteur = max des compteurs Aliments encore ouverts dans la recette.
   // Si aucun lot n'est ouvert (consommés juste après ouverture), pas de badge du tout.
   const cardIngredients = pm.ingredients_override ?? meal?.ingredients;
-  const foodMaxCounterDays = useMemo(
+  const foodMaxCounter = useMemo(
     () =>
       cardIngredients && foodItems?.length
-        ? getRecipeMaxActiveFoodCounterDays(cardIngredients, foodItems, foodMacroIndex)
+        ? getRecipeMaxActiveFoodCounter(cardIngredients, foodItems, foodMacroIndex)
         : null,
     [cardIngredients, foodItems, foodMacroIndex],
   );
@@ -356,7 +357,10 @@ export function PossibleMealCard({
   // Garde placé APRÈS tous les hooks : une carte sans repas source n'est pas rendue.
   if (!meal) return null;
 
-  const counterDays = foodMaxCounterDays;
+  const counterDays = foodMaxCounter?.days ?? null;
+  const counterBadgeTitle = foodMaxCounter
+    ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
+    : undefined;
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;
@@ -624,7 +628,7 @@ export function PossibleMealCard({
                     : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30'
                   : 'bg-white/25 text-white'
                   }`}
-                title={`${counterDays} jour(s) — max des aliments de la recette`}
+                title={counterBadgeTitle}
               >
                 <Timer className="h-3 w-3" /> {counterDays}j
               </button>
@@ -684,7 +688,7 @@ export function PossibleMealCard({
                   : 'bg-red-500/80 text-white shadow-lg shadow-red-500/30' // Figé passé l'urgence
                 : 'bg-white/25 text-white'
                 }`}
-              title={`${counterDays} jour(s) — max des aliments de la recette`}
+              title={counterBadgeTitle}
             >
               <Timer className="h-3 w-3" /> {counterDays}j
             </button>

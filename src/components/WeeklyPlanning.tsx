@@ -25,7 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat, FileText } from "lucide-react";
-import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay, formatFoodCounterStartTooltip } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -40,7 +40,7 @@ import {
   FOOD_EXTRAS_DIVIDER_PREF_KEY,
   splitSortedExtrasByDivider,
 } from "@/lib/extrasDividerUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, getRecipeMaxActiveFoodCounterDays, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, getRecipeMaxActiveFoodCounter, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -2429,12 +2429,11 @@ export function WeeklyPlanning({
 
     // Badge = max des compteurs Aliments ouverts dans la recette ; sinon aucun badge
     // (aliments consommés juste après ouverture → pas de compteur fantôme).
-    const foodMaxCounterDays = getRecipeMaxActiveFoodCounterDays(displayIngredients, foodItems, foodMacroIndex);
-    const counterDays = foodMaxCounterDays;
-    const counterBadgeTitle =
-      counterDays !== null
-        ? `${counterDays} jour(s) — max des aliments de la recette`
-        : undefined;
+    const foodMaxCounter = getRecipeMaxActiveFoodCounter(displayIngredients, foodItems, foodMacroIndex);
+    const counterDays = foodMaxCounter?.days ?? null;
+    const counterBadgeTitle = foodMaxCounter
+      ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
+      : undefined;
     const counterUrgent = counterDays !== null && counterDays >= 3;
 
     const expiredIngs = analysis.expiredIngredientNames;
@@ -5844,7 +5843,7 @@ export function WeeklyPlanning({
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
             // Priorité absolue au lot « Prog. seul » (aucune ouverture réelle) : refléter la date future
             // plutôt qu'un counter_start_date figé qui afficherait un faux « Xj » (cf. bug Croque Monsieur).
-            const foodMaxCounterDays = getRecipeMaxActiveFoodCounterDays(displayIngredients, foodItems, foodMacroIndex);
+            const foodMaxCounter = getRecipeMaxActiveFoodCounter(displayIngredients, foodItems, foodMacroIndex);
             const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
             const popupCal =
               parsePositivePlanningOverride(popupCalOverride) ??
@@ -5856,11 +5855,10 @@ export function WeeklyPlanning({
               getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayCal = popupCal ? String(Math.round(popupCal)) : null;
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
-            const counterDays = foodMaxCounterDays;
-            const counterBadgeTitle =
-              counterDays !== null
-                ? `${counterDays} jour(s) — max des aliments de la recette`
-                : undefined;
+            const counterDays = foodMaxCounter?.days ?? null;
+            const counterBadgeTitle = foodMaxCounter
+              ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
+              : undefined;
             const expired = isExpiredOnDay(popupPm.expiration_date, popupPm.day_of_week);
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>

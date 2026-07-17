@@ -18,9 +18,9 @@ import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
-import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay, formatFoodCounterStartTooltip } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, getRecipeMaxActiveFoodCounterDays } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, getRecipeMaxActiveFoodCounter } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -288,12 +288,11 @@ export function PossibleList({
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
             const displayPro = ingPro !== null ? String(ingPro) : meal.protein;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
-            const foodMaxCounterDays = getRecipeMaxActiveFoodCounterDays(displayIngredients, foodItems, foodItemIndex);
-            const counterDays = foodMaxCounterDays;
-            const counterBadgeTitle =
-              counterDays !== null
-                ? `${counterDays} jour(s) — max des aliments de la recette`
-                : undefined;
+            const foodMaxCounter = getRecipeMaxActiveFoodCounter(displayIngredients, foodItems, foodItemIndex);
+            const counterDays = foodMaxCounter?.days ?? null;
+            const counterBadgeTitle = foodMaxCounter
+              ? formatFoodCounterStartTooltip(foodMaxCounter.startDate, foodMaxCounter.foodName)
+              : undefined;
 
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
 

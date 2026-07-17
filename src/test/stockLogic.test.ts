@@ -14,6 +14,7 @@ import {
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
   getProgrammedOnlyCounterStart,
+  getRecipeMaxActiveFoodCounter,
   getRecipeMaxActiveFoodCounterDays,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
@@ -739,6 +740,19 @@ describe("getRecipeMaxActiveFoodCounterDays (badge aligné Aliments)", () => {
       undefined,
       fixedNow,
     )).toBeNull();
+  });
+
+  it("expose aussi la date de démarrage pour l'infobulle", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const start = "2026-07-17T19:00:00.000+02:00";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: start }),
+    ];
+    expect(getRecipeMaxActiveFoodCounter("2 Blanc de dinde", foodItems, undefined, fixedNow)).toEqual({
+      days: 0,
+      startDate: start,
+      foodName: "Blanc de dinde",
+    });
   });
 });
 

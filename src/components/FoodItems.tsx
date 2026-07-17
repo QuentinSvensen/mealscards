@@ -28,7 +28,7 @@ import { fr } from "date-fns/locale";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { colorFromName, computeCounterDays, computeCounterHours, isExpiredDate, normalizeKey, parseQty } from "@/lib/ingredientUtils";
+import { colorFromName, computeCounterDays, computeCounterHours, formatFoodCounterStartTooltip, isExpiredDate, normalizeKey, parseQty } from "@/lib/ingredientUtils";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useSortModes, FoodSortMode } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
@@ -360,10 +360,10 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
   const isFuture = effectiveCounterStart ? new Date(effectiveCounterStart) > new Date() : false;
   const counterDays = computeCounterDays(effectiveCounterStart);
   const counterHours = computeCounterHours(effectiveCounterStart);
-  const formattedProgDate = isFuture && effectiveCounterStart ? (() => {
-    const s = format(parseISO(effectiveCounterStart), "eeee d HH'h'", { locale: fr });
-    return s.charAt(0).toUpperCase() + s.slice(1);
-  })() : null;
+  // Infobulle du badge Timer : date/heure de démarrage (+ heures écoulées).
+  const counterBadgeTitle = effectiveCounterStart
+    ? `${formatFoodCounterStartTooltip(effectiveCounterStart)}${counterHours !== null && !isFuture ? ` · ${counterHours}h écoulées` : ''}`
+    : undefined;
   const counterUrgent = counterDays !== null && counterDays >= 3;
   const expired = isExpiredDate(item.expiration_date);
   const expIsToday = item.expiration_date ? (() => {
@@ -536,12 +536,12 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
 
         {/* Droite : tous les badges d'options - passent à la ligne suivante si le titre est trop long */}
         <div className="flex items-center gap-1 flex-wrap justify-end ml-auto min-w-0">
-          {/* Badge de compteur */}
+          {/* Badge de compteur (heures dans l'infobulle au survol uniquement) */}
           {counterDays !== null && (
             <button
               onClick={() => onUpdate({ counter_start_date: null })}
               className={`text-[11px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0 transition-all ${counterUrgent ? 'bg-red-600 text-white border-red-300 shadow-md animate-pulse' : 'bg-black/40 text-white border-white/30'}`}
-              title={`Arrêter le compteur${counterHours !== null ? ` (${counterHours}h écoulées)` : ''}`}
+              title={counterBadgeTitle}
             >
               <Timer className="h-2.5 w-2.5" />{counterDays}j
             </button>
@@ -813,7 +813,9 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
           })}
           className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
           title={effectiveCounterStart
-            ? (isFuture ? formattedProgDate : `Arrêter compteur${counterHours !== null ? ` (${counterHours}h)` : ''}`)
+            ? (isFuture
+              ? counterBadgeTitle
+              : `Arrêter compteur${counterHours !== null ? ` (${counterHours}h)` : ''}`)
             : 'Démarrer compteur'}
         >
           <Timer className="h-2.5 w-2.5" />

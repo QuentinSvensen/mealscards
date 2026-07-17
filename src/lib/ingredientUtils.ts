@@ -242,6 +242,13 @@ export function formatPlannedCounterOpenFr(iso: string): string {
   return `${cap(weekday)} ${day} ${timeLabel}`.trim();
 }
 
+/** Texte d'infobulle : date/heure de démarrage du compteur (et aliment source si connu). */
+export function formatFoodCounterStartTooltip(iso: string, foodName?: string | null): string {
+  const when = formatPlannedCounterOpenFr(iso);
+  if (foodName?.trim()) return `Démarré : ${when} — ${foodName.trim()}`;
+  return `Démarré : ${when}`;
+}
+
 /**
  * Construit le texte d’infobulle du badge « X j » : estimation quand l’ouverture est future,
  * sinon durée entre ouverture et créneau du repas (avec rappel debug fuseau France).
