@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, ShieldAlert, Apple, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, Apple, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { DevMenu } from "@/components/DevMenu";
 import { Chronometer } from "@/components/Chronometer";
 import { PinLock } from "@/components/PinLock";
@@ -1199,72 +1199,70 @@ const Index = () => {
 
       <div ref={stickyChromeRef} className="sticky top-0 z-20 bg-background">
         <header className="border-b px-2 py-2 sm:px-4 sm:py-3">
-          <div className="max-w-6xl mx-auto flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <div className="max-w-6xl mx-auto flex items-center gap-1 sm:gap-3 min-w-0 w-full">
             <div className="flex items-center gap-1 shrink-0">
               <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
-              {blockedCount !== null &&
-                <span title={`${blockedCount} tentative${blockedCount > 1 ? 's' : ''} d'accès non autorisée${blockedCount > 1 ? 's' : ''} depuis la création`}
-                  className="flex items-center gap-0.5 text-[9px] font-bold text-destructive/80 bg-destructive/10 rounded-full px-1 py-0.5 cursor-default shrink-0">
-                  <ShieldAlert className="h-2 w-2" />{blockedCount}
-                </span>
-              }
             </div>
 
-            <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center">
-              <div className="flex justify-end pr-1 sm:pr-1.5 min-w-0">
-                <button
-                  onClick={() => setMainPage("macros")}
-                  className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
-                  title="Macro ingrédients"
-                >
-                  <span className="text-[11px] leading-tight md:hidden">🌾</span>
-                  <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
-                  <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
-                </button>
-              </div>
+            <button
+              onClick={() => setMainPage("macros")}
+              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+              title="Macro ingrédients"
+            >
+              <span className="text-[11px] leading-tight md:hidden">🌾</span>
+              <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
+              <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
+            </button>
 
-              <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 shrink-0">
+            {/* Zone nav : se rétrécit / clippe pour ne jamais chevaucher la case + date */}
+            <div className="flex-1 min-w-0 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 w-max mx-auto">
                 {([
                   { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
                   { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
                   { page: "planning" as MainPage, icon: <CalendarRange className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Planning", activeColor: "text-blue-500" },
                   { page: "courses" as MainPage, icon: <ShoppingCart className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
                 ] as const).map(({ page, icon, label, activeColor }) => (
-                  <button key={page} onClick={() => setMainPage(page)}
+                  <button key={page} onClick={() => setMainPage(page)} title={label}
                     className={`shrink-0 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 px-1.5 sm:px-2 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
                     {icon}
                     <span className={`text-[8px] sm:text-[9px] md:text-sm whitespace-nowrap leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
                   </button>
                 ))}
               </div>
-              <div className="flex justify-start pl-1 sm:pl-1.5 min-w-0">
-                <label
-                  htmlFor="site-hide-calorie-totals"
-                  className="flex items-center gap-1.5 cursor-pointer select-none shrink-0"
-                  title="Masque les totaux kcal (Planning) et les calories sur les cartes Repas ; « Seuil max » affiche « Calorie »"
-                >
-                  <Checkbox
-                    id="site-hide-calorie-totals"
-                    checked={hideDayCalorieTotals}
-                    onCheckedChange={(checked) => {
-                      setPreference.mutate({
-                        key: PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY,
-                        value: !!checked,
-                      });
-                    }}
-                  />
-                  <span className="hidden sm:inline text-[9px] md:text-[10px] text-muted-foreground whitespace-nowrap leading-tight">
-                    Masquer calories
-                  </span>
-                </label>
-              </div>
             </div>
 
-            <button onClick={() => setChronoOpen(true)}
-              className="text-[10px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-2 sm:px-2.5 py-1">
-              <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
-              <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
-            </button>
+            {/* Groupe droite : fond opaque pour masquer tout débordement de la nav */}
+            <div className="relative z-10 flex shrink-0 items-center gap-1 sm:gap-1.5 pl-1 bg-background">
+              <label
+                htmlFor="site-hide-calorie-totals"
+                className="flex items-center justify-center gap-1.5 cursor-pointer select-none shrink-0"
+                title="Masque les totaux kcal (Planning) et les calories sur les cartes Repas ; « Seuil max » affiche « Calorie »"
+              >
+                <Checkbox
+                  id="site-hide-calorie-totals"
+                  checked={hideDayCalorieTotals}
+                  onCheckedChange={(checked) => {
+                    setPreference.mutate({
+                      key: PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY,
+                      value: !!checked,
+                    });
+                  }}
+                  className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+                />
+                <span className="hidden sm:inline text-[9px] md:text-[10px] text-muted-foreground whitespace-nowrap leading-tight">
+                  Masquer calories
+                </span>
+              </label>
+
+              <button onClick={() => setChronoOpen(true)}
+                className="text-[8px] sm:text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5 shrink-0 bg-muted/60 hover:bg-muted rounded-full px-1.5 sm:px-2.5 py-0.5 sm:py-1"
+                title={format(new Date(), "EEEE d MMMM", { locale: fr })}
+              >
+                <span className="capitalize">{format(new Date(), 'EEE', { locale: fr })}</span>
+                <span className="font-black text-foreground">{format(new Date(), 'd')}</span>
+              </button>
+            </div>
           </div>
         </header>
 
