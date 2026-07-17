@@ -7,6 +7,9 @@
  *
  * getPreference(key, default) : lit une préférence avec valeur par défaut
  * setPreference.mutate({ key, value }) : écrit ou met à jour une préférence
+ *
+ * Source de vérité = Supabase (pas localStorage seul). Le cache React Query /
+ * PersistQueryClient n’est qu’un accélérateur ; chaque session recharge depuis le serveur.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useCallback } from "react";
@@ -15,6 +18,9 @@ import { toast } from "@/hooks/use-toast";
 
 type PreferenceRow = { id: string; key: string; value: any };
 type PreferenceEntry = { key: string; value: any };
+
+/** Canal BroadcastChannel pour invalider les prefs entre onglets du même navigateur. */
+const PREFS_SYNC_CHANNEL = "mealcards-user-preferences-sync";
 
 /** Horodatage du dernier toast d'erreur préférences pour éviter le spam. */
 let lastPreferenceErrorToastAt = 0;
@@ -53,13 +59,6 @@ function reportPreferenceError(error: unknown) {
 }
 
 /**
- * Indique si l'id de préférence correspond à une ligne réellement persistée en base.
- */
-function isPersistedPreferenceId(id: string): boolean {
-  return !id.startsWith("optimistic-");
-}
-
-/**
  * Lit les préférences depuis le cache React Query pour éviter les lectures périmées.
  */
 function readPreferencesFromCache(qc: ReturnType<typeof useQueryClient>): PreferenceRow[] {
@@ -74,8 +73,7 @@ function applyOptimisticPreferenceEntries(
   entries: PreferenceEntry[],
 ) {
   qc.setQueryData<PreferenceRow[]>(["user_preferences"], (old) => {
-    if (!old) return old;
-    const next = [...old];
+    const next = [...(old ?? [])];
     for (const { key, value } of entries) {
       const idx = next.findIndex((pref) => pref.key === key);
       if (idx >= 0) next[idx] = { ...next[idx], value };
@@ -86,26 +84,39 @@ function applyOptimisticPreferenceEntries(
 }
 
 /**
- * Écrit ou met à jour une préférence côté Supabase à partir du cache courant.
+ * Notifie les autres onglets qu’il faut recharger les préférences depuis le serveur.
  */
-async function upsertPreferenceValue(
-  qc: ReturnType<typeof useQueryClient>,
-  key: string,
-  value: any,
-) {
-  const preferences = readPreferencesFromCache(qc);
-  const existing = preferences.find((pref) => pref.key === key);
-  if (existing && isPersistedPreferenceId(existing.id)) {
-    const { error } = await supabase
-      .from("user_preferences")
-      .update({ value, updated_at: new Date().toISOString() } as any)
-      .eq("id", existing.id);
-    if (error) throw error;
-    return;
+function broadcastPreferencesInvalidation() {
+  try {
+    const channel = new BroadcastChannel(PREFS_SYNC_CHANNEL);
+    channel.postMessage({ type: "invalidate", at: Date.now() });
+    channel.close();
+  } catch {
+    // BroadcastChannel indisponible (contexte privé / navigateur ancien) : ignore.
   }
-  const { error } = await supabase
-    .from("user_preferences")
-    .upsert({ key, value } as any, { onConflict: "user_id,key" });
+}
+
+/**
+ * Écrit ou met à jour une préférence côté Supabase avec user_id (source partagée entre sessions).
+ * Toujours un upsert sur (user_id, key) pour ne pas dépendre d’un id de cache local potentiellement périmé.
+ */
+async function upsertPreferenceValue(key: string, value: any) {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError) throw authError;
+  if (!user) throw new Error("Non connecté — impossible d’enregistrer la préférence");
+
+  const { error } = await supabase.from("user_preferences").upsert(
+    {
+      user_id: user.id,
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    } as any,
+    { onConflict: "user_id,key" },
+  );
   if (error) throw error;
 }
 
@@ -113,16 +124,51 @@ async function upsertPreferenceValue(
 export function usePreferences(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
   const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["user_preferences"] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["user_preferences"] });
+    broadcastPreferencesInvalidation();
+  };
 
   useEffect(() => {
     if (!enabled) return;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
         qc.invalidateQueries({ queryKey: ["user_preferences"] });
       }
     });
     return () => subscription.unsubscribe();
+  }, [qc, enabled]);
+
+  /**
+   * Écoute les autres onglets + retour au premier plan pour resynchroniser depuis Supabase.
+   */
+  useEffect(() => {
+    if (!enabled) return;
+
+    const refreshFromServer = () => {
+      qc.invalidateQueries({ queryKey: ["user_preferences"] });
+    };
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel(PREFS_SYNC_CHANNEL);
+      channel.onmessage = () => refreshFromServer();
+    } catch {
+      channel = null;
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshFromServer();
+    };
+
+    window.addEventListener("online", refreshFromServer);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      channel?.close();
+      window.removeEventListener("online", refreshFromServer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [qc, enabled]);
 
   const { data: preferences = [], isLoading } = useQuery({
@@ -139,7 +185,10 @@ export function usePreferences(options?: { enabled?: boolean }) {
       return failureCount < 3;
     },
     retryDelay: 500,
-    staleTime: 2 * 60 * 1000,
+    // Cache court : accélère l’UI mais une nouvelle session / focus recharge depuis le serveur.
+    staleTime: 30 * 1000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     enabled,
   });
 
@@ -150,7 +199,7 @@ export function usePreferences(options?: { enabled?: boolean }) {
 
   const setPreference = useMutation({
     mutationFn: async ({ key, value }: PreferenceEntry) => {
-      await upsertPreferenceValue(qc, key, value);
+      await upsertPreferenceValue(key, value);
     },
     onMutate: async ({ key, value }) => {
       await qc.cancelQueries({ queryKey: ["user_preferences"] });
@@ -171,7 +220,7 @@ export function usePreferences(options?: { enabled?: boolean }) {
   const setPreferencesBatch = useMutation({
     mutationFn: async (entries: PreferenceEntry[]) => {
       for (const { key, value } of entries) {
-        await upsertPreferenceValue(qc, key, value);
+        await upsertPreferenceValue(key, value);
       }
     },
     onMutate: async (entries) => {
