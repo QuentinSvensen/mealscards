@@ -12,15 +12,15 @@
  * Popup détails : mêmes ingrédients structurés que partout ailleurs (StructuredIngredientInline).
  */
 import React, { useMemo, useState } from "react";
-import { Plus, Dice5, ArrowUpDown, CalendarDays, CalendarClock, Flame, Weight, Timer, Thermometer, FileText } from "lucide-react";
+import { Plus, Dice5, ArrowUpDown, CalendarDays, CalendarClock, Flame, Weight, Timer, Thermometer, FileText, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { PossibleMeal } from "@/hooks/useMeals";
-import { computeIngredientCalories, computeIngredientProtein, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { computeIngredientCalories, computeIngredientProtein, computeIngredientFiber, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { usePreferences } from "@/hooks/usePreferences";
@@ -297,6 +297,10 @@ export function PossibleList({
             const ingPro = computeIngredientProtein(displayIngredients);
             const displayCal = ingCal !== null ? String(ingCal) : meal.calories;
             const displayPro = ingPro !== null ? String(ingPro) : meal.protein;
+            const popupFiber =
+              getDisplayedPMFiber(popupPm, undefined, undefined, foodItems, foodItemIndex)
+              ?? computeIngredientFiber(displayIngredients);
+            const displayFiber = popupFiber != null && Number(popupFiber) > 0 ? String(Math.round(Number(popupFiber))) : null;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
             const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
@@ -316,6 +320,11 @@ export function PossibleList({
                   {displayPro && (
                     <span className="text-sm font-bold bg-blue-600/50 px-2.5 py-1 rounded-full flex items-center gap-1" title="Protéines">
                       🍗 {displayPro}g
+                    </span>
+                  )}
+                  {displayFiber && (
+                    <span className="text-sm font-bold bg-emerald-600/50 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
+                      <Wheat className="h-3.5 w-3.5" /> {displayFiber}g
                     </span>
                   )}
                   {meal.grams && (

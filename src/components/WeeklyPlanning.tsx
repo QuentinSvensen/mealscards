@@ -5931,8 +5931,10 @@ export function WeeklyPlanning({
               parsePositivePlanningOverride(popupProOverride) ??
               parsePositivePlanningOverride(proOverrides[popupPm.id]) ??
               getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const popupFiber = getCardDisplayFiber(popupPm, undefined, isAvailableCb, foodItems, foodMacroIndex);
             const displayCal = popupCal ? String(Math.round(popupCal)) : null;
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
+            const displayFiber = popupFiber != null && popupFiber > 0 ? String(Math.round(popupFiber)) : null;
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
             const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
             const expired = isExpiredOnDay(popupPm.expiration_date, popupPm.day_of_week);
@@ -5950,6 +5952,11 @@ export function WeeklyPlanning({
                       🍗 {displayPro}g
                     </span>
                   )}
+                  {displayFiber && (
+                    <span className="text-sm font-bold bg-emerald-600/50 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
+                      <Wheat className="h-3.5 w-3.5" /> {displayFiber}g
+                    </span>
+                  )}
                   {meal.grams && (
                     <span className="text-sm bg-white/20 px-2.5 py-1 rounded-full flex items-center gap-1">
                       <Weight className="h-3.5 w-3.5" /> {meal.grams}
@@ -5961,13 +5968,6 @@ export function WeeklyPlanning({
                       title={counterBadgeTitle}
                     >
                       <Timer className="h-3.5 w-3.5" /> {counterDays}j
-                    </span>
-                  )}
-                  {counterDays === null && popupPm.counter_start_date && new Date(popupPm.counter_start_date).getTime() > new Date().getTime() && (
-                    <span
-                      className="text-sm font-bold bg-blue-500/40 px-2.5 py-1 rounded-full flex items-center gap-1 border border-blue-300/30"
-                    >
-                      <Timer className="h-3.5 w-3.5" /> 📅 Prog.
                     </span>
                   )}
                 </div>
@@ -6018,6 +6018,8 @@ export function WeeklyPlanning({
             const meal = popupBreakfast.meal;
             const displayCal = getMealCal(meal);
             const displayPro = getMealPro(meal);
+            const fiberNum = getMealFiber(meal, undefined, undefined, undefined, foodItems, foodMacroIndex);
+            const displayFiber = fiberNum != null && fiberNum > 0 ? String(Math.round(fiberNum)) : null;
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">🥐 {meal.name}</h3>
@@ -6033,6 +6035,11 @@ export function WeeklyPlanning({
                   {displayPro && (
                     <span className="text-sm font-bold bg-blue-600/50 px-2.5 py-1 rounded-full flex items-center gap-1">
                       🍗 {displayPro}g
+                    </span>
+                  )}
+                  {displayFiber && (
+                    <span className="text-sm font-bold bg-emerald-600/50 px-2.5 py-1 rounded-full flex items-center gap-1" title="Fibres">
+                      <Wheat className="h-3.5 w-3.5" /> {displayFiber}g
                     </span>
                   )}
                   {meal.grams && (
