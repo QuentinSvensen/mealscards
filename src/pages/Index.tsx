@@ -1068,7 +1068,7 @@ const Index = () => {
       )}
 
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-2 py-2 sm:px-4 sm:py-3">
-        <div className="relative max-w-6xl mx-auto flex items-center gap-1.5 sm:gap-3 min-w-0">
+        <div className="max-w-6xl mx-auto flex items-center gap-1.5 sm:gap-3 min-w-0">
           <div className="flex items-center gap-1 shrink-0">
             <h1 className="text-base sm:text-xl font-extrabold text-foreground cursor-pointer select-none" onClick={handleLogoClick} title="">🍽️</h1>
             {blockedCount !== null &&
@@ -1077,19 +1077,22 @@ const Index = () => {
                 <ShieldAlert className="h-2 w-2" />{blockedCount}
               </span>
             }
-            <button
-              onClick={() => setMainPage("macros")}
-              className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
-              title="Macro ingrédients"
-            >
-              <span className="text-[11px] leading-tight md:hidden">🌾</span>
-              <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
-              <span className={`hidden md:inline text-[8px] md:text-xs truncate leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
-            </button>
           </div>
 
-          <div className="flex-1 min-w-0 flex justify-center">
-            <div className="bg-muted rounded-full p-0.5 w-full max-w-[12.5rem] sm:max-w-[16.75rem] md:max-w-md py-1 md:py-[6px] flex items-center justify-center gap-px md:gap-[2px]">
+          <div className="flex-1 min-w-0 grid grid-cols-[1fr_auto_1fr] items-center">
+            <div className="flex justify-end pr-1 sm:pr-1.5 min-w-0">
+              <button
+                onClick={() => setMainPage("macros")}
+                className={`shrink-0 py-0.5 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 px-1.5 sm:px-2 bg-muted ${mainPage === "macros" ? "bg-background shadow-sm" : ""}`}
+                title="Macro ingrédients"
+              >
+                <span className="text-[11px] leading-tight md:hidden">🌾</span>
+                <Wheat className="hidden h-2.5 w-2.5 shrink-0 md:block md:h-3 md:w-3" />
+                <span className={`hidden md:inline text-[8px] md:text-xs whitespace-nowrap leading-tight ${mainPage === "macros" ? "text-amber-500 font-bold" : "text-muted-foreground"}`}>Macro ingrédients</span>
+              </button>
+            </div>
+
+            <div className="bg-muted rounded-full p-0.5 py-1 md:py-[6px] flex items-center justify-center gap-0.5 md:gap-1 shrink-0">
               {([
                 { page: "aliments" as MainPage, icon: <Apple className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Aliments", activeColor: "text-lime-600 dark:text-lime-400" },
                 { page: "repas" as MainPage, icon: <UtensilsCrossed className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Repas", activeColor: "text-orange-500" },
@@ -1097,12 +1100,13 @@ const Index = () => {
                 { page: "courses" as MainPage, icon: <ShoppingCart className="h-2.5 w-2.5 md:h-3.5 md:w-3.5 shrink-0" />, label: "Courses", activeColor: "text-green-500" },
               ] as const).map(({ page, icon, label, activeColor }) => (
                 <button key={page} onClick={() => setMainPage(page)}
-                  className={`flex-1 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 min-w-0 px-0.5 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
+                  className={`shrink-0 py-0.5 md:py-1 rounded-full font-medium transition-colors flex items-center justify-center gap-0.5 md:gap-1 px-1.5 sm:px-2 md:px-3 ${mainPage === page ? "bg-background shadow-sm" : ""}`}>
                   {icon}
-                  <span className={`text-[7px] sm:text-[8px] md:text-sm truncate leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
+                  <span className={`text-[8px] sm:text-[9px] md:text-sm whitespace-nowrap leading-tight ${mainPage === page ? `${activeColor} font-bold` : "text-muted-foreground"}`}>{label}</span>
                 </button>
               ))}
             </div>
+            <div aria-hidden="true" />
           </div>
 
           <button onClick={() => setChronoOpen(true)}
