@@ -59,3 +59,21 @@ export function hasCalorieGoalRangeMin(
   const { low: nLow, high: nHigh } = normalizeCalorieGoalRange(low, high);
   return nLow != null && nLow > 0 && nLow !== nHigh;
 }
+
+/**
+ * Couleur du total kcal d'un jour quand une fourchette min–max est active :
+ * vert dans la fourchette, rouge au-dessus, blanc (null) en dessous ou sans fourchette.
+ */
+export function getCalorieRangeTotalColorClass(
+  total: number,
+  low: number | null | undefined,
+  high: number | null | undefined,
+): string | null {
+  if (!hasCalorieGoalRangeMin(low, high)) return null;
+  const { low: nLow, high: nHigh } = normalizeCalorieGoalRange(low, high);
+  if (nLow == null || nHigh <= 0) return null;
+  const rounded = Math.round(total);
+  if (rounded > nHigh) return "text-red-400";
+  if (rounded >= nLow) return "text-emerald-500";
+  return null;
+}

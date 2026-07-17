@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatCalorieGoalTarget,
+  getCalorieRangeTotalColorClass,
   hasCalorieGoalRangeMin,
   normalizeCalorieGoalRange,
 } from "./calorieGoalRange";
@@ -60,5 +61,19 @@ describe("hasCalorieGoalRangeMin", () => {
 
   it("retourne false quand les deux bornes sont identiques", () => {
     expect(hasCalorieGoalRangeMin(2300, 2300)).toBe(false);
+  });
+});
+
+describe("getCalorieRangeTotalColorClass", () => {
+  it("retourne null sans fourchette min", () => {
+    expect(getCalorieRangeTotalColorClass(2132, 0, 2300)).toBeNull();
+  });
+
+  it("vert dans la fourchette, rouge au-dessus, null en dessous", () => {
+    expect(getCalorieRangeTotalColorClass(2132, 2000, 2300)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(2000, 2000, 2300)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(2300, 2000, 2300)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(2400, 2000, 2300)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(1900, 2000, 2300)).toBeNull();
   });
 });

@@ -40,7 +40,7 @@ import {
   FOOD_EXTRAS_DIVIDER_PREF_KEY,
   splitSortedExtrasByDivider,
 } from "@/lib/extrasDividerUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, resolveCounterStartForPossibleBadge, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, resolveCounterStartForPossibleBadge, getProgrammedOnlyCounterStart, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
@@ -59,7 +59,11 @@ import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
-import { formatCalorieGoalTarget, hasCalorieGoalRangeMin } from "@/domain/planning/calorieGoalRange";
+import {
+  formatCalorieGoalTarget,
+  getCalorieRangeTotalColorClass,
+  hasCalorieGoalRangeMin,
+} from "@/domain/planning/calorieGoalRange";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
@@ -2420,18 +2424,27 @@ export function WeeklyPlanning({
     const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
 
     const isOccupied = masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id);
-    const effectiveStart = isOccupied
-      ? pm.counter_start_date
-      : (resolveCounterStartForPossibleBadge(
-          pm,
-          possibleMeals,
-          analysis.earliestCounterDate,
-          pm.counter_start_date ?? undefined,
-          foodItems,
-          undefined,
-          undefined,
-          analysis.earliestActiveCounterDate,
-        ) ?? analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date);
+    // Lot UNIQUEMENT programmé (« Prog. ») : aucun ingrédient réellement ouvert (aucun compteur
+    // passé/actif) mais un compteur FUTUR existe. On pilote alors le badge avec cette date future
+    // (getAdaptedCounterDays renvoie null le jour même, ou Xj si le repas est planifié après),
+    // au lieu d'un counter_start_date figé/obsolète qui afficherait un faux « Xj » actif fantôme.
+    // Aligne la mini-carte Planning sur PossibleMealCard (cf. bug Croque Monsieur : seul Blanc de
+    // dinde est en Prog., la carte liée ne doit donc pas montrer 1j).
+    const programmedOnlyStart = getProgrammedOnlyCounterStart(displayIngredients, foodItems, foodMacroIndex);
+    const effectiveStart = programmedOnlyStart
+      ? programmedOnlyStart
+      : isOccupied
+        ? pm.counter_start_date
+        : (resolveCounterStartForPossibleBadge(
+            pm,
+            possibleMeals,
+            analysis.earliestCounterDate,
+            pm.counter_start_date ?? undefined,
+            foodItems,
+            undefined,
+            undefined,
+            analysis.earliestActiveCounterDate,
+          ) ?? analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date);
     const counterDays = getAdaptedCounterDays(effectiveStart, pm.day_of_week, pm.created_at, pm.meal_time);
     const counterBadgeTitle =
       counterDays !== null && effectiveStart
@@ -3270,7 +3283,11 @@ export function WeeklyPlanning({
                     title="Cliquer pour modifier l'objectif"
                   >
                     <Flame className="h-2.5 w-2.5 text-orange-500" />
-                    {Math.round(dayCalories)} <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(DAILY_GOAL_LOW, DAILY_GOAL)}</span>
+                    <span className={getCalorieRangeTotalColorClass(dayCalories, DAILY_GOAL_LOW, DAILY_GOAL) ?? undefined}>
+                      {Math.round(dayCalories)}
+                    </span>
+                    {" "}
+                    <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(DAILY_GOAL_LOW, DAILY_GOAL)}</span>
                   </button>
                   {editingGoal && (
                     <div className="flex items-center gap-1">
@@ -5346,7 +5363,11 @@ export function WeeklyPlanning({
                   <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
                     <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
                       <Flame className="h-2.5 w-2.5 text-orange-500" />
-                      {Math.round(dayTotal)} <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL)}</span>
+                      <span className={getCalorieRangeTotalColorClass(dayTotal, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) ?? undefined}>
+                        {Math.round(dayTotal)}
+                      </span>
+                      {" "}
+                      <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL)}</span>
                     </span>
                     {dayTotal > 0 && !hasCalorieGoalRangeMin(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) && (
                       <span className={`text-[10px] font-bold whitespace-nowrap ${NEXT_DAILY_GOAL - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
@@ -5836,7 +5857,11 @@ export function WeeklyPlanning({
             const popupDisplayIngredients = ingredientsForPossibleCardDisplay(displayIngredients);
             const mealForAnalysis = { ...meal, ingredients: displayIngredients };
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
+            // Priorité absolue au lot « Prog. seul » (aucune ouverture réelle) : refléter la date future
+            // plutôt qu'un counter_start_date figé qui afficherait un faux « Xj » (cf. bug Croque Monsieur).
+            const popupProgrammedOnlyStart = getProgrammedOnlyCounterStart(displayIngredients, foodItems, foodMacroIndex);
             const effectiveStart =
+              popupProgrammedOnlyStart ??
               resolveCounterStartForPossibleBadge(
                 popupPm,
                 possibleMeals,
