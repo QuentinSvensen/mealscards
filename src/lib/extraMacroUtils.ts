@@ -1,10 +1,22 @@
 import type { FoodItem } from "@/hooks/useFoodItems";
 
-// Extrait un nombre depuis une valeur de macro saisie librement (virgule, unité, texte).
+/**
+ * Extrait un nombre depuis une valeur de macro saisie librement (virgule, unité, texte).
+ * Conserve le signe moins (ex. « -316 kcal » → -316) pour les ajustements type « Négatif ».
+ */
 export function parseFoodMacroValue(value: string | null | undefined): number {
   if (!value) return 0;
-  const n = parseFloat(value.replace(",", ".").replace(/[^0-9.]/g, ""));
+  // Normalise les tirets typographiques (U+2212, en-dash) vers le moins ASCII.
+  const normalized = value.replace(",", ".").replace(/[\u2212\u2013\u2014]/g, "-");
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const n = parseFloat(match[0]);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Indique si une macro numérique est utilisable (non nulle), y compris les valeurs négatives. */
+export function hasNonZeroMacro(value: number): boolean {
+  return Number.isFinite(value) && value !== 0;
 }
 
 // Extrait le grammage de référence d'un extra, même si le stock garde un reste au format "unité|reste".

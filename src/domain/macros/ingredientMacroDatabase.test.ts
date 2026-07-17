@@ -291,6 +291,32 @@ describe("ingredientMacroDatabase", () => {
     expect(filled[0].fiber).toBe("4");
   });
 
+  it("conserve les macros négatives du référentiel (Négatif −316 / −11)", () => {
+    const library = [createIngredientMacroLibraryItem("Négatif", "-316", "-11", "0")!];
+    const line = {
+      qty: "1",
+      count: "",
+      name: "Négatif",
+      cal: "316",
+      pro: "11",
+      fiber: "0",
+      isOr: false,
+      isAnd: false,
+      isOptional: false,
+    };
+
+    expect(resolveIngredientLineMacros(line, { macroLibrary: library })).toEqual({
+      cal: "-316",
+      pro: "-11",
+      fiber: "",
+    });
+
+    // Resynchronise même si la ligne était déjà remplie en positif (bug historique).
+    const filled = autofillIngredientLinesMacros([line], { macroLibrary: library });
+    expect(filled[0].cal).toBe("-316");
+    expect(filled[0].pro).toBe("-11");
+  });
+
   it("calcule l'affichage Un par un depuis le référentiel Macro ingrédients", () => {
     const library = [createIngredientMacroLibraryItem("Fuet", "228", "14")!];
     const fi = makeFoodItem("f1", "Fuet", "456", "27", "frigo", "300", 2);

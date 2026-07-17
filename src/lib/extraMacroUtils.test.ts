@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { getExtraMacroMode, getExtraMacroReferenceMacros, getExtraPortionMacros, getExtraStoredMacrosFromReference } from "./extraMacroUtils";
+import { getExtraMacroMode, getExtraMacroReferenceMacros, getExtraPortionMacros, getExtraStoredMacrosFromReference, hasNonZeroMacro, parseFoodMacroValue } from "./extraMacroUtils";
+
+describe("parseFoodMacroValue", () => {
+  it("conserve le signe moins (ajustement Négatif en base)", () => {
+    expect(parseFoodMacroValue("-316")).toBe(-316);
+    expect(parseFoodMacroValue("-11")).toBe(-11);
+    expect(parseFoodMacroValue("-316 kcal")).toBe(-316);
+    expect(parseFoodMacroValue("−11")).toBe(-11); // minus typographique U+2212
+  });
+
+  it("parse les positifs et ignore le texte parasite", () => {
+    expect(parseFoodMacroValue("350 kcal")).toBe(350);
+    expect(parseFoodMacroValue("2,1")).toBe(2.1);
+    expect(parseFoodMacroValue("")).toBe(0);
+  });
+
+  it("hasNonZeroMacro accepte les négatifs", () => {
+    expect(hasNonZeroMacro(-316)).toBe(true);
+    expect(hasNonZeroMacro(0)).toBe(false);
+    expect(hasNonZeroMacro(11)).toBe(true);
+  });
+});
 
 describe("extraMacroUtils", () => {
   it("calcule la portion extra depuis des macros au 100g quand un grammage est présent", () => {

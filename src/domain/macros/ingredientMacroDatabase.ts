@@ -5,6 +5,7 @@ import {
   getExtraMacroBasisLabel,
   getExtraMacroReferenceMacros,
   getExtraStoredMacrosFromReference,
+  hasNonZeroMacro,
   parseFoodMacroValue,
 } from "@/lib/extraMacroUtils";
 
@@ -429,8 +430,9 @@ export function buildIngredientMacroUpdatePlan(
 }
 
 // Formate une valeur numérique de macro pour l'affichage dans l'éditeur d'ingrédients.
+// Autorise les négatifs (ajustement « Négatif » en base) ; 0 / NaN → chaîne vide.
 function formatLineMacroValue(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "";
+  if (!Number.isFinite(value) || value === 0) return "";
   const rounded = Math.round(value * 10) / 10;
   if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
     return String(Math.round(rounded));
@@ -455,11 +457,11 @@ export function hasScalableIngredientMacroSource(
   const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
   if (foodItem) {
     const ref = getExtraMacroReferenceMacros(foodItem);
-    if (parseFoodMacroValue(ref.cal) > 0 || parseFoodMacroValue(ref.pro) > 0 || parseFoodMacroValue(ref.fiber) > 0) return true;
+    if (hasNonZeroMacro(parseFoodMacroValue(ref.cal)) || hasNonZeroMacro(parseFoodMacroValue(ref.pro)) || hasNonZeroMacro(parseFoodMacroValue(ref.fiber))) return true;
   }
 
   const libraryItem = sources.macroLibrary?.find((entry) => entry.key === key);
-  if (libraryItem && (parseFoodMacroValue(libraryItem.calories) > 0 || parseFoodMacroValue(libraryItem.protein) > 0 || parseFoodMacroValue(libraryItem.fiber) > 0)) {
+  if (libraryItem && (hasNonZeroMacro(parseFoodMacroValue(libraryItem.calories)) || hasNonZeroMacro(parseFoodMacroValue(libraryItem.protein)) || hasNonZeroMacro(parseFoodMacroValue(libraryItem.fiber)))) {
     return true;
   }
 
@@ -481,11 +483,11 @@ export function resolveIngredientLineMacros(
     const calRef = parseFoodMacroValue(ref.cal);
     const proRef = parseFoodMacroValue(ref.pro);
     const fiberRef = parseFoodMacroValue(ref.fiber);
-    if (calRef > 0 || proRef > 0 || fiberRef > 0) {
+    if (hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef) || hasNonZeroMacro(fiberRef)) {
       return {
-        cal: calRef > 0 ? formatLineMacroValue(calRef) : "",
-        pro: proRef > 0 ? formatLineMacroValue(proRef) : "",
-        fiber: fiberRef > 0 ? formatLineMacroValue(fiberRef) : "",
+        cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
+        pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
+        fiber: hasNonZeroMacro(fiberRef) ? formatLineMacroValue(fiberRef) : "",
       };
     }
   }
@@ -495,11 +497,11 @@ export function resolveIngredientLineMacros(
     const calRef = parseFoodMacroValue(libraryItem.calories);
     const proRef = parseFoodMacroValue(libraryItem.protein);
     const fiberRef = parseFoodMacroValue(libraryItem.fiber);
-    if (calRef > 0 || proRef > 0 || fiberRef > 0) {
+    if (hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef) || hasNonZeroMacro(fiberRef)) {
       return {
-        cal: calRef > 0 ? formatLineMacroValue(calRef) : "",
-        pro: proRef > 0 ? formatLineMacroValue(proRef) : "",
-        fiber: fiberRef > 0 ? formatLineMacroValue(fiberRef) : "",
+        cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
+        pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
+        fiber: hasNonZeroMacro(fiberRef) ? formatLineMacroValue(fiberRef) : "",
       };
     }
   }
@@ -537,8 +539,8 @@ export function resolveUnParUnFoodItemMacros(
 
   if (!hasGrams) {
     return {
-      calDisplay: per100Cal > 0 ? per100Cal : null,
-      proDisplay: per100Pro > 0 ? per100Pro : null,
+      calDisplay: hasNonZeroMacro(per100Cal) ? per100Cal : null,
+      proDisplay: hasNonZeroMacro(per100Pro) ? per100Pro : null,
       per100Cal: null,
       per100Pro: null,
       hasGrams: false,
@@ -546,10 +548,10 @@ export function resolveUnParUnFoodItemMacros(
   }
 
   return {
-    per100Cal: per100Cal > 0 ? per100Cal : null,
-    per100Pro: per100Pro > 0 ? per100Pro : null,
-    calDisplay: per100Cal > 0 ? Math.round((per100Cal * totalG) / 100) : null,
-    proDisplay: per100Pro > 0 ? Math.round((per100Pro * totalG) / 100) : null,
+    per100Cal: hasNonZeroMacro(per100Cal) ? per100Cal : null,
+    per100Pro: hasNonZeroMacro(per100Pro) ? per100Pro : null,
+    calDisplay: hasNonZeroMacro(per100Cal) ? Math.round((per100Cal * totalG) / 100) : null,
+    proDisplay: hasNonZeroMacro(per100Pro) ? Math.round((per100Pro * totalG) / 100) : null,
     hasGrams: true,
   };
 }
@@ -573,7 +575,7 @@ export function resolveConsumeDialogMacros(
   const libraryItem = macroLibrary.find((entry) => entry.key === key);
   const per100Cal = libraryItem ? parseFoodMacroValue(libraryItem.calories) : 0;
   const per100Pro = libraryItem ? parseFoodMacroValue(libraryItem.protein) : 0;
-  if (per100Cal <= 0 && per100Pro <= 0) return { cal: null, pro: null };
+  if (!hasNonZeroMacro(per100Cal) && !hasNonZeroMacro(per100Pro)) return { cal: null, pro: null };
 
   const unitG = parseQty(fi.grams);
   const qtyParsed = consumeQty.trim() ? parseInt(consumeQty, 10) : NaN;
@@ -586,15 +588,15 @@ export function resolveConsumeDialogMacros(
     const effectiveGrams = (hasQty ? qtyParsed : 0) * unitG + (hasGrams ? gramsParsed : 0);
     if (effectiveGrams <= 0) return { cal: null, pro: null };
     return {
-      cal: per100Cal > 0 ? Math.round((per100Cal * effectiveGrams) / 100) : null,
-      pro: per100Pro > 0 ? Math.round((per100Pro * effectiveGrams) / 100) : null,
+      cal: hasNonZeroMacro(per100Cal) ? Math.round((per100Cal * effectiveGrams) / 100) : null,
+      pro: hasNonZeroMacro(per100Pro) ? Math.round((per100Pro * effectiveGrams) / 100) : null,
     };
   }
 
   if (!hasQty) return { cal: null, pro: null };
   return {
-    cal: per100Cal > 0 ? Math.round(per100Cal * qtyParsed) : null,
-    pro: per100Pro > 0 ? Math.round(per100Pro * qtyParsed) : null,
+    cal: hasNonZeroMacro(per100Cal) ? Math.round(per100Cal * qtyParsed) : null,
+    pro: hasNonZeroMacro(per100Pro) ? Math.round(per100Pro * qtyParsed) : null,
   };
 }
 
@@ -606,15 +608,18 @@ export function autofillIngredientLinesMacros(
   return lines.map((line) => {
     if (!line.name.trim()) return line;
 
+    const scalable = hasScalableIngredientMacroSource(line, sources);
     const hasCal = Boolean(line.cal?.trim());
     const hasPro = Boolean(line.pro?.trim());
     const hasFiber = Boolean(line.fiber?.trim());
-    if (hasCal && hasPro && hasFiber) return line;
+    // Source Macro / garde-manger : toujours resynchroniser (ex. « Négatif » −316/−11
+    // déjà corrompu en positif dans la ligne).
+    if (hasCal && hasPro && hasFiber && !scalable) return line;
 
     const resolved = resolveIngredientLineMacros(line, sources);
     if (!resolved.cal && !resolved.pro && !resolved.fiber) return line;
 
-    if (hasScalableIngredientMacroSource(line, sources)) {
+    if (scalable) {
       return {
         ...line,
         cal: resolved.cal || line.cal,
