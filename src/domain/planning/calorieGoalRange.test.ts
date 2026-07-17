@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatCalorieGoalTarget,
+  hasCalorieGoalRangeMin,
   normalizeCalorieGoalRange,
 } from "./calorieGoalRange";
 
@@ -44,5 +45,20 @@ describe("formatCalorieGoalTarget", () => {
 
   it("normalise l'ordre avant l'affichage", () => {
     expect(formatCalorieGoalTarget(2500, 2300)).toBe("2300\u20132500");
+  });
+});
+
+describe("hasCalorieGoalRangeMin", () => {
+  it("retourne true quand une borne basse distincte est renseignée", () => {
+    expect(hasCalorieGoalRangeMin(2000, 2300)).toBe(true);
+  });
+
+  it("retourne false quand seule la borne haute est renseignée", () => {
+    expect(hasCalorieGoalRangeMin(0, 2300)).toBe(false);
+    expect(hasCalorieGoalRangeMin(null, 2300)).toBe(false);
+  });
+
+  it("retourne false quand les deux bornes sont identiques", () => {
+    expect(hasCalorieGoalRangeMin(2300, 2300)).toBe(false);
   });
 });

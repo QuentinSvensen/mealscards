@@ -47,3 +47,15 @@ export function formatCalorieGoalTarget(
   }
   return String(nHigh);
 }
+
+/**
+ * Indique si la borne basse de la fourchette calorique est active (min renseigné).
+ * Dans ce cas, le Planning masque les deltas « reste / + » par jour.
+ */
+export function hasCalorieGoalRangeMin(
+  low: number | null | undefined,
+  high: number | null | undefined,
+): boolean {
+  const { low: nLow, high: nHigh } = normalizeCalorieGoalRange(low, high);
+  return nLow != null && nLow > 0 && nLow !== nHigh;
+}

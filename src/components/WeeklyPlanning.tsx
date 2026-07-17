@@ -59,7 +59,7 @@ import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
-import { formatCalorieGoalTarget } from "@/domain/planning/calorieGoalRange";
+import { formatCalorieGoalTarget, hasCalorieGoalRangeMin } from "@/domain/planning/calorieGoalRange";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
 import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
@@ -3294,7 +3294,7 @@ export function WeeklyPlanning({
                       <span className="text-[9px] text-muted-foreground">kcal/j</span>
                     </div>
                   )}
-                  {!editingGoal && dayCalories > 0 && (
+                  {!editingGoal && dayCalories > 0 && !hasCalorieGoalRangeMin(DAILY_GOAL_LOW, DAILY_GOAL) && (
                     <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_GOAL - dayCalories > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                       {DAILY_GOAL - dayCalories > 0 ? `reste ${Math.round(DAILY_GOAL - dayCalories)}` : `+${Math.round(dayCalories - DAILY_GOAL)}`}
                     </span>
@@ -5348,7 +5348,7 @@ export function WeeklyPlanning({
                       <Flame className="h-2.5 w-2.5 text-orange-500" />
                       {Math.round(dayTotal)} <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL)}</span>
                     </span>
-                    {dayTotal > 0 && (
+                    {dayTotal > 0 && !hasCalorieGoalRangeMin(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) && (
                       <span className={`text-[10px] font-bold whitespace-nowrap ${NEXT_DAILY_GOAL - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
                         {NEXT_DAILY_GOAL - dayTotal > 0 ? `reste ${Math.round(NEXT_DAILY_GOAL - dayTotal)}` : `+${Math.round(dayTotal - NEXT_DAILY_GOAL)}`}
                       </span>
