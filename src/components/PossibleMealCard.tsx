@@ -2,7 +2,7 @@
  * PossibleMealCard — Carte de repas dans la liste "Possibles".
  *
  * Affiche un repas planifié avec toutes ses options :
- * - Dates : péremption, jour de la semaine, créneau (matin/midi/soir)
+ * - Dates : péremption, jour de la semaine, créneau (matin/midi/soir/goûter)
  * - Compteur d'ouverture (jours depuis l'ouverture de l'ingrédient)
  * - Macros : calories, protéines et fibres (calculées ou manuelles)
  * - Multiplicateur de ratio (détecté automatiquement depuis les ingrédients)
@@ -25,8 +25,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { PossibleMeal } from "@/hooks/useMeals";
-import { DAYS, TIMES } from "@/hooks/useMeals";
+import { DAYS } from "@/hooks/useMeals";
 import { format, parseISO } from "date-fns";
+
+/** Libellés du sélecteur de créneau (Repas) — alignés sur le Planning (GOÛTER). */
+const MEAL_TIME_SELECT_LABELS: Record<string, string> = {
+  midi: "Midi",
+  soir: "Soir",
+  gouter: "Goûter",
+};
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
   parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
@@ -583,16 +590,17 @@ export function PossibleMealCard({
           <SelectTrigger
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className={`h-5 ${isMobile ? "w-[52px] px-1" : "w-[50px] px-1"} border-white/20 bg-white/10 text-white text-[10px]`}
+            className={`h-5 ${isMobile ? "min-w-[52px] w-auto px-1" : "min-w-[50px] w-auto px-1"} border-white/20 bg-white/10 text-white text-[10px]`}
           >
             <SelectValue placeholder="Quand" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">—</SelectItem>
             {meal.category === "petit_dejeuner" && <SelectItem value="matin">Matin</SelectItem>}
-            {TIMES.map((t) => (
-              <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
-            ))}
+            <SelectItem value="midi">{MEAL_TIME_SELECT_LABELS.midi}</SelectItem>
+            {/* Même clé meal_time que la section GOÛTER du Planning — entre Midi et Soir */}
+            <SelectItem value="gouter">{MEAL_TIME_SELECT_LABELS.gouter}</SelectItem>
+            <SelectItem value="soir">{MEAL_TIME_SELECT_LABELS.soir}</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -112,7 +112,7 @@ export function getDateForDayKey(dayKey: string, ref: Date = new Date()): Date {
  * @param dayKey - Jour du planning ("lundi" ou "2024-03-15")
  * @param refDate - Date de référence (aujourd'hui)
  * @param startDate - Date de début du compteur (optionnel)
- * @param mealTime - Moment du repas : "midi" (12h), "soir" (19h), "matin" (8h)
+ * @param mealTime - Moment du repas : "midi" (12h), "soir" (19h), "matin" (8h), "gouter" (16h)
  */
 export function getTargetDate(dayKey: string | null | undefined, refDate: Date, startDate?: string | null, mealTime?: string | null): Date {
   let target: Date;
@@ -125,12 +125,14 @@ export function getTargetDate(dayKey: string | null | undefined, refDate: Date, 
     target = getDateForDayKey(dayKey, refDate);
   }
 
-  // Appliquer l'heure du repas (Midi=12h, Soir=19h, Matin=8h)
+  // Appliquer l'heure du repas (Midi=12h, Goûter=16h, Soir=19h, Matin=8h)
   const lowTime = (mealTime || "").trim().toLowerCase();
   if (lowTime === "soir") {
     target.setHours(19, 0, 0, 0);
   } else if (lowTime === "midi") {
     target.setHours(12, 0, 0, 0);
+  } else if (lowTime === "gouter") {
+    target.setHours(16, 0, 0, 0);
   } else if (lowTime === "matin") {
     target.setHours(8, 0, 0, 0);
   }

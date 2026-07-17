@@ -1565,7 +1565,7 @@ export function WeeklyPlanning({
   // Détermine le slot visuel effectif d'une carte (slot planifié ou override temporaire d'affichage).
   const getVisualSlotForPm = (pm: PossibleMeal) => {
     const override = planningSlotOverrides[pm.id];
-    // Un override "goûter" ne vaut que pour la date actuellement planifiée.
+    // Un override ne vaut que pour la date actuellement planifiée.
     // Si la carte est replanifiée depuis Possible, on force l'affichage sur le nouveau vrai créneau.
     if (override?.day && override?.time && override.day === pm.day_of_week) {
       return { day: override.day, time: override.time };
@@ -1599,6 +1599,39 @@ export function WeeklyPlanning({
   const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const planningSlotOverrides = getPreference<Record<string, { day: string; time: string }>>('planning_slot_overrides', {});
+
+  /**
+   * Assigne une carte à un créneau Planning en persistant meal_time (y compris goûter)
+   * et en nettoyant tout override d’affichage obsolète.
+   */
+  const assignPmToPlanningSlot = (pmId: string, day: string, time: string) => {
+    const updated = { ...planningSlotOverrides };
+    if (updated[pmId]) {
+      delete updated[pmId];
+      setPreference.mutate({ key: "planning_slot_overrides", value: updated });
+    }
+    updatePlanningWithCounters(pmId, day, time);
+  };
+
+  /** Migre les anciens overrides goûter (affichage seul) vers un vrai meal_time persisté. */
+  const migratedGouterOverridesRef = useRef(false);
+  useEffect(() => {
+    if (migratedGouterOverridesRef.current || prefsLoading) return;
+    const gouterOverrides = Object.entries(planningSlotOverrides).filter(
+      ([, slot]) => slot?.time === "gouter" && !!slot.day,
+    );
+    if (gouterOverrides.length === 0) {
+      migratedGouterOverridesRef.current = true;
+      return;
+    }
+    migratedGouterOverridesRef.current = true;
+    const updated = { ...planningSlotOverrides };
+    for (const [pmId, slot] of gouterOverrides) {
+      delete updated[pmId];
+      updatePlanningWithCounters(pmId, slot.day, slot.time);
+    }
+    setPreference.mutate({ key: "planning_slot_overrides", value: updated });
+  }, [planningSlotOverrides, prefsLoading]);
   const manualCalories = getPreference<Record<string, number>>('planning_manual_calories', {});
   const extraCalories = getPreference<Record<string, number>>('planning_extra_calories', {});
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
@@ -2201,27 +2234,9 @@ export function WeeklyPlanning({
     e.preventDefault();
     setDragOverSlot(null);
     const pmId = e.dataTransfer.getData("pmId");
-    const source = e.dataTransfer.getData("source");
     if (pmId) {
-      const draggedPm = possibleMeals.find((p) => p.id === pmId);
-      const isPlanningDrag = source === "planning-slot";
-      const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
-      const isSameDay = draggedPm?.day_of_week === day;
-      const targetIsGouter = time === 'gouter';
-      if (isPlanningDrag && isAlreadyPlanned && isSameDay && targetIsGouter) {
-        const updated = { ...planningSlotOverrides };
-        const sameAsPlanned = draggedPm?.day_of_week === day && draggedPm?.meal_time === time;
-        if (sameAsPlanned) delete updated[pmId];
-        else updated[pmId] = { day, time };
-        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-      } else {
-        const updated = { ...planningSlotOverrides };
-        if (updated[pmId]) {
-          delete updated[pmId];
-          setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-        }
-        updatePlanningWithCounters(pmId, day, time);
-      }
+      // Goûter : même persistance que midi/soir (plus d’override d’affichage seul)
+      assignPmToPlanningSlot(pmId, day, time);
       return;
     }
     const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
@@ -2243,27 +2258,9 @@ export function WeeklyPlanning({
     e.preventDefault();
     setDragOverSlot(null);
     const pmId = e.dataTransfer.getData("pmId");
-    const source = e.dataTransfer.getData("source");
     if (pmId) {
-      const draggedPm = possibleMeals.find((p) => p.id === pmId);
-      const isPlanningDrag = source === "planning-slot";
-      const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
-      const isSameDay = draggedPm?.day_of_week === day;
-      const targetIsGouter = time === 'gouter';
-      if (isPlanningDrag && isAlreadyPlanned && isSameDay && targetIsGouter) {
-        const updated = { ...planningSlotOverrides };
-        const sameAsPlanned = draggedPm?.day_of_week === day && draggedPm?.meal_time === time;
-        if (sameAsPlanned) delete updated[pmId];
-        else updated[pmId] = { day, time };
-        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-      } else {
-        const updated = { ...planningSlotOverrides };
-        if (updated[pmId]) {
-          delete updated[pmId];
-          setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-        }
-        updatePlanningWithCounters(pmId, day, time);
-      }
+      // Goûter : même persistance que midi/soir (plus d’override d’affichage seul)
+      assignPmToPlanningSlot(pmId, day, time);
       return;
     }
     // Drop d’un extra sélectionné dans ce créneau (midi/soir uniquement côté TIMES).
@@ -2290,7 +2287,7 @@ export function WeeklyPlanning({
     if (extraId) {
       const targetDay = targetPm.day_of_week;
       const targetTime = targetPm.meal_time;
-      if (targetDay && (targetTime === 'matin' || targetTime === 'midi' || targetTime === 'soir')) {
+      if (targetDay && (targetTime === 'matin' || targetTime === 'midi' || targetTime === 'soir' || targetTime === 'gouter')) {
         const dayKeyFromIso = weekDates.find(w => w.iso === targetDay)?.key || '';
         const origin = draggedSelectedExtraOrigin;
         if (origin && origin.iso && origin.iso !== targetDay) {
@@ -2304,33 +2301,16 @@ export function WeeklyPlanning({
       return;
     }
     const draggedPmId = e.dataTransfer.getData("pmId");
-    const source = e.dataTransfer.getData("source");
     if (!draggedPmId || draggedPmId === targetPm.id) return;
 
     const targetVisual = getVisualSlotForPm(targetPm);
     const targetDay = targetVisual.day || targetPm.day_of_week!;
     const targetTime = targetVisual.time || targetPm.meal_time!;
     const draggedPm = possibleMeals.find(p => p.id === draggedPmId);
-    const isPlanningDrag = source === "planning-slot";
-    const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
-    const isSameDay = draggedPm?.day_of_week === targetDay;
-    const targetIsGouter = targetTime === 'gouter';
-    const shouldOnlyOverride = isPlanningDrag && isAlreadyPlanned && isSameDay && targetIsGouter;
 
     // Si la carte vient d'un autre créneau ou est non planifiée, mettre d'abord à jour sa planification
-    if (!shouldOnlyOverride && (!draggedPm || draggedPm.day_of_week !== targetDay || draggedPm.meal_time !== targetTime)) {
-      const updated = { ...planningSlotOverrides };
-      if (updated[draggedPmId]) {
-        delete updated[draggedPmId];
-        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-      }
-      updatePlanningWithCounters(draggedPmId, targetDay, targetTime);
-    } else if (shouldOnlyOverride && draggedPm) {
-      const updated = { ...planningSlotOverrides };
-      const sameAsPlanned = draggedPm.day_of_week === targetDay && draggedPm.meal_time === targetTime;
-      if (sameAsPlanned) delete updated[draggedPmId];
-      else updated[draggedPmId] = { day: targetDay, time: targetTime };
-      setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
+    if (!draggedPm || draggedPm.day_of_week !== targetDay || draggedPm.meal_time !== targetTime) {
+      assignPmToPlanningSlot(draggedPmId, targetDay, targetTime);
     }
 
     const slot = getMealsForSlot(targetDay, targetTime);
@@ -2451,24 +2431,7 @@ export function WeeklyPlanning({
     if (slotEl) {
       const day = slotEl.getAttribute("data-day")!;
       const time = slotEl.getAttribute("data-time")!;
-      const draggedPm = possibleMeals.find((p) => p.id === state.pmId);
-      const isAlreadyPlanned = Boolean(draggedPm?.day_of_week && draggedPm?.meal_time);
-      const isSameDay = draggedPm?.day_of_week === day;
-      const targetIsGouter = time === 'gouter';
-      if (isAlreadyPlanned && isSameDay && targetIsGouter) {
-        const updated = { ...planningSlotOverrides };
-        const sameAsPlanned = draggedPm?.day_of_week === day && draggedPm?.meal_time === time;
-        if (sameAsPlanned) delete updated[state.pmId];
-        else updated[state.pmId] = { day, time };
-        setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-      } else {
-        const updated = { ...planningSlotOverrides };
-        if (updated[state.pmId]) {
-          delete updated[state.pmId];
-          setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-        }
-        updatePlanningWithCounters(state.pmId, day, time);
-      }
+      assignPmToPlanningSlot(state.pmId, day, time);
     } else if (el?.closest("[data-unplanned]")) {
       const updated = { ...planningSlotOverrides };
       delete updated[state.pmId];

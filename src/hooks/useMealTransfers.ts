@@ -96,18 +96,19 @@ async function fetchAllFoodItems(): Promise<FoodItem[]> {
   return (data ?? []).map(mapFoodItemRow);
 }
 
-/** Aligné sur getTargetDate (ingredientUtils) : matin 8h, midi 12h, soir 19h */
+/** Aligné sur getTargetDate (ingredientUtils) : matin 8h, midi 12h, goûter 16h, soir 19h */
 function setMealTimeHours(d: Date, mealTime: string | null) {
   const low = (mealTime || "").trim().toLowerCase();
   if (low === "soir") d.setHours(19, 0, 0, 0);
   else if (low === "matin") d.setHours(8, 0, 0, 0);
   else if (low === "midi") d.setHours(12, 0, 0, 0);
+  else if (low === "gouter") d.setHours(16, 0, 0, 0);
   // Pas de défaut « midi » si absent : évite une fausse heure (12h) quand le créneau n’est pas encore choisi
 }
 
 /**
  * Calcule la date ISO du compteur d'ouverture pour un repas planifié.
- * Matin = 8h, midi = 12h, soir = 19h. Accepte les jours nommés ("lundi") ou les dates ISO.
+ * Matin = 8h, midi = 12h, goûter = 16h, soir = 19h. Accepte les jours nommés ("lundi") ou les dates ISO.
  */
 /**
  * Retourne les noms d’ingrédients (déjà normalisés comme dans `ParsedIngredient.name`) à comparer au stock
