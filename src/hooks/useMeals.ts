@@ -201,6 +201,7 @@ export function useMeals(options?: { enabled?: boolean }) {
       if (mealError) throw mealError;
       const maxOrder = possibleMeals.length;
       const normalizedQuantity = Math.max(1, Math.round(possible_quantity ?? 1));
+      // Petit déj → créneau « Matin » sélectionné par défaut à l’arrivée en Possible.
       const { data: insertedPm, error } = await supabase
         .from("possible_meals")
         .insert({
@@ -209,6 +210,7 @@ export function useMeals(options?: { enabled?: boolean }) {
           quantity: normalizedQuantity,
           ...(expiration_date ? { expiration_date } : {}),
           counter_start_date: counter_start_date ?? null,
+          ...(category === "petit_dejeuner" ? { meal_time: "matin" } : {}),
         })
         .select()
         .single();
@@ -370,6 +372,9 @@ export function useMeals(options?: { enabled?: boolean }) {
         counter_start_date: counter_start_date ?? null
       };
       if (expiration_date) insertData.expiration_date = expiration_date;
+      // Petit déj (Tous / Au choix → Possible) : « Matin » sélectionné par défaut.
+      const mealCategory = meals.find((m) => m.id === mealId)?.category;
+      if (mealCategory === "petit_dejeuner") insertData.meal_time = "matin";
       const { data, error } = await supabase
         .from("possible_meals")
         .insert(insertData as any)
