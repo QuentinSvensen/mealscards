@@ -263,6 +263,22 @@ describe("getMealMultipleAtRatio", () => {
     expect(at75).toBeGreaterThan(0);
     expect(at75).toBeLessThanOrEqual(6);
   });
+
+  it("tout-infini à ratio réduit → Infinity (pas x1000)", () => {
+    const items = [
+      makeFoodItem({ name: "Whey", is_infinite: true }),
+      makeFoodItem({ name: "Eau", is_infinite: true }),
+    ];
+    const meal = makeMeal({
+      name: "Shaker whey",
+      calories: "117",
+      ingredients: "30g Whey, 200g Eau",
+    });
+    const map = buildStockMap(items);
+    expect(getMealMultiple(meal, map)).toBe(Infinity);
+    expect(getMealMultipleAtRatio(meal, map, 0.57)).toBe(Infinity);
+    expect(getMealMultipleAtRatio(meal, map, 0.57)).not.toBe(1000);
+  });
 });
 
 // ─── RATIO FRACTIONNAIRE DE REPAS (CARTES EN POURCENTAGE) ───────────────────

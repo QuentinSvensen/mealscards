@@ -369,6 +369,7 @@ export function deductMealServingFromVirtualStock(
  * Calcule combien de portions on peut préparer avec un ratio donné sur la recette d'origine
  * (sans la mettre à l'échelle au préalable). Évite les faux x1000 quand les quantités scalées
  * deviennent nulles ou trop petites pour être déduites correctement du stock.
+ * Si tous les ingrédients sont infinis, renvoie Infinity (comme getMealMultiple) même à ratio ≠ 1.
  */
 export function getMealMultipleAtRatio(
   meal: Meal,
@@ -377,7 +378,10 @@ export function getMealMultipleAtRatio(
 ): number | null {
   if (!meal.ingredients?.trim()) return null;
   if (ratio <= 0) return null;
-  if (ratio === 1) return getMealMultiple(meal, stockMap);
+  const baseMultiple = getMealMultiple(meal, stockMap);
+  if (ratio === 1) return baseMultiple;
+  // Tout-infini : la boucle virtuelle ne déduit jamais rien → plafond 1000 = faux « x1000 ».
+  if (baseMultiple === Infinity) return Infinity;
 
   const virtualStock = new Map<string, StockInfo>();
   for (const [k, v] of stockMap.entries()) {
