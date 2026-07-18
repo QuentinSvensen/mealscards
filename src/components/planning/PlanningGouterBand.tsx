@@ -24,6 +24,10 @@ export interface PlanningGouterBandProps {
   dessertById: Map<string, { mealPayload: Meal; name?: string }>;
   /** Cartes goûter déjà rendues (compact). */
   mealCards: ReactNode;
+  /** Clés PlanningInput (défaut semaine courante ; préfixe next-* pour semaine suivante). */
+  manualCalStorageKey?: string;
+  manualProStorageKey?: string;
+  manualFiberStorageKey?: string;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent) => void;
@@ -57,6 +61,9 @@ export function PlanningGouterBand({
   foodItems,
   dessertById,
   mealCards,
+  manualCalStorageKey,
+  manualProStorageKey,
+  manualFiberStorageKey,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -68,6 +75,10 @@ export function PlanningGouterBand({
   onDragStartExtra,
   onDragEndExtra,
 }: PlanningGouterBandProps) {
+  const calKey = manualCalStorageKey ?? `manual-${dayIso}-gouter`;
+  const proKey = manualProStorageKey ?? `manual-prot-${dayIso}-gouter`;
+  const fiberKey = manualFiberStorageKey ?? `manual-fiber-${dayIso}-gouter`;
+
   return (
     <div
       data-slot
@@ -92,21 +103,21 @@ export function PlanningGouterBand({
           {!hasGouterMeals && (
             <>
               <PlanningInput
-                storageKey={`manual-${dayIso}-gouter`}
+                storageKey={calKey}
                 currentValue={gouterManualCal}
                 onSave={onSaveManualCalories}
                 placeholder="kcal"
                 className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
               />
               <PlanningInput
-                storageKey={`manual-prot-${dayIso}-gouter`}
+                storageKey={proKey}
                 currentValue={gouterManualPro}
                 onSave={onSaveManualProteins}
                 placeholder="prot"
                 className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
               />
               <PlanningInput
-                storageKey={`manual-fiber-${dayIso}-gouter`}
+                storageKey={fiberKey}
                 currentValue={gouterManualFiber}
                 onSave={onSaveManualFibers}
                 placeholder="fib"

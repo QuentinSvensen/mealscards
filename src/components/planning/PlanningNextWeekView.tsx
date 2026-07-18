@@ -2,6 +2,7 @@ import { Flame, Plus, Sparkles, Wheat, Zap } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { PlanningInput } from "@/components/planning/PlanningInput";
+import { PlanningGouterBand } from "@/components/planning/PlanningGouterBand";
 import { PlanningWeekTotalsFooter } from "@/components/planning/PlanningWeekTotalsFooter";
 import {
   DRINK_CALORIES,
@@ -254,16 +255,19 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
             // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm: ou programmed matin)
             const hasNextBf = !!(effBfMeal || effBfPm || matinMeals.length > 0);
 
+            // Totaux jour : TIMES inclut déjà gouter ; manuels ignorés si cartes présentes (comme les bandes créneau)
             let dayTotal = nextBreakfastTotalCals;
             for (const time of TIMES) {
               const kIso = `${iso}-${time}`;
               const kKey = `${key}-${time}`;
-              const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-              const baseManualCal = manualSnap?.cal || 0;
-              dayTotal += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? baseManualCal;
-              if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) dayTotal += DRINK_CALORIES;
-              // Inclure les cartes programmées
               const slotMeals = getMealsForSlot(key, time, iso);
+              const hasSlotMeals = slotMeals.length > 0;
+              if (!hasSlotMeals) {
+                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
+                const baseManualCal = manualSnap?.cal || 0;
+                dayTotal += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? baseManualCal;
+              }
+              if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) dayTotal += DRINK_CALORIES;
               dayTotal += slotMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
             }
             const nextExtraSelMacros = sumDayExtras(effExtraSelMerged);
@@ -277,11 +281,13 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
             for (const time of TIMES) {
               const kIso = `${iso}-${time}`;
               const kKey = `${key}-${time}`;
-              const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-              const baseManualPro = manualSnap?.prot || 0;
-              nxtDayPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? baseManualPro;
-              // Inclure les cartes programmées
               const slotMeals = getMealsForSlot(key, time, iso);
+              const hasSlotMeals = slotMeals.length > 0;
+              if (!hasSlotMeals) {
+                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
+                const baseManualPro = manualSnap?.prot || 0;
+                nxtDayPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? baseManualPro;
+              }
               nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
             }
             nxtDayPro += effExtraPro + nextExtraSelMacros.pro;
@@ -290,14 +296,15 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
             for (const time of TIMES) {
               const kIso = `${iso}-${time}`;
               const kKey = `${key}-${time}`;
-              const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-              const baseManualFiber = manualSnap?.fiber || 0;
-              nxtDayFiber += nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? baseManualFiber;
               const slotMeals = getMealsForSlot(key, time, iso);
+              const hasSlotMeals = slotMeals.length > 0;
+              if (!hasSlotMeals) {
+                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
+                const baseManualFiber = manualSnap?.fiber || 0;
+                nxtDayFiber += nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? baseManualFiber;
+              }
               nxtDayFiber += slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-              const slotAssignedIds =
-                nextExtraSlotAssignments[kIso] ?? nextExtraSlotAssignments[kKey] ?? [];
-              nxtDayFiber += sumDayExtras(slotAssignedIds).fiber;
+              // Fibres des extras assignés au créneau : déjà dans nextExtraSelMacros (fusion sélections + assignations)
             }
             nxtDayFiber += effExtraFiber + nextExtraSelMacros.fiber;
 
@@ -313,6 +320,44 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
               singleIngredientDessertById,
               dessertExtraStockSnapshots,
             ) > 0;
+
+            // Données du créneau Goûter (mêmes clés *-gouter / prefs next_week_* que midi/soir)
+            const gouterKIso = `${iso}-gouter`;
+            const gouterKKey = `${key}-gouter`;
+            const gouterAssignedIds =
+              nextExtraSlotAssignments[gouterKIso] ?? nextExtraSlotAssignments[gouterKKey] ?? [];
+            const gouterAssigned = sumDayExtras(gouterAssignedIds);
+            const gouterMeals = getMealsForSlot(key, "gouter", iso);
+            const gouterMealCals = gouterMeals.reduce(
+              (sum, pm) => sum + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb),
+              0,
+            );
+            const gouterMealPro = gouterMeals.reduce(
+              (sum, pm) => sum + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex),
+              0,
+            );
+            const gouterMealFiber = gouterMeals.reduce(
+              (sum, pm) => sum + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex),
+              0,
+            );
+            const hasGouterMeals = gouterMeals.length > 0;
+            const gouterManualSnap = (savedSnapshots[`manual-${gouterKIso}`] || savedSnapshots[`manual-${gouterKKey}`]) as
+              | { cal?: number; prot?: number; fiber?: number }
+              | undefined;
+            const gouterManualCal =
+              nextManualCalories[gouterKIso] ?? nextManualCalories[gouterKKey] ?? gouterManualSnap?.cal ?? 0;
+            const gouterManualPro =
+              nextManualProteins[gouterKIso] ?? nextManualProteins[gouterKKey] ?? gouterManualSnap?.prot ?? 0;
+            const gouterManualFiber =
+              nextManualFibers[gouterKIso] ?? nextManualFibers[gouterKKey] ?? gouterManualSnap?.fiber ?? 0;
+            const effectiveGouterManualCal = hasGouterMeals ? 0 : gouterManualCal;
+            const effectiveGouterManualPro = hasGouterMeals ? 0 : gouterManualPro;
+            const effectiveGouterManualFiber = hasGouterMeals ? 0 : gouterManualFiber;
+            const gouterDrink = Boolean(nextDrinkChecks[gouterKIso] || nextDrinkChecks[gouterKKey]);
+            const gouterTotalCals =
+              effectiveGouterManualCal + gouterAssigned.cal + gouterMealCals + (gouterDrink ? DRINK_CALORIES : 0);
+            const gouterTotalPro = effectiveGouterManualPro + gouterAssigned.pro + gouterMealPro;
+            const gouterTotalFiber = effectiveGouterManualFiber + gouterAssigned.fiber + gouterMealFiber;
 
             return (
               <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
@@ -889,6 +934,97 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                     );
                   })()}
                 </div>
+                {/* Bande Goûter sous Midi/Soir/Extra — même comportement que la semaine courante */}
+                <PlanningGouterBand
+                  dayKey={key}
+                  dayIso={iso}
+                  isOver={dragOverSlot === gouterKIso || dragOverSlot === gouterKKey}
+                  gouterDrink={gouterDrink}
+                  hasGouterMeals={hasGouterMeals}
+                  hideDayCalorieTotals={hideDayCalorieTotals}
+                  gouterManualCal={gouterManualCal}
+                  gouterManualPro={gouterManualPro}
+                  gouterManualFiber={gouterManualFiber}
+                  gouterTotalCals={gouterTotalCals}
+                  gouterTotalPro={gouterTotalPro}
+                  gouterTotalFiber={gouterTotalFiber}
+                  gouterAssignedIds={gouterAssignedIds}
+                  foodItems={foodItems}
+                  dessertById={singleIngredientDessertById}
+                  manualCalStorageKey={`next-mc-${iso}-gouter`}
+                  manualProStorageKey={`next-mp-${iso}-gouter`}
+                  manualFiberStorageKey={`next-mf-${iso}-gouter`}
+                  mealCards={gouterMeals.map((pm) => (
+                    <div
+                      key={pm.id}
+                      className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center"
+                    >
+                      {renderMiniCard(pm, true)}
+                    </div>
+                  ))}
+                  onDragOver={(e) => {
+                    const canAccept = !!(
+                      draggedSelectedExtraId ||
+                      e.dataTransfer.types.includes("text/plain") ||
+                      e.dataTransfer.types.includes("pmId")
+                    );
+                    if (canAccept) e.preventDefault();
+                    setDragOverSlot(gouterKIso);
+                  }}
+                  onDragLeave={() => setDragOverSlot((cur) => (cur === gouterKIso ? null : cur))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleNextWeekDrop(e, iso, "gouter");
+                  }}
+                  onToggleDrink={() => {
+                    const updated = { ...nextDrinkChecks };
+                    if (updated[gouterKIso] || updated[gouterKKey]) {
+                      delete updated[gouterKIso];
+                      delete updated[gouterKKey];
+                    } else {
+                      updated[gouterKIso] = true;
+                    }
+                    setPreference.mutate({ key: "next_week_drink_checks", value: updated });
+                  }}
+                  onSaveManualCalories={(val) => {
+                    const updated = { ...nextManualCalories };
+                    if (val > 0) updated[gouterKIso] = val;
+                    else {
+                      delete updated[gouterKIso];
+                      delete updated[gouterKKey];
+                    }
+                    setPreference.mutate({ key: "next_week_manual_calories", value: updated });
+                  }}
+                  onSaveManualProteins={(val) => {
+                    const updated = { ...nextManualProteins };
+                    if (val > 0) updated[gouterKIso] = val;
+                    else {
+                      delete updated[gouterKIso];
+                      delete updated[gouterKKey];
+                    }
+                    setPreference.mutate({ key: "next_week_manual_proteins", value: updated });
+                  }}
+                  onSaveManualFibers={(val) => {
+                    const updated = { ...nextManualFibers };
+                    if (val > 0) updated[gouterKIso] = val;
+                    else {
+                      delete updated[gouterKIso];
+                      delete updated[gouterKKey];
+                    }
+                    setPreference.mutate({ key: "next_week_manual_fibers", value: updated });
+                  }}
+                  onDeselectExtra={deselectNextExtraForDay}
+                  onDragStartExtra={(extraId, dayIso, dayKey, e) => {
+                    setDraggedSelectedExtraId(extraId);
+                    setDraggedSelectedExtraOrigin({ iso: dayIso, key: dayKey });
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", extraId);
+                  }}
+                  onDragEndExtra={() => {
+                    setDraggedSelectedExtraId(null);
+                    setDraggedSelectedExtraOrigin(null);
+                  }}
+                />
               </div>
             );
           })}
