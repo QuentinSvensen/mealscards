@@ -42,13 +42,6 @@ type DragPayload =
 
 const EMPTY_NEEDS = {};
 
-/** Ajuste la hauteur d'un textarea au contenu pour afficher tout le nom sans scrollbar. */
-const autoResizeTextarea = (el: HTMLTextAreaElement | null) => {
-  if (!el) return;
-  el.style.height = "auto";
-  el.style.height = `${el.scrollHeight}px`;
-};
-
 export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_props, ref) {
   const {
     groups, ungroupedItems, items,
@@ -399,7 +392,7 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(`item:${item.id}`); }}
         onDragLeave={() => setDragOverKey(null)}
         onDrop={(e) => handleDropOnItem(e, item)}
-        className={`flex items-start gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
+        className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
         {/* Case à cocher secondaire OU indicateur ambigu (cliquable avec la couleur du groupe) */}
         {showGreenChecks && (isAmbiguous ? (() => {
@@ -556,22 +549,13 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
           )
         )}
 
-        {/* Nom — retour à la ligne (pas de truncate/ellipsis) */}
-        <textarea
+        {/* Nom — largeur calée sur le texte pour garder marque / Qté juste à droite */}
+        <input
           value={getLocalName(item)}
-          onChange={(e) => {
-            handleNameChange(item, e.target.value);
-            autoResizeTextarea(e.target);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              (e.target as HTMLTextAreaElement).blur();
-            }
-          }}
-          ref={(el) => autoResizeTextarea(el)}
-          rows={1}
-          className={`flex-1 min-w-0 text-sm bg-transparent px-0.5 py-0.5 font-medium outline-none focus:ring-1 focus:ring-ring rounded resize-none overflow-hidden whitespace-normal break-words leading-snug ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+          onChange={(e) => handleNameChange(item, e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          size={Math.max(1, getLocalName(item).length)}
+          className={`h-6 text-sm bg-transparent px-0.5 font-medium min-w-[2ch] outline-none focus:ring-1 focus:ring-ring rounded ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
         />
 
         {/* Marque — en ligne juste après le nom */}
@@ -680,7 +664,9 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
           })()
         )}
 
-        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0 mt-0.5">
+        {/* Espace flexible : pousse la poubelle tout à droite sans séparer marque / Qté du nom */}
+        <div className="flex-1" />
+        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0">
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
