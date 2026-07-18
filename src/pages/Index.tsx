@@ -1274,41 +1274,62 @@ const Index = () => {
 
         {mainPage === "repas" && (
           <div className="px-3 sm:px-4 pt-2 pb-2">
-            <div className="max-w-6xl mx-auto flex items-center gap-2">
-              <div className="flex-1 min-w-0 overflow-x-auto inline-flex h-10 items-center justify-center rounded-2xl p-1 text-muted-foreground bg-[#2b3954]">
-                {CATEGORIES.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => setActiveCategory(c.value)}
-                    className={`inline-flex items-center justify-center whitespace-nowrap rounded-xl px-1.5 sm:px-3 py-1 text-[9px] sm:text-xs font-medium transition-all ${activeCategory === c.value ? "bg-background text-foreground shadow-sm" : ""}`}
-                  >
-                    <span className="mr-0.5">{c.emoji}</span>
-                    <span className="leading-tight">{c.label}</span>
-                  </button>
-                ))}
-              </div>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" className="rounded-full gap-1 text-xs shrink-0" onClick={() => openDialog("all")}>
-                    <Plus className="h-3 w-3" /> <span className="hidden sm:inline">Ajouter</span>
-                  </Button>
-                </DialogTrigger>
-                <DialogContent aria-describedby={undefined}>
-                  <DialogHeader><DialogTitle>Nouveau repas</DialogTitle></DialogHeader>
-                  <div className="flex flex-col gap-3">
-                    <Input autoFocus placeholder="Ex: Pâtes carbonara" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAdd()} className="rounded-xl" />
-                    <Select value={newCategory} onValueChange={(v) => setNewCategory(v as MealCategory)}>
-                      <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                      <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <div className="flex gap-2">
-                      <Button onClick={() => handleAdd("all")} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">Tous les repas</Button>
-                      <Button onClick={() => handleAdd("possible")} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">Possibles uniquement</Button>
-                    </div>
+            <div className="relative max-w-6xl mx-auto">
+              <div className="flex items-center gap-2">
+                {/* Fond bleu : en 1 colonne, les onglets sont centrés dedans */}
+                <div className="flex-1 min-w-0 h-10 rounded-2xl bg-[#2b3954] flex items-center justify-center overflow-x-auto">
+                  <div className="inline-flex h-10 items-center p-1 text-muted-foreground md:hidden">
+                    {CATEGORIES.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setActiveCategory(c.value)}
+                        className={`inline-flex items-center justify-center whitespace-nowrap rounded-xl px-1.5 sm:px-3 py-1 text-[9px] sm:text-xs font-medium transition-all ${activeCategory === c.value ? "bg-background text-foreground shadow-sm" : ""}`}
+                      >
+                        <span className="mr-0.5">{c.emoji}</span>
+                        <span className="leading-tight">{c.label}</span>
+                      </button>
+                    ))}
                   </div>
-                </DialogContent>
-              </Dialog>
+                </div>
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="rounded-full gap-1 text-xs shrink-0 relative z-10" onClick={() => openDialog("all")}>
+                      <Plus className="h-3 w-3" /> <span className="hidden sm:inline">Ajouter</span>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent aria-describedby={undefined}>
+                    <DialogHeader><DialogTitle>Nouveau repas</DialogTitle></DialogHeader>
+                    <div className="flex flex-col gap-3">
+                      <Input autoFocus placeholder="Ex: Pâtes carbonara" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAdd()} className="rounded-xl" />
+                      <Select value={newCategory} onValueChange={(v) => setNewCategory(v as MealCategory)}>
+                        <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
+                        <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <div className="flex gap-2">
+                        <Button onClick={() => handleAdd("all")} disabled={!newName.trim()} className="flex-1 text-xs rounded-xl">Tous les repas</Button>
+                        <Button onClick={() => handleAdd("possible")} disabled={!newName.trim()} variant="secondary" className="flex-1 text-xs rounded-xl">Possibles uniquement</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+              {/* ≥ md (2 colonnes) : onglets centrés sur la largeur de l’écran */}
+              <div className="hidden md:flex absolute inset-0 items-center justify-center pointer-events-none">
+                <div className="pointer-events-auto inline-flex h-10 max-w-[calc(100%-7rem)] items-center overflow-x-auto gap-1 p-1 text-muted-foreground">
+                  {CATEGORIES.map((c) => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      onClick={() => setActiveCategory(c.value)}
+                      className={`inline-flex items-center justify-center whitespace-nowrap rounded-xl px-4 lg:px-5 py-1 text-xs lg:text-sm font-medium transition-all ${activeCategory === c.value ? "bg-background text-foreground shadow-sm" : ""}`}
+                    >
+                      <span className="mr-1">{c.emoji}</span>
+                      <span className="leading-tight">{c.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
