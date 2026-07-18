@@ -13,7 +13,7 @@
  */
 import { useMemo } from 'react';
 import { format, startOfWeek, addDays } from 'date-fns';
-import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from '@/hooks/useMeals';
+import { useMeals, DAYS, PLANNING_DAY_SLOTS, type PossibleMeal, type Meal } from '@/hooks/useMeals';
 import { usePreferences } from '@/hooks/usePreferences';
 import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
 import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
@@ -359,7 +359,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   };
 
   const getDayProtein = (dayKey: string, isoDate?: string): number => {
-    const slotTimes = ['matin', ...TIMES, 'gouter'] as string[];
+    const slotTimes = [...PLANNING_DAY_SLOTS] as string[];
     const mealPro = slotTimes.reduce((total, time) => {
       const slotMeals = getMealsForSlot(dayKey, time, isoDate);
       if (slotMeals.length > 0) {
@@ -404,7 +404,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   };
 
   const getDayFiber = (dayKey: string, isoDate?: string): number => {
-    const slotTimes = ['matin', ...TIMES, 'gouter'] as string[];
+    const slotTimes = [...PLANNING_DAY_SLOTS] as string[];
     const mealFiber = slotTimes.reduce((total, time) => {
       const slotMeals = getMealsForSlot(dayKey, time, isoDate);
       if (slotMeals.length > 0) {

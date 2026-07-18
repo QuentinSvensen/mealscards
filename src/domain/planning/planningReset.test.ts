@@ -265,6 +265,20 @@ describe("resolvePostResetGoals", () => {
     expect(g.planning_daily_goal).toBe(2000);
     expect(g.next_week_daily_goal).toBe(2000);
   });
+
+  it("promouvoit fourchette basse et fibres", () => {
+    const g = resolvePostResetGoals({
+      planning_daily_goal: 2300,
+      planning_daily_goal_low: 1800,
+      next_week_daily_goal_low: 2000,
+      planning_fiber_goal: 25,
+      next_week_fiber_goal: 30,
+    });
+    expect(g.planning_daily_goal_low).toBe(2000);
+    expect(g.next_week_daily_goal_low).toBe(2000);
+    expect(g.planning_fiber_goal).toBe(30);
+    expect(g.next_week_fiber_goal).toBe(30);
+  });
 });
 
 describe("filterPossibleMealsToDeleteForWeeklyClear", () => {
@@ -365,7 +379,42 @@ describe("buildFullBackupPayload", () => {
     expect(b.cards).toHaveLength(1);
     expect(b.cards[0].id).toBe("x");
     expect(b.daily_goal).toBe(2500);
+    expect(b.daily_goal_low).toBeNull();
+    expect(b.fiber_goal).toBeNull();
     expect(serializePossibleMealsForBackup(pm)).toEqual(b.cards);
+  });
+
+  it("exporte fourchette basse, fibres manuelles et slots (dont goûter)", () => {
+    const pm = [
+      {
+        id: "gouter-pm",
+        meal_id: "m",
+        quantity: 1,
+        expiration_date: null,
+        day_of_week: "2026-07-18",
+        meal_time: "gouter",
+        counter_start_date: null,
+        sort_order: 0,
+        ingredients_override: null,
+        ...baseMeal,
+      },
+    ] as PossibleMeal[];
+    const pref: PlanningPrefMap = {
+      planning_manual_fibers: { "2026-07-18-gouter": 8 },
+      planning_extra_fibers: { "2026-07-18": 3 },
+      planning_extra_slot_assignments: { "2026-07-18-gouter": ["extra-1"] },
+      planning_daily_goal: 2300,
+      planning_daily_goal_low: 2000,
+      planning_fiber_goal: 30,
+      planning_protein_goal: 120,
+    };
+    const b = buildFullBackupPayload(pm, pref);
+    expect(b.cards[0].meal_time).toBe("gouter");
+    expect(b.manualFibers["2026-07-18-gouter"]).toBe(8);
+    expect(b.extraFibers["2026-07-18"]).toBe(3);
+    expect(b.extraSlotAssignments["2026-07-18-gouter"]).toEqual(["extra-1"]);
+    expect(b.daily_goal_low).toBe(2000);
+    expect(b.fiber_goal).toBe(30);
   });
 
   it("conserve les overrides kcal/prot saisis en chaîne (format live)", () => {

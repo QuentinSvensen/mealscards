@@ -785,6 +785,66 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
     const resolved = resolveFoodItemCounterStartForDisplay(sealed, [], fixedNow, null);
     expect(resolved).toBeNull();
   });
+
+  it("démarrage manuel sur paquet scellé unitaire : affiche le compteur persisté", async () => {
+    const { markFoodCounterManuallyStarted, clearFoodCounterManualOverride } = await import(
+      "@/lib/counters/manualCounterOverrides"
+    );
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const chocolat = {
+      ...tenders,
+      id: "choc-caramel",
+      name: "Chocolat caramel",
+      grams: "100",
+      quantity: 1,
+      storage_type: "sec" as const,
+      counter_start_date: "2026-07-16T11:30:00.000Z",
+    };
+    markFoodCounterManuallyStarted(chocolat.id);
+    try {
+      const resolved = resolveFoodItemCounterStartForDisplay(chocolat, [], fixedNow);
+      expect(resolved).toBe("2026-07-16T11:30:00.000Z");
+    } finally {
+      clearFoodCounterManualOverride(chocolat.id);
+    }
+  });
+
+  it("compteur manuel persisté sur scellé unitaire (après reload) : toujours affiché", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const chocolat = {
+      ...tenders,
+      id: "choc-caramel-2",
+      name: "Chocolat caramel",
+      grams: "100",
+      quantity: 1,
+      storage_type: "sec" as const,
+      counter_start_date: "2026-07-16T11:30:00.000Z",
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(chocolat, [], fixedNow);
+    expect(resolved).toBe("2026-07-16T11:30:00.000Z");
+  });
+
+  it("stop manuel sur lot entamé : masque l'inventaire d'affichage (plus de now inventé)", async () => {
+    const { markFoodCounterManuallyStopped, clearFoodCounterManualOverride } = await import(
+      "@/lib/counters/manualCounterOverrides"
+    );
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const opened = {
+      ...tenders,
+      id: "melon-stopped",
+      name: "Melon",
+      grams: "400|200",
+      quantity: null,
+      counter_start_date: null,
+    };
+    markFoodCounterManuallyStopped(opened.id);
+    try {
+      const resolved = resolveFoodItemCounterStartForDisplay(opened, [], fixedNow);
+      expect(resolved).toBeNull();
+    } finally {
+      clearFoodCounterManualOverride(opened.id);
+    }
+  });
 });
 
 describe("resolveFoodItemBaselineTotalGrams (régression Tenders)", () => {

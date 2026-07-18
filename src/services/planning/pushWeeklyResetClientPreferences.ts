@@ -33,9 +33,17 @@ export function pushWeeklyResetClientPreferences(
     mutate({ key: "planning_daily_goal", value: goals.planning_daily_goal });
     mutate({ key: "next_week_daily_goal", value: goals.next_week_daily_goal });
   }
+  if (goals.planning_daily_goal_low !== undefined && goals.next_week_daily_goal_low !== undefined) {
+    mutate({ key: "planning_daily_goal_low", value: goals.planning_daily_goal_low });
+    mutate({ key: "next_week_daily_goal_low", value: goals.next_week_daily_goal_low });
+  }
   if (goals.planning_protein_goal && goals.next_week_protein_goal) {
     mutate({ key: "planning_protein_goal", value: goals.planning_protein_goal });
     mutate({ key: "next_week_protein_goal", value: goals.next_week_protein_goal });
+  }
+  if (goals.planning_fiber_goal && goals.next_week_fiber_goal) {
+    mutate({ key: "planning_fiber_goal", value: goals.planning_fiber_goal });
+    mutate({ key: "next_week_fiber_goal", value: goals.next_week_fiber_goal });
   }
 
   mutate({ key: "last_weekly_reset", value: lastResetIso });

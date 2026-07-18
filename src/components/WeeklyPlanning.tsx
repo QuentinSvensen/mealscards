@@ -19,55 +19,60 @@
  * PlanningMiniCard : carte compacte de repas dans le planning
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useMeals, DAYS, TIMES, type PossibleMeal, type Meal } from "@/hooks/useMeals";
+import { useMeals, DAYS, TIMES, MAIN_GRID_TIMES, type PossibleMeal, type Meal } from "@/hooks/useMeals";
+import { UnplannedDropZone } from "@/components/planning/UnplannedDropZone";
+import { PlanningDayColumn } from "@/components/planning/PlanningDayColumn";
+import { PlanningDayGoalsBar } from "@/components/planning/PlanningDayGoalsBar";
+import { PlanningSlotSection } from "@/components/planning/PlanningSlotSection";
+import { PlanningGouterBand } from "@/components/planning/PlanningGouterBand";
+import { PlanningExtraColumn } from "@/components/planning/PlanningExtraColumn";
+import { PlanningBreakfastBlock } from "@/components/planning/PlanningBreakfastBlock";
+import { PlanningWeekTotalsFooter } from "@/components/planning/PlanningWeekTotalsFooter";
+import { PlanningBackupWeekView } from "@/components/planning/PlanningBackupWeekView";
+import { PlanningNextWeekView } from "@/components/planning/PlanningNextWeekView";
+import {
+  DRINK_CALORIES,
+  TIME_LABELS,
+} from "@/components/planning/planningSlotStyles";
+import { usePlanningTouchDrag } from "@/hooks/usePlanningTouchDrag";
+import { formatPlanningSnapshotTitle } from "@/domain/planning/formatPlanningSnapshotTitle";
+import {
+  EXTRA_DAY_SLOTS,
+  assignExtraToDaySlotMap,
+  isExtraDaySlot,
+  moveExtraBetweenDaysToSlotMaps,
+  removeExtraFromDaySlotMap,
+  removeOneExtraOccurrenceForDay,
+  unassignExtraFromAllDaySlotsMap,
+  type ExtraDaySlot,
+} from "@/domain/planning/extraSlotOps";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
-import { Timer, Flame, Weight, Calendar, Lock, Plus, Thermometer, Sparkles, Zap, Hash, Check, Wheat, FileText } from "lucide-react";
+import { Timer, Flame, Weight, Thermometer, Wheat, FileText } from "lucide-react";
 import { normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
-import { getSortedFoodItems } from "@/lib/foodSortUtils";
-import {
-  FOOD_EXTRAS_DIVIDER_PREF_KEY,
-  splitSortedExtrasByDivider,
-} from "@/lib/extrasDividerUtils";
+import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
 import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, computePossibleFrozenCounterDays, mergeFrozenPossibleCounterDays, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
-import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
-import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import {
-  buildUpdatedDailyCalorieHistory,
-  captureLiveWeekTotalsForHistory,
   ensurePreviousWeekCalorieHistory,
   PLANNING_DAILY_CALORIE_HISTORY_KEY,
   resolveBackupWeekRange,
-  withExplicitBackupWeekRange,
 } from "@/domain/planning/dailyCalorieHistory";
 import { asNumberRecord } from "@/domain/planning/jsonCoerce";
 import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
-import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
-import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
-import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
-import {
-  formatCalorieGoalTarget,
-  getCalorieRangeTotalColorClass,
-  hasCalorieGoalRangeMin,
-} from "@/domain/planning/calorieGoalRange";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
-import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/domain/planning/extraSnapshotUtils";
-import { clearWeekdayScopedSnapshots, pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
+import { clearWeekdayScopedSnapshots } from "@/domain/planning/weekdaySnapshotUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import {
   buildFoodDessertExtras,
@@ -82,108 +87,32 @@ import {
   supplementFoodDessertExtrasFromSnapshots,
 } from "@/lib/foodDessertUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
-import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
-import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
-import { computeRollingDayCalorieAverage, ROLLING_WINDOW_14_DAYS, ROLLING_WINDOW_7_DAYS, parseBackupCalorieContext } from "@/domain/planning/rollingCalorieAverage";
+import {
+  computeRollingDayCalorieAverage,
+  ROLLING_WINDOW_14_DAYS,
+  ROLLING_WINDOW_7_DAYS,
+  parseBackupCalorieContext,
+} from "@/domain/planning/rollingCalorieAverage";
 import {
   aggregateExtraSelectionMacros,
   getAssignedExtraIdsForDay,
-  mergeExtraDaySelectionIds,
   pickPlanningSlotValue,
-  scaleExtraDisplayMacrosByCount,
 } from "@/lib/planningExtraMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
+import { usePlanningResetRestore } from "@/hooks/usePlanningResetRestore";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
 import { PlanningHeader } from "@/components/planning/PlanningHeader";
-import { BreakfastBreakdownList } from "@/components/planning/BreakfastBreakdownList";
 import {
-  buildBackupBreakfastBreakdownItems,
   buildLiveBreakfastBreakdownItems,
   isBackupBreakfastPmAlreadyInMatinSlot,
 } from "@/domain/planning/breakfastBreakdown";
-
-/**
- * Champ numérique du planning avec mode « + » pour ajouter une valeur à la saisie courante
- * (manuel midi/soir, extras, etc.).
- */
-function PlanningInput({ storageKey, currentValue, onSave, placeholder, className }: {
-  storageKey: string;
-  currentValue: number;
-  onSave: (val: number) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [addMode, setAddMode] = useState(false);
-  const [tempVal, setTempVal] = useState("");
-  const [editVal, setEditVal] = useState(String(currentValue || ""));
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!addMode) setEditVal(String(currentValue || ""));
-  }, [currentValue, addMode]);
-
-  const commitAdd = () => {
-    const raw = parseInt(tempVal, 10) || 0;
-    if (raw !== 0) onSave(currentValue + raw);
-    setAddMode(false);
-    setTempVal("");
-  };
-
-  const commitEdit = () => {
-    const raw = parseInt(editVal, 10) || 0;
-    if (raw === currentValue) return;
-    onSave(raw);
-  };
-
-  if (addMode) {
-    return (
-      <div className="relative flex items-center w-full">
-        <input
-          ref={inputRef}
-          type="number"
-          value={tempVal}
-          onChange={(e) => setTempVal(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitAdd(); } if (e.key === "Escape") { setAddMode(false); setTempVal(""); } }}
-          placeholder={`+${placeholder || ""}`}
-          className={`${className} pr-4`}
-          autoFocus
-        />
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            commitAdd();
-          }}
-          className="absolute right-0.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-[9px] font-bold text-green-400 hover:text-green-300 rounded"
-          title="Valider l'ajout"
-        >
-          ✓
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative flex items-center">
-      <input
-        type="number"
-        value={editVal}
-        onChange={(e) => setEditVal(e.target.value)}
-        onBlur={commitEdit}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitEdit(); } }}
-        placeholder={placeholder}
-        className={className}
-      />
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setAddMode(true); }}
-        className="absolute right-0.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center text-[9px] font-bold text-primary/60 hover:text-primary rounded"
-        title="Ajouter"
-      >+</button>
-    </div>
-  );
-}
+import { PlanningMiniCard, getCategoryEmoji } from "@/components/planning/PlanningMiniCard";
+import {
+  buildDessertExtraId,
+  resolveDessertCatalogId,
+  findStoredSelectionIdForDessert,
+} from "@/domain/planning/extraDisplay";
 
 const DAY_LABELS: Record<string, string> = {
   lundi: "Lundi",
@@ -194,28 +123,6 @@ const DAY_LABELS: Record<string, string> = {
   samedi: "Samedi",
   dimanche: "Dimanche",
 };
-
-const TIME_LABELS: Record<string, string> = { midi: "Midi", soir: "Soir", gouter: "Goûter" };
-
-/**
- * Libellé de date pour le badge d'une carte planning : uniquement la date de péremption.
- * Rien n'est affiché si l'aliment n'a pas de date de péremption.
- */
-function formatPlanningMiniCardDateLabel(
-  expirationDate: string | null | undefined,
-): string | null {
-  if (!expirationDate) return null;
-  try {
-    return format(parseISO(expirationDate), "d MMM", { locale: fr });
-  } catch {
-    return expirationDate;
-  }
-}
-
-/** Style compact du total kcal/prot/fib d’un créneau — réduit sur mobile pour éviter le débordement. */
-const SLOT_MEAL_TOTAL_CLASS =
-  "flex items-center gap-0.5 sm:gap-1 shrink min-w-0 max-w-[58%] sm:max-w-none text-[7px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-1 sm:px-2 py-px sm:py-0.5 rounded-full border border-border/40 shadow-sm";
-const SLOT_MEAL_TOTAL_SEP_CLASS = "opacity-30 hidden sm:inline";
 
 const JS_DAY_TO_KEY: Record<number, string> = {
   1: "lundi",
@@ -229,26 +136,9 @@ const JS_DAY_TO_KEY: Record<number, string> = {
 
 const DEFAULT_DAILY_GOAL = 2750;
 const DEFAULT_WEEKLY_MULTIPLIER = 7;
-const DRINK_CALORIES = 150;
 
 /** Clé de préférence utilisée pour mémoriser une surcharge calorique par carte (hors usage direct actuel). */
 function calOverrideKey(pmId: string) { return `planning_cal_override_${pmId}`; }
-
-/** Emoji de catégorie de repas pour l’affichage compact des cartes. */
-function getCategoryEmoji(cat?: string) {
-  switch (cat) {
-    case "entree":
-      return "🥗";
-    case "plat":
-      return "🍽️";
-    case "dessert":
-      return "🍰";
-    case "bonus":
-      return "⭐";
-    default:
-      return "🍴";
-  }
-}
 
 /**
  * Résout la date ISO (yyyy-MM-dd) du créneau planifié.
@@ -283,19 +173,6 @@ function isExpiredOnPlannedDay(
   }
 }
 
-/**
- * Classes CSS du badge de date sur une mini-carte Planning
- * (bordure / texte rouge discrets si planifié après péremption — style d’origine).
- */
-function getPlanningDateBadgeClassName(expired: boolean): string {
-  const base =
-    "inline-flex items-center gap-0.5 rounded px-1 py-0.5 border align-middle text-[9px] font-normal";
-  if (expired) {
-    return `${base} font-bold text-red-300 border-red-400/50 bg-red-500/20`;
-  }
-  return `${base} text-white/60 border-white/15 bg-white/5`;
-}
-
 /** Lit les kcal affichées sur une fiche repas (chaîne potentiellement avec unités). */
 function parseCalories(cal: string | null | undefined): number {
   if (!cal) return 0;
@@ -319,644 +196,8 @@ function parsePositivePlanningOverride(value: string | number | null | undefined
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Décode un extra « personnalisé » encodé dans un id de sélection (`custom::…`). */
-function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
-  if (!id.startsWith('custom::')) return null;
-  const parts = id.slice(8).split('::');
-  return {
-    name: parts[0] || 'Personnalisé',
-    cal: parseFloat((parts[1] || '0').replace(',', '.')) || 0,
-    prot: parseFloat((parts[2] || '0').replace(',', '.')) || 0,
-  };
-}
-
-/** Construit un id d'extra personnalisé à partir d'un dessert "au choix". */
-function buildDessertExtraId(name: string, cal: number, prot: number): string {
-  return `custom::${name}::${Math.round(cal)}::${Math.round(prot)}`;
-}
-
-/** Résout les macros affichées d'un aliment extra dans le popover planning. */
-function resolvePlanningExtraFoodMacros(
-  fi: FoodItem,
-  macroLibrary: IngredientMacroLibraryItem[],
-  options?: { perUnit?: boolean; asDessertFood?: boolean },
-): { cal: number; pro: number; fiber: number } {
-  if (options?.asDessertFood) {
-    return resolveFoodDessertPortionMacros(fi, macroLibrary);
-  }
-  return getExtraPortionMacros(fi, options?.perUnit ? { perUnit: true } : undefined);
-}
-
-function formatPlanningSnapshotTitle(
-  snap: PlanningSnapshotEntry | undefined,
-  options: { itemCount?: number; nameFallback?: boolean } = {},
-): string {
-  if (!snap) return "Sauvegarder les valeurs pour le reset (Double-clic pour oublier)";
-  if (options.nameFallback && snap.name) return `Sauvegardé: ${snap.name} (Double-clic pour oublier)`;
-  const itemPart = options.itemCount !== undefined ? `, ${options.itemCount} items` : "";
-  return `Sauvegardé: ${snap.cal || 0} kcal / ${snap.prot || 0} prot / ${snap.fiber || 0} fib${itemPart} (Double-clic pour oublier)`;
-}
-
-/** Retourne les extras sélectionnés du jour qui ne sont pas encore placés dans un créneau. */
-function getUnassignedExtraSelectionIds(
-  extraSelections: Record<string, string[]>,
-  extraSlotAssignments: Record<string, string[]>,
-  iso: string,
-  key: string,
-): string[] {
-  const ids = extraSelections[iso] || extraSelections[key] || [];
-  const assignedSet = new Set(getAssignedExtraIdsForDay(extraSlotAssignments, iso, key));
-  return ids.filter((id) => !assignedSet.has(id));
-}
-
-/** Normalise un nom d'extra pour comparer recettes et aliments dessert. */
-function normalizeExtraDisplayName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-/**
- * Associe un id de sélection au dessert catalogue correspondant
- * (id exact, aliment `food-dessert::…` ou nom de recette `custom::…`).
- */
-function resolveDessertCatalogId(
-  selectionId: string,
-  catalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
-): string | null {
-  if (dessertById.has(selectionId)) return selectionId;
-  const custom = parseCustomExtraId(selectionId);
-  if (custom) {
-    const target = normalizeExtraDisplayName(custom.name);
-    const match = catalog.find((entry) => normalizeExtraDisplayName(entry.name) === target);
-    return match?.id ?? null;
-  }
-  const foodItemId = parseFoodDessertExtraId(selectionId);
-  if (foodItemId) {
-    const match = catalog.find((entry) => parseFoodDessertExtraId(entry.id) === foodItemId);
-    if (match) return match.id;
-    const staleName =
-      dessertById.get(selectionId)?.name
-      ?? dessertById.get(buildFoodDessertExtraId(foodItemId))?.name
-      ?? findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, selectionId)?.name
-      ?? findSnapshotFoodItemForDessertExtra(dessertExtraStockSnapshots, buildFoodDessertExtraId(foodItemId))?.name;
-    if (staleName) {
-      const target = normalizeKey(staleName);
-      const byName = catalog.find((entry) => normalizeKey(entry.name) === target);
-      return byName?.id ?? null;
-    }
-    return null;
-  }
-  return null;
-}
-
-/** Compte les occurrences d'un dessert dans une liste de sélections (ids alias inclus). */
-function countDessertExtraInSelections(
-  selectionIds: string[],
-  dessert: { id: string; name: string },
-  catalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-): number {
-  return selectionIds.reduce((acc, selectionId) => {
-    if (selectionId === dessert.id) return acc + 1;
-    const canonical = resolveDessertCatalogId(selectionId, catalog, dessertById);
-    return canonical === dessert.id ? acc + 1 : acc;
-  }, 0);
-}
-
-/** Indique si un dessert du catalogue est présent dans les sélections du jour. */
-function isDessertExtraInSelections(
-  selectionIds: string[],
-  dessert: { id: string; name: string },
-  catalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-): boolean {
-  return countDessertExtraInSelections(selectionIds, dessert, catalog, dessertById) > 0;
-}
-
-/** Retourne le premier id réellement stocké qui correspond à un dessert catalogue. */
-function findStoredSelectionIdForDessert(
-  selectionIds: string[],
-  dessert: { id: string; name: string },
-  catalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-): string | null {
-  for (let i = selectionIds.length - 1; i >= 0; i--) {
-    const selectionId = selectionIds[i];
-    if (selectionId === dessert.id) return selectionId;
-    const canonical = resolveDessertCatalogId(selectionId, catalog, dessertById);
-    if (canonical === dessert.id) return selectionId;
-  }
-  return null;
-}
-
-/** Prépare l'affichage d'un extra non assigné en semaine pro (catalogue complet, y compris stock épuisé). */
-function resolveNextWeekUnassignedExtraRow(
-  extraId: string,
-  foodItems: FoodItem[],
-  dessertById: Map<string, { name: string; mealPayload?: Meal }>,
-  allDessertCatalog: Array<{ id: string; name: string }>,
-  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
-): { labelId: string; custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
-  const catalogId = resolveDessertCatalogId(extraId, allDessertCatalog, dessertById, dessertExtraStockSnapshots);
-  const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, dessertById, catalogId ?? undefined);
-  if (resolved) {
-    return {
-      labelId: catalogId ?? extraId,
-      custom: resolved.custom,
-      fi: resolved.fi,
-    };
-  }
-  if (catalogId) {
-    return { labelId: catalogId, custom: null, fi: undefined };
-  }
-  const custom = parseCustomExtraId(extraId);
-  if (custom) return { labelId: extraId, custom, fi: undefined };
-  const fi = foodItems.find((f) => f.id === extraId && f.storage_type === "extras");
-  if (fi) return { labelId: extraId, custom: null, fi };
-  return null;
-}
-
-/** Indique si un id d'extra peut être affiché dans le popover planning (stock, dessert ou custom). */
-function isDisplayableExtraSelectionId(
-  selectionId: string,
-  foodItems: FoodItem[],
-  dessertCatalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
-): boolean {
-  if (foodItems.some((fi) => fi.id === selectionId && fi.storage_type === "extras")) return true;
-  if (parseCustomExtraId(selectionId)) return true;
-  return resolveDessertCatalogId(selectionId, dessertCatalog, dessertById, dessertExtraStockSnapshots) != null;
-}
-
-/** Compte les extras réellement affichables dans les sélections d'un jour. */
-function countDisplayableExtraSelections(
-  selectionIds: string[],
-  foodItems: FoodItem[],
-  dessertCatalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
-): number {
-  return selectionIds.reduce(
-    (count, selectionId) =>
-      isDisplayableExtraSelectionId(selectionId, foodItems, dessertCatalog, dessertById, dessertExtraStockSnapshots) ? count + 1 : count,
-    0,
-  );
-}
-
-/** Indique si un extra est déjà posé dans un créneau (ids alias / noms custom inclus). */
-function isExtraIdAssignedForDay(
-  extraId: string,
-  assignedIds: string[],
-  allDessertCatalog: Array<{ id: string; name: string }>,
-  dessertById: Map<string, { name: string }>,
-): boolean {
-  if (assignedIds.includes(extraId)) return true;
-  const canonical = resolveDessertCatalogId(extraId, allDessertCatalog, dessertById);
-  const custom = parseCustomExtraId(extraId);
-  for (const assignedId of assignedIds) {
-    if (assignedId === extraId) return true;
-    if (canonical && resolveDessertCatalogId(assignedId, allDessertCatalog, dessertById) === canonical) {
-      return true;
-    }
-    if (custom) {
-      const assignedCustom = parseCustomExtraId(assignedId);
-      if (
-        assignedCustom &&
-        normalizeExtraDisplayName(assignedCustom.name) === normalizeExtraDisplayName(custom.name)
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-/** Lit les sélections extras d'un jour depuis les préférences, avec repli sur le snapshot post-reset. */
-function pickDayExtraSelections(
-  selections: Record<string, string[]>,
-  iso: string,
-  key: string,
-  fallback: string[],
-): string[] {
-  if (Object.prototype.hasOwnProperty.call(selections, iso)) {
-    return selections[iso] ?? [];
-  }
-  if (Object.prototype.hasOwnProperty.call(selections, key)) {
-    return selections[key] ?? [];
-  }
-  return fallback;
-}
-
-/** Formate l'étiquette d'un extra placé en incluant ses grammes et sa quantité s'ils existent. */
-function formatPlacedExtraLabel(extraName: string, grams?: string | null, quantity?: number | null): string {
-  const name = (extraName || "").trim();
-  const rawGrams = (grams || "").trim();
-  const hasUnit = /[a-zA-Z]/.test(rawGrams);
-  const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
-  const q = quantity != null && quantity > 0 ? `#${quantity}` : "";
-  const prefix = [g, q].filter(Boolean).join(" ");
-  if (!name) return prefix;
-  if (!prefix) return name;
-  return `${prefix} ${name}`;
-}
-
-/** Multiplie un grammage affichable si c'est une valeur numérique simple, en conservant l'unité éventuelle. */
-function multiplyDisplayGrams(grams: string | null | undefined, count: number): string | null {
-  const raw = (grams || "").trim();
-  if (!raw) return null;
-  const match = raw.match(/^(\d+(?:[.,]\d+)?)(.*)$/);
-  if (!match) return raw;
-  const value = parseFloat(match[1].replace(",", "."));
-  if (!Number.isFinite(value)) return raw;
-  const unit = match[2]?.trim() || "";
-  const total = formatNumeric(value * Math.max(1, count));
-  return unit ? `${total}${unit}` : total;
-}
-
-/**
- * Déduit grammes / quantité affichables depuis une recette dessert (ingrédient unique ou fiche stock liée).
- * Sert les bulles d'extras déplacés créés via `custom::…` (desserts au choix), qui n'ont pas de `FoodItem` direct.
- */
-function extractExtraDisplayQuantity(
-  meal: Meal | null | undefined,
-  foodItems: FoodItem[],
-): { grams: string | null; quantity: number | null } {
-  if (!meal) return { grams: null, quantity: null };
-  const groups = parseIngredientGroups(meal.ingredients || "");
-  for (const group of groups) {
-    for (const bundle of group) {
-      const ing = bundle.find((i) => !i.optional);
-      if (!ing) continue;
-      if (ing.qty > 0) {
-        return { grams: formatNumeric(ing.qty), quantity: null };
-      }
-      if (ing.count > 0) {
-        return { grams: null, quantity: ing.count };
-      }
-      const stockFi = foodItems.find(
-        (f) =>
-          strictNameMatch(f.name, ing.name) &&
-          f.storage_type !== "extras" &&
-          f.storage_type !== "test",
-      );
-      if (stockFi) {
-        return { grams: stockFi.grams, quantity: stockFi.quantity };
-      }
-    }
-  }
-  const rawMealGrams = (meal.grams || "").trim();
-  if (rawMealGrams) return { grams: rawMealGrams, quantity: null };
-  return { grams: null, quantity: null };
-}
-
-/**
- * Construit le libellé complet d'une bulle d'extra déplacée (stock, dessert custom ou les deux).
- */
-function getPlacedExtraLabel(
-  extraId: string,
-  custom: { name: string } | null,
-  fi: FoodItem | null | undefined,
-  foodItems: FoodItem[],
-  dessertById: Map<string, { mealPayload: Meal }>,
-): string {
-  const name = custom?.name || fi?.name || "";
-  if (fi) {
-    return formatPlacedExtraLabel(name, fi.grams, fi.quantity);
-  }
-  const dessert = dessertById.get(extraId);
-  if (dessert) {
-    const { grams, quantity } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
-    if (grams || quantity) {
-      return formatPlacedExtraLabel(name, grams, quantity);
-    }
-  }
-  // Secours : fiche stock homonyme (recette dessert sans grammage explicite dans les ingrédients).
-  const stockByName = foodItems.find(
-    (f) =>
-      strictNameMatch(f.name, name) &&
-      f.storage_type !== "extras" &&
-      f.storage_type !== "test",
-  );
-  if (stockByName) {
-    return formatPlacedExtraLabel(name, stockByName.grams, stockByName.quantity);
-  }
-  return formatPlacedExtraLabel(name, null, null);
-}
-
-/** Regroupe une liste d'extras assignés en conservant l'ordre et le nombre d'occurrences. */
-function groupAssignedExtraIds(ids: string[]): Array<{ id: string; count: number }> {
-  const groups: Array<{ id: string; count: number }> = [];
-  for (const id of ids) {
-    const existing = groups.find((group) => group.id === id);
-    if (existing) existing.count += 1;
-    else groups.push({ id, count: 1 });
-  }
-  return groups;
-}
-
-/**
- * Résout custom + fiche aliment pour afficher un extra assigné à un créneau
- * (stock, dessert aliment `food-dessert::…` ou recette dessert `custom::…`).
- */
-function resolveAssignedExtraForDisplay(
-  extraId: string,
-  foodItems: FoodItem[],
-  dessertById: Map<string, { mealPayload: Meal; name?: string }>,
-  catalogDessertId?: string,
-): { custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
-  const custom = parseCustomExtraId(extraId);
-  if (custom) return { custom, fi: undefined };
-
-  const foodDessertItemId = parseFoodDessertExtraId(extraId);
-  const fi =
-    foodItems.find((f) => f.id === extraId)
-    ?? (foodDessertItemId ? foodItems.find((f) => f.id === foodDessertItemId) : undefined);
-  const resolvedCatalogId = catalogDessertId ?? extraId;
-
-  if (fi || dessertById.has(extraId) || dessertById.has(resolvedCatalogId)) {
-    return { custom: null, fi };
-  }
-  return null;
-}
-
-/** Construit le texte d'une bulle d'extra assigné en affichant la quantité totale déplacée. */
-function getAssignedExtraLabel(
-  extraId: string,
-  count: number,
-  custom: { name: string } | null,
-  fi: FoodItem | null | undefined,
-  foodItems: FoodItem[],
-  dessertById: Map<string, { mealPayload: Meal }>,
-): string {
-  const name = custom?.name || fi?.name || dessertById.get(extraId)?.mealPayload?.name || "";
-  if (fi) {
-    const totalQuantity = fi.quantity != null ? Math.max(1, fi.quantity) * Math.max(1, count) : null;
-    return formatPlacedExtraLabel(name, multiplyDisplayGrams(fi.grams, count), totalQuantity);
-  }
-  const dessert = dessertById.get(extraId);
-  if (dessert) {
-    const { grams, quantity } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
-    const totalQuantity = quantity != null ? Math.max(1, quantity) * Math.max(1, count) : null;
-    return formatPlacedExtraLabel(name, multiplyDisplayGrams(grams, count), totalQuantity);
-  }
-  const stockByName = foodItems.find(
-    (f) =>
-      strictNameMatch(f.name, name) &&
-      f.storage_type !== "extras" &&
-      f.storage_type !== "test",
-  );
-  if (stockByName) {
-    const totalQuantity = stockByName.quantity != null ? Math.max(1, stockByName.quantity) * Math.max(1, count) : null;
-    return formatPlacedExtraLabel(name, multiplyDisplayGrams(stockByName.grams, count), totalQuantity);
-  }
-  return formatPlacedExtraLabel(name, null, null);
-}
-
 const DAILY_PROTEIN_GOAL = 110;
 const DAILY_FIBER_GOAL = 30;
-
-interface TouchDragState {
-  pmId: string;
-  ghost: HTMLElement;
-  startX: number;
-  startY: number;
-  origTop: number;
-  origLeft: number;
-}
-
-// ─── PlanningMiniCard ────────────────────────────────────────────────────────
-/**
- * Carte compacte d’un repas dans une cellule du planning (drag, touch, override kcal, ingrédients).
- */
-function PlanningMiniCard({ pm, meal, expired, counterDays, counterBadgeTitle, counterUrgent, isPast, displayCal, displayPro, displayFiber, compact, hideIngredients, hideCalorieDisplay, isTouchDevice, touchDragActive, slotDragOver, onDragStart, onDragOver, onDragLeave, onDrop, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel, onRemove, onCalorieChange, onProteinChange, expiredIngredientNames, expiringSoonIngredientNames, onDoubleClick, stockMap }: {
-  pm: PossibleMeal; meal: any; expired: boolean; counterDays: number | null; counterBadgeTitle?: string; counterUrgent: boolean; isPast: boolean; displayCal: string | null; displayPro: string | null; displayFiber: string | null; compact: boolean;
-  hideIngredients?: boolean;
-  /** Masque le badge / l’édition des calories (préférence « Masquer calories »). */
-  hideCalorieDisplay?: boolean;
-  isTouchDevice: boolean; touchDragActive: boolean; slotDragOver: string | null;
-  onDragStart: (e: React.DragEvent) => void; onDragOver: (e: React.DragEvent) => void; onDragLeave: () => void; onDrop: (e: React.DragEvent) => void;
-  onTouchStart: (e: React.TouchEvent) => void; onTouchMove: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void; onTouchCancel: () => void;
-  onRemove: () => void; onCalorieChange: (val: string | null) => void; onProteinChange: (val: string | null) => void;
-  expiredIngredientNames?: Set<string>;
-  expiringSoonIngredientNames?: Set<string>;
-  onDoubleClick?: () => void;
-  stockMap?: Map<string, StockInfo>;
-}) {
-  const [editingCal, setEditingCal] = useState(false);
-  const [calValue, setCalValue] = useState("");
-  const [editingPro, setEditingPro] = useState(false);
-  const [proValue, setProValue] = useState("");
-  const cardColorIngredients = meal.ingredients?.trim() ? meal.ingredients : pm.ingredients_override;
-  const dateBadgeLabel = formatPlanningMiniCardDateLabel(pm.expiration_date);
-  const dateBadgeIsExpiration = !!pm.expiration_date;
-  const visibleCal = hideCalorieDisplay ? null : displayCal;
-
-  const macroControls = !compact ? (
-    <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
-      {!hideCalorieDisplay && (editingCal ? (
-        <input
-          autoFocus
-          type="text"
-          inputMode="numeric"
-          value={calValue}
-          onChange={(e) => setCalValue(e.target.value)}
-          onBlur={() => {
-            const trimmed = calValue.trim();
-            onCalorieChange(trimmed || null);
-            setEditingCal(false);
-          }}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-          placeholder="kcal"
-        />
-      ) : displayCal ? (
-        <button
-          onClick={() => { setCalValue(displayCal); setEditingCal(true); }}
-          className="text-[9px] sm:text-xs font-black text-white px-1 sm:px-2 py-px sm:py-0.5 rounded-full flex items-center gap-0.5 shrink-0 max-w-full bg-black/30 hover:bg-black/40"
-          title="Modifier les calories (temporaire)"
-        >
-          <Flame className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-          {displayCal}
-        </button>
-      ) : (
-        <button
-          onClick={() => { setCalValue(""); setEditingCal(true); }}
-          className="text-[10px] text-white/40 hover:text-white/60"
-          title="Ajouter des calories"
-        >
-          <Flame className="h-3 w-3" />
-        </button>
-      ))}
-      {editingPro ? (
-        <input
-          autoFocus
-          type="text"
-          inputMode="numeric"
-          value={proValue}
-          onChange={(e) => setProValue(e.target.value)}
-          onBlur={() => {
-            const trimmed = proValue.trim();
-            onProteinChange(trimmed || null);
-            setEditingPro(false);
-          }}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          className="w-16 h-5 text-[11px] bg-white/20 border border-white/40 rounded px-1 text-white placeholder:text-white/40 focus:outline-none"
-          placeholder="prot"
-        />
-      ) : displayPro ? (
-        <button
-          onClick={() => { setProValue(displayPro); setEditingPro(true); }}
-          className="text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px sm:py-0.5 rounded-full flex items-center justify-center shrink-0 max-w-full bg-black/30 hover:bg-black/40"
-          title="Modifier les protéines (temporaire)"
-        >
-          🍗 {displayPro}
-        </button>
-      ) : (
-        <button
-          onClick={() => { setProValue(""); setEditingPro(true); }}
-          className="text-[10px] text-white/40 hover:text-white/60"
-          title="Ajouter des protéines"
-        >
-          🍗
-        </button>
-      )}
-      {displayFiber ? (
-        <>
-          <span className="basis-full h-0 sm:hidden" />
-          <span
-            className="w-fit max-w-full text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px sm:py-0.5 rounded-full flex items-center justify-center shrink-0 ml-auto sm:ml-0 bg-black/30"
-            title="Fibres"
-          >
-            <Wheat className="h-2 w-2 sm:h-2.5 sm:w-2.5 mr-0.5" />
-            {displayFiber}
-          </span>
-        </>
-      ) : null}
-    </div>
-  ) : null;
-
-  return (
-    <div
-      draggable={!isTouchDevice}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchCancel}
-      onDoubleClick={onDoubleClick}
-      className={`${compact ? "w-fit max-w-full" : "w-full"} min-w-0 overflow-hidden rounded-xl text-white select-none
-        ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
-        transition-transform hover:scale-[1.01]
-        ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
-        ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
-      `}
-      style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
-    >
-      {/* Mobile : mise en page verticale */}
-      <div className="flex flex-col sm:hidden">
-        <div className="flex flex-col min-w-0 gap-0.5">
-          <div className="min-w-0 max-w-full overflow-hidden">
-            <div className="flex items-start gap-1 min-w-0 max-w-full">
-              <span className="text-[9px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-              <span className="block flex-1 min-w-0 max-w-full font-semibold text-[10px] leading-tight whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word]">{meal.name}</span>
-            </div>
-          </div>
-        </div>
-        {!compact && (dateBadgeLabel || meal.grams || visibleCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
-          <div className="mt-auto pt-0.5">
-            <div className="flex items-end justify-between gap-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-1 min-w-0">
-                {dateBadgeLabel && (
-                  <span className={getPlanningDateBadgeClassName(dateBadgeIsExpiration && expired)}>
-                    <Calendar className="h-2 w-2 inline" />
-                    {dateBadgeLabel}
-                  </span>
-                )}
-                {meal.grams && (
-                  <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                    <Weight className="h-2 w-2" />
-                    {meal.grams}
-                  </span>
-                )}
-              </div>
-              {macroControls}
-            </div>
-            {(pm.ingredients_override || meal.ingredients || pm.expiration_date) && (
-              <div className={`${meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 break-words whitespace-normal`}>
-                {!hideIngredients && (pm.ingredients_override || meal.ingredients) && (
-                  <StructuredIngredientInline
-                    compact
-                    ingredients={pm.ingredients_override ?? meal.ingredients}
-                    expiredIngredientNames={expiredIngredientNames}
-                    expiringSoonIngredientNames={expiringSoonIngredientNames}
-                    stockMap={stockMap}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Bureau : mise en page en deux colonnes — gauche (titre + date en bas), droite (badges) */}
-      <div className="hidden sm:flex flex-col items-stretch gap-0.5 min-w-0 max-w-full">
-        <div className="flex-1 min-w-0 flex flex-col justify-between">
-          <div className="flex items-start gap-1 min-w-0 max-w-full">
-            <span className="text-[11px] opacity-70 shrink-0">{getCategoryEmoji(meal.category)}</span>
-            <span className="block flex-1 min-w-0 max-w-full font-semibold text-xs leading-tight whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word]">{meal.name}</span>
-            {counterDays !== null ? (
-              <span
-                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border shrink-0
-                ${counterUrgent ? "bg-red-600 text-white border-red-300 shadow-md" : "bg-black/50 text-white border-white/30"}`}
-                title={counterBadgeTitle}
-              >
-                <Timer className="h-2.5 w-2.5" />
-                {counterDays}j
-              </span>
-            ) : null}
-          </div>
-          {!compact && (dateBadgeLabel || meal.grams || visibleCal || displayPro || displayFiber || pm.ingredients_override || meal.ingredients) && (
-            <div className="pt-0.5">
-              <div className="flex items-end justify-between gap-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-1 min-w-0">
-                  {dateBadgeLabel && (
-                  <span className={getPlanningDateBadgeClassName(dateBadgeIsExpiration && expired)}>
-                    <Calendar className="h-2 w-2 inline" />
-                    {dateBadgeLabel}
-                  </span>
-                  )}
-                  {meal.grams && (
-                    <span className="text-[9px] text-white/60 flex items-center gap-0.5">
-                      <Weight className="h-2 w-2" />
-                      {meal.grams}
-                    </span>
-                  )}
-                </div>
-                {macroControls}
-              </div>
-              {!hideIngredients && (pm.ingredients_override || meal.ingredients) && (
-                <div className={`${pm.expiration_date || meal.grams ? "mt-0.5" : ""} text-[9px] text-white/50 flex flex-wrap gap-x-1`}>
-                  <StructuredIngredientInline
-                    compact
-                    ingredients={pm.ingredients_override ?? meal.ingredients}
-                    expiredIngredientNames={expiredIngredientNames}
-                    expiringSoonIngredientNames={expiringSoonIngredientNames}
-                    stockMap={stockMap}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Vue principale du planning hebdomadaire : semaine courante / sauvegarde / suivante,
@@ -977,11 +218,6 @@ export function WeeklyPlanning({
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
   const foodMacroIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
   const { weekOffset, setWeekOffset, weekDates, todayISO } = usePlanningWeek();
-  const manualResetLockRef = useRef(false);
-  const [manualResetBusy, setManualResetBusy] = useState(false);
-  const restoreLockRef = useRef(false);
-  const [restoreBusy, setRestoreBusy] = useState(false);
-
   useSyncPlanningQueriesOnResume(qc);
 
   const isAvailableCb = useCallback((name: string) => {
@@ -1440,11 +676,6 @@ export function WeeklyPlanning({
   const slotDragRef = useRef<{ pmId: string; slotKey: string } | null>(null);
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
-  const touchDrag = useRef<TouchDragState | null>(null);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [touchDragActive, setTouchDragActive] = useState(false);
-  const [touchHighlight, setTouchHighlight] = useState<string | null>(null);
-
   const todayRef = useRef<HTMLDivElement | null>(null);
   const todayKey = JS_DAY_TO_KEY[new Date().getDay()];
   const isTouchDevice = typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window);
@@ -1597,6 +828,17 @@ export function WeeklyPlanning({
 
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
   const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
+
+  const { manualResetBusy, restoreBusy, handleManualReset, handleRestoreBackup } = usePlanningResetRestore({
+    qc,
+    possibleMeals,
+    weekDates,
+    calOverrides,
+    proOverrides,
+    getDayCalories,
+    getPreference,
+    setPreference,
+  });
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const planningSlotOverrides = getPreference<Record<string, { day: string; time: string }>>('planning_slot_overrides', {});
 
@@ -1612,6 +854,28 @@ export function WeeklyPlanning({
     }
     updatePlanningWithCounters(pmId, day, time);
   };
+
+  /** Retire une carte du planning (Hors planning) et purge l’override d’affichage. */
+  const clearPmPlanningSlot = (pmId: string) => {
+    const updated = { ...planningSlotOverrides };
+    delete updated[pmId];
+    setPreference.mutate({ key: "planning_slot_overrides", value: updated });
+    updatePlanningWithCounters(pmId, null, null);
+  };
+
+  const {
+    touchDragActive,
+    touchHighlight,
+    touchPressPending,
+    touchCancelHint,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
+    handleTouchCancel,
+  } = usePlanningTouchDrag({
+    assignPmToPlanningSlot,
+    clearPmPlanningSlot,
+  });
 
   /** Migre les anciens overrides goûter (affichage seul) vers un vrai meal_time persisté. */
   const migratedGouterOverridesRef = useRef(false);
@@ -1908,36 +1172,26 @@ export function WeeklyPlanning({
   };
 
   // Assigne un extra à un créneau précis du jour et le retire des autres créneaux du même jour.
-  const assignExtraToDaySlot = (extraId: string, iso: string, key: string, slot: 'matin' | 'midi' | 'soir' | 'gouter') => {
+  const assignExtraToDaySlot = (extraId: string, iso: string, key: string, slot: ExtraDaySlot) => {
     if (!extraId) return;
     ensureExtraSelectedForDay(extraId, iso, key);
     const selectedForDay = extraSelections[iso] || extraSelections[key] || [];
     const occurrenceCount = Math.max(1, selectedForDay.filter((id) => id === extraId).length);
-    const assignments = { ...extraSlotAssignments };
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    for (const s of slots) {
-      const kIso = `${iso}-${s}`;
-      const kKey = `${key}-${s}`;
-      if (s !== slot) {
-        if (assignments[kIso]?.includes(extraId)) assignments[kIso] = assignments[kIso].filter(x => x !== extraId);
-        if (assignments[kKey]?.includes(extraId)) assignments[kKey] = assignments[kKey].filter(x => x !== extraId);
-      }
-    }
-    const targetKey = iso ? `${iso}-${slot}` : `${key}-${slot}`;
-    const targetCur = assignments[targetKey] || [];
-    const withoutCurrentExtra = targetCur.filter((id) => id !== extraId);
-    assignments[targetKey] = [...withoutCurrentExtra, ...Array(occurrenceCount).fill(extraId)];
+    const assignments = assignExtraToDaySlotMap(
+      extraSlotAssignments,
+      extraId,
+      iso,
+      key,
+      slot,
+      occurrenceCount,
+    );
     setPreference.mutate({ key: 'planning_extra_slot_assignments', value: assignments });
   };
 
   // Retire un extra du créneau ciblé d’un jour (ne le désélectionne pas au niveau jour).
-  const removeExtraFromDaySlot = (extraId: string, iso: string, key: string, slot: 'matin' | 'midi' | 'soir' | 'gouter') => {
+  const removeExtraFromDaySlot = (extraId: string, iso: string, key: string, slot: ExtraDaySlot) => {
     if (!extraId) return;
-    const kIso = `${iso}-${slot}`;
-    const kKey = `${key}-${slot}`;
-    const updated = { ...extraSlotAssignments };
-    if (updated[kIso]?.includes(extraId)) updated[kIso] = updated[kIso].filter(x => x !== extraId);
-    if (updated[kKey]?.includes(extraId)) updated[kKey] = updated[kKey].filter(x => x !== extraId);
+    const updated = removeExtraFromDaySlotMap(extraSlotAssignments, extraId, iso, key, slot);
     setPreference.mutate({ key: 'planning_extra_slot_assignments', value: updated });
   };
 
@@ -1948,14 +1202,7 @@ export function WeeklyPlanning({
   // Retire un extra de tous les slots de la journée (retour dans la catégorie "Extras").
   const unassignExtraFromAllDaySlots = (extraId: string, iso: string, key: string) => {
     if (!extraId) return;
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    const updated = { ...extraSlotAssignments };
-    for (const s of slots) {
-      const kIso = `${iso}-${s}`;
-      const kKey = `${key}-${s}`;
-      if (updated[kIso]?.includes(extraId)) updated[kIso] = updated[kIso].filter(x => x !== extraId);
-      if (updated[kKey]?.includes(extraId)) updated[kKey] = updated[kKey].filter(x => x !== extraId);
-    }
+    const updated = unassignExtraFromAllDaySlotsMap(extraSlotAssignments, extraId, iso, key);
     setPreference.mutate({ key: 'planning_extra_slot_assignments', value: updated });
   };
 
@@ -1993,25 +1240,6 @@ export function WeeklyPlanning({
     }
   };
 
-  // Retire une seule occurrence d'un extra dans une sélection de journée.
-  const removeOneExtraOccurrenceForDay = (selection: Record<string, string[]>, dayIso: string, dayKey: string, extraId: string) => {
-    const next = { ...selection };
-    const isoList = [...(next[dayIso] || [])];
-    const keyList = [...(next[dayKey] || [])];
-    const isoIdx = isoList.lastIndexOf(extraId);
-    if (isoIdx >= 0) {
-      isoList.splice(isoIdx, 1);
-      next[dayIso] = isoList;
-      return next;
-    }
-    const keyIdx = keyList.lastIndexOf(extraId);
-    if (keyIdx >= 0) {
-      keyList.splice(keyIdx, 1);
-      next[dayKey] = keyList;
-    }
-    return next;
-  };
-
   // Déplace un extra entre deux jours en évitant les courses d'écritures (suppression + ajout atomiques).
   const moveExtraBetweenDaysToSlot = (
     extraId: string,
@@ -2019,38 +1247,19 @@ export function WeeklyPlanning({
     sourceKey: string,
     targetIso: string,
     targetKey: string,
-    targetSlot: 'matin' | 'midi' | 'soir' | 'gouter'
+    targetSlot: ExtraDaySlot,
   ) => {
     if (!extraId) return;
-
-    const nextSelections = removeOneExtraOccurrenceForDay(extraSelections, sourceIso, sourceKey, extraId);
-    const targetCurrent = nextSelections[targetIso] || nextSelections[targetKey] || [];
-    if (!targetCurrent.includes(extraId)) {
-      nextSelections[targetIso] = [...targetCurrent, extraId];
-    }
-
-    const nextAssignments = { ...extraSlotAssignments };
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    for (const s of slots) {
-      const sIso = `${sourceIso}-${s}`;
-      const sKey = `${sourceKey}-${s}`;
-      if (nextAssignments[sIso]?.includes(extraId)) nextAssignments[sIso] = nextAssignments[sIso].filter((x) => x !== extraId);
-      if (nextAssignments[sKey]?.includes(extraId)) nextAssignments[sKey] = nextAssignments[sKey].filter((x) => x !== extraId);
-    }
-
-    for (const s of slots) {
-      if (s === targetSlot) continue;
-      const tIso = `${targetIso}-${s}`;
-      const tKey = `${targetKey}-${s}`;
-      if (nextAssignments[tIso]?.includes(extraId)) nextAssignments[tIso] = nextAssignments[tIso].filter((x) => x !== extraId);
-      if (nextAssignments[tKey]?.includes(extraId)) nextAssignments[tKey] = nextAssignments[tKey].filter((x) => x !== extraId);
-    }
-    const targetAssignKey = `${targetIso}-${targetSlot}`;
-    const targetAssigned = nextAssignments[targetAssignKey] || [];
-    if (!targetAssigned.includes(extraId)) {
-      nextAssignments[targetAssignKey] = [...targetAssigned, extraId];
-    }
-
+    const { selections: nextSelections, assignments: nextAssignments } = moveExtraBetweenDaysToSlotMaps(
+      extraSelections,
+      extraSlotAssignments,
+      extraId,
+      sourceIso,
+      sourceKey,
+      targetIso,
+      targetKey,
+      targetSlot,
+    );
     setPreference.mutate({ key: 'planning_extra_selections', value: nextSelections });
     setPreference.mutate({ key: 'planning_extra_slot_assignments', value: nextAssignments });
   };
@@ -2071,7 +1280,7 @@ export function WeeklyPlanning({
     extraId: string,
     iso: string,
     key: string,
-    slot: 'matin' | 'midi' | 'soir' | 'gouter',
+    slot: ExtraDaySlot,
   ) => {
     if (!extraId) return;
     const updatedSel = { ...nextExtraSelections };
@@ -2082,20 +1291,14 @@ export function WeeklyPlanning({
     }
     const selectedForDay = updatedSel[iso] || updatedSel[key] || [];
     const occurrenceCount = Math.max(1, selectedForDay.filter((id) => id === extraId).length);
-    const assignments = { ...nextExtraSlotAssignments };
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    for (const s of slots) {
-      const kIso = `${iso}-${s}`;
-      const kKey = `${key}-${s}`;
-      if (s !== slot) {
-        if (assignments[kIso]?.includes(extraId)) assignments[kIso] = assignments[kIso].filter((x) => x !== extraId);
-        if (assignments[kKey]?.includes(extraId)) assignments[kKey] = assignments[kKey].filter((x) => x !== extraId);
-      }
-    }
-    const targetKey = iso ? `${iso}-${slot}` : `${key}-${slot}`;
-    const targetCur = assignments[targetKey] || [];
-    const withoutCurrentExtra = targetCur.filter((id) => id !== extraId);
-    assignments[targetKey] = [...withoutCurrentExtra, ...Array(occurrenceCount).fill(extraId)];
+    const assignments = assignExtraToDaySlotMap(
+      nextExtraSlotAssignments,
+      extraId,
+      iso,
+      key,
+      slot,
+      occurrenceCount,
+    );
     setPreference.mutate({ key: 'next_week_extra_selections', value: updatedSel });
     setPreference.mutate({ key: 'next_week_extra_slot_assignments', value: assignments });
   };
@@ -2103,14 +1306,7 @@ export function WeeklyPlanning({
   // Retire un extra de tous les créneaux d'un jour (semaine suivante).
   const unassignNextExtraFromAllDaySlots = (extraId: string, iso: string, key: string) => {
     if (!extraId) return;
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    const updated = { ...nextExtraSlotAssignments };
-    for (const s of slots) {
-      const kIso = `${iso}-${s}`;
-      const kKey = `${key}-${s}`;
-      if (updated[kIso]?.includes(extraId)) updated[kIso] = updated[kIso].filter((x) => x !== extraId);
-      if (updated[kKey]?.includes(extraId)) updated[kKey] = updated[kKey].filter((x) => x !== extraId);
-    }
+    const updated = unassignExtraFromAllDaySlotsMap(nextExtraSlotAssignments, extraId, iso, key);
     setPreference.mutate({ key: 'next_week_extra_slot_assignments', value: updated });
   };
 
@@ -2197,34 +1393,19 @@ export function WeeklyPlanning({
     sourceKey: string,
     targetIso: string,
     targetKey: string,
-    targetSlot: 'matin' | 'midi' | 'soir' | 'gouter',
+    targetSlot: ExtraDaySlot,
   ) => {
     if (!extraId) return;
-    const nextSelections = removeOneExtraOccurrenceForDay(nextExtraSelections, sourceIso, sourceKey, extraId);
-    const targetCurrent = nextSelections[targetIso] || nextSelections[targetKey] || [];
-    if (!targetCurrent.includes(extraId)) {
-      nextSelections[targetIso] = [...targetCurrent, extraId];
-    }
-    const nextAssignments = { ...nextExtraSlotAssignments };
-    const slots: Array<'matin' | 'midi' | 'soir' | 'gouter'> = ['matin', 'midi', 'soir', 'gouter'];
-    for (const s of slots) {
-      const sIso = `${sourceIso}-${s}`;
-      const sKey = `${sourceKey}-${s}`;
-      if (nextAssignments[sIso]?.includes(extraId)) nextAssignments[sIso] = nextAssignments[sIso].filter((x) => x !== extraId);
-      if (nextAssignments[sKey]?.includes(extraId)) nextAssignments[sKey] = nextAssignments[sKey].filter((x) => x !== extraId);
-    }
-    for (const s of slots) {
-      if (s === targetSlot) continue;
-      const tIso = `${targetIso}-${s}`;
-      const tKey = `${targetKey}-${s}`;
-      if (nextAssignments[tIso]?.includes(extraId)) nextAssignments[tIso] = nextAssignments[tIso].filter((x) => x !== extraId);
-      if (nextAssignments[tKey]?.includes(extraId)) nextAssignments[tKey] = nextAssignments[tKey].filter((x) => x !== extraId);
-    }
-    const targetAssignKey = `${targetIso}-${targetSlot}`;
-    const targetAssigned = nextAssignments[targetAssignKey] || [];
-    if (!targetAssigned.includes(extraId)) {
-      nextAssignments[targetAssignKey] = [...targetAssigned, extraId];
-    }
+    const { selections: nextSelections, assignments: nextAssignments } = moveExtraBetweenDaysToSlotMaps(
+      nextExtraSelections,
+      nextExtraSlotAssignments,
+      extraId,
+      sourceIso,
+      sourceKey,
+      targetIso,
+      targetKey,
+      targetSlot,
+    );
     setPreference.mutate({ key: 'next_week_extra_selections', value: nextSelections });
     setPreference.mutate({ key: 'next_week_extra_slot_assignments', value: nextAssignments });
   };
@@ -2244,10 +1425,12 @@ export function WeeklyPlanning({
       const iso = day;
       const dayKeyFromIso = weekDates.find((w) => w.iso === iso)?.key || '';
       const origin = draggedSelectedExtraOrigin;
-      if (origin && origin.iso && origin.iso !== iso) {
-        moveNextExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
-      } else {
-        assignNextExtraToDaySlot(extraId, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+      if (isExtraDaySlot(time)) {
+        if (origin && origin.iso && origin.iso !== iso) {
+          moveNextExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, dayKeyFromIso, time);
+        } else {
+          assignNextExtraToDaySlot(extraId, iso, dayKeyFromIso, time);
+        }
       }
       setDraggedSelectedExtraId(null);
       setDraggedSelectedExtraOrigin(null);
@@ -2263,16 +1446,16 @@ export function WeeklyPlanning({
       assignPmToPlanningSlot(pmId, day, time);
       return;
     }
-    // Drop d’un extra sélectionné dans ce créneau (midi/soir uniquement côté TIMES).
+    // Drop d’un extra sélectionné dans ce créneau (matin/midi/goûter/soir).
     const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-    if (extraId) {
+    if (extraId && isExtraDaySlot(time)) {
       const iso = day;
       const dayKeyFromIso = weekDates.find(w => w.iso === iso)?.key || '';
       const origin = draggedSelectedExtraOrigin;
       if (origin && origin.iso && origin.iso !== iso) {
-        moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+        moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, dayKeyFromIso, time);
       } else {
-        assignExtraToDaySlot(extraId, iso, dayKeyFromIso, time as 'midi' | 'soir' | 'gouter');
+        assignExtraToDaySlot(extraId, iso, dayKeyFromIso, time);
       }
       setDraggedSelectedExtraId(null);
       setDraggedSelectedExtraOrigin(null);
@@ -2287,7 +1470,7 @@ export function WeeklyPlanning({
     if (extraId) {
       const targetDay = targetPm.day_of_week;
       const targetTime = targetPm.meal_time;
-      if (targetDay && (targetTime === 'matin' || targetTime === 'midi' || targetTime === 'soir' || targetTime === 'gouter')) {
+      if (targetDay && isExtraDaySlot(targetTime)) {
         const dayKeyFromIso = weekDates.find(w => w.iso === targetDay)?.key || '';
         const origin = draggedSelectedExtraOrigin;
         if (origin && origin.iso && origin.iso !== targetDay) {
@@ -2325,141 +1508,12 @@ export function WeeklyPlanning({
     e.preventDefault();
     setDragOverUnplanned(false);
     const pmId = e.dataTransfer.getData("pmId");
-    if (pmId) {
-      const updated = { ...planningSlotOverrides };
-      delete updated[pmId];
-      setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-      updatePlanningWithCounters(pmId, null, null);
-    }
+    if (pmId) clearPmPlanningSlot(pmId);
   };
 
-  const handleTouchStart = (e: React.TouchEvent, pm: PossibleMeal) => {
-    const touch = e.touches[0];
-    const origEl = e.currentTarget as HTMLElement;
-    const rect = origEl.getBoundingClientRect();
-
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-
-    longPressTimer.current = setTimeout(() => {
-      if (navigator.vibrate) navigator.vibrate(40);
-      document.body.style.overflow = "hidden";
-      document.body.style.touchAction = "none";
-
-      const ghost = origEl.cloneNode(true) as HTMLElement;
-      ghost.style.cssText = `
-        position: fixed;
-        top: ${rect.top}px;
-        left: ${rect.left}px;
-        width: ${rect.width}px;
-        z-index: 9999;
-        pointer-events: none;
-        opacity: 0.85;
-        transform: scale(1.05);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-        transition: none;
-      `;
-      document.body.appendChild(ghost);
-
-      touchDrag.current = {
-        pmId: pm.id,
-        ghost,
-        startX: touch.clientX,
-        startY: touch.clientY,
-        origTop: rect.top,
-        origLeft: rect.left,
-      };
-      setTouchDragActive(true);
-    }, 500);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchDrag.current) {
-      e.preventDefault();
-    } else if (!longPressTimer.current) {
-      return;
-    } else {
-      return;
-    }
-
-    e.preventDefault();
-    const touch = e.touches[0];
-    const state = touchDrag.current;
-    const dx = touch.clientX - state.startX;
-    const dy = touch.clientY - state.startY;
-
-    state.ghost.style.top = `${state.origTop + dy}px`;
-    state.ghost.style.left = `${state.origLeft + dx}px`;
-
-    state.ghost.style.visibility = "hidden";
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    state.ghost.style.visibility = "visible";
-
-    const slotEl = el?.closest("[data-slot]");
-    if (slotEl) {
-      const day = slotEl.getAttribute("data-day")!;
-      const time = slotEl.getAttribute("data-time")!;
-      setTouchHighlight(`${day}-${time}`);
-    } else if (el?.closest("[data-unplanned]")) {
-      setTouchHighlight("unplanned");
-    } else {
-      setTouchHighlight(null);
-    }
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-
-    const state = touchDrag.current;
-    if (!state) return;
-
-    touchDrag.current = null;
-    setTouchDragActive(false);
-    setTouchHighlight(null);
-    document.body.style.overflow = "";
-    document.body.style.touchAction = "";
-
-    const touch = e.changedTouches[0];
-    state.ghost.style.visibility = "hidden";
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    state.ghost.remove();
-
-    const slotEl = el?.closest("[data-slot]");
-    if (slotEl) {
-      const day = slotEl.getAttribute("data-day")!;
-      const time = slotEl.getAttribute("data-time")!;
-      assignPmToPlanningSlot(state.pmId, day, time);
-    } else if (el?.closest("[data-unplanned]")) {
-      const updated = { ...planningSlotOverrides };
-      delete updated[state.pmId];
-      setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-      updatePlanningWithCounters(state.pmId, null, null);
-    }
-  };
-
-  const handleTouchCancel = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    if (touchDrag.current) {
-      touchDrag.current.ghost.remove();
-      touchDrag.current = null;
-    }
-    setTouchDragActive(false);
-    setTouchHighlight(null);
-    document.body.style.overflow = "";
-    document.body.style.touchAction = "";
-  };
-
+  /** Retire une carte d’un créneau via le bouton × de la mini-carte. */
   const handleRemoveFromSlot = (pm: PossibleMeal) => {
-    const updated = { ...planningSlotOverrides };
-    delete updated[pm.id];
-    setPreference.mutate({ key: 'planning_slot_overrides', value: updated });
-    updatePlanningWithCounters(pm.id, null, null);
+    clearPmPlanningSlot(pm.id);
   };
 
   const renderMiniCard = (pm: PossibleMeal, compact = false, hideIngredients = false) => {
@@ -2605,29 +1659,6 @@ export function WeeklyPlanning({
     setPreference.mutate({ key: PLANNING_DAILY_CALORIE_HISTORY_KEY, value: repairedDailyCalorieHistory });
   }, [getPreference, repairedDailyCalorieHistory, setPreference]);
 
-  /** Corrige la plage ISO de la sauvegarde si elle ne couvre pas toute la semaine précédente. */
-  const backupRangePatchedRef = useRef(false);
-  useEffect(() => {
-    if (backupRangePatchedRef.current) return;
-    const backupRaw = getPreference<unknown>("possible_meals_backup", null);
-    const backupFull =
-      backupRaw && typeof backupRaw === "object" && !Array.isArray(backupRaw)
-        ? (backupRaw as PossibleMealsFullBackup)
-        : null;
-    if (!backupFull) return;
-    const previousWeekDates = buildWeekDates(-1, new Date());
-    const startISO = previousWeekDates[0]?.iso ?? "";
-    const endISO = previousWeekDates[previousWeekDates.length - 1]?.iso ?? "";
-    if (!startISO || !endISO) return;
-    const patched = withExplicitBackupWeekRange(backupFull, startISO, endISO);
-    if (patched === backupFull) {
-      backupRangePatchedRef.current = true;
-      return;
-    }
-    backupRangePatchedRef.current = true;
-    setPreference.mutate({ key: "possible_meals_backup", value: patched });
-  }, [getPreference, setPreference]);
-
   const rollingCalorieStats = useMemo(() => {
     const currentWeekIsos = new Set(buildWeekDates(0, new Date()).map((d) => d.iso));
     const backupRaw = getPreference<unknown>("possible_meals_backup", null);
@@ -2688,92 +1719,6 @@ export function WeeklyPlanning({
     rolling14DaysCounted,
   } = rollingCalorieStats;
 
-  const handleRestoreBackup = async () => {
-    if (restoreLockRef.current) return;
-    const userId = (await supabase.auth.getUser()).data.user?.id;
-    if (!userId) {
-      toast({ title: "Non connecté", description: "Utilisateur non connecté.", variant: "destructive" });
-      return;
-    }
-
-    let raw: any;
-    try {
-      const { data, error } = await supabase
-        .from("user_preferences")
-        .select("value")
-        .eq("key", "possible_meals_backup")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (error) throw error;
-      raw = data?.value;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast({ title: "Lecture sauvegarde impossible", description: msg, variant: "destructive" });
-      return;
-    }
-
-    const isNewFormat = raw && !Array.isArray(raw) && raw.cards;
-    const backup: any[] = isNewFormat ? raw.cards : (Array.isArray(raw) ? raw : []);
-    if (backup.length === 0) {
-      toast({ title: "Aucune sauvegarde", description: "Aucune donnée à restaurer.", variant: "destructive" });
-      return;
-    }
-    if (!confirm(`Restaurer ${backup.length} carte(s) possible(s) ?`)) return;
-
-    restoreLockRef.current = true;
-    setRestoreBusy(true);
-    try {
-      const inserts = backup.map((pm: any) =>
-        (supabase as any).from("possible_meals").insert({
-          meal_id: pm.meal_id,
-          quantity: pm.quantity,
-          expiration_date: pm.expiration_date,
-          day_of_week: pm.day_of_week,
-          meal_time: pm.meal_time,
-          counter_start_date: pm.counter_start_date,
-          sort_order: pm.sort_order,
-          ingredients_override: pm.ingredients_override,
-        })
-      );
-      const results = await Promise.all(inserts);
-      for (const r of results) {
-        if (r.error) throw new Error(r.error.message);
-      }
-
-      if (isNewFormat) {
-        if (raw.manualCalories) setPreference.mutate({ key: "planning_manual_calories", value: raw.manualCalories });
-        if (raw.manualProteins) setPreference.mutate({ key: "planning_manual_proteins", value: raw.manualProteins });
-        if (raw.extraCalories) setPreference.mutate({ key: "planning_extra_calories", value: raw.extraCalories });
-        if (raw.extraProteins) setPreference.mutate({ key: "planning_extra_proteins", value: raw.extraProteins });
-        if (raw.extraSelections) setPreference.mutate({ key: "planning_extra_selections", value: raw.extraSelections });
-        if (raw.breakfastManualCalories) setPreference.mutate({ key: "planning_breakfast_manual_calories", value: raw.breakfastManualCalories });
-        if (raw.breakfastManualProteins) setPreference.mutate({ key: "planning_breakfast_manual_proteins", value: raw.breakfastManualProteins });
-        if (raw.breakfastSelections) setPreference.mutate({ key: "planning_breakfast", value: raw.breakfastSelections });
-        if (raw.drinkChecks) setPreference.mutate({ key: "planning_drink_checks", value: raw.drinkChecks });
-        if (raw.calOverrides) setPreference.mutate({ key: "planning_cal_overrides", value: raw.calOverrides });
-        if (raw.proOverrides) setPreference.mutate({ key: "planning_pro_overrides", value: raw.proOverrides });
-        if (raw.daily_goal) {
-          setPreference.mutate({ key: "planning_daily_goal", value: raw.daily_goal });
-          setPreference.mutate({ key: "next_week_daily_goal", value: raw.daily_goal });
-        }
-        if (raw.protein_goal) {
-          setPreference.mutate({ key: "planning_protein_goal", value: raw.protein_goal });
-          setPreference.mutate({ key: "next_week_protein_goal", value: raw.protein_goal });
-        }
-      }
-
-      await qc.invalidateQueries({ queryKey: ["possible_meals"] });
-      await qc.invalidateQueries({ queryKey: ["user_preferences"] });
-      toast({ title: "Sauvegarde restaurée", description: `${backup.length} carte(s) réimportée(s).` });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast({ title: "Restauration échouée", description: msg, variant: "destructive" });
-    } finally {
-      restoreLockRef.current = false;
-      setRestoreBusy(false);
-    }
-  };
-
   const handleGlobalCalBlur = (val: number) => {
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_daily_goal", value: val });
     else {
@@ -2814,76 +1759,29 @@ export function WeeklyPlanning({
     }
   };
 
-  const handleManualReset = async () => {
-    if (!confirm('Réinitialiser le planning ? Les cartes seront supprimées et les valeurs sauvegardées (💾) seront restaurées.')) return;
-    if (manualResetLockRef.current) return;
-    manualResetLockRef.current = true;
-    setManualResetBusy(true);
-    try {
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      if (!userId) {
-        toast({ title: "Non connecté", description: "Session invalide.", variant: "destructive" });
-        return;
-      }
-
-      const { snapshots, prefMap } = await fetchSnapshotsAndPrefsParallel(userId);
-
-      await qc.refetchQueries({ queryKey: ["possible_meals"] });
-      const freshPM =
-        (qc.getQueryData<PossibleMeal[]>(["possible_meals"]) as PossibleMeal[] | undefined) ?? possibleMeals;
-
-      const previousWeekDates = buildWeekDates(-1, new Date());
-      const preservedPreviousWeek = {
-        startISO: previousWeekDates[0]?.iso ?? "",
-        endISO: previousWeekDates[previousWeekDates.length - 1]?.iso ?? "",
-      };
-
-      const fullBackup = buildFullBackupPayload(freshPM, prefMap, {
-        startISO: preservedPreviousWeek.startISO,
-        endISO: preservedPreviousWeek.endISO,
-      });
-      await upsertPossibleMealsFullBackup(userId, fullBackup);
-
-      const backupCtx = parseBackupCalorieContext(fullBackup, calOverrides, proOverrides);
-      if (backupCtx) {
-        const liveDayTotals = captureLiveWeekTotalsForHistory(previousWeekDates, getDayCalories);
-        const nextHistory = buildUpdatedDailyCalorieHistory(
-          asNumberRecord(prefMap[PLANNING_DAILY_CALORIE_HISTORY_KEY]),
-          liveDayTotals,
-        );
-        setPreference.mutate({ key: PLANNING_DAILY_CALORIE_HISTORY_KEY, value: nextHistory });
-      }
-
-      const ids = getPossibleMealIdsToDeleteOnManualReset(freshPM, preservedPreviousWeek);
-      await deletePossibleMealsByIds(ids);
-
-      const prunedSnapshots = pruneStaleIsoSnapshotsForTargetWeek(snapshots, weekDates);
-      setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
-
-      const merged = mergeSnapshotsIntoLivePrefMap(prefMap, prunedSnapshots, weekDates);
-      const goals = resolvePostResetGoals(prefMap);
-      pushWeeklyResetClientPreferences(
-        setPreference,
-        merged,
-        goals,
-        new Date().toISOString(),
-        "manual_button"
-      );
-
-      await qc.invalidateQueries({ queryKey: ["possible_meals"] });
-      await qc.invalidateQueries({ queryKey: ["user_preferences"] });
-      toast({ title: "Planning réinitialisé", description: "Les cartes ont été supprimées ; l’état 💾 a été réappliqué." });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast({ title: "Échec du reset", description: msg, variant: "destructive" });
-    } finally {
-      manualResetLockRef.current = false;
-      setManualResetBusy(false);
-    }
-  };
-
   return (
     <div className={`max-w-4xl mx-auto space-y-3 overflow-x-hidden planning-responsive ${touchDragActive ? "touch-none" : ""}`}>
+      {(touchPressPending || touchDragActive || touchCancelHint) && (
+        <div
+          className="fixed bottom-4 left-1/2 z-[10000] -translate-x-1/2 pointer-events-none px-3 py-1.5 rounded-full text-[11px] font-semibold shadow-lg border backdrop-blur-sm"
+          style={{
+            background: touchCancelHint
+              ? "rgba(120,40,40,0.88)"
+              : touchDragActive
+                ? "rgba(30,30,30,0.88)"
+                : "rgba(40,40,60,0.85)",
+            color: "#fff",
+            borderColor: "rgba(255,255,255,0.2)",
+          }}
+          role="status"
+        >
+          {touchCancelHint
+            ? touchCancelHint
+            : touchDragActive
+              ? "Relâche sur un créneau · Escape pour annuler"
+              : "Maintenir pour déplacer"}
+        </div>
+      )}
       <PlanningHeader
         weekOffset={weekOffset}
         onWeekOffsetChange={setWeekOffset}
@@ -2993,413 +1891,110 @@ export function WeeklyPlanning({
             getMealPro,
           });
           return (
-            <div
+            <PlanningDayColumn
               key={iso}
-              ref={isToday_ ? todayRef : undefined}
-              className={`rounded-2xl p-2 sm:p-4 transition-all ${isToday_ ? "bg-primary/10 ring-2 ring-primary/40" : "bg-card/80 backdrop-blur-sm"}`}
-            >
-              <div className="flex items-start gap-2 mb-2 flex-wrap">
-                <h3
-                  className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isToday_ ? "text-primary" : "text-foreground"}`}
-                >
-                  {display}
-                  {isToday_ && (
-                    <span className="text-[10px] bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-semibold">
-                      Aujourd'hui
-                    </span>
-                  )}
-                </h3>
-                <div
-                  className={`rounded-xl border border-dashed px-2 py-2 transition-colors ${isBreakfastDragOver ? 'border-primary/60 bg-primary/7 ring-1 ring-primary/20' : 'border-border/55 bg-background/10 hover:border-primary/40'}`}
-                  onDragOver={(e) => {
-                    const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
-                    if (!canAccept) return;
-                    e.preventDefault();
-                    setDragOverSlot(breakfastDropKey);
-                  }}
-                  onDragLeave={() => setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))}
-                  onDrop={(e) => {
-                    const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
-                    if (!extraId) return;
-                    e.preventDefault();
-                    const origin = draggedSelectedExtraOrigin;
-                    if (origin && origin.iso && origin.iso !== iso) {
-                      moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, key, 'matin');
-                    } else {
-                      assignExtraToDaySlot(extraId, iso, key, 'matin');
+              dayIso={iso}
+              display={display}
+              isToday={isToday_}
+              columnRef={isToday_ ? todayRef : undefined}
+              breakfastBlock={(
+                <PlanningBreakfastBlock
+                  dayKey={key}
+                  dayIso={iso}
+                  isBreakfastDragOver={isBreakfastDragOver}
+                  breakfastDropKey={breakfastDropKey}
+                  liveBreakfastBreakdown={liveBreakfastBreakdown}
+                  breakfastTotalCals={breakfastTotalCals}
+                  breakfastTotalPro={breakfastTotalPro}
+                  breakfastTotalFiber={breakfastTotalFiber}
+                  hideDayCalorieTotals={hideDayCalorieTotals}
+                  breakfastSelections={breakfastSelections}
+                  breakfastManualCalories={breakfastManualCalories}
+                  breakfastManualProteins={breakfastManualProteins}
+                  autoConsumeBreakfast={autoConsumeBreakfast}
+                  possiblePetitDej={possiblePetitDej}
+                  petitDejMeals={petitDejMeals}
+                  weekDates={weekDates}
+                  matinMeals={matinMeals}
+                  breakfastAssignedSlotIds={breakfastAssignedSlotIds}
+                  foodItems={foodItems}
+                  singleIngredientDessertById={singleIngredientDessertById}
+                  savedSnapshots={savedSnapshots}
+                  flashedKeys={flashedKeys}
+                  setFlashedKeys={setFlashedKeys}
+                  weekOffset={weekOffset}
+                  nextBreakfastSelections={nextBreakfastSelections}
+                  nextBreakfastManualCalories={nextBreakfastManualCalories}
+                  nextBreakfastManualProteins={nextBreakfastManualProteins}
+                  jsDayToKey={JS_DAY_TO_KEY}
+                  draggedSelectedExtraId={draggedSelectedExtraId}
+                  draggedSelectedExtraOrigin={draggedSelectedExtraOrigin}
+                  setDragOverSlot={setDragOverSlot}
+                  setDraggedSelectedExtraId={setDraggedSelectedExtraId}
+                  setDraggedSelectedExtraOrigin={setDraggedSelectedExtraOrigin}
+                  moveExtraBetweenDaysToSlot={moveExtraBetweenDaysToSlot}
+                  assignExtraToDaySlot={assignExtraToDaySlot}
+                  getBreakfastForDay={getBreakfastForDay}
+                  setPopupBreakfast={setPopupBreakfast}
+                  setBreakfastForDay={setBreakfastForDay}
+                  updatePlanningWithCounters={updatePlanningWithCounters}
+                  setPreference={setPreference}
+                  getMealCal={getMealCal}
+                  getMealPro={getMealPro}
+                  deselectExtraForDay={deselectExtraForDay}
+                />
+              )}
+              goalsBar={(
+                <PlanningDayGoalsBar
+                  dayCalories={dayCalories}
+                  dayProtein={getDayProtein(key, iso)}
+                  dayFiber={dayFiber}
+                  dailyGoal={DAILY_GOAL}
+                  dailyGoalLow={DAILY_GOAL_LOW}
+                  dailyProteinGoal={DAILY_PROTEIN_GOAL_PREF}
+                  dailyFiberGoal={DAILY_FIBER_GOAL_PREF}
+                  hideDayCalorieTotals={hideDayCalorieTotals}
+                  editingGoal={editingGoal}
+                  goalInput={goalInput}
+                  editingProteinGoal={editingProteinGoal}
+                  proteinGoalInput={proteinGoalInput}
+                  editingFiberGoal={editingFiberGoal}
+                  fiberGoalInput={fiberGoalInput}
+                  onStartEditGoal={() => { setEditingGoal(true); setGoalInput(String(DAILY_GOAL)); }}
+                  onGoalInputChange={setGoalInput}
+                  onGoalBlur={() => {
+                    const val = parseInt(goalInput);
+                    if (val && val > 0) {
+                      setPreference.mutate({ key: 'planning_daily_goal', value: val });
+                      setPreference.mutate({ key: 'next_week_daily_goal', value: val });
                     }
-                    setDraggedSelectedExtraId(null);
-                    setDraggedSelectedExtraOrigin(null);
-                    setDragOverSlot(null);
+                    setEditingGoal(false);
                   }}
-                >
-                {/* Sélecteur de petit déj */}
-                <div className="flex items-center gap-1 flex-wrap">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors truncate max-w-[120px] ${
-                          (() => {
-                            return liveBreakfastBreakdown.length > 0
-                              ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50"
-                              : "bg-slate-200/80 dark:bg-slate-700/45 text-slate-700 dark:text-slate-300 border border-dashed border-slate-400/50 dark:border-slate-500/50 hover:bg-slate-300/80 dark:hover:bg-slate-600/50";
-                          })()
-                        }`}
-                        onDoubleClick={() => {
-                          const bm = getBreakfastForDay(key, iso);
-                          if (bm) setPopupBreakfast({ meal: bm, day: iso });
-                        }}
-                      >
-                        {(() => {
-                          if (liveBreakfastBreakdown.length > 1) return 'Plusieurs petits déj';
-                          if (liveBreakfastBreakdown.length === 1) return liveBreakfastBreakdown[0].name;
-                          return '🥐 Petit déj';
-                        })()}
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-56 p-2" align="start">
-                      {liveBreakfastBreakdown.length > 1 && (
-                        <>
-                          <BreakfastBreakdownList
-                            items={liveBreakfastBreakdown}
-                            totalCal={breakfastTotalCals}
-                            totalPro={breakfastTotalPro}
-                          />
-                          <Separator className="my-2" />
-                        </>
-                      )}
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petit déjeuner</p>
-                      <div className="space-y-0.5 max-h-48 overflow-y-auto">
-                        <button onClick={() => setBreakfastForDay(iso, null)} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">
-                          — Aucun
-                        </button>
-                        {possiblePetitDej.length > 0 && (
-                          <>
-                            <p className="text-[9px] text-muted-foreground/60 px-2 font-semibold uppercase tracking-wide">Possible</p>
-                            {possiblePetitDej.map(pm => {
-                              const displayIng = pm.ingredients_override ?? pm.meals?.ingredients;
-                              const calDisplay = getMealCal(pm.meals || {}, pm.ingredients_override);
-                              const proDisplay = getMealPro(pm.meals || {}, pm.ingredients_override);
-                              const pmSelId = `pm:${pm.id}`;
-                              const isMatinSelected = (pm.day_of_week === key || pm.day_of_week === iso) && pm.meal_time === 'matin';
-                              const isDropdownSelected = Boolean(iso && breakfastSelections[iso] === pmSelId);
-                              const isSelected = isMatinSelected || isDropdownSelected;
-                              // Trouver les autres jours où ce petit déjeuner est sélectionné
-                              const otherDays = weekDates.filter(wd => wd.iso !== iso && (breakfastSelections[wd.iso] === pmSelId || breakfastSelections[wd.key] === pmSelId || (pm.day_of_week === wd.iso && pm.meal_time === 'matin') || (pm.day_of_week === wd.key && pm.meal_time === 'matin')));
-                              const otherDaysLabel = otherDays.length > 0 ? otherDays.map(d => d.display.slice(0, 3)).join(', ') : null;
-                              return (
-                                <button key={pm.id} onClick={() => {
-                                  if (isDropdownSelected) setBreakfastForDay(iso, null);
-                                  if (isSelected) {
-                                    updatePlanningWithCounters(pm.id, null, null);
-                                  } else {
-                                    updatePlanningWithCounters(pm.id, iso, 'matin');
-                                  }
-                                }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : otherDaysLabel ? 'bg-amber-100/40 text-amber-900 dark:text-amber-100' : ''}`}>
-                                  {pm.meals?.name} {pm.ingredients_override ? '✏️' : ''} {((!hideDayCalorieTotals && calDisplay) || proDisplay) ? <span className="inline-flex items-center gap-0.5 ml-1 text-muted-foreground">({!hideDayCalorieTotals && calDisplay ? <><Flame className="w-2.5 h-2.5 text-orange-500" />{calDisplay}</> : ''}{!hideDayCalorieTotals && calDisplay && proDisplay ? ' · ' : ''}{proDisplay ? `🍗${proDisplay}` : ''})</span> : ''}
-                                  {otherDaysLabel && <span className="ml-1 text-[9px] text-amber-600 dark:text-amber-400 font-bold">📅 {otherDaysLabel}</span>}
-                                </button>
-                              );
-                            })}
-                            <div className="border-t border-border/40 my-1" />
-                          </>
-                        )}
-                        <p className="text-[9px] text-muted-foreground/60 px-2 font-semibold uppercase tracking-wide">Tous</p>
-                        {petitDejMeals.map(m => {
-                          const calDisplay = getMealCal(m);
-                          const proDisplay = getMealPro(m);
-                          const mealSelId = `meal:${m.id}`;
-                          const isSelected = Boolean(iso && breakfastSelections[iso] === mealSelId);
-                          const otherDays = weekDates.filter(wd => wd.iso !== iso && (breakfastSelections[wd.iso] === mealSelId || breakfastSelections[wd.key] === mealSelId));
-                          const otherDaysLabel = otherDays.length > 0 ? otherDays.map(d => d.display.slice(0, 3)).join(', ') : null;
-                          return (
-                            <button key={m.id} onClick={() => {
-                              if (isSelected) setBreakfastForDay(iso, null);
-                              else setBreakfastForDay(iso, mealSelId);
-                            }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : otherDaysLabel ? 'bg-amber-100/40 text-amber-900 dark:text-amber-100' : ''}`}>
-                              {m.name} {((!hideDayCalorieTotals && calDisplay) || proDisplay) ? <span className="inline-flex items-center gap-0.5 ml-1 text-muted-foreground">({!hideDayCalorieTotals && calDisplay ? <><Flame className="w-2.5 h-2.5 text-orange-500" />{calDisplay}</> : ''}{!hideDayCalorieTotals && calDisplay && proDisplay ? ' · ' : ''}{proDisplay ? `🍗${proDisplay}` : ''})</span> : ''}
-                              {otherDaysLabel && <span className="ml-1 text-[9px] text-amber-600 dark:text-amber-400 font-bold">📅 {otherDaysLabel}</span>}
-                            </button>
-                          );
-                        })}
-                        {petitDejMeals.length === 0 && possiblePetitDej.length === 0 && (
-                          <p className="text-[10px] text-muted-foreground italic px-2 py-1">Aucun petit déj</p>
-                        )}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  {/* Saisie manuelle de calories quand aucun petit déj n'est sélectionné */}
-                  {!getBreakfastForDay(key, iso) && matinMeals.length === 0 && (
-                    <>
-                      <PlanningInput
-                        storageKey={`breakfast-cal-${iso}`}
-                        currentValue={(iso && breakfastManualCalories[iso]) || 0}
-                        onSave={(val) => {
-                          const updated = { ...breakfastManualCalories };
-                          if (val > 0) updated[iso] = val;
-                          else { delete updated[iso]; delete updated[key]; }
-                          setPreference.mutate({ key: 'planning_breakfast_manual_calories', value: updated });
-                        }}
-                        placeholder="kcal"
-                        className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40"
-                      />
-                      <PlanningInput
-                        storageKey={`breakfast-prot-${iso}`}
-                        currentValue={(iso && breakfastManualProteins[iso]) || 0}
-                        onSave={(val) => {
-                          const updated = { ...breakfastManualProteins };
-                          if (val > 0) updated[iso] = val;
-                          else { delete updated[iso]; delete updated[key]; }
-                          setPreference.mutate({ key: 'planning_breakfast_manual_proteins', value: updated });
-                        }}
-                        placeholder="prot"
-                        className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40"
-                      />
-                    </>
-                  )}
-                  {/* Interrupteur d'auto-consommation du petit déj */}
-                  {getBreakfastForDay(key, iso) && (
-                    <button
-                      onClick={() => {
-                        const updated = { ...autoConsumeBreakfast };
-                        if (iso && updated[iso]) delete updated[iso];
-                        else if (updated[key]) delete updated[key];
-                        else if (iso) updated[iso] = true;
-                        else updated[key] = true;
-                        setPreference.mutate({ key: 'planning_auto_consume_breakfast', value: updated });
-                      }}
-                      className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${(iso && autoConsumeBreakfast[iso])
-                        ? 'bg-green-500/20 text-green-400 border border-green-400/50'
-                        : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
-                        }`}
-                      title={(iso && autoConsumeBreakfast[iso]) ? 'Auto-consommation activée — sera déduit à 23h59 ou au prochain lancement' : 'Activer la décompte automatique du petit déj'}
-                    >🔄</button>
-                  )}
-                  {!(matinMeals.length > 0 || (iso && breakfastSelections[iso]?.startsWith('pm:'))) && (
-                    <button
-                      onClick={() => {
-                        const snapKey = `breakfast-${iso}`;
-                        const cal = (iso && breakfastManualCalories[iso]) || 0;
-                        const prot = (iso && breakfastManualProteins[iso]) || 0;
-                        const breakfast = getBreakfastForDay(key, iso);
-                        const mealId = (iso && breakfastSelections[iso]) || undefined;
-                        const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "breakfast", iso, key, JS_DAY_TO_KEY);
-                        const updated = { ...cleaned, [snapKey]: { cal, prot, savedAt: Date.now(), name: breakfast?.name, mealId } };
-                        setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                        // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
-                        if (weekOffset === 0) {
-                          if (mealId) {
-                            const nxtBf = { ...nextBreakfastSelections };
-                            nxtBf[key] = mealId;
-                            setPreference.mutate({ key: 'next_week_breakfast', value: nxtBf });
-                          }
-                          if (cal > 0) {
-                            const nxtCal = { ...nextBreakfastManualCalories };
-                            nxtCal[key] = cal;
-                            setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: nxtCal });
-                          }
-                          if (prot > 0) {
-                            const nxtPro = { ...nextBreakfastManualProteins };
-                            nxtPro[key] = prot;
-                            setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: nxtPro });
-                          }
-                        }
-
-                        setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
-                        setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
-                      }}
-                      onDoubleClick={() => {
-                        const updated = clearWeekdayScopedSnapshots(savedSnapshots, "breakfast", iso, key, JS_DAY_TO_KEY);
-                        setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                        // Nettoyer la sync de la semaine prochaine si oubliée
-                        if (weekOffset === 0) {
-                          const nxtBf = { ...nextBreakfastSelections }; delete nxtBf[key]; delete nxtBf[iso];
-                          setPreference.mutate({ key: 'next_week_breakfast', value: nxtBf });
-                          const nxtCal = { ...nextBreakfastManualCalories }; delete nxtCal[key]; delete nxtCal[iso];
-                          setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: nxtCal });
-                          const nxtPro = { ...nextBreakfastManualProteins }; delete nxtPro[key]; delete nxtPro[iso];
-                          setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: nxtPro });
-                        }
-                      }}
-                      className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${flashedKeys[`breakfast-${iso}`]
-                        ? 'bg-green-500/30 text-green-400 border border-green-400/50'
-                        : savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`]
-                          ? 'bg-primary/20 text-primary border border-primary/40'
-                          : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
-                        }`}
-                      title={(() => {
-                        const snap = savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`];
-                        return formatPlanningSnapshotTitle(snap, { nameFallback: true });
-                      })()}
-                    >💾</button>
-                  )}
-                {(breakfastTotalCals > 0 || breakfastTotalPro > 0 || breakfastTotalFiber > 0) && !hideDayCalorieTotals && (
-                  <div className={`${SLOT_MEAL_TOTAL_CLASS} ml-1 sm:ml-2`}>
-                    {breakfastTotalCals > 0 && (
-                      <span className="flex items-center gap-0.5">
-                        <Flame className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-orange-500/60" />
-                        {Math.round(breakfastTotalCals)}
-                      </span>
-                    )}
-                    {breakfastTotalCals > 0 && (breakfastTotalPro > 0 || breakfastTotalFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
-                    {breakfastTotalPro > 0 && (
-                      <span className="flex items-center gap-0.5">
-                        <span className="text-[8px] sm:text-[10px] opacity-60">🍗</span>
-                        {Math.round(breakfastTotalPro)}
-                      </span>
-                    )}
-                    {breakfastTotalPro > 0 && breakfastTotalFiber > 0 && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
-                    {breakfastTotalFiber > 0 && (
-                      <span className="flex items-center gap-0.5">
-                        <Wheat className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-emerald-500/70" />
-                        {Math.round(breakfastTotalFiber)}
-                      </span>
-                    )}
-                  </div>
-                )}
-                </div>
-                {breakfastAssignedSlotIds.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {groupAssignedExtraIds(breakfastAssignedSlotIds).map(({ id: extraId, count }, index) => {
-                      const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                      if (!resolved) return null;
-                      const { custom, fi } = resolved;
-                      return (
-                        <span
-                          key={`breakfast-assigned-${extraId}-${index}-${count}`}
-                          draggable
-                          onDragStart={(e) => {
-                            setDraggedSelectedExtraId(extraId);
-                            setDraggedSelectedExtraOrigin({ iso, key });
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', extraId);
-                          }}
-                          onDragEnd={() => {
-                            setDraggedSelectedExtraId(null);
-                            setDraggedSelectedExtraOrigin(null);
-                          }}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
-                          title="Extra assigné au petit déj — glisse pour déplacer"
-                        >
-                          {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                          <button
-                            onClick={() => deselectExtraForDay(extraId, iso, key)}
-                            className="opacity-60 hover:opacity-100 font-bold"
-                            title="Retirer des extras du jour"
-                          >×</button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                </div>
-                <div className="flex-1" />
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
-                  <button
-                    onClick={() => { setEditingGoal(true); setGoalInput(String(DAILY_GOAL)); }}
-                    className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap hover:bg-muted/80 transition-colors cursor-pointer"
-                    title="Cliquer pour modifier l'objectif"
-                  >
-                    <Flame className="h-2.5 w-2.5 text-orange-500" />
-                    <span className={getCalorieRangeTotalColorClass(dayCalories, DAILY_GOAL_LOW, DAILY_GOAL) ?? undefined}>
-                      {hideDayCalorieTotals ? "Calories" : Math.round(dayCalories)}
-                    </span>
-                    {" "}
-                    <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(DAILY_GOAL_LOW, DAILY_GOAL)}</span>
-                  </button>
-                  {editingGoal && (
-                    <div className="flex items-center gap-1">
-                      <input
-                        autoFocus
-                        type="number"
-                        inputMode="numeric"
-                        value={goalInput}
-                        onChange={(e) => setGoalInput(e.target.value)}
-                        onBlur={() => {
-                          const val = parseInt(goalInput);
-                          if (val && val > 0) {
-                            setPreference.mutate({ key: 'planning_daily_goal', value: val });
-                            setPreference.mutate({ key: 'next_week_daily_goal', value: val });
-                          }
-                          setEditingGoal(false);
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingGoal(false); }}
-                        className="w-16 h-5 text-[10px] bg-muted border border-border rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <span className="text-[9px] text-muted-foreground">kcal/j</span>
-                    </div>
-                  )}
-                  {!editingGoal && !hideDayCalorieTotals && dayCalories > 0 && !hasCalorieGoalRangeMin(DAILY_GOAL_LOW, DAILY_GOAL) && (
-                    <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_GOAL - dayCalories > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
-                      {DAILY_GOAL - dayCalories > 0 ? `reste ${Math.round(DAILY_GOAL - dayCalories)}` : `+${Math.round(dayCalories - DAILY_GOAL)}`}
-                    </span>
-                  )}
-                  {getDayProtein(key, iso) > 0 && (
-                    <button
-                      onClick={() => { setEditingProteinGoal(true); setProteinGoalInput(String(DAILY_PROTEIN_GOAL_PREF)); }}
-                      className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap hover:bg-blue-500/20 transition-colors cursor-pointer"
-                      title="Cliquer pour modifier l'objectif protéines"
-                    >
-                      🍗 {Math.round(getDayProtein(key, iso))} <span className="text-blue-400/50 font-normal">/ {DAILY_PROTEIN_GOAL_PREF}</span>
-                    </button>
-                  )}
-                  {!editingProteinGoal && getDayProtein(key, iso) > 0 && (
-                    <span className={`text-[10px] font-bold whitespace-nowrap ${DAILY_PROTEIN_GOAL_PREF - getDayProtein(key, iso) > 0 ? 'text-blue-400/60' : 'text-blue-500'}`}>
-                      {DAILY_PROTEIN_GOAL_PREF - getDayProtein(key, iso) > 0 ? `reste ${Math.round(DAILY_PROTEIN_GOAL_PREF - getDayProtein(key, iso))}` : `+${Math.round(getDayProtein(key, iso) - DAILY_PROTEIN_GOAL_PREF)}`}
-                    </span>
-                  )}
-                  {editingProteinGoal && (
-                    <div className="flex items-center gap-1">
-                      <input
-                        autoFocus
-                        type="number"
-                        value={proteinGoalInput}
-                        onChange={(e) => setProteinGoalInput(e.target.value)}
-                        onBlur={() => {
-                          const val = parseInt(proteinGoalInput);
-                          if (val && val > 0) {
-                            setPreference.mutate({ key: 'planning_protein_goal', value: val });
-                            setPreference.mutate({ key: 'next_week_protein_goal', value: val });
-                          }
-                          setEditingProteinGoal(false);
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingProteinGoal(false); }}
-                        className="w-16 h-5 text-[10px] bg-muted border border-border rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <span className="text-[9px] text-muted-foreground">🍗/j</span>
-                    </div>
-                  )}
-                  <button
-                    onClick={() => { setEditingFiberGoal(true); setFiberGoalInput(String(DAILY_FIBER_GOAL_PREF)); }}
-                    className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 rounded-full px-2 py-0.5 whitespace-nowrap hover:bg-emerald-500/20 transition-colors cursor-pointer"
-                    title="Cliquer pour modifier l'objectif fibres"
-                  >
-                    🌾 {Math.round(dayFiber)} <span className="text-emerald-400/50 font-normal">/ {DAILY_FIBER_GOAL_PREF}</span>
-                  </button>
-                  {editingFiberGoal && (
-                    <div className="flex items-center gap-1">
-                      <input
-                        autoFocus
-                        type="number"
-                        value={fiberGoalInput}
-                        onChange={(e) => setFiberGoalInput(e.target.value)}
-                        onBlur={() => {
-                          const val = parseInt(fiberGoalInput);
-                          if (val && val > 0) handleGlobalFiberBlur(val);
-                          setEditingFiberGoal(false);
-                        }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingFiberGoal(false); }}
-                        className="w-16 h-5 text-[10px] bg-muted border border-border rounded px-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <span className="text-[9px] text-muted-foreground">🌾/j</span>
-                    </div>
-                  )}
-                </div>
-              </div>
+                  onGoalCancel={() => setEditingGoal(false)}
+                  onStartEditProteinGoal={() => { setEditingProteinGoal(true); setProteinGoalInput(String(DAILY_PROTEIN_GOAL_PREF)); }}
+                  onProteinGoalInputChange={setProteinGoalInput}
+                  onProteinGoalBlur={() => {
+                    const val = parseInt(proteinGoalInput);
+                    if (val && val > 0) {
+                      setPreference.mutate({ key: 'planning_protein_goal', value: val });
+                      setPreference.mutate({ key: 'next_week_protein_goal', value: val });
+                    }
+                    setEditingProteinGoal(false);
+                  }}
+                  onProteinGoalCancel={() => setEditingProteinGoal(false)}
+                  onStartEditFiberGoal={() => { setEditingFiberGoal(true); setFiberGoalInput(String(DAILY_FIBER_GOAL_PREF)); }}
+                  onFiberGoalInputChange={setFiberGoalInput}
+                  onFiberGoalBlur={() => {
+                    const val = parseInt(fiberGoalInput);
+                    if (val && val > 0) handleGlobalFiberBlur(val);
+                    setEditingFiberGoal(false);
+                  }}
+                  onFiberGoalCancel={() => setEditingFiberGoal(false)}
+                />
+              )}
+              mainGrid={(
               <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1 sm:gap-3">
-                {TIMES.map((time) => {
+                {MAIN_GRID_TIMES.map((time) => {
                   const slotKey = `${iso}-${time}`;
                   const slotMeals = getMealsForSlot(key, time, iso);
                   const slotAssignedIds =
@@ -3426,2472 +2021,383 @@ export function WeeklyPlanning({
                   const slotPro = slotProMeals + slotManualPro + slotAssigned.pro;
                   const slotFiber = slotFiberMeals + slotManualFiber + slotAssigned.fiber;
                   return (
-                    <div
+                    <PlanningSlotSection
                       key={time}
-                      data-slot
-                      data-day={iso}
-                      data-time={time}
+                      dayKey={key}
+                      dayIso={iso}
+                      time={time}
+                      isOver={isOver}
+                      slotDrink={slotDrink}
+                      hideDayCalorieTotals={hideDayCalorieTotals}
+                      hasSlotMeals={hasSlotMeals}
+                      slotCalories={slotCals}
+                      slotProteins={slotPro}
+                      slotFibers={slotFiber}
+                      manualCalories={manualCalories[`${iso}-${time}`] || 0}
+                      manualProteins={manualProteins[`${iso}-${time}`] || 0}
+                      manualFibers={manualFibers[`${iso}-${time}`] || 0}
+                      slotAssignedIds={slotAssignedIds}
+                      foodItems={foodItems}
+                      dessertById={singleIngredientDessertById}
+                      snapshotFlashed={!!flashedKeys[`manual-${iso}-${time}`]}
+                      snapshotSaved={!!(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
+                      snapshotTitle={formatPlanningSnapshotTitle(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
+                      mealCards={slotMeals.map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))}
                       onDragOver={(e) => {
                         e.preventDefault();
                         setDragOverSlot(slotKey);
                       }}
                       onDragLeave={() => setDragOverSlot(null)}
                       onDrop={(e) => handleDrop(e, iso, time)}
-                      className={`min-w-0 min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
-                    >
-                      <div className="flex items-center justify-between gap-0.5 mb-0.5 min-w-0">
-                        <div className="flex items-center gap-0.5 sm:gap-1 min-w-0 shrink">
-                          <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                            {TIME_LABELS[time]}
-                          </span>
-                          <button
-                            onClick={() => {
-                              const updated = { ...drinkChecks };
-                              if (updated[`${iso}-${time}`]) delete updated[`${iso}-${time}`];
-                              else if (updated[`${key}-${time}`]) delete updated[`${key}-${time}`];
-                              else updated[`${iso}-${time}`] = true;
-                              setPreference.mutate({ key: 'planning_drink_checks', value: updated });
-                            }}
-                            className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${slotDrink
-                              ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold'
-                              : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'
-                              }`}
-                            title={`+ Boisson sucrée (+${DRINK_CALORIES} cal)`}
-                          >
-                            🥤 {slotDrink ? `+${DRINK_CALORIES}` : ''}
-                          </button>
-                        </div>
-                        {(slotCals > 0 || slotPro > 0 || slotFiber > 0) && !hideDayCalorieTotals && (
-                          <div className={SLOT_MEAL_TOTAL_CLASS}>
-                            {slotCals > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <Flame className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-orange-500/60" />
-                                {Math.round(slotCals)}
-                              </span>
-                            )}
-                            {slotCals > 0 && (slotPro > 0 || slotFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
-                            {slotPro > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <span className="text-[8px] sm:text-[9px] opacity-60">🍗</span>
-                                {Math.round(slotPro)}
-                              </span>
-                            )}
-                            {slotPro > 0 && slotFiber > 0 && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
-                            {slotFiber > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <span className="text-[8px] sm:text-[9px] opacity-60">🌾</span>
-                                {Math.round(slotFiber)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="mt-0.5 space-y-1">
-                        {slotMeals.length === 0 ? (
-                          <div className="flex flex-col items-start gap-0.5">
-                            <PlanningInput
-                              storageKey={`manual-${iso}-${time}`}
-                              currentValue={manualCalories[`${iso}-${time}`] || 0}
-                              onSave={(val) => {
-                                const updated = { ...manualCalories };
-                                if (val > 0) updated[`${iso}-${time}`] = val;
-                                else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
-                                setPreference.mutate({ key: 'planning_manual_calories', value: updated });
-                              }}
-                              placeholder="kcal"
-                              className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
-                            />
-                            <PlanningInput
-                              storageKey={`manual-prot-${iso}-${time}`}
-                              currentValue={manualProteins[`${iso}-${time}`] || 0}
-                              onSave={(val) => {
-                                const updated = { ...manualProteins };
-                                if (val > 0) updated[`${iso}-${time}`] = val;
-                                else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
-                                setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
-                              }}
-                              placeholder="prot"
-                              className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
-                            />
-                            <PlanningInput
-                              storageKey={`manual-fiber-${iso}-${time}`}
-                              currentValue={manualFibers[`${iso}-${time}`] || 0}
-                              onSave={(val) => {
-                                const updated = { ...manualFibers };
-                                if (val > 0) updated[`${iso}-${time}`] = val;
-                                else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
-                                setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
-                              }}
-                              placeholder="fib"
-                              className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
-                            />
-                            <div className="w-14 flex justify-center">
-                              <button
-                                onClick={() => {
-                                  const snapKey = `manual-${iso}-${time}`;
-                                  const cal = manualCalories[`${iso}-${time}`] || 0;
-                                  const prot = manualProteins[`${iso}-${time}`] || 0;
-                                  const fiber = manualFibers[`${iso}-${time}`] || 0;
-                                  const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
-                                  const updated = { ...cleaned, [snapKey]: { cal, prot, fiber, savedAt: Date.now() } };
-                                  setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                                  // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
-                                  if (weekOffset === 0) {
-                                    const kKeySlot = `${key}-${time}`;
-                                    if (cal > 0) {
-                                      const nxtCal = { ...nextManualCalories };
-                                      nxtCal[kKeySlot] = cal;
-                                      setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
-                                    }
-                                    if (prot > 0) {
-                                      const nxtPro = { ...nextManualProteins };
-                                      nxtPro[kKeySlot] = prot;
-                                      setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
-                                    }
-                                    if (fiber > 0) {
-                                      const nxtFiber = { ...nextManualFibers };
-                                      nxtFiber[kKeySlot] = fiber;
-                                      setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
-                                    }
-                                    if (drinkChecks[`${iso}-${time}`]) {
-                                      const nxtDrk = { ...nextDrinkChecks };
-                                      nxtDrk[kKeySlot] = true;
-                                      setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
-                                    }
-                                  }
-
-                                  setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
-                                  setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
-                                }}
-                                onDoubleClick={() => {
-                                  const updated = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
-                                  setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                                  // Nettoyer la sync de la semaine prochaine si oubliée
-                                  if (weekOffset === 0) {
-                                    const kKeySlot = `${key}-${time}`;
-                                    const kIsoSlot = `${iso}-${time}`;
-                                    const nxtCal = { ...nextManualCalories }; delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot];
-                                    setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
-                                    const nxtPro = { ...nextManualProteins }; delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot];
-                                    setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
-                                    const nxtFiber = { ...nextManualFibers }; delete nxtFiber[kKeySlot]; delete nxtFiber[kIsoSlot];
-                                    setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
-                                    const nxtDrk = { ...nextDrinkChecks }; delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot];
-                                    setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
-                                  }
-                                }}
-                                className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${flashedKeys[`manual-${iso}-${time}`]
-                                  ? 'bg-green-500/30 text-green-400 border border-green-400/50'
-                                  : savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`]
-                                    ? 'bg-primary/20 text-primary border border-primary/40'
-                                    : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
-                                  }`}
-                                title={formatPlanningSnapshotTitle(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
-                              >💾</button>
-                            </div>
-                          </div>
-                        ) : (
-                          slotMeals.map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))
-                        )}
-                        {slotAssignedIds.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
-                              const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                              if (!resolved) return null;
-                              const { custom, fi } = resolved;
-                              return (
-                                <span
-                                  key={`${time}-assigned-${extraId}-${index}-${count}`}
-                                  draggable
-                                  onDragStart={(e) => {
-                                    setDraggedSelectedExtraId(extraId);
-                                    setDraggedSelectedExtraOrigin({ iso, key });
-                                    e.dataTransfer.effectAllowed = 'move';
-                                    e.dataTransfer.setData('text/plain', extraId);
-                                  }}
-                                  onDragEnd={() => {
-                                    setDraggedSelectedExtraId(null);
-                                    setDraggedSelectedExtraOrigin(null);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
-                                  title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
-                                >
-                                  {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                                  <button
-                                    onClick={() => deselectExtraForDay(extraId, iso, key)}
-                                    className="opacity-60 hover:opacity-100 font-bold"
-                                    title="Retirer des extras du jour"
-                                  >×</button>
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                      onToggleDrink={() => {
+                        const updated = { ...drinkChecks };
+                        if (updated[`${iso}-${time}`]) delete updated[`${iso}-${time}`];
+                        else if (updated[`${key}-${time}`]) delete updated[`${key}-${time}`];
+                        else updated[`${iso}-${time}`] = true;
+                        setPreference.mutate({ key: 'planning_drink_checks', value: updated });
+                      }}
+                      onSaveManualCalories={(val) => {
+                        const updated = { ...manualCalories };
+                        if (val > 0) updated[`${iso}-${time}`] = val;
+                        else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
+                        setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                      }}
+                      onSaveManualProteins={(val) => {
+                        const updated = { ...manualProteins };
+                        if (val > 0) updated[`${iso}-${time}`] = val;
+                        else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
+                        setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                      }}
+                      onSaveManualFibers={(val) => {
+                        const updated = { ...manualFibers };
+                        if (val > 0) updated[`${iso}-${time}`] = val;
+                        else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
+                        setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                      }}
+                      onSaveSnapshot={() => {
+                        const snapKey = `manual-${iso}-${time}`;
+                        const cal = manualCalories[`${iso}-${time}`] || 0;
+                        const prot = manualProteins[`${iso}-${time}`] || 0;
+                        const fiber = manualFibers[`${iso}-${time}`] || 0;
+                        const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
+                        const updated = { ...cleaned, [snapKey]: { cal, prot, fiber, savedAt: Date.now() } };
+                        setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
+                        if (weekOffset === 0) {
+                          const kKeySlot = `${key}-${time}`;
+                          if (cal > 0) {
+                            const nxtCal = { ...nextManualCalories };
+                            nxtCal[kKeySlot] = cal;
+                            setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
+                          }
+                          if (prot > 0) {
+                            const nxtPro = { ...nextManualProteins };
+                            nxtPro[kKeySlot] = prot;
+                            setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                          }
+                          if (fiber > 0) {
+                            const nxtFiber = { ...nextManualFibers };
+                            nxtFiber[kKeySlot] = fiber;
+                            setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
+                          }
+                          if (drinkChecks[`${iso}-${time}`]) {
+                            const nxtDrk = { ...nextDrinkChecks };
+                            nxtDrk[kKeySlot] = true;
+                            setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
+                          }
+                        }
+                        setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
+                        setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
+                      }}
+                      onClearSnapshot={() => {
+                        const updated = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
+                        setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
+                        if (weekOffset === 0) {
+                          const kKeySlot = `${key}-${time}`;
+                          const kIsoSlot = `${iso}-${time}`;
+                          const nxtCal = { ...nextManualCalories }; delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot];
+                          setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
+                          const nxtPro = { ...nextManualProteins }; delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot];
+                          setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                          const nxtFiber = { ...nextManualFibers }; delete nxtFiber[kKeySlot]; delete nxtFiber[kIsoSlot];
+                          setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
+                          const nxtDrk = { ...nextDrinkChecks }; delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot];
+                          setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
+                        }
+                      }}
+                      onDeselectExtra={deselectExtraForDay}
+                      onDragStartExtra={(extraId, dayIso, dayKey, e) => {
+                        setDraggedSelectedExtraId(extraId);
+                        setDraggedSelectedExtraOrigin({ iso: dayIso, key: dayKey });
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', extraId);
+                      }}
+                      onDragEndExtra={() => {
+                        setDraggedSelectedExtraId(null);
+                        setDraggedSelectedExtraOrigin(null);
+                      }}
+                    />
                   );
                 })}
                 {/* Colonne Extra */}
-                {(() => {
-                  const extraDropKey = `extra-${iso}`;
-                  const isExtraDragOver = dragOverSlot === extraDropKey;
-                  const unassignedExtraIds = getUnassignedExtraSelectionIds(extraSelections, extraSlotAssignments, iso, key);
-                  const unassignedExtraMacros = sumDayExtras(unassignedExtraIds);
-                  const hasDisplayableExtraSelections = countDisplayableExtraSelections(
-                    extraSelections[iso] || extraSelections[key] || [],
-                    foodItems,
-                    allSingleIngredientDessertExtras,
-                    singleIngredientDessertById,
-                    dessertExtraStockSnapshots,
-                  ) > 0;
-                  return (
-                <div
-                  className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isExtraDragOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3"}`}
+                <PlanningExtraColumn
+                  dayKey={key}
+                  dayIso={iso}
+                  dragOverSlot={dragOverSlot}
+                  setDragOverSlot={setDragOverSlot}
+                  draggedSelectedExtraId={draggedSelectedExtraId}
+                  setDraggedSelectedExtraId={setDraggedSelectedExtraId}
+                  setDraggedSelectedExtraOrigin={setDraggedSelectedExtraOrigin}
+                  unassignExtraFromAllDaySlots={unassignExtraFromAllDaySlots}
+                  extraCalories={extraCalories}
+                  extraProteins={extraProteins}
+                  extraFibers={extraFibers}
+                  extraSelections={extraSelections}
+                  extraSlotAssignments={extraSlotAssignments}
+                  setPreference={setPreference}
+                  getPreference={getPreference}
+                  openExtrasDay={openExtrasDay}
+                  setOpenExtrasDay={setOpenExtrasDay}
+                  isTouchDevice={isTouchDevice}
+                  foodItems={foodItems}
+                  testItemIdSet={testItemIdSet}
+                  foodSortModes={foodSortModes}
+                  sortDirections={sortDirections}
+                  extrasDividerAfterId={extrasDividerAfterId}
+                  allSingleIngredientDessertExtras={allSingleIngredientDessertExtras}
+                  singleIngredientDessertExtras={singleIngredientDessertExtras}
+                  singleIngredientDessertById={singleIngredientDessertById}
+                  dessertExtraStockSnapshots={dessertExtraStockSnapshots}
+                  canAddDessertById={canAddDessertById}
+                  dessertPossibleCountById={dessertPossibleCountById}
+                  ingredientMacroLibrary={ingredientMacroLibrary}
+                  sumDayExtras={sumDayExtras}
+                  getAssignedExtraIdsForDayLocal={getAssignedExtraIdsForDayLocal}
+                  removeOneSelectedExtraForDay={removeOneSelectedExtraForDay}
+                  applyDessertExtraStockDelta={applyDessertExtraStockDelta}
+                  buildDessertExtraSnapshotStoreAfterPush={buildDessertExtraSnapshotStoreAfterPush}
+                  persistExtraSelectionAndSnapshot={persistExtraSelectionAndSnapshot}
+                  savedSnapshots={savedSnapshots}
+                  flashedKeys={flashedKeys}
+                  setFlashedKeys={setFlashedKeys}
+                  weekOffset={weekOffset}
+                  nextExtraSelections={nextExtraSelections}
+                  nextExtraCalories={nextExtraCalories}
+                  nextExtraProteins={nextExtraProteins}
+                  nextExtraFibers={nextExtraFibers}
+                  nextExtraSlotAssignments={nextExtraSlotAssignments}
+                  jsDayToKey={JS_DAY_TO_KEY}
+                  selectedExtrasTopByDay={selectedExtrasTopByDay}
+                  setSelectedExtrasTopByDay={setSelectedExtrasTopByDay}
+                  selectedExtrasMiddleByDay={selectedExtrasMiddleByDay}
+                  setSelectedExtrasMiddleByDay={setSelectedExtrasMiddleByDay}
+                  selectedExtrasDropZone={selectedExtrasDropZone}
+                  setSelectedExtrasDropZone={setSelectedExtrasDropZone}
+                  customExtraName={customExtraName}
+                  setCustomExtraName={setCustomExtraName}
+                  customExtraCal={customExtraCal}
+                  setCustomExtraCal={setCustomExtraCal}
+                  customExtraProt={customExtraProt}
+                  setCustomExtraProt={setCustomExtraProt}
+                />
+              </div>
+              )}
+              gouterBand={(
+                <PlanningGouterBand
+                  dayKey={key}
+                  dayIso={iso}
+                  isOver={dragOverSlot === `${iso}-gouter` || touchHighlight === `${iso}-gouter`}
+                  gouterDrink={gouterDrink}
+                  hasGouterMeals={hasGouterMeals}
+                  hideDayCalorieTotals={hideDayCalorieTotals}
+                  gouterManualCal={gouterManualCal}
+                  gouterManualPro={gouterManualPro}
+                  gouterManualFiber={gouterManualFiber}
+                  gouterTotalCals={gouterTotalCals}
+                  gouterTotalPro={gouterTotalPro}
+                  gouterTotalFiber={gouterTotalFiber}
+                  gouterAssignedIds={gouterAssignedIds}
+                  foodItems={foodItems}
+                  dessertById={singleIngredientDessertById}
+                  mealCards={gouterMeals.map((pm) => (
+                    <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
+                      {renderMiniCard(pm, true)}
+                    </div>
+                  ))}
                   onDragOver={(e) => {
-                    const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
-                    if (!canAccept) return;
                     e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    setDragOverSlot(extraDropKey);
+                    setDragOverSlot(`${iso}-gouter`);
                   }}
-                  onDragLeave={() => setDragOverSlot((cur) => (cur === extraDropKey ? null : cur))}
-                  onDrop={(e) => {
-                    const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
-                    if (!extraId) return;
-                    e.preventDefault();
-                    unassignExtraFromAllDaySlots(extraId, iso, key);
+                  onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
+                  onDrop={(e) => handleDrop(e, iso, 'gouter')}
+                  onToggleDrink={() => {
+                    const updated = { ...drinkChecks };
+                    if (updated[`${iso}-gouter`]) delete updated[`${iso}-gouter`];
+                    else if (updated[`${key}-gouter`]) delete updated[`${key}-gouter`];
+                    else updated[`${iso}-gouter`] = true;
+                    setPreference.mutate({ key: 'planning_drink_checks', value: updated });
+                  }}
+                  onSaveManualCalories={(val) => {
+                    const updated = { ...manualCalories };
+                    if (val > 0) updated[`${iso}-gouter`] = val;
+                    else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                    setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                  }}
+                  onSaveManualProteins={(val) => {
+                    const updated = { ...manualProteins };
+                    if (val > 0) updated[`${iso}-gouter`] = val;
+                    else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                    setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                  }}
+                  onSaveManualFibers={(val) => {
+                    const updated = { ...manualFibers };
+                    if (val > 0) updated[`${iso}-gouter`] = val;
+                    else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
+                    setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                  }}
+                  onDeselectExtra={deselectExtraForDay}
+                  onDragStartExtra={(extraId, dayIso, dayKey, e) => {
+                    setDraggedSelectedExtraId(extraId);
+                    setDraggedSelectedExtraOrigin({ iso: dayIso, key: dayKey });
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', extraId);
+                  }}
+                  onDragEndExtra={() => {
                     setDraggedSelectedExtraId(null);
                     setDraggedSelectedExtraOrigin(null);
-                    setDragOverSlot(null);
                   }}
-                  title="Déposer ici pour remettre l'extra dans la catégorie Extras"
-                >
-                  <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
-                  <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
-                    <PlanningInput
-                      storageKey={`extra-${iso}`}
-                      currentValue={(extraCalories[iso] || 0) + unassignedExtraMacros.cal}
-                      onSave={(val) => {
-                        const manual = Math.max(0, val - unassignedExtraMacros.cal);
-                        const updated = { ...extraCalories };
-                        if (manual > 0) updated[iso] = manual;
-                        else { delete updated[iso]; delete updated[key]; }
-                        setPreference.mutate({ key: 'planning_extra_calories', value: updated });
-                      }}
-                      placeholder="kcal"
-                      className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center"
-                    />
-                    <PlanningInput
-                      storageKey={`extra-prot-${iso}`}
-                      currentValue={(extraProteins[iso] || 0) + unassignedExtraMacros.pro}
-                      onSave={(val) => {
-                        const manual = Math.max(0, val - unassignedExtraMacros.pro);
-                        const updated = { ...extraProteins };
-                        if (manual > 0) updated[iso] = manual;
-                        else { delete updated[iso]; delete updated[key]; }
-                        setPreference.mutate({ key: 'planning_extra_proteins', value: updated });
-                      }}
-                      placeholder="prot"
-                      className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
-                    />
-                    <PlanningInput
-                      storageKey={`extra-fib-${iso}`}
-                      currentValue={(extraFibers[iso] || 0) + unassignedExtraMacros.fiber}
-                      onSave={(val) => {
-                        const manual = Math.max(0, val - unassignedExtraMacros.fiber);
-                        const updated = { ...extraFibers };
-                        if (manual > 0) updated[iso] = manual;
-                        else { delete updated[iso]; delete updated[key]; }
-                        setPreference.mutate({ key: 'planning_extra_fibers', value: updated });
-                      }}
-                      placeholder="fib"
-                      className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
-                    />
-                    <div className="flex items-center gap-1 mt-1">
-                      <Popover open={openExtrasDay === (iso || key)} onOpenChange={(open) => {
-                        setOpenExtrasDay(open ? (iso || key) : null);
-                        if (open) { setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt(''); }
-                      }}>
-                        <PopoverTrigger asChild>
-                          <button
-                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
-                            title="Ajouter un Extra"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]"
-                          align="center"
-                          onOpenAutoFocus={(e) => e.preventDefault()}
-                        >
-                          {/* Formulaire d'ajout en une ligne — STYLE MODERNISÉ */}
-                          <div className="flex items-center gap-1.5 mb-3 pb-3 border-b border-white/5">
-                            <input
-                              type="text"
-                              value={customExtraName}
-                              onChange={(e) => setCustomExtraName(e.target.value)}
-                              readOnly={isTouchDevice}
-                              onFocus={(e) => {
-                                if (isTouchDevice) e.currentTarget.readOnly = false;
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && customExtraName.trim() && customExtraCal.trim()) {
-                                  const name = customExtraName.trim();
-                                  const cal = customExtraCal.trim();
-                                  const prot = customExtraProt.trim() || '0';
-                                  const customId = `custom::${name}::${cal}::${prot}`;
-                                  const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                                  const updated = { ...extraSels };
-                                  const current = updated[iso] || [];
-                                  if (iso) updated[iso] = [...current, customId]; else updated[key] = [...current, customId];
-                                  setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                  setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
-                                }
-                              }}
-                              placeholder="Nom"
-                              className="flex-1 min-w-0 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-3 text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm"
-                            />
-                            <div className="relative group/cal shrink-0">
-                              <input
-                                type="number"
-                                inputMode="decimal"
-                                value={customExtraCal}
-                                onChange={(e) => setCustomExtraCal(e.target.value)}
-                                readOnly={isTouchDevice}
-                                onFocus={(e) => {
-                                  if (isTouchDevice) e.currentTarget.readOnly = false;
-                                }}
-                                placeholder="kcal"
-                                className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-orange-500 placeholder:text-orange-300/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 text-center transition-all shadow-sm"
-                              />
-                            </div>
-                            <div className="relative group/prot shrink-0">
-                              <input
-                                type="number"
-                                inputMode="decimal"
-                                value={customExtraProt}
-                                onChange={(e) => setCustomExtraProt(e.target.value)}
-                                readOnly={isTouchDevice}
-                                onFocus={(e) => {
-                                  if (isTouchDevice) e.currentTarget.readOnly = false;
-                                }}
-                                placeholder="prot"
-                                className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-blue-400 placeholder:text-blue-400/20 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-center transition-all shadow-sm"
-                              />
-                            </div>
-                            <button
-                              onClick={() => {
-                                const name = customExtraName.trim();
-                                const cal = customExtraCal.trim();
-                                if (!name || !cal) return;
-                                const prot = customExtraProt.trim() || '0';
-                                const customId = `custom::${name}::${cal}::${prot}`;
-                                const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                                const updated = { ...extraSels };
-                                const current = updated[iso] || [];
-                                if (iso) updated[iso] = [...current, customId]; else updated[key] = [...current, customId];
-                                setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
-                              }}
-                              disabled={!customExtraName.trim() || !customExtraCal.trim()}
-                              className="h-8 w-8 shrink-0 flex items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-600 hover:from-orange-500 hover:to-orange-700 disabled:opacity-30 text-white shadow-lg shadow-orange-500/20 transition-all hover:scale-110 active:scale-95"
-                              title="Valider"
-                            >
-                              <Check className="h-4 w-4" />
-                            </button>
-                          </div>
-
-                          <div className="space-y-1.5 max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
-                            {/* Aliments extras normaux — au-dessus du trait : rentrent dans les kcal restantes du jour */}
-                            {(() => {
-                              const sectionItems = foodItems.filter(fi => fi.storage_type === 'extras' && !testItemIdSet.has(fi.id));
-                              const sortedExtras = getSortedFoodItems(
-                                sectionItems,
-                                foodSortModes['extras'] || "manual",
-                                sortDirections['food-extras'] !== false
-                              );
-                              if (sortedExtras.length === 0) return (
-                                <div className="text-center py-3 bg-muted/20 rounded-xl">
-                                  <p className="text-[10px] text-muted-foreground italic">Aucun aliment "Extra"</p>
-                                  <p className="text-[9px] text-muted-foreground/60 mt-1">Ajoutez-les dans l'onglet Aliments</p>
-                                </div>
-                              );
-                              const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
-                              const currentIds = extraSels[iso] || [];
-                              const assignedIds = new Set(getAssignedExtraIdsForDayLocal(iso, key));
-                              const daySlotKey = iso || key;
-                              const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) =>
-                                !isDessertExtraInSelections(currentIds, d, allSingleIngredientDessertExtras, singleIngredientDessertById),
-                              );
-
-                              // Réordonne les extras sélectionnés (standards + custom) en conservant les quantités.
-                              const reorderSelectedExtras = (sourceId: string, targetId: string) => {
-                                if (!sourceId || !targetId || sourceId === targetId) return;
-                                const idsForDay = [...currentIds];
-                                const order = Array.from(new Set(idsForDay.filter((id) => !assignedIds.has(id))));
-                                const from = order.indexOf(sourceId);
-                                const to = order.indexOf(targetId);
-                                if (from < 0 || to < 0) return;
-                                const nextOrder = [...order];
-                                const [moved] = nextOrder.splice(from, 1);
-                                nextOrder.splice(to, 0, moved);
-
-                                const counts = new Map<string, number>();
-                                for (const id of idsForDay) counts.set(id, (counts.get(id) ?? 0) + 1);
-                                const hiddenAssignedIds = idsForDay.filter((id) => assignedIds.has(id));
-                                const rebuilt: string[] = [];
-                                for (const id of nextOrder) {
-                                  const count = counts.get(id) ?? 0;
-                                  for (let i = 0; i < count; i++) rebuilt.push(id);
-                                }
-                                rebuilt.push(...hiddenAssignedIds);
-
-                                const updated = { ...extraSels };
-                                if (iso) updated[iso] = rebuilt;
-                                else updated[key] = rebuilt;
-                                setPreference.mutate({ key: "planning_extra_selections", value: updated });
-                              };
-
-                              // Bascule un extra sélectionné dans le compartiment du dessus (au-dessus du trait).
-                              const moveSelectedExtraToTopSection = (id: string) => {
-                                setSelectedExtrasTopByDay((prev) => {
-                                  const cur = prev[daySlotKey] || [];
-                                  if (cur.includes(id)) return prev;
-                                  return { ...prev, [daySlotKey]: [...cur, id] };
-                                });
-                                setSelectedExtrasMiddleByDay((prev) => {
-                                  const cur = prev[daySlotKey] || [];
-                                  if (!cur.includes(id)) return prev;
-                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
-                                });
-                              };
-
-                              // Place un extra dans le compartiment du milieu (entre les deux traits).
-                              const moveSelectedExtraToMiddleSection = (id: string) => {
-                                setSelectedExtrasMiddleByDay((prev) => {
-                                  const cur = prev[daySlotKey] || [];
-                                  if (cur.includes(id)) return prev;
-                                  return { ...prev, [daySlotKey]: [...cur, id] };
-                                });
-                                setSelectedExtrasTopByDay((prev) => {
-                                  const cur = prev[daySlotKey] || [];
-                                  if (!cur.includes(id)) return prev;
-                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
-                                });
-                              };
-
-                              // Retire un extra des compartiments supérieurs pour le remettre dessous.
-                              const moveSelectedExtraToBottomSection = (id: string) => {
-                                setSelectedExtrasTopByDay((prev) => {
-                                  const cur = prev[daySlotKey] || [];
-                                  if (!cur.includes(id)) return prev;
-                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
-                                });
-                                setSelectedExtrasMiddleByDay((prev) => {
-                                  const cur = prev[daySlotKey] || [];
-                                  if (!cur.includes(id)) return prev;
-                                  return { ...prev, [daySlotKey]: cur.filter((x) => x !== id) };
-                                });
-                              };
-
-                              const extrasById = new Map(sortedExtras.map((fi) => [fi.id, fi]));
-                              const selectedOrderedIds = Array.from(
-                                new Set(currentIds.filter((id) => !assignedIds.has(id)))
-                              );
-                              const topIds = selectedExtrasTopByDay[daySlotKey] || [];
-                              const middleIds = selectedExtrasMiddleByDay[daySlotKey] || [];
-                              const selectedTopIds = selectedOrderedIds.filter((id) => topIds.includes(id));
-                              const selectedMiddleIds = selectedOrderedIds.filter((id) => !topIds.includes(id) && middleIds.includes(id));
-                              const selectedBottomIds = selectedOrderedIds.filter((id) => !topIds.includes(id) && !middleIds.includes(id));
-                              const others = sortedExtras.filter(fi => !currentIds.includes(fi.id) && !assignedIds.has(fi.id));
-                              const { above: catalogAbove } = splitSortedExtrasByDivider(
-                                sortedExtras,
-                                extrasDividerAfterId,
-                              );
-                              const aboveIds = new Set(catalogAbove.map((fi) => fi.id));
-                              const othersAbove = others.filter((fi) => aboveIds.has(fi.id));
-                              // Rend un extra sélectionné (normal ou custom) avec drag & drop, compte et macros.
-                              /** Rend une ligne d'extra sélectionné avec une clé stable par section pour accepter les doublons. */
-                              const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom", occurrenceIndex: number) => {
-                                const c = parseCustomExtraId(id);
-                                const catalogId = resolveDessertCatalogId(
-                                  id,
-                                  allSingleIngredientDessertExtras,
-                                  singleIngredientDessertById,
-                                  dessertExtraStockSnapshots,
-                                ) ?? id;
-                                const dessertExtra = singleIngredientDessertById.get(catalogId);
-                                const fi = c ? null : (extrasById.get(id) ?? (dessertExtra ? foodItems.find((f) => f.id === parseFoodDessertExtraId(id)) : undefined));
-                                if (!c && !fi && !dessertExtra) return null;
-                                const isDessertExtra = !!dessertExtra;
-                                const canAddDessert = !isDessertExtra || canAddDessertById.get(catalogId) === true;
-                                const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(catalogId) ?? 0) : null;
-                                const count = currentIds.filter((cid) => cid === id).length;
-                                const label = c ? c.name : (dessertExtra?.name ?? fi?.name ?? id);
-                                const portionMacros = dessertExtra
-                                  ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
-                                  : (fi ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary) : { cal: 0, pro: 0, fiber: 0 });
-                                const prot = c ? c.prot : portionMacros.pro;
-                                const cal = c ? c.cal : portionMacros.cal;
-                                const fiber = c ? (dessertExtra?.fiber ?? 0) : portionMacros.fiber;
-                                const dessertDisplayQty = dessertExtra
-                                  ? extractExtraDisplayQuantity(dessertExtra.mealPayload, foodItems)
-                                  : null;
-                                return (
-                                  <div
-                                    key={`${selectedSection}-${id}-${occurrenceIndex}`}
-                                    draggable
-                                    onDragStart={(e) => {
-                                      setDraggedSelectedExtraId(id);
-                                      setDraggedSelectedExtraOrigin({ iso, key });
-                                      e.dataTransfer.effectAllowed = "move";
-                                      e.dataTransfer.setData("text/plain", id);
-                                    }}
-                                    onDragOver={(e) => {
-                                      if (!draggedSelectedExtraId || draggedSelectedExtraId === id) return;
-                                      e.preventDefault();
-                                      e.dataTransfer.dropEffect = "move";
-                                    }}
-                                    onDrop={(e) => {
-                                      e.preventDefault();
-                                      const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-                                      reorderSelectedExtras(sourceId, id);
-                                      if (selectedSection === "top") moveSelectedExtraToTopSection(sourceId);
-                                      else if (selectedSection === "middle") moveSelectedExtraToMiddleSection(sourceId);
-                                      else moveSelectedExtraToBottomSection(sourceId);
-                                      setDraggedSelectedExtraId(null);
-                                      setDraggedSelectedExtraOrigin(null);
-                                      setSelectedExtrasDropZone(null);
-                                    }}
-                                    onDragEnd={() => {
-                                      setDraggedSelectedExtraId(null);
-                                      setDraggedSelectedExtraOrigin(null);
-                                      setSelectedExtrasDropZone(null);
-                                    }}
-                                    className="w-full my-1 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm cursor-grab active:cursor-grabbing hover:bg-orange-500/20"
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[11px] font-black transition-colors break-words leading-snug text-orange-600">{label}</p>
-                                      {(!c && !isDessertExtra && (fi?.grams || fi?.quantity)) && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">{fi?.grams ? `${fi.grams}` : ''}{fi?.grams && fi?.quantity ? ' · ' : ''}{fi?.quantity ? `x${fi.quantity}` : ''}</p>
-                                      )}
-                                      {(!c && !fi && dessertDisplayQty && (dessertDisplayQty.grams || dessertDisplayQty.quantity)) && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
-                                          {dessertDisplayQty.grams ? `${dessertDisplayQty.grams}` : ''}
-                                          {dessertDisplayQty.grams && dessertDisplayQty.quantity ? ' · ' : ''}
-                                          {dessertDisplayQty.quantity ? `x${dessertDisplayQty.quantity}` : ''}
-                                        </p>
-                                      )}
-                                      {dessertPossibleCount !== null && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
-                                          x{dessertPossibleCount === Infinity ? <span className="text-xs">∞</span> : dessertPossibleCount}
-                                        </p>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        onClick={async () => {
-                                          try {
-                                            await removeOneSelectedExtraForDay(id, iso, key);
-                                          } catch (e) {
-                                            toast({
-                                              title: "Stock non modifié",
-                                              description: "Impossible de retirer cette occurrence.",
-                                              variant: "destructive",
-                                            });
-                                          }
-                                        }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
-                                        title="Désélectionner cet extra"
-                                      >−</button>
-                                      <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                      {canAddDessert && (
-                                        <button
-                                          onClick={async () => {
-                                            if (isDessertExtra) {
-                                              try {
-                                                let snapshotStore: Record<string, Record<string, FoodItem[][]>> | undefined;
-                                                const { ok, snapshots } = await applyDessertExtraStockDelta(catalogId, 1, iso, key, { persistSnapshot: false });
-                                                if (!ok) {
-                                                  toast({
-                                                    title: "Stock insuffisant",
-                                                    description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                    variant: "destructive",
-                                                  });
-                                                  return;
-                                                }
-                                                if (snapshots?.length) {
-                                                  snapshotStore = buildDessertExtraSnapshotStoreAfterPush(catalogId, iso, key, snapshots);
-                                                }
-                                                const updated = { ...extraSels };
-                                                const current = updated[iso] || [];
-                                                if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
-                                                await persistExtraSelectionAndSnapshot('planning_extra_selections', updated, snapshotStore);
-                                                return;
-                                              } catch (e) {
-                                                toast({
-                                                  title: "Stock insuffisant",
-                                                  description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                  variant: "destructive",
-                                                });
-                                                return;
-                                              }
-                                            }
-                                            const updated = { ...extraSels };
-                                            const current = updated[iso] || [];
-                                            if (iso) updated[iso] = [...current, id]; else updated[key] = [...current, id];
-                                            setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                          }}
-                                          className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
-                                          title="Ajouter un"
-                                        >+</button>
-                                      )}
-                                      {prot > 0 && (
-                                        <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
-                                          🍗 {prot}
-                                        </div>
-                                      )}
-                                      {fiber > 0 && (
-                                        <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20">
-                                          <Wheat className="w-2.5 h-2.5" />{Math.round(fiber)}
-                                        </div>
-                                      )}
-                                      <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                        <Flame className="w-2.5 h-2.5" />{cal}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              };
-                              const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
-                                const count = currentIds.filter(id => id === fi.id).length;
-                                const perOccurrence = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary);
-                                const macros = scaleExtraDisplayMacrosByCount(perOccurrence, count > 0 ? count : 1);
-                                return (
-                                  <div
-                                    key={fi.id}
-                                    draggable={selectedSection !== null}
-                                    onDragStart={(e) => {
-                                      if (!selectedSection) return;
-                                      setDraggedSelectedExtraId(fi.id);
-                                      setDraggedSelectedExtraOrigin({ iso, key });
-                                      e.dataTransfer.effectAllowed = "move";
-                                      e.dataTransfer.setData("text/plain", fi.id);
-                                    }}
-                                    onDragOver={(e) => {
-                                      if (!selectedSection || !draggedSelectedExtraId || draggedSelectedExtraId === fi.id) return;
-                                      e.preventDefault();
-                                      e.dataTransfer.dropEffect = "move";
-                                    }}
-                                    onDrop={(e) => {
-                                      if (!selectedSection) return;
-                                      e.preventDefault();
-                                      const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-                                      reorderSelectedExtras(sourceId, fi.id);
-                                      if (selectedSection === "top") moveSelectedExtraToTopSection(sourceId);
-                                      else moveSelectedExtraToBottomSection(sourceId);
-                                      setDraggedSelectedExtraId(null);
-                                      setDraggedSelectedExtraOrigin(null);
-                                    }}
-                                    onDragEnd={() => {
-                                      setDraggedSelectedExtraId(null);
-                                      setDraggedSelectedExtraOrigin(null);
-                                    }}
-                                    className={`w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <p className={`text-[11px] font-black transition-colors break-words leading-snug ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
-                                      {(fi.grams || fi.quantity) && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      {count > 0 && (
-                                        <>
-                                          <button
-                                            onClick={async () => {
-                                              try {
-                                                await removeOneSelectedExtraForDay(fi.id, iso, key);
-                                              } catch (e) {
-                                                toast({
-                                                  title: "Stock non modifié",
-                                                  description: "Impossible de retirer cette occurrence.",
-                                                  variant: "destructive",
-                                                });
-                                              }
-                                            }}
-                                            className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
-                                            title="Désélectionner cet extra"
-                                          >−</button>
-                                          <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                        </>
-                                      )}
-                                      <button
-                                        onClick={() => {
-                                          const updated = { ...extraSels };
-                                          const current = updated[iso] || [];
-                                          if (iso) updated[iso] = [...current, fi.id]; else updated[key] = [...current, fi.id];
-                                          setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                        }}
-                                        className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold"
-                                        title="Ajouter un"
-                                      >+</button>
-                                      {macros.pro > 0 && (
-                                        <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
-                                          🍗 {macros.pro}
-                                        </div>
-                                      )}
-                                      {macros.fiber > 0 && (
-                                        <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20">
-                                          <Wheat className="w-2.5 h-2.5" />{macros.fiber}
-                                        </div>
-                                      )}
-                                      {macros.cal > 0 && (
-                                        <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                          <Flame className="w-2.5 h-2.5" />{macros.cal}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              };
-                              return (
-                                <>
-                                  {selectedOrderedIds.length > 0 && (
-                                    <>
-                                      <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Extras sélectionnés</p>
-                                      {selectedTopIds.map((id, index) => renderSelectedRowById(id, "top", index))}
-                                      <div
-                                        onDragOver={(e) => {
-                                          if (!draggedSelectedExtraId) return;
-                                          e.preventDefault();
-                                          e.dataTransfer.dropEffect = "move";
-                                          setSelectedExtrasDropZone(`${daySlotKey}:top`);
-                                        }}
-                                        onDragLeave={() => setSelectedExtrasDropZone((cur) => (cur === `${daySlotKey}:top` ? null : cur))}
-                                        onDrop={(e) => {
-                                          e.preventDefault();
-                                          const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-                                          if (sourceId) moveSelectedExtraToTopSection(sourceId);
-                                          setDraggedSelectedExtraId(null);
-                                          setDraggedSelectedExtraOrigin(null);
-                                          setSelectedExtrasDropZone(null);
-                                        }}
-                                        className="relative my-0.5 h-1"
-                                        title="Dépose ici pour placer l'extra au-dessus du trait"
-                                      >
-                                        <Separator className={`absolute top-1/2 -translate-y-1/2 ${selectedExtrasDropZone === `${daySlotKey}:top` ? 'opacity-90 bg-orange-400' : 'opacity-35'}`} />
-                                      </div>
-                                      <div
-                                        onDragOver={(e) => {
-                                          if (!draggedSelectedExtraId) return;
-                                          e.preventDefault();
-                                          e.dataTransfer.dropEffect = "move";
-                                          setSelectedExtrasDropZone(`${daySlotKey}:middle`);
-                                        }}
-                                        onDragLeave={() => setSelectedExtrasDropZone((cur) => (cur === `${daySlotKey}:middle` ? null : cur))}
-                                        onDrop={(e) => {
-                                          e.preventDefault();
-                                          const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-                                          if (sourceId) moveSelectedExtraToMiddleSection(sourceId);
-                                          setDraggedSelectedExtraId(null);
-                                          setDraggedSelectedExtraOrigin(null);
-                                          setSelectedExtrasDropZone(null);
-                                        }}
-                                        className={`rounded-sm transition-all ${draggedSelectedExtraId ? 'my-0.5 min-h-6' : 'my-0 min-h-0'} ${selectedExtrasDropZone === `${daySlotKey}:middle` ? 'bg-orange-500/10 ring-1 ring-orange-400/35' : ''}`}
-                                        title="Dépose ici pour placer l'extra entre les deux traits"
-                                      >
-                                        {selectedMiddleIds.map((id, index) => renderSelectedRowById(id, "middle", index))}
-                                      </div>
-                                      <Separator
-                                        className={`${draggedSelectedExtraId && selectedExtrasDropZone === `${daySlotKey}:bottom` ? 'my-0.5 bg-orange-400 opacity-90' : draggedSelectedExtraId ? 'my-0.5' : 'my-px opacity-60'}`}
-                                        onDragOver={(e) => {
-                                          if (!draggedSelectedExtraId) return;
-                                          e.preventDefault();
-                                          e.dataTransfer.dropEffect = "move";
-                                          setSelectedExtrasDropZone(`${daySlotKey}:bottom`);
-                                        }}
-                                        onDragLeave={() => setSelectedExtrasDropZone((cur) => (cur === `${daySlotKey}:bottom` ? null : cur))}
-                                        onDrop={(e) => {
-                                          e.preventDefault();
-                                          const sourceId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
-                                          if (sourceId) moveSelectedExtraToBottomSection(sourceId);
-                                          setDraggedSelectedExtraId(null);
-                                          setDraggedSelectedExtraOrigin(null);
-                                          setSelectedExtrasDropZone(null);
-                                        }}
-                                      />
-                                      {selectedBottomIds.map((id, index) => renderSelectedRowById(id, "bottom", index))}
-                                    </>
-                                  )}
-                                  {(allSingleIngredientDessertExtras.some((d) => currentIds.includes(d.id)) || singleIngredientDessertExtras.length > 0) && (
-                                    <>
-                                      <Separator className="my-2 opacity-50" />
-                                      <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                      {unselectedDessertExtras.map((d, index) => (
-                                        <div key={`unselected-dessert-${d.id}-${index}`} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-black transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
-                                            <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}</p>
-                                          </div>
-                                          <div className="flex items-center gap-1.5 shrink-0">
-                                            <button onClick={async () => {
-                                              try {
-                                                let snapshotStore: Record<string, Record<string, FoodItem[][]>> | undefined;
-                                                const { ok, snapshots } = await applyDessertExtraStockDelta(d.id, 1, iso, key, { persistSnapshot: false });
-                                                if (!ok) {
-                                                  toast({
-                                                    title: "Stock insuffisant",
-                                                    description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                    variant: "destructive",
-                                                  });
-                                                  return;
-                                                }
-                                                if (snapshots?.length) {
-                                                  snapshotStore = buildDessertExtraSnapshotStoreAfterPush(d.id, iso, key, snapshots);
-                                                }
-                                                const updated = { ...extraSels };
-                                                const current = updated[iso] || [];
-                                                if (iso) updated[iso] = [...current, d.id]; else updated[key] = [...current, d.id];
-                                                await persistExtraSelectionAndSnapshot('planning_extra_selections', updated, snapshotStore);
-                                              } catch (e) {
-                                                toast({
-                                                  title: "Stock insuffisant",
-                                                  description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                  variant: "destructive",
-                                                });
-                                              }
-                                            }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold" title="Ajouter un">+</button>
-                                            {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">🍗 {Math.round(d.prot)}</div>}
-                                            {d.fiber > 0 && <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20"><Wheat className="w-2.5 h-2.5" />{Math.round(d.fiber)}</div>}
-                                            <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                      <Separator className="my-2 opacity-50" />
-                                    </>
-                                  )}
-                                  {othersAbove.map((fi) => renderRow(fi))}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
-                      <button
-                        onClick={() => {
-                          const snapKey = `extra-${iso}`;
-                          // Utiliser l'état React courant (source de vérité instantanée) pour éviter
-                          // de relire une préférence potentiellement en retard juste après un clic +/−.
-                          const currentIds = extraSelections[iso] || [];
-                          const cal = (iso && extraCalories[iso]) || 0;
-                          const prot = (iso && extraProteins[iso]) || 0;
-                          const fiber = (iso && extraFibers[iso]) || 0;
-                          const itemIds = currentIds;
-                          const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber, savedAt: Date.now(), itemIds } };
-                          setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                          // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
-                          // Propager via la clé "jour" (lundi/mardi/...) pour que la semaine suivante,
-                          // qui a une autre date ISO, récupère bien le visuel des saves.
-                          if (weekOffset === 0) {
-                            const nxtSel = { ...nextExtraSelections };
-                            nxtSel[key] = [...itemIds];
-                            setPreference.mutate({ key: 'next_week_extra_selections', value: nxtSel });
-
-                            const nxtCal = { ...nextExtraCalories };
-                            if (cal > 0) {
-                              nxtCal[key] = cal;
-                            } else {
-                              delete nxtCal[key];
-                            }
-                            setPreference.mutate({ key: 'next_week_extra_calories', value: nxtCal });
-
-                            const nxtPro = { ...nextExtraProteins };
-                            if (prot > 0) {
-                              nxtPro[key] = prot;
-                            } else {
-                              delete nxtPro[key];
-                            }
-                            setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtPro });
-
-                            const nxtFiber = { ...nextExtraFibers };
-                            if (fiber > 0) {
-                              nxtFiber[key] = fiber;
-                            } else {
-                              delete nxtFiber[key];
-                            }
-                            setPreference.mutate({ key: 'next_week_extra_fibers', value: nxtFiber });
-                          }
-
-                          setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
-                          setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
-                        }}
-                        onDoubleClick={() => {
-                          const snapKey = `extra-${iso}`;
-                          const updated = clearExtraSnapshotsForWeekday(savedSnapshots, iso, key, JS_DAY_TO_KEY);
-                          setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                          // Semaine suivante : état vide explicite (évite le repli sur d’anciens snapshots extra-YYYY-MM-DD).
-                          if (weekOffset === 0) {
-                            const cleared = clearNextWeekExtraStateForDay(
-                              nextExtraSelections,
-                              nextExtraCalories,
-                              nextExtraProteins,
-                              nextExtraFibers,
-                              iso,
-                              key,
-                            );
-                            setPreference.mutate({ key: 'next_week_extra_selections', value: cleared.selections });
-                            setPreference.mutate({ key: 'next_week_extra_calories', value: cleared.calories });
-                            setPreference.mutate({ key: 'next_week_extra_proteins', value: cleared.proteins });
-                            setPreference.mutate({ key: 'next_week_extra_fibers', value: cleared.fibers });
-                            const clearedAssignments = { ...nextExtraSlotAssignments };
-                            for (const s of ['matin', 'midi', 'soir', 'gouter'] as const) {
-                              delete clearedAssignments[`${iso}-${s}`];
-                              delete clearedAssignments[`${key}-${s}`];
-                            }
-                            setPreference.mutate({ key: 'next_week_extra_slot_assignments', value: clearedAssignments });
-                          }
-                        }}
-                        className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${flashedKeys[`extra-${iso}`]
-                          ? 'bg-green-500/30 text-green-400 border border-green-400/50'
-                          : savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]
-                            ? 'bg-primary/20 text-primary border border-primary/40'
-                            : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60 border border-transparent'
-                          }`}
-                        title={(() => {
-                          const snap = savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`];
-                          return formatPlanningSnapshotTitle(snap, { itemCount: snap?.itemIds?.length || 0 });
-                        })()}
-                      >💾</button>
-                    </div>
-                  </div>
-                </div>
-                  );
-                })()}
-              </div>
-              <div
-                data-slot
-                data-day={iso}
-                data-time="gouter"
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOverSlot(`${iso}-gouter`);
-                }}
-                onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
-                onDrop={(e) => handleDrop(e, iso, 'gouter')}
-                className={`mt-1.5 min-h-[34px] rounded-xl border border-dashed p-0.5 sm:p-1 transition-colors flex items-center ${dragOverSlot === `${iso}-gouter` ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
-              >
-                <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
-                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                    <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
-                    <button
-                      onClick={() => {
-                        const updated = { ...drinkChecks };
-                        if (updated[`${iso}-gouter`]) delete updated[`${iso}-gouter`];
-                        else if (updated[`${key}-gouter`]) delete updated[`${key}-gouter`];
-                        else updated[`${iso}-gouter`] = true;
-                        setPreference.mutate({ key: 'planning_drink_checks', value: updated });
-                      }}
-                      className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${gouterDrink ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}
-                      title={`+ Boisson sucrée (+${DRINK_CALORIES} cal)`}
-                    >
-                      🥤 {gouterDrink ? `+${DRINK_CALORIES}` : ''}
-                    </button>
-                    {!hasGouterMeals && (
-                      <>
-                        <PlanningInput
-                          storageKey={`manual-${iso}-gouter`}
-                          currentValue={gouterManualCal}
-                          onSave={(val) => {
-                            const updated = { ...manualCalories };
-                            if (val > 0) updated[`${iso}-gouter`] = val;
-                            else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                            setPreference.mutate({ key: 'planning_manual_calories', value: updated });
-                          }}
-                          placeholder="kcal"
-                          className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center"
-                        />
-                        <PlanningInput
-                          storageKey={`manual-prot-${iso}-gouter`}
-                          currentValue={gouterManualPro}
-                          onSave={(val) => {
-                            const updated = { ...manualProteins };
-                            if (val > 0) updated[`${iso}-gouter`] = val;
-                            else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                            setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
-                          }}
-                          placeholder="prot"
-                          className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center"
-                        />
-                        <PlanningInput
-                          storageKey={`manual-fiber-${iso}-gouter`}
-                          currentValue={gouterManualFiber}
-                          onSave={(val) => {
-                            const updated = { ...manualFibers };
-                            if (val > 0) updated[`${iso}-gouter`] = val;
-                            else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                            setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
-                          }}
-                          placeholder="fib"
-                          className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
-                        />
-                      </>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 sm:gap-2 flex-wrap min-w-0">
-                    {gouterMeals.map((pm) => (
-                      <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
-                        {renderMiniCard(pm, true)}
-                      </div>
-                    ))}
-                    {gouterAssignedIds.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
-                          const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                          if (!resolved) return null;
-                          const { custom, fi } = resolved;
-                          return (
-                            <span
-                              key={`gouter-assigned-${extraId}-${index}-${count}`}
-                              draggable
-                              onDragStart={(e) => {
-                                setDraggedSelectedExtraId(extraId);
-                                setDraggedSelectedExtraOrigin({ iso, key });
-                                e.dataTransfer.effectAllowed = 'move';
-                                e.dataTransfer.setData('text/plain', extraId);
-                              }}
-                              onDragEnd={() => {
-                                setDraggedSelectedExtraId(null);
-                                setDraggedSelectedExtraOrigin(null);
-                              }}
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
-                              title="Extra assigné à Goûter — glisse pour déplacer"
-                            >
-                              {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                              <button onClick={() => deselectExtraForDay(extraId, iso, key)} className="opacity-60 hover:opacity-100 font-bold" title="Retirer des extras du jour">×</button>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {(gouterTotalCals > 0 || gouterTotalPro > 0 || gouterTotalFiber > 0) && !hideDayCalorieTotals && (
-                      <div className={SLOT_MEAL_TOTAL_CLASS}>
-                        {gouterTotalCals > 0 && <span className="flex items-center gap-0.5"><Flame className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-orange-500/60" />{Math.round(gouterTotalCals)}</span>}
-                        {gouterTotalCals > 0 && (gouterTotalPro > 0 || gouterTotalFiber > 0) && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
-                        {gouterTotalPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[8px] sm:text-[9px] opacity-60">🍗</span>{Math.round(gouterTotalPro)}</span>}
-                        {gouterTotalPro > 0 && gouterTotalFiber > 0 && <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>}
-                        {gouterTotalFiber > 0 && <span className="flex items-center gap-0.5"><Wheat className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-emerald-500/70" />{Math.round(gouterTotalFiber)}</span>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+                />
+              )}
+            />
           );
         })}
-
         {/* Total calorique de la semaine */}
         {(() => {
           const todayIndexNum = weekDates.findIndex(d => d.iso === todayISO);
           const datesUpToToday = todayIndexNum >= 0 ? weekDates.slice(0, todayIndexNum + 1) : [];
           const totalUpToToday = datesUpToToday.reduce((sum, d) => sum + getDayCalories(d.key, d.iso), 0);
           const avgCal = datesUpToToday.length > 0 ? Math.round(totalUpToToday / datesUpToToday.length) : 0;
-          /** Couleur d’un total/moyenne masqué : vert dans la fourchette, rouge au-dessus, blanc en dessous. */
-          const maskedCalColor = (value: number, low: number, high: number, dayScale = 1) =>
-            getCalorieRangeTotalColorClass(value, low, high, dayScale) ?? "text-white";
-          const weekTotalColor = maskedCalColor(weekTotal, DAILY_GOAL_LOW, DAILY_GOAL, DEFAULT_WEEKLY_MULTIPLIER);
-          const avg7Color = maskedCalColor(rolling7DayAvg, DAILY_GOAL_LOW, DAILY_GOAL);
-          const avg14Color = maskedCalColor(rolling14DayAvg, DAILY_GOAL_LOW, DAILY_GOAL);
-          const avgUpToColor = maskedCalColor(avgCal, DAILY_GOAL_LOW, DAILY_GOAL);
           return (
-            <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-foreground">Total semaine</span>
-                <span className="text-xs text-muted-foreground font-medium">
-                  Moy. {hideDayCalorieTotals ? <span className={avg7Color}>Calories</span> : rolling7DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling7DaysCounted}j)</span>
-                </span>
-                <span className="text-xs text-muted-foreground/70 font-medium">
-                  · Moy. {hideDayCalorieTotals ? <span className={avg14Color}>Calories</span> : rolling14DayAvg} kcal/j <span className="text-muted-foreground/40">({rolling14DaysCounted}j)</span>
-                </span>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap ml-auto">
-                <span className="text-xs text-muted-foreground font-medium">
-                  Moy. {hideDayCalorieTotals ? <span className={avgUpToColor}>Calories</span> : avgCal} kcal/j <span className="text-muted-foreground/40">({datesUpToToday.length}j)</span>
-                </span>
-                <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-                  <Flame className="h-4 w-4" />
-                  {hideDayCalorieTotals ? <span className={weekTotalColor}>Calories</span> : Math.round(weekTotal)}
-                  {" "}
-                  <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(WEEKLY_GOAL_LOW, WEEKLY_GOAL)}</span>
-                </span>
-              </div>
-            </div>
+            <PlanningWeekTotalsFooter
+              title="Total semaine"
+              weekTotal={weekTotal}
+              avgCal={avgCal}
+              avgDaysLabel={`${datesUpToToday.length}j`}
+              goalLow={DAILY_GOAL_LOW}
+              goalHigh={DAILY_GOAL}
+              displayGoalLow={WEEKLY_GOAL_LOW}
+              displayGoalHigh={WEEKLY_GOAL}
+              hideDayCalorieTotals={hideDayCalorieTotals}
+              weekDayScale={DEFAULT_WEEKLY_MULTIPLIER}
+              rolling7DayAvg={rolling7DayAvg}
+              rolling7DaysCounted={rolling7DaysCounted}
+              rolling14DayAvg={rolling14DayAvg}
+              rolling14DaysCounted={rolling14DaysCounted}
+            />
           );
         })()}
 
         {/* Hors planning — zone de dépôt pour déplanifier */}
-        <div
-          data-unplanned
+        <UnplannedDropZone
+          isDragOver={dragOverUnplanned}
+          isTouchHighlight={touchHighlight === "unplanned"}
+          isEmpty={unplanned.length === 0}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOverUnplanned(true);
           }}
           onDragLeave={() => setDragOverUnplanned(false)}
           onDrop={handleDropUnplanned}
-          className={`rounded-2xl p-3 sm:p-4 transition-all ${dragOverUnplanned || touchHighlight === "unplanned" ? "bg-muted/60 ring-2 ring-border" : "bg-card/80 backdrop-blur-sm"}`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm sm:text-base font-bold text-foreground">Hors planning</h3>
-          </div>
-          {unplanned.length === 0 ? (
-            <p className={`text-xs italic ${dragOverUnplanned ? "text-foreground/60" : "text-muted-foreground/50"}`}>
-              {dragOverUnplanned ? "Relâche pour retirer du planning ↓" : "Tous les repas sont planifiés ✨"}
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">{unplanned.map((pm) => renderMiniCard(pm, true))}</div>
-          )}
-        </div>
+          {unplanned.map((pm) => renderMiniCard(pm, true))}
+        </UnplannedDropZone>
       </>) : weekOffset <= -1 ? (
         /* ─── Semaine précédente (Vue de sauvegarde) ─── */
-        (() => {
-          const backupRaw = getPreference<any>('possible_meals_backup', null);
-          if (!backupRaw) return (
-            <div className="rounded-2xl bg-card/80 backdrop-blur-sm p-6 text-center">
-              <p className="text-sm text-muted-foreground italic">Aucune sauvegarde disponible</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">Une sauvegarde est créée automatiquement lors du reset</p>
-            </div>
-          );
-          const isNF = backupRaw && !Array.isArray(backupRaw) && backupRaw.cards;
-          const cards: any[] = isNF ? backupRaw.cards : (Array.isArray(backupRaw) ? backupRaw : []);
-          const bMC = isNF ? (backupRaw.manualCalories || {}) : {};
-          const bMP = isNF ? (backupRaw.manualProteins || {}) : {};
-          const bEC = isNF ? (backupRaw.extraCalories || {}) : {};
-          const bEP = isNF ? (backupRaw.extraProteins || {}) : {};
-          const bES = isNF ? (backupRaw.extraSelections || {}) : {};
-          const bESA = isNF ? (backupRaw.extraSlotAssignments || {}) : {};
-          const bBC = isNF ? (backupRaw.breakfastManualCalories || {}) : {};
-          const bBP = isNF ? (backupRaw.breakfastManualProteins || {}) : {};
-          const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
-          const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
-          const bCO = isNF
-            ? mergeBackupCardOverrides(backupRaw.calOverrides, calOverrides, cards.map((c: { id: string }) => c.id))
-            : {};
-          const bPO = isNF
-            ? mergeBackupCardOverrides(backupRaw.proOverrides, proOverrides, cards.map((c: { id: string }) => c.id))
-            : {};
-
-          const renderBackupCards = (slotCards: any[]) => slotCards.map((c: any, i: number) => {
-            const m = allMealsById.get(c.meal_id);
-            if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
-            const openBackupPopup = () => openBackupPlanningCardPopup(c, bCO[c.id], bPO[c.id]);
-            const cardKey = `${c.id}-${i}`;
-            return (
-              <div
-                key={i}
-                onDoubleClick={openBackupPopup}
-                onClick={() => handleBackupCardOpen(cardKey, openBackupPopup)}
-                className="w-full min-w-0 overflow-hidden rounded-xl px-2 py-1 text-white text-[9px] sm:text-[10px] font-semibold flex flex-col gap-0.5 cursor-pointer transition-all hover:scale-[1.01]"
-                style={{ backgroundColor: getMealColor(m.ingredients?.trim() ? m.ingredients : c.ingredients_override, m.name) }}
-                title="Double-clic pour voir le détail"
-              >
-                <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
-                  {getCategoryEmoji(m.category)} {m.name}
-                </span>
-                {bCO[c.id] && !hideDayCalorieTotals && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
-                {bPO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🍗{bPO[c.id]}</span>}
-              </div>
-            );
-          });
-
-          const dailyTotals: number[] = [];
-          const dailyProteins: number[] = [];
-
-          return (
-            <div className="space-y-3">
-              <div className="rounded-2xl bg-amber-500/10 border border-amber-500/20 p-3 text-center">
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400">📋 Lecture seule — Dernière sauvegarde avant reset</p>
-              </div>
-              {weekDates.map(({ key, iso, display }) => {
-                const dayCards = cards.filter((c: any) => c.day_of_week === iso || c.day_of_week === key);
-                const midiCards = dayCards.filter((c: any) => c.meal_time === 'midi');
-                const soirCards = dayCards.filter((c: any) => c.meal_time === 'soir');
-                const matinCards = dayCards.filter((c: any) => c.meal_time === 'matin');
-                const gouterCards = dayCards.filter((c: any) => c.meal_time === 'gouter');
-
-                // Current totals will be calculated below from slot values
-
-                let bfSlotCal = 0, bfSlotPro = 0;
-                let midiSlotCal = 0, midiSlotPro = 0;
-                let soirSlotCal = 0, soirSlotPro = 0;
-                let gouterSlotCal = 0, gouterSlotPro = 0;
-
-                // Calcul du petit déjeuner
-                const bfSel = bBS[iso] || bBS[key];
-                if (bfSel?.startsWith('meal:')) {
-                  const m = allMealsById.get(bfSel.slice(5));
-                  if (m) { bfSlotCal += parseCalories(m.calories); bfSlotPro += parseProtein(m.protein); }
-                } else if (bfSel?.startsWith('pm:')) {
-                  const pm = cards.find(c => c.id === bfSel.slice(3));
-                  if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, iso, key, matinCards)) {
-                    const m = allMealsById.get(pm.meal_id);
-                    const fullPm = m ? { ...pm, meals: m } : pm;
-                    bfSlotCal += getCardDisplayCalories(fullPm, bCO[pm.id], isAvailableCb);
-                    bfSlotPro += getCardDisplayProtein(fullPm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
-                  }
-                } else {
-                  bfSlotCal += (bBC[iso] || bBC[key] || 0);
-                  const bfManualPro = isNF ? (backupRaw.breakfastManualProteins?.[iso] || backupRaw.breakfastManualProteins?.[key] || 0) : 0;
-                  bfSlotPro += bfManualPro;
-                }
-
-                // Calculs des cartes et des créneaux (slots)
-                const processCards = (slotCards: any[]) => {
-                  let cals = 0, pros = 0;
-                  for (const c of slotCards) {
-                    const m = allMealsById.get(c.meal_id);
-                    if (!m) continue;
-                    const overrideCal = bCO[c.id];
-                    const overridePro = bPO[c.id];
-                    const fullPm = { ...c, meals: m };
-                    cals += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
-                    pros += getCardDisplayProtein(fullPm, overridePro, isAvailableCb, foodItems, foodMacroIndex);
-                  }
-                  return { cals, pros };
-                };
-
-                const matinAssignedIds = bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? [];
-                const midiAssignedIds = bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? [];
-                const soirAssignedIds = bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? [];
-                const gouterAssignedIds = bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? [];
-                const matinAssigned = sumDayExtras(matinAssignedIds);
-                const midiAssigned = sumDayExtras(midiAssignedIds);
-                const soirAssigned = sumDayExtras(soirAssignedIds);
-                const gouterAssigned = sumDayExtras(gouterAssignedIds);
-
-                const resMatin = processCards(matinCards);
-                bfSlotCal += resMatin.cals + matinAssigned.cal;
-                bfSlotPro += resMatin.pros + matinAssigned.pro;
-
-                const resMidi = processCards(midiCards);
-                midiSlotCal = resMidi.cals + midiAssigned.cal;
-                midiSlotPro = resMidi.pros + midiAssigned.pro;
-                if (midiCards.length === 0) { midiSlotCal += (bMC[`${iso}-midi`] || bMC[`${key}-midi`] || 0); midiSlotPro += (bMP[`${iso}-midi`] || bMP[`${key}-midi`] || 0); }
-                if (bDC[`${iso}-midi`] || bDC[`${key}-midi`]) midiSlotCal += DRINK_CALORIES;
-
-                const resSoir = processCards(soirCards);
-                soirSlotCal = resSoir.cals + soirAssigned.cal;
-                soirSlotPro = resSoir.pros + soirAssigned.pro;
-                if (soirCards.length === 0) { soirSlotCal += (bMC[`${iso}-soir`] || bMC[`${key}-soir`] || 0); soirSlotPro += (bMP[`${iso}-soir`] || bMP[`${key}-soir`] || 0); }
-                if (bDC[`${iso}-soir`] || bDC[`${key}-soir`]) soirSlotCal += DRINK_CALORIES;
-
-                const resGouter = processCards(gouterCards);
-                gouterSlotCal = resGouter.cals + gouterAssigned.cal;
-                gouterSlotPro = resGouter.pros + gouterAssigned.pro;
-                if (gouterCards.length === 0) {
-                  gouterSlotCal += (bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0);
-                  gouterSlotPro += (bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0);
-                }
-                if (bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) gouterSlotCal += DRINK_CALORIES;
-
-                let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal + gouterSlotCal;
-                let dayPro = bfSlotPro + midiSlotPro + soirSlotPro + gouterSlotPro;
-
-                // Extras (sauvegarde : mêmes ids que le planning courant, y compris extras saisis à la main)
-                dayTotal += (bEC[iso] || bEC[key] || 0);
-                dayPro += (bEP[iso] || bEP[key] || 0);
-                const backupExtraSum = sumDayExtras(bES[iso] || bES[key]);
-                const backupAssignedExtraCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
-                const backupAssignedExtraPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
-                const backupUnassignedExtraCal = Math.max(0, backupExtraSum.cal - backupAssignedExtraCal);
-                const backupUnassignedExtraPro = Math.max(0, backupExtraSum.pro - backupAssignedExtraPro);
-                dayTotal += backupUnassignedExtraCal;
-                dayPro += backupUnassignedExtraPro;
-
-                // Le calcul des boissons est déjà inclus dans les totaux des créneaux (slots)
-
-                dailyTotals.push(dayTotal);
-                dailyProteins.push(dayPro);
-                const backupBreakfastCard = matinCards.length === 1
-                  ? matinCards[0]
-                  : bfSel?.startsWith('pm:')
-                    ? cards.find((c: any) => c.id === bfSel.slice(3))
-                    : null;
-                const backupBreakfastMeal = backupBreakfastCard
-                  ? resolveBackupCardMeal(backupBreakfastCard)
-                  : bfSel?.startsWith('meal:')
-                    ? allMealsById.get(bfSel.slice(5)) ?? null
-                    : null;
-                const openBackupBreakfastPopup = () => {
-                  if (backupBreakfastCard) {
-                    openBackupPlanningCardPopup(backupBreakfastCard, bCO[backupBreakfastCard.id], bPO[backupBreakfastCard.id]);
-                    return;
-                  }
-                  if (backupBreakfastMeal) setPopupBreakfast({ meal: backupBreakfastMeal, day: iso });
-                };
-
-                return (
-                  <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <h3 className="text-sm sm:text-base font-bold text-foreground">{display}</h3>
-                      <div className="flex items-center gap-1">
-                        {(() => {
-                          const bfSelLabel = bBS[iso] || bBS[key];
-                          const breakfastBreakdownItems = buildBackupBreakfastBreakdownItems({
-                            key,
-                            iso,
-                            matinCards,
-                            bfSel: bfSelLabel,
-                            cards,
-                            breakfastManualCalories: bBC,
-                            breakfastManualProteins: bBP,
-                            calOverrides: bCO,
-                            proOverrides: bPO,
-                            matinAssignedIds,
-                            mealsById: allMealsById,
-                            foodItems,
-                            isAvailable: isAvailableCb,
-                            foodMacroIndex,
-                          });
-                          const breakfastLabel =
-                            breakfastBreakdownItems.length > 1
-                              ? 'Plusieurs petits déj'
-                              : breakfastBreakdownItems.length === 1
-                                ? breakfastBreakdownItems[0].name
-                                : '🥐 Petit déj';
-
-                          if (breakfastBreakdownItems.length > 1) {
-                            return (
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold cursor-pointer hover:bg-muted/80"
-                                    title="Voir le détail des petits déjeuners"
-                                  >
-                                    {breakfastLabel}
-                                  </button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-56 p-2" align="start">
-                                  <BreakfastBreakdownList
-                                    items={breakfastBreakdownItems}
-                                    totalCal={bfSlotCal}
-                                    totalPro={bfSlotPro}
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            );
-                          }
-
-                          return (
-                            <span
-                              onDoubleClick={backupBreakfastMeal ? openBackupBreakfastPopup : undefined}
-                              onClick={() => {
-                                if (backupBreakfastMeal) handleBackupCardOpen(`bf-${iso}`, openBackupBreakfastPopup);
-                              }}
-                              className={`text-[10px] bg-muted/60 text-muted-foreground px-2 py-0.5 rounded-full font-semibold ${backupBreakfastMeal ? 'cursor-pointer hover:bg-muted/80' : ''}`}
-                              title={backupBreakfastMeal ? "Double-clic pour voir le détail" : undefined}
-                            >
-                              {breakfastLabel}
-                            </span>
-                          );
-                        })()}
-                        {(bfSlotCal > 0 || bfSlotPro > 0) && !hideDayCalorieTotals && (
-                          <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
-                            {bfSlotCal > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <Flame className="w-2 h-2 text-orange-500/60" />
-                                {Math.round(bfSlotCal)}
-                              </span>
-                            )}
-                            {bfSlotCal > 0 && bfSlotPro > 0 && <span className="opacity-30">•</span>}
-                            {bfSlotPro > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <span className="text-[9px] opacity-60">🍗</span>
-                                {Math.round(bfSlotPro)}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1" />
-                      <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
-                        <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
-                          <Flame className="h-2.5 w-2.5 text-orange-500" />
-                          <span className={getCalorieRangeTotalColorClass(dayTotal, 0, backupTotals.archivedDailyGoal) ?? undefined}>
-                            {hideDayCalorieTotals ? "Calories" : Math.round(dayTotal)}
-                          </span>
-                          {" "}
-                          <span className="text-muted-foreground/50 font-normal">/ {backupTotals.archivedDailyGoal}</span>
-                        </span>
-                        {dayTotal > 0 && !hideDayCalorieTotals && (
-                          <span className={`text-[10px] font-bold whitespace-nowrap ${backupTotals.archivedDailyGoal - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
-                            {backupTotals.archivedDailyGoal - dayTotal > 0 ? `reste ${Math.round(backupTotals.archivedDailyGoal - dayTotal)}` : `+${Math.round(dayTotal - backupTotals.archivedDailyGoal)}`}
-                          </span>
-                        )}
-                        {dayPro > 0 && (
-                          <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
-                            🍗 {Math.round(dayPro)} <span className="text-blue-400/50 font-normal">/ {backupTotals.archivedProteinGoal}</span>
-                          </span>
-                        )}
-                        {dayPro > 0 && (
-                          <span className={`text-[10px] font-bold whitespace-nowrap ${backupTotals.archivedProteinGoal - dayPro > 0 ? 'text-blue-400/60' : 'text-blue-500'}`}>
-                            {backupTotals.archivedProteinGoal - dayPro > 0 ? `reste ${Math.round(backupTotals.archivedProteinGoal - dayPro)}` : `+${Math.round(dayPro - backupTotals.archivedProteinGoal)}`}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1 sm:gap-3">
-                      {TIMES.map(time => {
-                        const slotCards = dayCards.filter((c: any) => c.meal_time === time);
-                        const kIso = `${iso}-${time}`;
-                        const kKey = `${key}-${time}`;
-                        return (
-                          <div key={time} className="min-w-0 min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-border/55 bg-background/10 p-1 sm:p-1.5">
-                            <div className="flex items-center justify-between mb-0.5">
-                              <div className="flex items-center gap-1">
-                                <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
-                                {(bDC[kIso] || bDC[kKey]) && (
-                                  <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +{DRINK_CALORIES}</span>
-                                )}
-                              </div>
-                              {(() => {
-                                const sCal = time === 'midi' ? midiSlotCal : soirSlotCal;
-                                const sPro = time === 'midi' ? midiSlotPro : soirSlotPro;
-                                if (hideDayCalorieTotals || (sCal <= 0 && sPro <= 0)) return null;
-                                return (
-                                  <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-4 sm:h-5">
-                                    {sCal > 0 && (
-                                      <span className="flex items-center gap-0.5">
-                                        <Flame className="w-2 h-2 text-orange-500/60" />
-                                        {Math.round(sCal)}
-                                      </span>
-                                    )}
-                                    {sCal > 0 && sPro > 0 && <span className="opacity-30">•</span>}
-                                    {sPro > 0 && (
-                                      <span className="flex items-center gap-0.5">
-                                        <span className="text-[9px] opacity-60">🍗</span>
-                                        {Math.round(sPro)}
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                            <div className="mt-0.5 space-y-1">
-                              {slotCards.length === 0 ? (
-                                <div className="flex flex-col items-start gap-0.5 opacity-60">
-                                  <div className="text-[10px] text-muted-foreground px-1">{bMC[kIso] || bMC[kKey] || 0} kcal</div>
-                                  <div className="text-[10px] text-blue-400 px-1">{bMP[kIso] || bMP[kKey] || 0} prot</div>
-                                </div>
-                              ) : (
-                                renderBackupCards(slotCards)
-                              )}
-                              {(() => {
-                                const slotAssignedIds = time === "midi" ? midiAssignedIds : soirAssignedIds;
-                                if (slotAssignedIds.length === 0) return null;
-                                return (
-                                  <div className="flex flex-wrap gap-1">
-                                    {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
-                                      const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                                      if (!resolved) return null;
-                                      const { custom, fi } = resolved;
-                                      return (
-                                        <span
-                                          key={`backup-${time}-assigned-${extraId}-${index}-${count}`}
-                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25"
-                                        >
-                                          {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {/* Extra column — clic pour voir les extras non déplacés (lecture seule) */}
-                      <Popover
-                        open={openExtrasDay === `backup-${iso}`}
-                        onOpenChange={(open) => setOpenExtrasDay(open ? `backup-${iso}` : null)}
-                      >
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            className="min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed border-orange-300/45 bg-orange-500/3 p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center cursor-pointer hover:bg-orange-500/10 transition-colors"
-                            title="Voir les extras non déplacés"
-                          >
-                            <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
-                            <div className="flex flex-col items-center gap-1 mt-1 w-full opacity-60">
-                              {(() => {
-                                const sel = sumDayExtras(bES[iso] || bES[key]);
-                                const matinAssigned = sumDayExtras(bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? []);
-                                const midiAssigned = sumDayExtras(bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? []);
-                                const soirAssigned = sumDayExtras(bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? []);
-                                const gouterAssigned = sumDayExtras(bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? []);
-                                const assignedCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
-                                const assignedPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
-                                const extraCal = Math.max(0, sel.cal - assignedCal);
-                                const extraPro = Math.max(0, sel.pro - assignedPro);
-                                return (
-                                  <>
-                                    <div className="text-[10px] text-orange-400 font-bold">{Math.round((bEC[iso] || bEC[key] || 0) + extraCal)}</div>
-                                    <div className="text-[10px] text-blue-400 font-bold">{Math.round((bEP[iso] || bEP[key] || 0) + extraPro)}</div>
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]"
-                          align="center"
-                          onOpenAutoFocus={(e) => e.preventDefault()}
-                        >
-                          {(() => {
-                            const backupUnassignedIds = getUnassignedExtraSelectionIds(bES, bESA, iso, key);
-                            const manualCal = bEC[iso] || bEC[key] || 0;
-                            const manualPro = bEP[iso] || bEP[key] || 0;
-                            const hasManual = manualCal > 0 || manualPro > 0;
-                            const hasUnassigned = backupUnassignedIds.length > 0;
-
-                            if (!hasUnassigned && !hasManual) {
-                              return (
-                                <p className="text-[10px] text-muted-foreground italic text-center py-3">
-                                  Aucun extra non déplacé
-                                </p>
-                              );
-                            }
-
-                            return (
-                              <div className="space-y-1.5 max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
-                                {hasUnassigned && (
-                                  <>
-                                    <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Extras non déplacés</p>
-                                    {groupAssignedExtraIds(backupUnassignedIds).map(({ id: extraId, count }, index) => {
-                                      const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                                      if (!resolved) return null;
-                                      const { custom, fi } = resolved;
-                                      const dessertExtra = singleIngredientDessertById.get(extraId);
-                                      const isFoodDessert = !!parseFoodDessertExtraId(extraId);
-                                      const perOccurrence = custom
-                                        ? { cal: custom.cal, pro: custom.prot, fiber: dessertExtra?.fiber ?? 0 }
-                                        : fi
-                                          ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { asDessertFood: isFoodDessert })
-                                          : { cal: 0, pro: 0, fiber: 0 };
-                                      const portionMacros = scaleExtraDisplayMacrosByCount(perOccurrence, count);
-                                      const prot = portionMacros.pro;
-                                      const cal = portionMacros.cal;
-                                      const fiber = portionMacros.fiber;
-                                      const label = getAssignedExtraLabel(
-                                        extraId,
-                                        count,
-                                        custom,
-                                        fi ?? undefined,
-                                        foodItems,
-                                        singleIngredientDessertById,
-                                      );
-                                      return (
-                                        <div
-                                          key={`backup-extra-sel-${extraId}-${index}`}
-                                          className="w-full my-0.5 p-2.5 rounded-2xl border flex items-center gap-3 bg-orange-500/10 border-orange-500/20"
-                                        >
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-[11px] font-black break-words leading-snug text-orange-600">{label}</p>
-                                          </div>
-                                          <div className="flex items-center gap-1.5 shrink-0">
-                                            <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                            {prot > 0 && (
-                                              <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">
-                                                🍗 {prot}
-                                              </div>
-                                            )}
-                                            {fiber > 0 && (
-                                              <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20">
-                                                <Wheat className="w-2.5 h-2.5" />{Math.round(fiber)}
-                                              </div>
-                                            )}
-                                            {cal > 0 && (
-                                              <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                                <Flame className="w-2.5 h-2.5" />{cal}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </>
-                                )}
-                                {hasManual && (
-                                  <p className="text-[10px] text-muted-foreground px-1 pt-1 border-t border-white/5">
-                                    <span className="font-semibold text-foreground/80">Ajout manuel : </span>
-                                    {manualCal > 0 && (
-                                      <span className="text-orange-500 font-bold">{Math.round(manualCal)} kcal</span>
-                                    )}
-                                    {manualCal > 0 && manualPro > 0 && (
-                                      <span className="text-muted-foreground/50"> · </span>
-                                    )}
-                                    {manualPro > 0 && (
-                                      <span className="text-blue-400 font-bold">{Math.round(manualPro)} prot</span>
-                                    )}
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                    <div className="mt-1.5 min-h-[34px] rounded-xl border border-dashed border-orange-300/45 bg-orange-500/3 p-0.5 sm:p-1 flex items-center">
-                      <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
-                        <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
-                        {(bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) && (
-                          <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +{DRINK_CALORIES}</span>
-                        )}
-                        {gouterCards.length === 0 && (
-                          <>
-                            <div className="text-[10px] text-muted-foreground px-1 opacity-60">{bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0} kcal</div>
-                            <div className="text-[10px] text-blue-400 px-1 opacity-60">{bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0} prot</div>
-                          </>
-                        )}
-                        {renderBackupCards(gouterCards)}
-                        {gouterAssignedIds.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {groupAssignedExtraIds(gouterAssignedIds).map(({ id: extraId, count }, index) => {
-                              const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                              if (!resolved) return null;
-                              const { custom, fi } = resolved;
-                              return (
-                                <span
-                                  key={`backup-gouter-assigned-${extraId}-${index}-${count}`}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25"
-                                >
-                                  {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {(gouterSlotCal > 0 || gouterSlotPro > 0) && !hideDayCalorieTotals && (
-                          <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm">
-                            {gouterSlotCal > 0 && <span className="flex items-center gap-0.5"><Flame className="w-2 h-2 text-orange-500/60" />{Math.round(gouterSlotCal)}</span>}
-                            {gouterSlotCal > 0 && gouterSlotPro > 0 && <span className="opacity-30">•</span>}
-                            {gouterSlotPro > 0 && <span className="flex items-center gap-0.5"><span className="text-[9px] opacity-60">🍗</span>{Math.round(gouterSlotPro)}</span>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Total calorique de la semaine (Backup) */}
-              {(() => {
-                const weekTotalCals = dailyTotals.reduce((a, b) => a + b, 0);
-                const processedDays = dailyTotals.length;
-                const avgCal = processedDays > 0 ? Math.round(weekTotalCals / processedDays) : 0;
-                const weekGoalHigh = backupTotals.archivedDailyGoal * 7;
-                const dayGoal = backupTotals.archivedDailyGoal;
-                const weekTotalColor =
-                  getCalorieRangeTotalColorClass(weekTotalCals, 0, dayGoal, 7) ?? "text-white";
-                const avgColor =
-                  getCalorieRangeTotalColorClass(avgCal, 0, dayGoal) ?? "text-white";
-
-                return (
-                  <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
-                    <span className="text-sm font-bold text-foreground">Total semaine</span>
-                    <div className="flex items-center gap-3 flex-wrap ml-auto">
-                      <span className="text-xs text-muted-foreground font-medium">
-                        Moy. {hideDayCalorieTotals ? <span className={avgColor}>Calories</span> : avgCal} kcal/j <span className="text-muted-foreground/40">({processedDays}j)</span>
-                      </span>
-                      <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-                        <Flame className="h-4 w-4" />
-                        {hideDayCalorieTotals ? <span className={weekTotalColor}>Calories</span> : Math.round(weekTotalCals)}
-                        {" "}
-                        <span className="text-muted-foreground/50 font-normal text-xs">/ {weekGoalHigh}</span>
-                      </span>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          );
-        })()
+        <PlanningBackupWeekView
+          weekDates={weekDates}
+          getPreference={getPreference}
+          calOverrides={calOverrides}
+          proOverrides={proOverrides}
+          allMealsById={allMealsById}
+          openBackupPlanningCardPopup={openBackupPlanningCardPopup}
+          handleBackupCardOpen={handleBackupCardOpen}
+          resolveBackupCardMeal={resolveBackupCardMeal}
+          setPopupBreakfast={setPopupBreakfast}
+          foodItems={foodItems}
+          foodMacroIndex={foodMacroIndex}
+          isAvailableCb={isAvailableCb}
+          singleIngredientDessertById={singleIngredientDessertById}
+          ingredientMacroLibrary={ingredientMacroLibrary}
+          sumDayExtras={sumDayExtras}
+          hideDayCalorieTotals={hideDayCalorieTotals}
+          backupTotals={backupTotals!}
+          openExtrasDay={openExtrasDay}
+          setOpenExtrasDay={setOpenExtrasDay}
+          parseCalories={parseCalories}
+          parseProtein={parseProtein}
+        />
       ) : (
         /* ─── Planification de la semaine prochaine ─── */
-        <div className="space-y-3">
-          <div className="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-2 text-center">
-            <p className="text-[10px] text-muted-foreground">📅 Aperçu semaine prochaine — inclut les éléments conservés après reset</p>
-          </div>
-          {weekDates.map(({ key, iso, display }) => {
-            // Base post-reset : captures sauvegardées uniquement (ce qui survit au reset)
-            const bfSnap = (savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`]) as any;
-            const baseBfMealId = bfSnap?.mealId || undefined;
-            const baseBfManualCal = bfSnap?.cal || 0;
-            const baseBfManualPro = bfSnap?.prot || 0;
-            const extraSnap = resolveExtraSnapshotForDay(iso, key);
-            const baseExtraCal = extraSnap?.cal || 0;
-            const baseExtraPro = extraSnap?.prot || 0;
-            const baseExtraFiber = extraSnap?.fiber || 0;
-            const baseExtraSel: string[] = extraSnap?.itemIds || [];
-
-            // Surcharges semaine prochaine > base post-reset
-            const effBfSel = nextBreakfastSelections[iso] ?? nextBreakfastSelections[key] ?? baseBfMealId;
-            const effBfMeal = effBfSel?.startsWith('meal:') ? allMealsById.get(effBfSel.slice(5)) : null;
-            // Résoudre les sélections pm: (petit déj dans Possible)
-            const effBfPm = effBfSel?.startsWith('pm:') ? possiblePetitDej.find(p => p.id === effBfSel.slice(3)) : null;
-            const effBfManualCal = nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? baseBfManualCal;
-            const effBfManualPro = nextBreakfastManualProteins[iso] ?? nextBreakfastManualProteins[key] ?? baseBfManualPro;
-            const effExtraCal = nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal;
-            const effExtraPro = nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro;
-            const effExtraFiber = nextExtraFibers[iso] ?? nextExtraFibers[key] ?? baseExtraFiber;
-            const effExtraSel = pickDayExtraSelections(nextExtraSelections, iso, key, baseExtraSel);
-            const effExtraSelMerged = mergeExtraDaySelectionIds(
-              effExtraSel,
-              nextExtraSlotAssignments,
-              iso,
-              key,
-            );
-
-            // Macros calculées pour le petit déj (gère les transferts de cartes, pm: et l'analyse des ingrédients)
-            const nxtBfCal = effBfMeal
-              ? (effBfManualCal || getMealCal(effBfMeal))
-              : effBfPm
-                ? (effBfManualCal || getCardDisplayCalories(effBfPm, calOverrides[effBfPm.id], isAvailableCb))
-                : effBfManualCal;
-            const nxtBfPro = effBfMeal
-              ? (effBfManualPro || getMealPro(effBfMeal))
-              : effBfPm
-                ? (effBfManualPro || getCardDisplayProtein(effBfPm, proOverrides[effBfPm.id], isAvailableCb, foodItems, foodMacroIndex))
-                : effBfManualPro;
-            const nxtBfFiber = effBfMeal
-              ? (getMealFiber(effBfMeal, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0)
-              : effBfPm?.meals
-                ? getCardDisplayFiber(effBfPm, undefined, isAvailableCb, foodItems, foodMacroIndex)
-                : 0;
-
-            const matinMeals = getMealsForSlot(key, 'matin', iso);
-            const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-            const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
-            const matinFiber = matinMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-
-            // Évite le double comptage quand le petit déj sélectionné est déjà une carte planifiée au matin
-            // (même logique que la semaine courante : baseBreakfast* = 0 si isAlsoMatin).
-            const isBfAlsoInMatin = effBfPm
-              ? matinMeals.some((m) => m.id === effBfPm.id) ||
-                ((effBfPm.day_of_week === key || effBfPm.day_of_week === iso) && effBfPm.meal_time === 'matin')
-              : effBfMeal
-                ? matinMeals.some((m) => m.meal_id === effBfMeal.id)
-                : false;
-            const effectiveNxtBfCal = isBfAlsoInMatin ? 0 : nxtBfCal;
-            const effectiveNxtBfPro = isBfAlsoInMatin ? 0 : nxtBfPro;
-            const effectiveNxtBfFiber = isBfAlsoInMatin ? 0 : nxtBfFiber;
-
-            const nextBreakfastAssignedIds =
-              nextExtraSlotAssignments[`${iso}-matin`] ?? nextExtraSlotAssignments[`${key}-matin`] ?? [];
-            const nextBreakfastAssigned = sumDayExtras(nextBreakfastAssignedIds);
-            const nextBreakfastTotalCals = effectiveNxtBfCal + matinCals + nextBreakfastAssigned.cal;
-            const nextBreakfastTotalPro = effectiveNxtBfPro + matinPro + nextBreakfastAssigned.pro;
-            const nextBreakfastTotalFiber = effectiveNxtBfFiber + matinFiber + nextBreakfastAssigned.fiber;
-
-            // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm: ou programmed matin)
-            const hasNextBf = !!(effBfMeal || effBfPm || matinMeals.length > 0);
-
-            let dayTotal = nextBreakfastTotalCals;
-            for (const time of TIMES) {
-              const kIso = `${iso}-${time}`;
-              const kKey = `${key}-${time}`;
-              const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-              const baseManualCal = manualSnap?.cal || 0;
-              dayTotal += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? baseManualCal;
-              if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) dayTotal += DRINK_CALORIES;
-              // Inclure les cartes programmées
-              const slotMeals = getMealsForSlot(key, time, iso);
-              dayTotal += slotMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-            }
-            const nextExtraSelMacros = sumDayExtras(effExtraSelMerged);
-            dayTotal += effExtraCal + nextExtraSelMacros.cal;
-
-            const extraSelCalSum = nextExtraSelMacros.cal;
-            const dayCalBeforeExtras = dayTotal - effExtraCal - extraSelCalSum;
-            const remainingNextCal = Math.max(0, NEXT_DAILY_GOAL - dayCalBeforeExtras);
-
-            let nxtDayPro = nextBreakfastTotalPro;
-            for (const time of TIMES) {
-              const kIso = `${iso}-${time}`;
-              const kKey = `${key}-${time}`;
-              const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-              const baseManualPro = manualSnap?.prot || 0;
-              nxtDayPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? baseManualPro;
-              // Inclure les cartes programmées
-              const slotMeals = getMealsForSlot(key, time, iso);
-              nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
-            }
-            nxtDayPro += effExtraPro + nextExtraSelMacros.pro;
-
-            let nxtDayFiber = nextBreakfastTotalFiber;
-            for (const time of TIMES) {
-              const kIso = `${iso}-${time}`;
-              const kKey = `${key}-${time}`;
-              const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-              const baseManualFiber = manualSnap?.fiber || 0;
-              nxtDayFiber += nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? baseManualFiber;
-              const slotMeals = getMealsForSlot(key, time, iso);
-              nxtDayFiber += slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-              const slotAssignedIds =
-                nextExtraSlotAssignments[kIso] ?? nextExtraSlotAssignments[kKey] ?? [];
-              nxtDayFiber += sumDayExtras(slotAssignedIds).fiber;
-            }
-            nxtDayFiber += effExtraFiber + nextExtraSelMacros.fiber;
-
-            const nextAssignedExtraIds = getAssignedExtraIdsForDay(nextExtraSlotAssignments, iso, key);
-            const nextUnassignedExtraIds = effExtraSelMerged.filter(
-              (id) => !isExtraIdAssignedForDay(id, nextAssignedExtraIds, allSingleIngredientDessertExtras, singleIngredientDessertById),
-            );
-            const nextUnassignedExtraMacros = sumDayExtras(nextUnassignedExtraIds);
-            const hasDisplayableNextWeekExtraSelections = countDisplayableExtraSelections(
-              effExtraSel,
-              foodItems,
-              allSingleIngredientDessertExtras,
-              singleIngredientDessertById,
-              dessertExtraStockSnapshots,
-            ) > 0;
-
-            return (
-              <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <h3 className="text-sm sm:text-base font-bold text-foreground">{display}</h3>
-                  {/* Petit déj selector */}
-                  <div className="flex items-center gap-1">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors truncate max-w-[120px] ${
-                            (() => {
-                              const count = matinMeals.length + (hasNextBf && !matinMeals.length ? 1 : 0);
-                              return count > 0
-                                ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50"
-                                : "bg-slate-200/80 dark:bg-slate-700/45 text-slate-700 dark:text-slate-300 border border-dashed border-slate-400/50 dark:border-slate-500/50 hover:bg-slate-300/80 dark:hover:bg-slate-600/50";
-                            })()
-                          }`}
-                        >
-                          {(() => {
-                            const count = matinMeals.length + (hasNextBf && !matinMeals.length ? 1 : 0);
-                            if (count > 1) return 'Plusieurs petits déj';
-                            if (count === 1) {
-                              if (matinMeals.length === 1) return matinMeals[0].meals?.name || '🥐 Petit déj';
-                              return effBfMeal ? effBfMeal.name : effBfPm?.meals?.name ? effBfPm.meals.name : '🥐 Petit déj';
-                            }
-                            return '🥐 Petit déj';
-                          })()}
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-52 p-2" align="start">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petit déjeuner</p>
-                        <div className="space-y-0.5 max-h-48 overflow-y-auto">
-                          <button onClick={() => {
-                            const updated = { ...nextBreakfastSelections }; delete updated[iso]; delete updated[key];
-                            setPreference.mutate({ key: 'next_week_breakfast', value: updated });
-                          }} className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors">— Aucun</button>
-                          {possiblePetitDej.length > 0 && (
-                            <>
-                              <p className="text-[9px] text-muted-foreground/60 px-2 font-semibold uppercase tracking-wide">Possible</p>
-                              {possiblePetitDej.map(pm => {
-                                const pmSelId = `pm:${pm.id}`;
-                                const isSelected = nextBreakfastSelections[iso] === pmSelId || nextBreakfastSelections[key] === pmSelId;
-                                const calDisplay = getMealCal(pm.meals || {}, pm.ingredients_override);
-                                const proDisplay = getMealPro(pm.meals || {}, pm.ingredients_override);
-                                return (
-                                  <button key={pm.id} onClick={() => {
-                                    const updated = { ...nextBreakfastSelections };
-                                    if (isSelected) { delete updated[iso]; delete updated[key]; } else { updated[iso] = pmSelId; }
-                                    setPreference.mutate({ key: 'next_week_breakfast', value: updated });
-                                  }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : ''} flex items-center justify-between`}>
-                                    <span className="truncate">{pm.meals?.name} {pm.ingredients_override ? '✏️' : ''}</span>
-                                    <span className="inline-flex items-center gap-1.5 ml-1 text-muted-foreground shrink-0 text-[10px]">
-                                      <span className="flex items-center gap-0.5">
-                                        <Flame className="w-2.5 h-2.5 text-orange-500" />
-                                        {calDisplay}
-                                      </span>
-                                      <span>•</span>
-                                      <span className="flex items-center gap-0.5">
-                                        <span className="grayscale brightness-125 saturate-50 leading-none">🍗</span>
-                                        {proDisplay}
-                                      </span>
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                              <div className="border-t border-border/40 my-1" />
-                            </>
-                          )}
-                          <p className="text-[9px] text-muted-foreground/60 px-2 font-semibold uppercase tracking-wide">Tous</p>
-                          {petitDejMeals.map(m => {
-                            const mealSelId = `meal:${m.id}`;
-                            const isSelected = nextBreakfastSelections[iso] === mealSelId || nextBreakfastSelections[key] === mealSelId;
-                            return (
-                              <button key={m.id} onClick={() => {
-                                const updated = { ...nextBreakfastSelections };
-                                if (isSelected) { delete updated[iso]; delete updated[key]; } else { updated[iso] = mealSelId; }
-                                setPreference.mutate({ key: 'next_week_breakfast', value: updated });
-                              }} className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted transition-colors ${isSelected ? 'bg-primary/10 font-bold' : ''} flex items-center justify-between`}>
-                                <span className="truncate">{m.name}</span>
-                                <span className="inline-flex items-center gap-1.5 ml-1 text-muted-foreground shrink-0 text-[10px]">
-                                  <span className="flex items-center gap-0.5">
-                                    <Flame className="w-2.5 h-2.5 text-orange-500" />
-                                    {getMealCal(m)}
-                                  </span>
-                                  <span>•</span>
-                                  <span className="flex items-center gap-0.5">
-                                    <span className="grayscale brightness-125 saturate-50 leading-none">🍗</span>
-                                    {getMealPro(m)}
-                                  </span>
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-
-                    {hasNextBf && !hideDayCalorieTotals && (
-                      <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
-                        {nextBreakfastTotalCals > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            <Flame className="w-2 h-2 text-orange-500/60" />
-                            {Math.round(nextBreakfastTotalCals)}
-                          </span>
-                        )}
-                        {nextBreakfastTotalCals > 0 && (nextBreakfastTotalPro > 0 || nextBreakfastTotalFiber > 0) && (
-                          <span className="opacity-30">•</span>
-                        )}
-                        {nextBreakfastTotalPro > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            <span className="text-[9px] opacity-60">🍗</span>
-                            {Math.round(nextBreakfastTotalPro)}
-                          </span>
-                        )}
-                        {nextBreakfastTotalPro > 0 && nextBreakfastTotalFiber > 0 && (
-                          <span className="opacity-30">•</span>
-                        )}
-                        {nextBreakfastTotalFiber > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            <Wheat className="w-2 h-2 text-emerald-500/70" />
-                            {Math.round(nextBreakfastTotalFiber)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {!hasNextBf && (
-                      <>
-                        <PlanningInput storageKey={`next-bf-cal-${iso}`} currentValue={nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? baseBfManualCal}
-                          onSave={(val) => { const u = { ...nextBreakfastManualCalories }; u[iso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_breakfast_manual_calories', value: u }); }}
-                          placeholder="kcal" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40" />
-                        <PlanningInput storageKey={`next-bf-prot-${iso}`} currentValue={nextBreakfastManualProteins[iso] ?? nextBreakfastManualProteins[key] ?? baseBfManualPro}
-                          onSave={(val) => { const u = { ...nextBreakfastManualProteins }; u[iso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_breakfast_manual_proteins', value: u }); }}
-                          placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40" />
-                      </>
-                    )}
-                  </div>
-                  <div className="flex-1" />
-                  <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
-                    <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
-                      <Flame className="h-2.5 w-2.5 text-orange-500" />
-                      <span className={getCalorieRangeTotalColorClass(dayTotal, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) ?? undefined}>
-                        {hideDayCalorieTotals ? "Calories" : Math.round(dayTotal)}
-                      </span>
-                      {" "}
-                      <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL)}</span>
-                    </span>
-                    {dayTotal > 0 && !hideDayCalorieTotals && !hasCalorieGoalRangeMin(NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) && (
-                      <span className={`text-[10px] font-bold whitespace-nowrap ${NEXT_DAILY_GOAL - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
-                        {NEXT_DAILY_GOAL - dayTotal > 0 ? `reste ${Math.round(NEXT_DAILY_GOAL - dayTotal)}` : `+${Math.round(dayTotal - NEXT_DAILY_GOAL)}`}
-                      </span>
-                    )}
-                    {nxtDayPro > 0 && (
-                      <span className="flex items-center gap-1 text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
-                        🍗 {Math.round(nxtDayPro)} <span className="text-blue-400/50 font-normal">/ {NEXT_PROTEIN_GOAL}</span>
-                      </span>
-                    )}
-                    {nxtDayFiber > 0 && (
-                      <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 rounded-full px-2 py-0.5 whitespace-nowrap">
-                        🌾 {Math.round(nxtDayFiber)} <span className="text-emerald-400/50 font-normal">/ {NEXT_FIBER_GOAL}</span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="grid grid-cols-[1fr_1fr_auto] gap-1 sm:gap-3">
-                  {TIMES.map(time => {
-                    const kIso = `${iso}-${time}`;
-                    const kKey = `${key}-${time}`;
-                    const slotKey = kIso;
-                    const slotId = `${key}-${time}`;
-                    const slotMeals = getMealsForSlot(key, time, iso);
-                    const slotAssignedIds =
-                      nextExtraSlotAssignments[kIso] ?? nextExtraSlotAssignments[kKey] ?? [];
-                    const isOver = dragOverSlot === slotKey || dragOverSlot === slotId;
-                    const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
-                    const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
-                    const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-                    const slotAssigned = sumDayExtras(slotAssignedIds);
-                    const slotDrink = Boolean(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]);
-                    const manualCal = nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.cal ?? 0;
-                    const manualPro = nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.prot ?? 0;
-                    const manualFiber = nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.fiber ?? 0;
-                    // Sans carte : total = inputs manuels + extras (+ boisson).
-                    const hasSlotMeals = slotMeals.length > 0;
-                    const slotManualCal = hasSlotMeals ? 0 : manualCal;
-                    const slotManualPro = hasSlotMeals ? 0 : manualPro;
-                    const slotManualFiber = hasSlotMeals ? 0 : manualFiber;
-                    const slotCals = slotCalsMeals + slotManualCal + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
-                    const slotPro = slotProMeals + slotManualPro + slotAssigned.pro;
-                    const slotFiber = slotFiberMeals + slotManualFiber + slotAssigned.fiber;
-                    const showSlotTotals = !hideDayCalorieTotals && (slotMeals.length > 0
-                      ? (slotCals > 0 || slotPro > 0 || slotFiber > 0)
-                      : (slotCals > 0 || slotPro > 0 || slotFiber > 0));
-                    return (
-                      <div
-                        key={time}
-                        data-slot={slotId}
-                        data-day={iso}
-                        data-time={time}
-                        onDragOver={(e) => {
-                          const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain') || e.dataTransfer.types.includes('pmId'));
-                          if (canAccept) e.preventDefault();
-                          setDragOverSlot(slotKey);
-                        }}
-                        onDragLeave={() => setDragOverSlot(null)}
-                        onDrop={(e) => { e.preventDefault(); handleNextWeekDrop(e, iso, time); }}
-                        className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 transition-all ${isOver ? 'bg-primary/16 border-primary/70 scale-[1.02] shadow-lg ring-1 ring-primary/25' : 'border-border/55 bg-background/10'}`}
-                      >
-                        <div className="flex items-center justify-between mb-0.5 gap-0.5 min-w-0">
-                          <div className="flex items-center gap-1">
-                            <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{TIME_LABELS[time]}</span>
-                            <button onClick={() => {
-                              const u = { ...nextDrinkChecks }; if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) { delete u[kIso]; delete u[kKey]; } else { u[kIso] = true; }
-                              setPreference.mutate({ key: 'next_week_drink_checks', value: u });
-                            }} className={`flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px transition-colors ${slotDrink ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold' : 'bg-muted/40 text-muted-foreground/40 hover:text-muted-foreground/60'}`}>
-                              🥤 {slotDrink ? `+${DRINK_CALORIES}` : ''}
-                            </button>
-                          </div>
-                          {showSlotTotals && (
-                            <div className={SLOT_MEAL_TOTAL_CLASS}>
-                              {(slotMeals.length > 0 ? slotCals : manualCal) > 0 && (
-                                <span className="flex items-center gap-0.5">
-                                  <Flame className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-orange-500/60" />
-                                  {Math.round(slotMeals.length > 0 ? slotCals : manualCal)}
-                                </span>
-                              )}
-                              {(slotMeals.length > 0 ? slotCals : manualCal) > 0 && ((slotMeals.length > 0 ? slotPro : manualPro) > 0 || (slotMeals.length > 0 ? slotFiber : manualFiber) > 0) && (
-                                <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>
-                              )}
-                              {(slotMeals.length > 0 ? slotPro : manualPro) > 0 && (
-                                <span className="flex items-center gap-0.5">
-                                  <span className="text-[8px] sm:text-[9px] opacity-60">🍗</span>
-                                  {Math.round(slotMeals.length > 0 ? slotPro : manualPro)}
-                                </span>
-                              )}
-                              {(slotMeals.length > 0 ? slotPro : manualPro) > 0 && (slotMeals.length > 0 ? slotFiber : manualFiber) > 0 && (
-                                <span className={SLOT_MEAL_TOTAL_SEP_CLASS}>•</span>
-                              )}
-                              {(slotMeals.length > 0 ? slotFiber : manualFiber) > 0 && (
-                                <span className="flex items-center gap-0.5">
-                                  <Wheat className="w-1.5 h-1.5 sm:w-2 sm:h-2 text-emerald-500/70" />
-                                  {Math.round(slotMeals.length > 0 ? slotFiber : manualFiber)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="mt-0.5 space-y-1">
-                          {slotMeals.map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))}
-                          {slotMeals.length === 0 && (
-                            <div className="flex flex-col items-start gap-0.5">
-                              <PlanningInput storageKey={`next-mc-${iso}-${time}`} currentValue={manualCal}
-                                onSave={(val) => { const u = { ...nextManualCalories }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_calories', value: u }); }}
-                                placeholder="kcal" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center" />
-                              <PlanningInput storageKey={`next-mp-${iso}-${time}`} currentValue={manualPro}
-                                onSave={(val) => { const u = { ...nextManualProteins }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_proteins', value: u }); }}
-                                placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
-                              <PlanningInput storageKey={`next-mf-${iso}-${time}`} currentValue={manualFiber}
-                                onSave={(val) => { const u = { ...nextManualFibers }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_fibers', value: u }); }}
-                                placeholder="fib" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
-                            </div>
-                          )}
-                          {slotAssignedIds.length > 0 && (
-                            <div className="flex flex-wrap gap-1 pt-0.5">
-                              {groupAssignedExtraIds(slotAssignedIds).map(({ id: extraId, count }, index) => {
-                                const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, singleIngredientDessertById);
-                                if (!resolved) return null;
-                                const { custom, fi } = resolved;
-                                return (
-                                  <span
-                                    key={`next-${time}-assigned-${extraId}-${index}-${count}`}
-                                    draggable
-                                    onDragStart={(e) => {
-                                      setDraggedSelectedExtraId(extraId);
-                                      setDraggedSelectedExtraOrigin({ iso, key });
-                                      e.dataTransfer.effectAllowed = 'move';
-                                      e.dataTransfer.setData('text/plain', extraId);
-                                    }}
-                                    onDragEnd={() => {
-                                      setDraggedSelectedExtraId(null);
-                                      setDraggedSelectedExtraOrigin(null);
-                                    }}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/25 cursor-grab active:cursor-grabbing"
-                                    title={`Extra assigné à ${TIME_LABELS[time] || time} — glisse pour déplacer`}
-                                  >
-                                    {getAssignedExtraLabel(extraId, count, custom, fi ?? undefined, foodItems, singleIngredientDessertById)}
-                                    <button
-                                      onClick={() => deselectNextExtraForDay(extraId, iso, key)}
-                                      className="opacity-60 hover:opacity-100 font-bold"
-                                      title="Retirer des extras du jour"
-                                    >×</button>
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {/* Colonne Extra */}
-                  {(() => {
-                    const nextExtraDropKey = `next-extra-${iso}`;
-                    const isNextExtraDragOver = dragOverSlot === nextExtraDropKey;
-                    return (
-                  <div
-                    className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isNextExtraDragOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3"}`}
-                    onDragOver={(e) => {
-                      const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
-                      if (!canAccept) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      setDragOverSlot(nextExtraDropKey);
-                    }}
-                    onDragLeave={() => setDragOverSlot((cur) => (cur === nextExtraDropKey ? null : cur))}
-                    onDrop={(e) => {
-                      const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
-                      if (!extraId) return;
-                      e.preventDefault();
-                      unassignNextExtraFromAllDaySlots(extraId, iso, key);
-                      setDraggedSelectedExtraId(null);
-                      setDraggedSelectedExtraOrigin(null);
-                      setDragOverSlot(null);
-                    }}
-                    title="Déposer ici pour remettre l'extra dans la catégorie Extras"
-                  >
-                    <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
-                    <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
-                      <PlanningInput storageKey={`next-ec-${iso}`}
-                        currentValue={(nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal) + nextUnassignedExtraMacros.cal}
-                        onSave={(val) => { const sel = nextUnassignedExtraMacros.cal; const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
-                        placeholder="kcal" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center" />
-                      <PlanningInput storageKey={`next-ep-${iso}`}
-                        currentValue={(nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro) + nextUnassignedExtraMacros.pro}
-                        onSave={(val) => { const sel = nextUnassignedExtraMacros.pro; const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
-                        placeholder="prot" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
-                      <PlanningInput storageKey={`next-ef-${iso}`}
-                        currentValue={effExtraFiber + nextUnassignedExtraMacros.fiber}
-                        onSave={(val) => { const sel = nextUnassignedExtraMacros.fiber; const m = Math.max(0, val - sel); const u = { ...nextExtraFibers }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_fibers', value: u }); }}
-                        placeholder="fib" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
-                      <div className="flex items-center gap-1 mt-1">
-                        <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => setOpenExtrasDay(open ? `next-${iso}` : null)}>
-                          <PopoverTrigger asChild>
-                            <button className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableNextWeekExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`} title="Ajouter un Extra">
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl"
-                            align="center"
-                            onOpenAutoFocus={(e) => e.preventDefault()}
-                          >
-                            <div className="flex items-center justify-between mb-3">
-                              <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> Extras disponibles</p>
-                              <Zap className="w-3 h-3 text-amber-400 animate-pulse" />
-                            </div>
-                            {(() => {
-                              const unassignedRows = groupAssignedExtraIds(nextUnassignedExtraIds)
-                                .map(({ id: extraId, count }, index) => {
-                                  const row = resolveNextWeekUnassignedExtraRow(
-                                    extraId,
-                                    foodItems,
-                                    singleIngredientDessertById,
-                                    allSingleIngredientDessertExtras,
-                                    dessertExtraStockSnapshots,
-                                  );
-                                  if (!row) return null;
-                                  const catalogId = resolveDessertCatalogId(
-                                    extraId,
-                                    allSingleIngredientDessertExtras,
-                                    singleIngredientDessertById,
-                                    dessertExtraStockSnapshots,
-                                  );
-                                  const resolvedId = catalogId ?? extraId;
-                                  const dessertExtra = singleIngredientDessertById.get(resolvedId);
-                                  const isDessertExtra = !!dessertExtra;
-                                  const canAddDessert = !isDessertExtra || canAddDessertById.get(resolvedId) === true;
-                                  const displayName = row.custom?.name || dessertExtra?.name || row.fi?.name || resolvedId;
-                                  const perOccurrence = dessertExtra
-                                    ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
-                                    : (row.fi ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary) : { cal: row.custom?.cal ?? 0, pro: row.custom?.prot ?? 0, fiber: 0 });
-                                  const portionMacros = scaleExtraDisplayMacrosByCount(perOccurrence, count);
-                                  return (
-                                    <div
-                                      key={`next-pop-sel-${extraId}-${index}`}
-                                      draggable
-                                      onDragStart={(e) => {
-                                        setDraggedSelectedExtraId(extraId);
-                                        setDraggedSelectedExtraOrigin({ iso, key });
-                                        e.dataTransfer.effectAllowed = 'move';
-                                        e.dataTransfer.setData('text/plain', extraId);
-                                      }}
-                                      onDragEnd={() => {
-                                        setDraggedSelectedExtraId(null);
-                                        setDraggedSelectedExtraOrigin(null);
-                                      }}
-                                      className="w-full p-2 rounded-xl border bg-orange-500/10 border-orange-500/20 flex items-start gap-3 cursor-grab active:cursor-grabbing"
-                                    >
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-[11px] font-bold text-orange-600 break-words leading-snug">{displayName}</p>
-                                        {isDessertExtra && (
-                                          <p className="text-[9px] text-muted-foreground/50 font-medium">
-                                            x{dessertPossibleCountById.get(resolvedId) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(resolvedId) ?? 0)}
-                                          </p>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <button
-                                          onClick={async () => {
-                                            try {
-                                              await removeOneNextWeekExtraOccurrence(resolvedId, iso, key);
-                                            } catch {
-                                              toast({
-                                                title: "Stock non modifié",
-                                                description: "Impossible de retirer cette occurrence.",
-                                                variant: "destructive",
-                                              });
-                                            }
-                                          }}
-                                          className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold"
-                                        >−</button>
-                                        <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                        {canAddDessert && (
-                                          <button
-                                            onClick={async () => {
-                                              try {
-                                                const ok = await addNextWeekExtraOccurrence(resolvedId, iso, key);
-                                                if (!ok) {
-                                                  toast({
-                                                    title: "Stock insuffisant",
-                                                    description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                    variant: "destructive",
-                                                  });
-                                                }
-                                              } catch {
-                                                toast({
-                                                  title: "Stock insuffisant",
-                                                  description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                  variant: "destructive",
-                                                });
-                                              }
-                                            }}
-                                            className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
-                                          >+</button>
-                                        )}
-                                        {portionMacros.pro > 0 && (
-                                          <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
-                                            🍗 {Math.round(portionMacros.pro)}
-                                          </div>
-                                        )}
-                                        {portionMacros.cal > 0 && (
-                                          <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
-                                            <Flame className="w-2.5 h-2.5" />
-                                            {Math.round(portionMacros.cal)}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                                .filter(Boolean);
-                              if (unassignedRows.length === 0) return null;
-                              return (
-                              <div className="mb-3 pb-3 border-b border-white/5 space-y-1">
-                                <p className="text-[9px] font-semibold text-orange-500 px-1">Sélectionnés — glisse vers un créneau</p>
-                                {unassignedRows}
-                              </div>
-                              );
-                            })()}
-                            <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
-                              {(() => {
-                                const availableExtras = foodItems.filter(fi => fi.storage_type === 'extras' && !testItemIdSet.has(fi.id));
-                                const sortedItems = getSortedFoodItems(
-                                  availableExtras,
-                                  foodSortModes['extras'] || "manual",
-                                  sortDirections['food-extras'] !== false
-                                );
-                                const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) =>
-                                  !isDessertExtraInSelections(effExtraSelMerged, d, allSingleIngredientDessertExtras, singleIngredientDessertById),
-                                );
-                                const others = sortedItems.filter(fi => !effExtraSelMerged.includes(fi.id));
-                                const { above: catalogAbove } = splitSortedExtrasByDivider(
-                                  sortedItems,
-                                  extrasDividerAfterId,
-                                );
-                                const aboveIds = new Set(catalogAbove.map((fi) => fi.id));
-                                const othersAbove = others.filter((fi) => aboveIds.has(fi.id));
-                                const renderRow = (fi: FoodItem) => {
-                                  const count = effExtraSelMerged.filter(id => id === fi.id).length;
-                                  const perOccurrence = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary);
-                                  const macros = scaleExtraDisplayMacrosByCount(perOccurrence, count > 0 ? count : 1);
-                                  return (
-                                    <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
-                                      <div className="flex-1 min-w-0">
-                                        <p className={`text-[11px] font-bold transition-colors break-words leading-snug ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
-                                        {(fi.grams || fi.quantity) && (
-                                          <p className="text-[9px] text-muted-foreground/60">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {count > 0 && (<>
-                                          <button onClick={() => { const u = { ...nextExtraSelections }; const c = u[iso] || u[key] || []; const idx = c.lastIndexOf(fi.id); if (idx >= 0) u[iso] = [...c.slice(0, idx), ...c.slice(idx + 1)]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
-                                          <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
-                                        </>)}
-                                        <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), fi.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
-                                        {macros.pro > 0 && (
-                                          <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">
-                                            🍗 {macros.pro}
-                                          </div>
-                                        )}
-                                        {macros.cal > 0 && (
-                                          <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
-                                            <Flame className="w-2.5 h-2.5" />
-                                            {macros.cal}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                };
-                                return (
-                                  <>
-                                    {unselectedDessertExtras.length > 0 && (
-                                      <>
-                                        <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                        {unselectedDessertExtras.map((d, index) => (
-                                          <div key={`next-unselected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-start gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
-                                            <div className="flex-1 min-w-0">
-                                              <p className="text-[11px] font-bold transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
-                                              <p className="text-[9px] text-muted-foreground/50 font-medium">
-                                                x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}
-                                              </p>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 shrink-0">
-                                              <button
-                                                onClick={async () => {
-                                                  try {
-                                                    const ok = await addNextWeekExtraOccurrence(d.id, iso, key);
-                                                    if (!ok) {
-                                                      toast({
-                                                        title: "Stock insuffisant",
-                                                        description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                        variant: "destructive",
-                                                      });
-                                                    }
-                                                  } catch {
-                                                    toast({
-                                                      title: "Stock insuffisant",
-                                                      description: "Le dessert n'a pas pu être ajouté car l'aliment n'est plus disponible.",
-                                                      variant: "destructive",
-                                                    });
-                                                  }
-                                                }}
-                                                className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
-                                              >+</button>
-                                              {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">🍗 {Math.round(d.prot)}</div>}
-                                              <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
-                                            </div>
-                                          </div>
-                                        ))}
-                                        <Separator className="my-2 opacity-50" />
-                                      </>
-                                    )}
-                                    {othersAbove.map(renderRow)}
-                                  </>
-                                );
-                              })()}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                    </div>
-                  </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            );
-          })}
-          {/* Total semaine suivante */}
-          {(() => {
-            let total = 0;
-            let totalPro = 0;
-            for (const { key, iso } of weekDates) {
-              const bfSnap = (savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`]) as any;
-              const eBfSel = nextBreakfastSelections[iso] ?? nextBreakfastSelections[key] ?? bfSnap?.mealId;
-              const eBfMeal = eBfSel?.startsWith('meal:') ? allMealsById.get(eBfSel.slice(5)) : null;
-              if (eBfMeal) { total += parseCalories(eBfMeal.calories); totalPro += parseProtein(eBfMeal.protein); }
-              else { total += nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? bfSnap?.cal ?? 0; totalPro += nextBreakfastManualProteins[iso] ?? nextBreakfastManualProteins[key] ?? bfSnap?.prot ?? 0; }
-              for (const time of TIMES) {
-                const kIso = `${iso}-${time}`;
-                const kKey = `${key}-${time}`;
-                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-                total += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? manualSnap?.cal ?? 0;
-                totalPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? manualSnap?.prot ?? 0;
-                if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) total += DRINK_CALORIES;
-              }
-              const extraSnap = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
-              total += nextExtraCalories[iso] ?? nextExtraCalories[key] ?? extraSnap?.cal ?? 0;
-              totalPro += nextExtraProteins[iso] ?? nextExtraProteins[key] ?? extraSnap?.prot ?? 0;
-              const nextExtraSum = sumDayExtras(nextExtraSelections[iso] ?? nextExtraSelections[key] ?? extraSnap?.itemIds ?? []);
-              total += nextExtraSum.cal;
-              totalPro += nextExtraSum.pro;
-            }
-            const avgCal = Math.round(total / 7);
-            const nextWeekGoalLow = NEXT_DAILY_GOAL_LOW > 0 ? NEXT_DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0;
-            const nextWeekGoalHigh = NEXT_DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
-            const weekTotalColor =
-              getCalorieRangeTotalColorClass(total, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL, DEFAULT_WEEKLY_MULTIPLIER) ?? "text-white";
-            const avgColor =
-              getCalorieRangeTotalColorClass(avgCal, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) ?? "text-white";
-            return (
-              <div className="rounded-2xl bg-card/80 backdrop-blur-sm px-4 py-3 flex items-center justify-between flex-wrap gap-1">
-                <span className="text-sm font-bold text-foreground">Total prévu</span>
-                <div className="flex items-center gap-3 flex-wrap ml-auto">
-                  <span className="text-xs text-muted-foreground font-medium">
-                    Moy. {hideDayCalorieTotals ? <span className={avgColor}>Calories</span> : avgCal} kcal/j
-                  </span>
-                  <span className="flex items-center gap-1.5 text-sm font-black text-orange-500">
-                    <Flame className="h-4 w-4" />
-                    {hideDayCalorieTotals ? <span className={weekTotalColor}>Calories</span> : Math.round(total)}
-                    {" "}
-                    <span className="text-muted-foreground/50 font-normal text-xs">/ {formatCalorieGoalTarget(nextWeekGoalLow, nextWeekGoalHigh)}</span>
-                  </span>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
+        <PlanningNextWeekView
+          weekDates={weekDates}
+          savedSnapshots={savedSnapshots}
+          nextBreakfastSelections={nextBreakfastSelections}
+          nextBreakfastManualCalories={nextBreakfastManualCalories}
+          nextBreakfastManualProteins={nextBreakfastManualProteins}
+          nextExtraCalories={nextExtraCalories}
+          nextExtraProteins={nextExtraProteins}
+          nextExtraFibers={nextExtraFibers}
+          nextExtraSelections={nextExtraSelections}
+          nextExtraSlotAssignments={nextExtraSlotAssignments}
+          nextManualCalories={nextManualCalories}
+          nextManualProteins={nextManualProteins}
+          nextManualFibers={nextManualFibers}
+          nextDrinkChecks={nextDrinkChecks}
+          allMealsById={allMealsById}
+          possiblePetitDej={possiblePetitDej}
+          petitDejMeals={petitDejMeals}
+          calOverrides={calOverrides}
+          proOverrides={proOverrides}
+          foodItems={foodItems}
+          foodMacroIndex={foodMacroIndex}
+          isAvailableCb={isAvailableCb}
+          getMealsForSlot={getMealsForSlot}
+          sumDayExtras={sumDayExtras}
+          resolveExtraSnapshotForDay={resolveExtraSnapshotForDay}
+          allSingleIngredientDessertExtras={allSingleIngredientDessertExtras}
+          singleIngredientDessertExtras={singleIngredientDessertExtras}
+          singleIngredientDessertById={singleIngredientDessertById}
+          dessertExtraStockSnapshots={dessertExtraStockSnapshots}
+          canAddDessertById={canAddDessertById}
+          dessertPossibleCountById={dessertPossibleCountById}
+          ingredientMacroLibrary={ingredientMacroLibrary}
+          testItemIdSet={testItemIdSet}
+          foodSortModes={foodSortModes}
+          sortDirections={sortDirections}
+          extrasDividerAfterId={extrasDividerAfterId}
+          hideDayCalorieTotals={hideDayCalorieTotals}
+          NEXT_DAILY_GOAL={NEXT_DAILY_GOAL}
+          NEXT_DAILY_GOAL_LOW={NEXT_DAILY_GOAL_LOW}
+          NEXT_PROTEIN_GOAL={NEXT_PROTEIN_GOAL}
+          NEXT_FIBER_GOAL={NEXT_FIBER_GOAL}
+          dragOverSlot={dragOverSlot}
+          setDragOverSlot={setDragOverSlot}
+          draggedSelectedExtraId={draggedSelectedExtraId}
+          setDraggedSelectedExtraId={setDraggedSelectedExtraId}
+          setDraggedSelectedExtraOrigin={setDraggedSelectedExtraOrigin}
+          openExtrasDay={openExtrasDay}
+          setOpenExtrasDay={setOpenExtrasDay}
+          setPreference={setPreference}
+          handleNextWeekDrop={handleNextWeekDrop}
+          unassignNextExtraFromAllDaySlots={unassignNextExtraFromAllDaySlots}
+          deselectNextExtraForDay={deselectNextExtraForDay}
+          removeOneNextWeekExtraOccurrence={removeOneNextWeekExtraOccurrence}
+          addNextWeekExtraOccurrence={addNextWeekExtraOccurrence}
+          renderMiniCard={renderMiniCard}
+          getMealCal={getMealCal}
+          getMealPro={getMealPro}
+          parseCalories={parseCalories}
+          parseProtein={parseProtein}
+        />
       )}
 
       <Dialog open={!!popupPm} onOpenChange={(open) => {

@@ -16,20 +16,32 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, parseIngredientLine, parsePartialQty,
-  extractIngredientMacros, extractMetrics, parseIngredientLineRaw,
-  computeCounterDays,
   type ParsedIngredient,
 } from "@/lib/ingredientUtils";
+import { computePlannedCounterDate } from "@/lib/counters/plannedCounterDate";
+import {
+  expandOrGroupIngredientNames,
+  buildConsumedIngredientsOverride,
+} from "@/domain/stock/consumedIngredients";
+import { counterMatchesPlannedSlot } from "@/lib/counters/counterDisplay";
+import {
+  isFoodCounterManuallyStarted,
+  isFoodCounterManuallyStopped,
+} from "@/lib/counters/manualCounterOverrides";
+import {
+  hasUnplannedPossibleConsumingFood,
+  findEarliestFuturePlannedSlotForFood,
+  findEarliestOpenDateFromPossibleMeals,
+  findLatestOpenDateFromPossibleMeals,
+} from "@/lib/counters/possibleMealUsage";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
   sortStockDeductionPriority,
   isFoodItemFullySealed,
-  isFoodItemPhysicallyOpened,
   isCountOnlyFoodItem,
 } from "@/lib/stockUtils";
 import {
@@ -68,11 +80,6 @@ function syncDessertNameMemoryAfterDeletes(
   });
 }
 
-/** Table de correspondance jour français → index (0=Lun) */
-const DAY_KEY_TO_INDEX: Record<string, number> = {
-  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
-};
-
 /** Normalise une ligne Supabase `food_items` vers le type FoodItem du client. */
 function mapFoodItemRow(d: any): FoodItem {
   return {
@@ -96,656 +103,28 @@ async function fetchAllFoodItems(): Promise<FoodItem[]> {
   return (data ?? []).map(mapFoodItemRow);
 }
 
-/** Aligné sur getTargetDate (ingredientUtils) : matin 8h, midi 12h, goûter 16h, soir 19h */
-function setMealTimeHours(d: Date, mealTime: string | null) {
-  const low = (mealTime || "").trim().toLowerCase();
-  if (low === "soir") d.setHours(19, 0, 0, 0);
-  else if (low === "matin") d.setHours(8, 0, 0, 0);
-  else if (low === "midi") d.setHours(12, 0, 0, 0);
-  else if (low === "gouter") d.setHours(16, 0, 0, 0);
-  // Pas de défaut « midi » si absent : évite une fausse heure (12h) quand le créneau n’est pas encore choisi
-}
-
-/**
- * Calcule la date ISO du compteur d'ouverture pour un repas planifié.
- * Matin = 8h, midi = 12h, goûter = 16h, soir = 19h. Accepte les jours nommés ("lundi") ou les dates ISO.
- */
-/**
- * Retourne les noms d’ingrédients (déjà normalisés comme dans `ParsedIngredient.name`) à comparer au stock
- * pour une ligne de recette qui peut contenir des choix « A ou B ou C », souvent entre parenthèses.
- * Sans cela, `updateFoodItemCountersForPlanning` ne trouve jamais le « Jambon blanc » d’un croque, etc.
- */
-function expandOrGroupIngredientNames(item: ParsedIngredient): string[] {
-  const out = new Set<string>();
-  const push = (n: string | null | undefined) => {
-    const t = (n ?? "").trim();
-    if (t) out.add(t);
-  };
-  push(item.name);
-  const raw = item.name.replace(/^\(+/, "").replace(/\)+$/, "").trim();
-  if (/\bou\b/i.test(raw)) {
-    for (const chunk of raw.split(/\s+ou\s+/i)) {
-      const parsed = parseIngredientLine(chunk.trim());
-      if (parsed.name) push(parsed.name);
-    }
-  }
-  return [...out];
-}
-
-/**
- * Construit une chaîne d'ingrédients basée uniquement sur les alternatives réellement consommées.
- * Sert à afficher sur la carte "Possible" uniquement les choix "ou" effectivement déduits du stock.
- * Reprend les suffixes {cal} / [pro] / <fibres> depuis la recette maître pour l’éditeur et les calculs.
- * Les quantités unitaires utilisent « 4 Pain » (pas « x4 Pain ») pour rester parsables en colonnes.
- */
-function buildConsumedIngredientsOverride(pickedAlternatives: ParsedIngredient[][], mealIngredients: string): string | null {
-  /** Remet une majuscule initiale pour un affichage propre côté carte Possible. */
-  const withLeadingUppercase = (value: string): string => {
-    const trimmed = (value || "").trim();
-    if (!trimmed) return "";
-    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-  };
-
-  const macroMap = extractIngredientMacros(mealIngredients);
-
-  /** Associe chaque nom normalisé au nom original de la recette pour préserver apostrophes et accents. */
-  const buildOriginalDisplayNameMap = (ingredients: string): Map<string, string> => {
-    const out = new Map<string, string>();
-    ingredients
-      .split(/(?:\n|,(?!\d))/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .forEach((group) => {
-        group
-          .split(/\|/)
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .forEach((alt) => {
-            alt
-              .split(/\+/)
-              .map((s) => s.trim())
-              .filter(Boolean)
-              .forEach((rawItem) => {
-                const cleanItem = rawItem.startsWith("?") ? rawItem.slice(1).trim() : rawItem;
-                const { text: withoutMetrics } = extractMetrics(cleanItem);
-                const parsed = parseIngredientLineRaw(withoutMetrics);
-                if (parsed.rawName?.trim()) out.set(normalizeKey(parsed.name), withLeadingUppercase(parsed.rawName));
-              });
-          });
-      });
-    return out;
-  };
-  const originalDisplayNameByKey = buildOriginalDisplayNameMap(mealIngredients);
-
-  /** Réinjecte les macros par nom (clé normalisée), comme serializeIngredients ({cal}, [pro], <fibres>). */
-  const macroSuffixForDisplayName = (displayName: string): string => {
-    const m = macroMap.get(normalizeKey(displayName));
-    if (!m) return "";
-    let s = "";
-    if (m.cal) s += `{${m.cal}}`;
-    if (m.pro) s += ` [${m.pro}]`;
-    if (m.fiber) s += ` <${m.fiber}>`;
-    return s;
-  };
-
-  const lines: string[] = [];
-  for (const altBundle of pickedAlternatives) {
-    const parts = altBundle
-      .filter((item) => !item.optional)
-      .map((item) => {
-        const displayName = originalDisplayNameByKey.get(normalizeKey(item.name)) ?? withLeadingUppercase(item.name || "");
-        if (!displayName) return "";
-        const macros = macroSuffixForDisplayName(displayName);
-        if (item.qty > 0) return `${formatNumeric(item.qty)}g ${displayName}${macros}`.trim();
-        if (item.count > 0) return `${formatNumeric(item.count)} ${displayName}${macros}`.trim();
-        return `${displayName}${macros}`;
-      })
-      .filter(Boolean);
-    if (parts.length > 0) lines.push(parts.join(" + "));
-  }
-  return lines.length > 0 ? lines.join("\n") : null;
-}
-
-export function computePlannedCounterDate(dayOfWeek: string, mealTime: string | null): string {
-  // Si c'est déjà une date ISO (YYYY-MM-DD), l'utiliser directement
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dayOfWeek)) {
-    const d = parseISO(dayOfWeek);
-    setMealTimeHours(d, mealTime);
-    return d.toISOString();
-  }
-
-  const today = new Date();
-  const todayDow = today.getDay(); // 0=Dim
-  const todayIdx = todayDow === 0 ? 6 : todayDow - 1; // 0=Lun
-  const targetIdx = DAY_KEY_TO_INDEX[dayOfWeek] ?? 0;
-  const diff = targetIdx - todayIdx;
-
-  const d = new Date(today);
-  d.setDate(d.getDate() + diff);
-  setMealTimeHours(d, mealTime);
-  return d.toISOString();
-}
-
 /** Réexport pour compatibilité (source : stockUtils). */
 export { isFoodItemFullySealed } from "@/lib/stockUtils";
+export { computePlannedCounterDate } from "@/lib/counters/plannedCounterDate";
+export {
+  isSealedPartialUseInPastPlanning,
+  isFoodItemConsumedByPossibleMeals,
+  findEarliestOpenDateFromPossibleMeals,
+  findLatestOpenDateFromPossibleMeals,
+  findEarliestPastPlannedOpenForFood,
+  findEarliestFuturePlannedSlotForFood,
+  hasUnplannedPossibleConsumingFood,
+} from "@/lib/counters/possibleMealUsage";
+export {
+  resolveFoodItemCounterStartForDisplay,
+  resolveFoodItemStockVisualHint,
+  type FoodItemStockVisualHint,
+} from "@/lib/counters/counterDisplay";
+export { buildPossiblePlanningSnapshot } from "@/lib/counters/planningSnapshot";
 
 /** Alias interne pour la logique de déduction existante. */
 function isFoodFullySealed(fi: FoodItem): boolean {
   return isFoodItemFullySealed(fi);
-}
-
-/**
- * Indique si un repas Possible (planifié ou non) utilise cet aliment dans sa recette.
- */
-function foodItemUsedInPossibleRecipe(fi: FoodItem, pm: PossibleMeal): boolean {
-  const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
-  if (!pmIngs?.trim()) return false;
-  return parseIngredientGroups(pmIngs).some((g) =>
-    g.some((altBundle) =>
-      altBundle.some(
-        (it) =>
-          !it.optional &&
-          expandOrGroupIngredientNames(it).some((t) => strictNameMatch(fi.name, t)),
-      ),
-    ),
-  );
-}
-
-/** Au-delà de ce grammage unitaire, on considère un paquet « boîte » (pas d'ouverture virtuelle via planification). */
-const MAX_CONTAINER_VIRTUAL_GRAMS = 300;
-
-/**
- * Indique si la recette cite l'aliment sans quantité explicite (ex. « Sauce tikka masala » seul).
- */
-function recipeUsesBareIngredient(fi: FoodItem, pm: PossibleMeal): boolean {
-  const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
-  if (!pmIngs?.trim()) return false;
-  for (const group of parseIngredientGroups(pmIngs)) {
-    for (const bundle of group) {
-      for (const item of bundle) {
-        if (item.optional) continue;
-        if (!expandOrGroupIngredientNames(item).some((t) => strictNameMatch(fi.name, t))) continue;
-        if (item.qty > 0 || item.count > 0) return false;
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * Retourne les grammes demandés par la recette d'un repas Possible pour cet aliment
- * (somme des groupes « + », max des branches « ou »).
- */
-function getRecipeNeededGramsForFood(fi: FoodItem, pm: PossibleMeal): number {
-  const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
-  if (!pmIngs?.trim()) return 0;
-  let totalNeeded = 0;
-  for (const group of parseIngredientGroups(pmIngs)) {
-    if (group.every((b) => b.every((i) => i.optional))) continue;
-    let groupNeeded = 0;
-    for (const bundle of group) {
-      let bundleNeeded = 0;
-      for (const item of bundle) {
-        if (item.optional) continue;
-        if (!expandOrGroupIngredientNames(item).some((t) => strictNameMatch(fi.name, t))) continue;
-        const perUnit = parseQty(fi.grams);
-        if (item.qty > 0) bundleNeeded += item.qty;
-        else if (item.count > 0) bundleNeeded += item.count * (perUnit > 0 ? perUnit : 0);
-        else if (perUnit > 0) bundleNeeded += perUnit;
-      }
-      groupNeeded = Math.max(groupNeeded, bundleNeeded);
-    }
-    totalNeeded += groupNeeded;
-  }
-  return totalNeeded;
-}
-
-/**
- * Indique si un créneau planifié passé justifie une ouverture virtuelle (lot encore scellé).
- */
-function pastSlotQualifiesForVirtualOpen(
-  fi: FoodItem,
-  pm: PossibleMeal,
-  perUnit: number,
-): boolean {
-  if (recipeUsesBareIngredient(fi, pm)) return true;
-  if (perUnit > MAX_CONTAINER_VIRTUAL_GRAMS) return false;
-  const needed = getRecipeNeededGramsForFood(fi, pm);
-  return needed > 0 && needed < perUnit - 0.01;
-}
-
-/**
- * Indique si un lot encore scellé peut recevoir un compteur via un repas planifié passé.
- * Pots / bocaux : prélèvement partiel ou ingrédient sans quantité (y compris pots > 300g).
- * Boîtes (400g Tenders) : uniquement à l'entame physique — pas d'ouverture virtuelle.
- */
-export function isSealedPartialUseInPastPlanning(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-): boolean {
-  if (!isFoodItemFullySealed(fi)) return false;
-  const perUnit = parseQty(fi.grams);
-  if (perUnit <= 0) return false;
-  if ((fi.quantity ?? 1) > 1) return false;
-
-  const nowMs = (fixedNow ?? new Date()).getTime();
-  for (const pm of allPossibleMeals) {
-    if (!pm.day_of_week?.trim() || !String(pm.meal_time ?? "").trim()) continue;
-    const slotMs = new Date(computePlannedCounterDate(pm.day_of_week, pm.meal_time)).getTime();
-    if (Number.isNaN(slotMs) || slotMs > nowMs) continue;
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    if (pastSlotQualifiesForVirtualOpen(fi, pm, perUnit)) return true;
-  }
-  return false;
-}
-
-/**
- * Parcourt les créneaux planifiés passés et retourne le plus ancien ou le plus récent selon `direction`.
- */
-function findPastPlannedSlotForFood(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow: Date,
-  mode: "virtual" | "opened",
-  direction: "earliest" | "latest",
-): string | undefined {
-  const perUnit = parseQty(fi.grams);
-  const nowMs = fixedNow.getTime();
-  let result: string | undefined;
-  let resultMs = direction === "earliest" ? Infinity : -Infinity;
-
-  for (const pm of allPossibleMeals) {
-    if (!pm.day_of_week?.trim() || !String(pm.meal_time ?? "").trim()) continue;
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    if (mode === "virtual" && !pastSlotQualifiesForVirtualOpen(fi, pm, perUnit)) continue;
-    const slotIso = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
-    const slotMs = new Date(slotIso).getTime();
-    if (Number.isNaN(slotMs) || slotMs > nowMs) continue;
-    const isBetter = direction === "earliest" ? slotMs < resultMs : slotMs > resultMs;
-    if (isBetter) {
-      resultMs = slotMs;
-      result = slotIso;
-    }
-  }
-  return result;
-}
-
-/**
- * Retourne la date d'ouverture la plus ancienne liée à un repas Possible planifié passé.
- * mode « virtual » : lot scellé, règles pot vs boîte ; mode « opened » : lot déjà entamé.
- */
-function findEarliestPastPlannedSlotForFood(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow: Date,
-  mode: "virtual" | "opened",
-): string | undefined {
-  return findPastPlannedSlotForFood(fi, allPossibleMeals, fixedNow, mode, "earliest");
-}
-
-/**
- * Retourne la date d'ouverture la plus récente liée à un repas Possible planifié passé.
- * Utilisée pour un lot physiquement entamé sans compteur persisté sur la fiche aliment.
- */
-function findLatestPastPlannedSlotForFood(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow: Date,
-  mode: "virtual" | "opened",
-): string | undefined {
-  return findPastPlannedSlotForFood(fi, allPossibleMeals, fixedNow, mode, "latest");
-}
-
-/**
- * Indique si un repas Possible (planifié passé ou non planifié) consomme déjà cet aliment.
- * Un lot entièrement scellé n'est jamais considéré comme ouvert : la consommation concerne
- * d'autres unités déjà retirées (ex. 1 paquet sur 2 consommé, le restant est intact).
- * Les unitaires sans grammes sont aussi « scellés » ici : l'ouverture se détecte par
- * `counter_start_date` sur CE lot ou la baisse de quantité vs baseline — pas par le nom.
- */
-export function isFoodItemConsumedByPossibleMeals(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-): boolean {
-  if (isFoodItemFullySealed(fi)) return false;
-
-  const nowMs = (fixedNow ?? new Date()).getTime();
-  for (const pm of allPossibleMeals) {
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    const planned = Boolean(pm.day_of_week?.trim() && String(pm.meal_time ?? "").trim());
-    if (!planned) return true;
-    const slotMs = new Date(computePlannedCounterDate(pm.day_of_week!, pm.meal_time)).getTime();
-    if (!Number.isNaN(slotMs) && slotMs <= nowMs) return true;
-  }
-  return false;
-}
-
-/**
- * Retourne la date d'ouverture la plus ancienne inférée depuis les repas Possible
- * (créneau passé planifié, ou repas non planifié déjà dans la liste).
- */
-export function findEarliestOpenDateFromPossibleMeals(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-): string | undefined {
-  const nowMs = (fixedNow ?? new Date()).getTime();
-  let earliest: string | undefined;
-  let earliestMs = Infinity;
-  for (const pm of allPossibleMeals) {
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    const planned = Boolean(pm.day_of_week?.trim() && String(pm.meal_time ?? "").trim());
-    let candidate: string | undefined;
-    if (planned) {
-      candidate = computePlannedCounterDate(pm.day_of_week!, pm.meal_time);
-    } else {
-      candidate = (pm.counter_start_date?.trim() || pm.created_at?.trim()) ?? undefined;
-    }
-    if (!candidate) continue;
-    const ms = new Date(candidate).getTime();
-    if (Number.isNaN(ms) || ms > nowMs) continue;
-    if (ms < earliestMs) {
-      earliestMs = ms;
-      earliest = candidate;
-    }
-  }
-  return earliest;
-}
-
-/**
- * Retourne la date d'ouverture la plus récente inférée depuis les repas Possible
- * (créneau passé planifié, ou repas non planifié déjà dans la liste).
- */
-export function findLatestOpenDateFromPossibleMeals(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-): string | undefined {
-  const nowMs = (fixedNow ?? new Date()).getTime();
-  let latest: string | undefined;
-  let latestMs = -Infinity;
-  for (const pm of allPossibleMeals) {
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    const planned = Boolean(pm.day_of_week?.trim() && String(pm.meal_time ?? "").trim());
-    let candidate: string | undefined;
-    if (planned) {
-      candidate = computePlannedCounterDate(pm.day_of_week!, pm.meal_time);
-    } else {
-      candidate = (pm.counter_start_date?.trim() || pm.created_at?.trim()) ?? undefined;
-    }
-    if (!candidate) continue;
-    const ms = new Date(candidate).getTime();
-    if (Number.isNaN(ms) || ms > nowMs) continue;
-    if (ms > latestMs) {
-      latestMs = ms;
-      latest = candidate;
-    }
-  }
-  return latest;
-}
-
-/**
- * Retourne la date d'ouverture la plus ancienne parmi les créneaux planifiés déjà passés
- * où un repas Possible entame virtuellement cet aliment (pot / bocal scellé).
- */
-export function findEarliestPastPlannedOpenForFood(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-): string | undefined {
-  if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return undefined;
-  if (!isSealedPartialUseInPastPlanning(fi, allPossibleMeals, fixedNow)) return undefined;
-  return findEarliestPastPlannedSlotForFood(fi, allPossibleMeals, fixedNow ?? new Date(), "virtual");
-}
-
-/**
- * Retourne le créneau planifié futur le plus proche qui utilise cet aliment.
- * Sert à afficher / synchroniser le mode « Prog. » sur la fiche stock.
- */
-export function findEarliestFuturePlannedSlotForFood(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-): string | undefined {
-  const nowMs = (fixedNow ?? new Date()).getTime();
-  let earliest: string | undefined;
-  let earliestMs = Infinity;
-  for (const pm of allPossibleMeals) {
-    if (!foodItemUsedInPossibleRecipe(fi, pm)) continue;
-    if (!pm.day_of_week?.trim() || !String(pm.meal_time ?? "").trim()) continue;
-    const slotIso = computePlannedCounterDate(pm.day_of_week, pm.meal_time);
-    const slotMs = new Date(slotIso).getTime();
-    if (Number.isNaN(slotMs) || slotMs <= nowMs) continue;
-    if (slotMs < earliestMs) {
-      earliestMs = slotMs;
-      earliest = slotIso;
-    }
-  }
-  return earliest;
-}
-
-/**
- * Indique si un repas Possible NON planifié consomme déjà cet aliment (ouverture réelle maintenant).
- * Dans ce cas on ne bascule pas le compteur en « Prog. » futur.
- */
-export function hasUnplannedPossibleConsumingFood(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  excludePmId?: string | null,
-): boolean {
-  return allPossibleMeals.some((pm) => {
-    if (excludePmId && pm.id === excludePmId) return false;
-    if (pm.day_of_week?.trim() && String(pm.meal_time ?? "").trim()) return false;
-    return foodItemUsedInPossibleRecipe(fi, pm);
-  });
-}
-
-/**
- * Résout la date de compteur à afficher sur la fiche aliment.
- * Entamé (reliquat, sous le poids d'origine, ou quantité unitaire réduite sur CE lot) → compteur.
- * Si un créneau futur planifié utilise ce lot (et aucun Possible non planifié) → mode « Prog. ».
- * Boîte pleine / paquet homonyme intact → pas de compteur.
- */
-export function resolveFoodItemCounterStartForDisplay(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  fixedNow?: Date,
-  baselineTotalGrams?: number | null,
-  baselineQuantity?: number | null,
-): string | null {
-  if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return null;
-
-  const now = fixedNow ?? new Date();
-  const nowMs = now.getTime();
-  const physicallyOpened = isFoodItemPhysicallyOpened(fi, baselineTotalGrams, baselineQuantity);
-  const consumedByPossible = isFoodItemConsumedByPossibleMeals(fi, allPossibleMeals, now);
-  const logicallyOpened = physicallyOpened || consumedByPossible;
-  const virtualOpen =
-    !logicallyOpened && isSealedPartialUseInPastPlanning(fi, allPossibleMeals, now);
-
-  // Unitaire : uniquement CE lot (baseline qty ou compteur posé à la déduction) —
-  // jamais tous les homonymes via le nom du repas Possible.
-  const countOnlyOpenedOnThisLot =
-    isCountOnlyFoodItem(fi) &&
-    (physicallyOpened || Boolean(fi.counter_start_date?.trim()));
-
-  // Paquet unitaire intact (qty = baseline) : masquer même un prog. fantôme posé par erreur.
-  if (
-    isCountOnlyFoodItem(fi) &&
-    baselineQuantity != null &&
-    baselineQuantity > 0 &&
-    (fi.quantity ?? 1) >= baselineQuantity
-  ) {
-    return null;
-  }
-
-  if (!logicallyOpened && !virtualOpen && !countOnlyOpenedOnThisLot) return null;
-
-  const stored = fi.counter_start_date?.trim();
-  const futureProg = findEarliestFuturePlannedSlotForFood(fi, allPossibleMeals, now);
-  const blockedByUnplanned = hasUnplannedPossibleConsumingFood(fi, allPossibleMeals);
-
-  // Lot entamé / unitaire prélevé + repas planifié plus tard → toujours « Prog. »
-  // (même si la déduction a posé « maintenant » avant la planification).
-  if (
-    (physicallyOpened || countOnlyOpenedOnThisLot || logicallyOpened) &&
-    futureProg &&
-    !blockedByUnplanned
-  ) {
-    return futureProg;
-  }
-
-  // Lot physiquement entamé ou unitaire prélevé : le compteur persisté prime.
-  if (physicallyOpened || countOnlyOpenedOnThisLot) {
-    if (stored) {
-      const storedMs = new Date(stored).getTime();
-      if (!Number.isNaN(storedMs)) return stored;
-    }
-    const latestInferred =
-      findLatestOpenDateFromPossibleMeals(fi, allPossibleMeals, now) ??
-      findLatestPastPlannedSlotForFood(fi, allPossibleMeals, now, "opened");
-    if (latestInferred) {
-      const ageDays = differenceInCalendarDays(now, new Date(latestInferred));
-      if (ageDays <= 2) return latestInferred;
-    }
-    return physicallyOpened || logicallyOpened ? now.toISOString() : null;
-  }
-
-  if (stored) {
-    const storedMs = new Date(stored).getTime();
-    if (!Number.isNaN(storedMs)) {
-      const futureProgOnSealedBox =
-        !logicallyOpened &&
-        isFoodItemFullySealed(fi) &&
-        !isCountOnlyFoodItem(fi) &&
-        storedMs > nowMs &&
-        counterMatchesPlannedSlot(fi, stored, allPossibleMeals);
-      if (!futureProgOnSealedBox && storedMs <= nowMs) return stored;
-    }
-  }
-
-  if (logicallyOpened) {
-    return (
-      findEarliestOpenDateFromPossibleMeals(fi, allPossibleMeals, now) ??
-      findEarliestPastPlannedSlotForFood(fi, allPossibleMeals, now, "opened") ??
-      (stored && new Date(stored).getTime() <= nowMs ? stored : null)
-    );
-  }
-
-  return findEarliestPastPlannedOpenForFood(fi, allPossibleMeals, now) ?? null;
-}
-
-/** Résumé visuel du stock pour distinguer paquet entier, entamé et usage dans Possible. */
-export interface FoodItemStockVisualHint {
-  isFullSealed: boolean;
-  isPhysicallyOpened: boolean;
-  isUsedInPossible: boolean;
-  counterExpected: boolean;
-  counterActive: boolean;
-  counterPersisted: boolean;
-}
-
-/**
- * Calcule les indicateurs visuels (badges / bordures) pour une fiche aliment :
- * entier scellé, entamé, lié à un repas Possible, compteur attendu ou actif.
- */
-export function resolveFoodItemStockVisualHint(
-  fi: FoodItem,
-  allPossibleMeals: PossibleMeal[],
-  effectiveCounterStart: string | null,
-  fixedNow?: Date,
-  baselineTotalGrams?: number | null,
-  baselineQuantity?: number | null,
-): FoodItemStockVisualHint {
-  const inactive: FoodItemStockVisualHint = {
-    isFullSealed: false,
-    isPhysicallyOpened: false,
-    isUsedInPossible: false,
-    counterExpected: false,
-    counterActive: false,
-    counterPersisted: false,
-  };
-  if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return inactive;
-
-  const now = fixedNow ?? new Date();
-  const nowMs = now.getTime();
-  const physicallyOpened = isFoodItemPhysicallyOpened(fi, baselineTotalGrams, baselineQuantity);
-  const consumedByPossible = isFoodItemConsumedByPossibleMeals(fi, allPossibleMeals, now);
-  const isUsedInPossible = allPossibleMeals.some((pm) => foodItemUsedInPossibleRecipe(fi, pm));
-  const isFullSealed = isFoodItemFullySealed(fi) && !physicallyOpened && !isCountOnlyFoodItem(fi);
-  const virtualOpen =
-    !physicallyOpened &&
-    !consumedByPossible &&
-    isSealedPartialUseInPastPlanning(fi, allPossibleMeals, now);
-  const counterExpected = physicallyOpened || consumedByPossible || virtualOpen;
-  const stored = fi.counter_start_date?.trim();
-  const counterPersisted = !!(
-    stored &&
-    !Number.isNaN(new Date(stored).getTime()) &&
-    new Date(stored).getTime() <= nowMs
-  );
-  const counterActive = !!(
-    effectiveCounterStart &&
-    computeCounterDays(effectiveCounterStart) !== null
-  );
-
-  return {
-    isFullSealed,
-    isPhysicallyOpened: physicallyOpened,
-    isUsedInPossible,
-    counterExpected,
-    counterActive,
-    counterPersisted,
-  };
-}
-
-/**
- * Indique si une date de compteur correspond au créneau planifié d'un repas utilisant cet aliment.
- * Sert à distinguer un « prog. » posé par la planification d'un compteur manuel sur lot scellé.
- */
-function counterMatchesPlannedSlot(
-  fi: FoodItem,
-  counterIso: string,
-  allPossibleMeals: PossibleMeal[],
-): boolean {
-  const ctrMs = new Date(counterIso).getTime();
-  if (Number.isNaN(ctrMs)) return false;
-  for (const pm of allPossibleMeals) {
-    if (!pm.day_of_week?.trim() || !String(pm.meal_time ?? "").trim()) continue;
-    const pmIngs = pm.ingredients_override ?? pm.meals?.ingredients;
-    if (!pmIngs?.trim()) continue;
-    const uses = parseIngredientGroups(pmIngs).some((g) =>
-      g.some((altBundle) =>
-        altBundle.some(
-          (it) =>
-            !it.optional &&
-            expandOrGroupIngredientNames(it).some((t) => strictNameMatch(fi.name, t)),
-        ),
-      ),
-    );
-    if (!uses) continue;
-    const slotMs = new Date(computePlannedCounterDate(pm.day_of_week, pm.meal_time)).getTime();
-    if (!Number.isNaN(slotMs) && Math.abs(ctrMs - slotMs) < 120_000) return true;
-  }
-  return false;
-}
-
-/**
- * Hook principal de transfert de stock.
- * Fournit toutes les opérations de mutation du stock liées aux repas.
- */
-/**
- * Empreinte stable du planning Possible (id + jour + créneau).
- * Sert à relancer la synchro Prog. à chaque changement, pas seulement au 1er chargement.
- */
-export function buildPossiblePlanningSnapshot(possibleMeals: PossibleMeal[]): string {
-  return possibleMeals
-    .map((pm) => `${pm.id}:${pm.day_of_week ?? ""}:${String(pm.meal_time ?? "")}`)
-    .sort()
-    .join("|");
 }
 
 /** Options de repli lors d'une restauration estimée sans snapshot de déduction. */
@@ -2283,6 +1662,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const liveItemsForOpen = getLiveFoodItems();
     for (const fi of liveItemsForOpen) {
       if (!shouldStartCounter(fi)) continue;
+      // Respecte un Stop manuel (session) : ne pas reposer immédiatement le compteur.
+      if (isFoodCounterManuallyStopped(fi.id)) continue;
 
       // --- Force Prog. : lot entamé / unitaire prélevé + créneau futur, même si compteur = « maintenant »
       const futureProg = findEarliestFuturePlannedSlotForFood(fi, allPossibleMeals, now);
@@ -2338,20 +1719,28 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       continue;
     }
 
-    // Retire les compteurs obsolètes :
-    // - lots au grammage entièrement scellés
-    // - unitaires dont la quantité est encore égale à la baseline (paquet intact / homonyme)
-    // - unitaires intacts quand un homonyme a déjà une qty plus basse (déduction sur l'autre lot)
+    // Retire les compteurs obsolètes (fantômes), sans casser un démarrage manuel :
+    // - unitaires intacts avec prog. planifié fantôme
+    // - unitaires intacts quand un homonyme a déjà une qty plus basse
+    // - multi-paquets scellés (orphelins de déduction) ou prog. planifié sur scellé
+    // Ne PAS effacer un compteur manuel sur paquet scellé unitaire (ex. « Compteur »).
     const staleCounterClears = new Map<string, null>();
     const liveItems = getLiveFoodItems();
     for (const fi of liveItems) {
-      if (!fi.counter_start_date?.trim()) continue;
+      const stored = fi.counter_start_date?.trim();
+      if (!stored) continue;
       if (!shouldStartCounter(fi)) continue;
+      if (isFoodCounterManuallyStarted(fi.id)) continue;
+
       if (isCountOnlyFoodItem(fi)) {
         const baselineQty = stockBaselines?.[fi.id]?.quantity;
         const fiQty = fi.quantity ?? 1;
         if (baselineQty != null && baselineQty > 0 && fiQty >= baselineQty) {
-          staleCounterClears.set(fi.id, null);
+          const storedMs = new Date(stored).getTime();
+          const isFutureProg = !Number.isNaN(storedMs) && storedMs > nowMs;
+          if (isFutureProg || counterMatchesPlannedSlot(fi, stored, allPossibleMeals)) {
+            staleCounterClears.set(fi.id, null);
+          }
         } else if (baselineQty == null) {
           const hasReducedSibling = liveItems.some(
             (o) =>
@@ -2365,8 +1754,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         continue;
       }
       if (!isFoodItemFullySealed(fi)) continue;
-      // Multi-paquets scellés : toujours nettoyer un compteur fantôme (passé ou prog.).
-      staleCounterClears.set(fi.id, null);
+      const qty = fi.quantity ?? 1;
+      // Multi-paquets scellés : orphelins de déduction. Prog. planifié sur scellé : fantôme.
+      if (qty > 1 || counterMatchesPlannedSlot(fi, stored, allPossibleMeals)) {
+        staleCounterClears.set(fi.id, null);
+      }
     }
 
     // Ne pas effacer un id qu'on vient de poser en Prog.

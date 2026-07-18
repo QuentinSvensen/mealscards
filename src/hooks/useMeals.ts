@@ -9,7 +9,7 @@
  * - Reset hebdomadaire (suppression des possibles non sauvegardés)
  *
  * Types exportés : MealCategory, Meal, PossibleMeal
- * Constantes : DAYS, TIMES, CATEGORIES
+ * Constantes : DAYS, TIMES (midi/gouter/soir), MAIN_GRID_TIMES, PLANNING_DAY_SLOTS, CATEGORIES
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -57,7 +57,14 @@ export interface PossibleMeal {
 }
 
 export const DAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
-export const TIMES = ['midi', 'soir'] as const;
+/** Créneaux repas du planning (ordre logique : midi → goûter → soir). */
+export const TIMES = ['midi', 'gouter', 'soir'] as const;
+/** Colonnes principales du tableau (le goûter a sa bande dédiée sous la grille). */
+export const MAIN_GRID_TIMES = ['midi', 'soir'] as const;
+/** Tous les créneaux d'une journée, petit-déj inclus (matin → midi → goûter → soir). */
+export const PLANNING_DAY_SLOTS = ['matin', 'midi', 'gouter', 'soir'] as const;
+export type PlanningMealTime = (typeof TIMES)[number];
+export type PlanningDaySlot = (typeof PLANNING_DAY_SLOTS)[number];
 
 const DAY_INDEX: Record<string, number> = {};
 DAYS.forEach((d, i) => { DAY_INDEX[d] = i; });

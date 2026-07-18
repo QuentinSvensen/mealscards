@@ -55,6 +55,10 @@ export interface PossibleMealsFullBackup {
   proOverrides: Record<string, string>;
   daily_goal: number | null;
   protein_goal: number | null;
+  /** Borne basse de la fourchette calorique au moment de l’archivage. */
+  daily_goal_low?: number | null;
+  /** Objectif fibres journalier au moment de l’archivage. */
+  fiber_goal?: number | null;
   /** Début de la semaine archivée (lundi), si connu. */
   weekStartISO?: string | null;
   /** Fin de la semaine archivée (dimanche), si connue. */
@@ -78,9 +82,14 @@ export const PLANNING_RESET_PREF_KEYS = [
   "planning_extra_selections",
   "planning_extra_slot_assignments",
   "planning_daily_goal",
+  "planning_daily_goal_low",
   "next_week_daily_goal",
+  "next_week_daily_goal_low",
   "planning_protein_goal",
   "next_week_protein_goal",
+  "planning_fiber_goal",
+  "next_week_fiber_goal",
+  "planning_daily_calorie_history",
 ] as const;
 
 /** Brouillon semaine suivante : chargé en base avant le reset auto pour promotion vers le planning courant. */
@@ -121,6 +130,10 @@ export interface MergedPlanningLiveState {
 export interface PostResetGoalValues {
   planning_daily_goal?: number;
   next_week_daily_goal?: number;
+  planning_daily_goal_low?: number;
+  next_week_daily_goal_low?: number;
   planning_protein_goal?: number;
   next_week_protein_goal?: number;
+  planning_fiber_goal?: number;
+  next_week_fiber_goal?: number;
 }

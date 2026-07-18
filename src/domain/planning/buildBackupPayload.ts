@@ -32,14 +32,18 @@ export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): 
   }));
 }
 
+/** Lit un objectif numérique positif depuis la map de préférences (sinon null). */
+function readGoalNumber(prefMap: PlanningPrefMap, key: string): number | null {
+  const raw = prefMap[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
 /** Construit l’objet complet de sauvegarde (cartes + saisies + objectifs) avant reset. */
 export function buildFullBackupPayload(
   freshPossible: PossibleMeal[],
   prefMap: PlanningPrefMap,
   weekRange?: { startISO: string; endISO: string },
 ): PossibleMealsFullBackup {
-  const dg = prefMap["planning_daily_goal"];
-  const pg = prefMap["planning_protein_goal"];
   return {
     cards: serializePossibleMealsForBackup(freshPossible),
     manualCalories: asNumberRecord(prefMap["planning_manual_calories"]),
@@ -56,8 +60,10 @@ export function buildFullBackupPayload(
     drinkChecks: asBoolRecord(prefMap["planning_drink_checks"]),
     calOverrides: asPlanningOverrideRecord(prefMap["planning_cal_overrides"]),
     proOverrides: asPlanningOverrideRecord(prefMap["planning_pro_overrides"]),
-    daily_goal: typeof dg === "number" ? dg : null,
-    protein_goal: typeof pg === "number" ? pg : null,
+    daily_goal: readGoalNumber(prefMap, "planning_daily_goal"),
+    protein_goal: readGoalNumber(prefMap, "planning_protein_goal"),
+    daily_goal_low: readGoalNumber(prefMap, "planning_daily_goal_low"),
+    fiber_goal: readGoalNumber(prefMap, "planning_fiber_goal"),
     weekStartISO: weekRange?.startISO ?? null,
     weekEndISO: weekRange?.endISO ?? null,
   };

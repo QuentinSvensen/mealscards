@@ -98,7 +98,7 @@ export function getAssignedExtraIdsForDay(
   iso: string,
   key: string,
 ): string[] {
-  const slots: Array<"matin" | "midi" | "soir" | "gouter"> = ["matin", "midi", "soir", "gouter"];
+  const slots: Array<"matin" | "midi" | "gouter" | "soir"> = ["matin", "midi", "gouter", "soir"];
   const out = new Set<string>();
   for (const slot of slots) {
     for (const id of extraSlotAssignments[`${iso}-${slot}`] ?? []) out.add(id);

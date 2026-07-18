@@ -36,7 +36,7 @@ const DAY_LABELS_FULL: Record<string, string> = {
 };
 
 const TIME_LABELS: Record<string, string> = {
-  matin: 'Petit déj', midi: 'Midi', soir: 'Soir', gouter: 'Goûter',
+  matin: 'Petit déj', midi: 'Midi', gouter: 'Goûter', soir: 'Soir',
 };
 
 /** Retourne l'emoji représentant une catégorie de repas (en-têtes, popups). */

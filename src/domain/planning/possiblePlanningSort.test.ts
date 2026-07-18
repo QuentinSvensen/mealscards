@@ -32,6 +32,19 @@ describe("comparePossiblePlanningOrder", () => {
     expect(sorted.map((item) => item.meals.name)).toEqual(["Midi", "Soir", "Jour seul"]);
   });
 
+  it("ordonne les créneaux matin → midi → goûter → soir", () => {
+    const items = [
+      pm("Soir", "2026-05-28", "soir", 0),
+      pm("Goûter", "2026-05-28", "gouter", 1),
+      pm("Midi", "2026-05-28", "midi", 2),
+      pm("Matin", "2026-05-28", "matin", 3),
+    ];
+
+    const sorted = [...items].sort((a, b) => comparePossiblePlanningOrder(a, b, fixedNow));
+
+    expect(sorted.map((item) => item.meals.name)).toEqual(["Matin", "Midi", "Goûter", "Soir"]);
+  });
+
   it("garde une carte jour seul avant le jour suivant", () => {
     const items = [
       pm("Demain midi", "2026-05-29", "midi", 0),

@@ -415,7 +415,7 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
             const need = needsRaw[needKey];
             if (!need) return 1;
             const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
-            const nbType = (item as any).content_quantity_type;
+            const nbType = item.content_quantity_type;
             if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) return Math.ceil(need.grams / nb);
             if (nb > 0 && need.count > 0) return Math.ceil(need.count / nb);
             if (need.count > 0) return Math.ceil(need.count);
@@ -514,14 +514,14 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                const cur = (item as any).content_quantity_type;
+                const cur = item.content_quantity_type;
                 const next = cur === 'g' ? 'qty' : 'g';
                 updateItemContentQuantityType.mutate({ id: item.id, content_quantity_type: next });
               }}
               className="text-[8px] font-bold text-muted-foreground/60 hover:text-muted-foreground px-0.5 h-6 flex items-center"
               title="Basculer grammes/quantité"
             >
-              {(item as any).content_quantity_type === 'g' ? 'g' : '#'}
+              {item.content_quantity_type === 'g' ? 'g' : '#'}
             </button>
           </div>
         ) : (
@@ -536,14 +536,14 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  const cur = (item as any).content_quantity_type;
+                  const cur = item.content_quantity_type;
                   const next = cur === 'g' ? 'qty' : 'g';
                   updateItemContentQuantityType.mutate({ id: item.id, content_quantity_type: next });
                 }}
                 className="text-[8px] font-bold text-muted-foreground/40 hover:text-muted-foreground px-0.5"
                 title="Basculer grammes/quantité"
               >
-                {(item as any).content_quantity_type === 'g' ? 'g' : '#'}
+                {item.content_quantity_type === 'g' ? 'g' : '#'}
               </button>
             </div>
           ) : (
@@ -631,7 +631,7 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
               for (const [nk, need] of Object.entries(needsRaw)) {
                 if (checkKey ? nk === checkKey : (normalizeKey(item.name) === normalizeKey(nk))) {
                   const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
-                  const nbType = (item as any).content_quantity_type;
+                  const nbType = item.content_quantity_type;
                   let qtyNeeded = 1;
                   if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) {
                     qtyNeeded = Math.ceil(need.grams / nb);

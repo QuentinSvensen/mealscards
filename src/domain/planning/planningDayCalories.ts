@@ -1,4 +1,4 @@
-import { TIMES, type Meal, type PossibleMeal } from "@/hooks/useMeals";
+import { PLANNING_DAY_SLOTS, TIMES, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
@@ -127,7 +127,7 @@ export function computePlanningDayTotalCalories(
         pm.meal_time === time,
     );
 
-  const slotTimes = ["matin", ...TIMES, "gouter"] as string[];
+  const slotTimes = [...PLANNING_DAY_SLOTS] as string[];
   const mealCals = slotTimes.reduce((total, time) => {
     const slotMeals = getMealsForSlot(time);
     if (slotMeals.length > 0) {
@@ -190,7 +190,7 @@ export function computePlanningDayTotalCalories(
     dessertExtraStockSnapshots,
   );
 
-  const drinkCal = [...TIMES, "gouter"].reduce((sum, time) => {
+  const drinkCal = TIMES.reduce((sum, time) => {
     return sum + (pickPlanningSlotValue(drinkChecks, isoDate, dayKey, time) ? DRINK_CALORIES : 0);
   }, 0);
 

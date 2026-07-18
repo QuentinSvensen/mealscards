@@ -8,11 +8,12 @@ type PossiblePlanningSortable = {
   meals?: { name?: string | null } | null;
 };
 
+/** Ordre logique d'une journée : matin → midi → goûter → soir. */
 const MEAL_TIME_SORT_RANK: Record<string, number> = {
   matin: 0,
   midi: 1,
-  soir: 2,
-  gouter: 3,
+  gouter: 2,
+  soir: 3,
 };
 
 /** Classe un créneau dans l'ordre d'une journée, en plaçant les cartes sans timing après les créneaux choisis. */

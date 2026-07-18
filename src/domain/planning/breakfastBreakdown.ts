@@ -3,6 +3,7 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import { getCardDisplayCalories, getCardDisplayProtein } from "@/hooks/useCalorieBalance";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
+import { parsePlanningCustomExtraId } from "@/lib/planningExtraMacros";
 import type { PossibleMealBackupCard } from "./types";
 
 /** Une ligne du détail petit-déjeuner affiché dans le popover. */
@@ -40,17 +41,6 @@ function parseMealProtein(prot: string | null | undefined): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-/** Décode un extra personnalisé encodé dans un id `custom::…`. */
-function parseCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
-  if (!id.startsWith("custom::")) return null;
-  const parts = id.slice(8).split("::");
-  return {
-    name: parts[0] || "Personnalisé",
-    cal: parseFloat((parts[1] || "0").replace(",", ".")) || 0,
-    prot: parseFloat((parts[2] || "0").replace(",", ".")) || 0,
-  };
-}
-
 /** Ajoute les extras assignés au matin dans la liste de détail. */
 function appendMatinExtrasToBreakdown(
   items: BreakfastBreakdownItem[],
@@ -62,7 +52,7 @@ function appendMatinExtrasToBreakdown(
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   for (const [id, count] of counts) {
-    const custom = parseCustomExtraId(id);
+    const custom = parsePlanningCustomExtraId(id);
     if (custom) {
       items.push({
         id: `extra-${id}`,

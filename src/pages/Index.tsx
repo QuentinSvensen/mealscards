@@ -30,14 +30,14 @@ import {
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, smartFoodContains,
   extractIngredientMacros,
-  listUniqueOptionalIngredients,
-  applyOptionalInclusionsToIngredients,
-  appendIncludedOptionalsToOverride,
 } from "@/lib/ingredientUtils";
-import {
-  OptionalIngredientsMoveDialog,
-  type OptionalIngredientChoice,
-} from "@/components/OptionalIngredientsMoveDialog";
+import { OptionalIngredientsMoveDialog } from "@/components/OptionalIngredientsMoveDialog";
+import { useOptionalIngredientsMoveDialog } from "@/hooks/useOptionalIngredientsMoveDialog";
+import { useProgCounterReconcile } from "@/hooks/useProgCounterReconcile";
+import { useMoveToPossible } from "@/hooks/useMoveToPossible";
+import { useStickyChromeHeight } from "@/hooks/useStickyChromeHeight";
+import { useWeeklyAutoReset } from "@/hooks/useWeeklyAutoReset";
+import { useLazyFragmentsPreload } from "@/hooks/useLazyFragmentsPreload";
 import {
   buildStockMap, buildFoodItemIndex, findStockKey, pickBestAlternative,
   getMealMultiple, getMealFractionalRatio,
@@ -55,7 +55,7 @@ import {
   type PossibleFrozenCounterDaysMap,
   type FoodItemIndex,
 } from "@/lib/stockUtils";
-import { useMealTransfers, computePlannedCounterDate, buildPossiblePlanningSnapshot } from "@/hooks/useMealTransfers";
+import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
 import { isCountOnlyFoodItem, isFoodItemFullySealed } from "@/lib/stockUtils";
 import {
   attachPortionDeduction,
@@ -65,25 +65,6 @@ import {
   wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
-import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
-import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
-import {
-  buildUpdatedDailyCalorieHistory,
-  captureLiveWeekTotalsForHistory,
-  PLANNING_DAILY_CALORIE_HISTORY_KEY,
-} from "@/domain/planning/dailyCalorieHistory";
-import { captureLiveWeekTotalsFromPrefMap } from "@/domain/planning/planningDayCalories";
-import { asNumberRecord, asPlanningOverrideRecord, asStringArrayRecord } from "@/domain/planning/jsonCoerce";
-import { parseBackupCalorieContext } from "@/domain/planning/rollingCalorieAverage";
-import { filterPossibleMealsToDeleteForWeeklyClear } from "@/domain/planning/mealsToClear";
-import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
-import { remapPlanningRecordToTargetWeek } from "@/domain/planning/remapPlanningKeys";
-import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
-import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
-import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
-import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
-import { buildWeekDates } from "@/lib/planningWeekUtils";
-import { pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
 import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
@@ -256,58 +237,27 @@ const Index = () => {
     "food_item_stock_baselines",
     {},
   );
-  // Synchro compteurs (démarrage + Prog.) à chaque changement de planning
-  // OU dès qu'un lot ouvert n'a pas encore de compteur (filet de sécurité).
-  const lastPlanningSnapshotRef = useRef<string>("");
-  const progReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!unlocked || isLoading) return;
-    const snapshot = buildPossiblePlanningSnapshot(possibleMeals);
-    const needsCounterStart = foodItems.some((fi) => {
-      if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return false;
-      if (fi.counter_start_date?.trim()) return false;
-      if (isCountOnlyFoodItem(fi)) {
-        const b = foodStockBaselines[fi.id]?.quantity;
-        return b != null && b > 0 && (fi.quantity ?? 1) < b;
-      }
-      return !isFoodItemFullySealed(fi);
-    });
-    const planningChanged = snapshot !== lastPlanningSnapshotRef.current;
-    if (!planningChanged && !needsCounterStart) return;
-    if (planningChanged) lastPlanningSnapshotRef.current = snapshot;
-    if (progReconcileTimerRef.current) clearTimeout(progReconcileTimerRef.current);
-    progReconcileTimerRef.current = setTimeout(() => {
-      void reconcileMissedProgCounters(possibleMeals, foodStockBaselines);
-    }, 150);
-    return () => {
-      if (progReconcileTimerRef.current) clearTimeout(progReconcileTimerRef.current);
-    };
-  }, [unlocked, isLoading, possibleMeals, foodItems, foodStockBaselines, reconcileMissedProgCounters]);
+  useProgCounterReconcile({
+    enabled: unlocked,
+    isLoading,
+    possibleMeals,
+    foodItems,
+    foodStockBaselines,
+    reconcileMissedProgCounters,
+  });
 
-  // Précharger TOUS les fragments lazy + pré-récupérer TOUTES les données une fois déverrouillé (idle callback)
-  const preloadDone = useRef(false);
-  useEffect(() => {
-    if (!unlocked || preloadDone.current) return;
-    preloadDone.current = true;
-    const preload = () => {
-      // Précharger les fragments JS en parallèle
-      importShoppingList();
-      importMealPlanGenerator();
-      importFoodItems();
-      importWeeklyPlanning();
-      importMasterList();
-      importPossibleList();
-      importAvailableList();
-      importUnParUnSection();
-      importMacroIngredients();
-      importEnergyDrinksList();
-    };
-    if ('requestIdleCallback' in window) {
-      (window as any).requestIdleCallback(preload);
-    } else {
-      setTimeout(preload, 200);
-    }
-  }, [unlocked]);
+  useLazyFragmentsPreload(unlocked, {
+    importShoppingList,
+    importMealPlanGenerator,
+    importFoodItems,
+    importWeeklyPlanning,
+    importMasterList,
+    importPossibleList,
+    importAvailableList,
+    importUnParUnSection,
+    importMacroIngredients,
+    importEnergyDrinksList,
+  });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
@@ -490,132 +440,19 @@ const Index = () => {
     };
   }, [unlocked, qc]);
 
-  // Nettoyage automatique du dimanche — s'exécute UNE FOIS par semaine le dimanche à 23h59 ou lors de la première connexion de la nouvelle semaine
+  // Nettoyage automatique du dimanche — une fois par semaine (hook dédié).
   const lastWeeklyReset = getPreference<string>('last_weekly_reset', '');
-  const sundayClearDone = useRef(false);
-  const autoSundayResetInFlightRef = useRef(false);
-  useEffect(() => {
-    if (!unlocked || sundayClearDone.current || isPreferencesLoading || isLoading) return;
-    sundayClearDone.current = true;
-
-    const now = new Date();
-    // Trouver le dimanche 23h59 le plus récent
-    const mostRecentSunday = new Date(now);
-    const day = mostRecentSunday.getDay(); // 0=Dimanche
-    // Revenir au dimanche dernier (ou aujourd'hui si on est dimanche)
-    mostRecentSunday.setDate(mostRecentSunday.getDate() - day);
-    mostRecentSunday.setHours(23, 59, 0, 0);
-
-    // Si nous n'avons pas encore atteint dimanche 23h59 cette semaine, utiliser le dimanche de la semaine DERNIÈRE
-    if (now.getTime() < mostRecentSunday.getTime()) {
-      mostRecentSunday.setDate(mostRecentSunday.getDate() - 7);
-    }
-
-    if (!lastWeeklyReset) {
-      // Initialisation de la première fois, on définit juste la valeur sans nettoyer
-      setPreference.mutate({ key: 'last_weekly_reset', value: mostRecentSunday.toISOString() });
-      return;
-    }
-
-    const lastResetDate = new Date(lastWeeklyReset);
-    if (lastResetDate.getTime() >= mostRecentSunday.getTime()) {
-      // Déjà réinitialisé pour cette semaine
-      return;
-    }
-
-    const clearAll = async () => {
-      if (autoSundayResetInFlightRef.current) return;
-      autoSundayResetInFlightRef.current = true;
-      try {
-        const userId = (await supabase.auth.getUser()).data.user?.id;
-        if (!userId) return;
-
-        const { data: freshResetPref } = await supabase
-          .from("user_preferences")
-          .select("value")
-          .eq("key", "last_weekly_reset")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (freshResetPref?.value) {
-          const freshResetDate = new Date(String(freshResetPref.value));
-          if (freshResetDate.getTime() >= mostRecentSunday.getTime()) return;
-        }
-
-        const { snapshots, prefMap } = await fetchSnapshotsAndPrefsParallel(userId);
-
-        await qc.refetchQueries({ queryKey: ["possible_meals"] });
-        const freshPossible =
-          (qc.getQueryData<PossibleMeal[]>(["possible_meals"]) as PossibleMeal[] | undefined) ?? possibleMeals;
-
-        const previousWeekStart = new Date(mostRecentSunday);
-        previousWeekStart.setDate(previousWeekStart.getDate() - 6);
-        const preservedPreviousWeek = {
-          startISO: previousWeekStart.toISOString().split("T")[0],
-          endISO: mostRecentSunday.toISOString().split("T")[0],
-        };
-        const archivedWeekDates = buildWeekDates(0, previousWeekStart);
-        const fullBackup = buildFullBackupPayload(freshPossible, prefMap, {
-          startISO: archivedWeekDates[0]?.iso ?? preservedPreviousWeek.startISO,
-          endISO: archivedWeekDates[archivedWeekDates.length - 1]?.iso ?? preservedPreviousWeek.endISO,
-        });
-        await upsertPossibleMealsFullBackup(userId, fullBackup);
-
-        const backupCtx = parseBackupCalorieContext(
-          fullBackup,
-          asPlanningOverrideRecord(prefMap["planning_cal_overrides"]),
-          asPlanningOverrideRecord(prefMap["planning_pro_overrides"]),
-        );
-        if (backupCtx) {
-          const liveDayTotals = captureLiveWeekTotalsFromPrefMap(
-            prefMap,
-            freshPossible,
-            meals,
-            foodItems,
-            archivedWeekDates,
-          );
-          const nextHistory = buildUpdatedDailyCalorieHistory(
-            asNumberRecord(prefMap[PLANNING_DAILY_CALORIE_HISTORY_KEY]),
-            liveDayTotals,
-          );
-          setPreference.mutate({ key: PLANNING_DAILY_CALORIE_HISTORY_KEY, value: nextHistory });
-        }
-
-        const cutoffISO = mostRecentSunday.toISOString().split("T")[0];
-        const mealsToDelete = filterPossibleMealsToDeleteForWeeklyClear(freshPossible, cutoffISO, preservedPreviousWeek);
-        await deletePossibleMealsByIds(mealsToDelete.map(pm => pm.id));
-
-        const targetWeek = buildWeekDates(0, now);
-        const prunedSnapshots = pruneStaleIsoSnapshotsForTargetWeek(snapshots, targetWeek);
-        const merged = mergeSnapshotsIntoLivePrefMap(prefMap, prunedSnapshots, targetWeek);
-        const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, targetWeek);
-        const goals = resolvePostResetGoals(prefMap);
-        pushWeeklyResetClientPreferences(setPreference, promoted, goals, now.toISOString(), "auto_sunday");
-        const promotedExtraSlots = remapPlanningRecordToTargetWeek(
-          asStringArrayRecord(prefMap["next_week_extra_slot_assignments"]),
-          targetWeek,
-        );
-        setPreference.mutate({ key: "planning_extra_slot_assignments", value: promotedExtraSlots });
-        setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
-
-        await qc.invalidateQueries({ queryKey: ["possible_meals"] });
-        await qc.invalidateQueries({ queryKey: ["user_preferences"] });
-        toast({
-          title: "🔄 Reset hebdomadaire effectué",
-          description: "Utilisez ↩ Restaurer dans le planning pour récupérer les cartes.",
-        });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        toast({
-          title: "Reset hebdomadaire interrompu",
-          description: msg,
-          variant: "destructive",
-        });
-      } finally {
-        autoSundayResetInFlightRef.current = false;
-      }
-    };
-    clearAll();
-  }, [unlocked, possibleMeals, lastWeeklyReset, isPreferencesLoading, isLoading]);
+  useWeeklyAutoReset({
+    unlocked,
+    isLoading,
+    isPreferencesLoading,
+    lastWeeklyReset,
+    possibleMeals,
+    meals,
+    foodItems,
+    qc,
+    setPreference,
+  });
 
   const [activeCategory, setActiveCategory] = useState<MealCategory>(() => {
     if (location.pathname === '/repas') {
@@ -834,206 +671,13 @@ const Index = () => {
     [syncDessertFoodPrefsAfterRestore, syncMorningMealPrefsAfterRestore],
   );
 
-  // Pop-up optionnels : état + promesse résolue par Continuer / Annuler
-  const [optionalMoveDialog, setOptionalMoveDialog] = useState<{
-    mealName: string;
-    optionals: OptionalIngredientChoice[];
-  } | null>(null);
-  const [optionalIncludeKeys, setOptionalIncludeKeys] = useState<Set<string>>(() => new Set());
-  const optionalMoveResolveRef = useRef<((keys: Set<string> | null) => void) | null>(null);
-
-  /** Demande à l'utilisateur quels optionnels inclure sur la carte Possible (null = annulation). */
-  const askOptionalIngredientInclusions = (mealName: string, optionals: OptionalIngredientChoice[]) =>
-    new Promise<Set<string> | null>((resolve) => {
-      optionalMoveResolveRef.current = resolve;
-      setOptionalIncludeKeys(new Set());
-      setOptionalMoveDialog({ mealName, optionals });
-    });
-
-  /** Ferme la pop-up optionnels et résout la promesse en attente. */
-  const finishOptionalMoveDialog = (keys: Set<string> | null) => {
-    const resolve = optionalMoveResolveRef.current;
-    optionalMoveResolveRef.current = null;
-    setOptionalMoveDialog(null);
-    setOptionalIncludeKeys(new Set());
-    resolve?.(keys);
-  };
-
-  /** Alterne l'inclusion d'un ingrédient optionnel dans la sélection de la pop-up. */
-  const toggleOptionalIncludeKey = (key: string) => {
-    setOptionalIncludeKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Transfert d'un repas vers la liste "Possible" (avec déduction de stock)
-  // ═══════════════════════════════════════════════════════════════════════════
-  const handleMoveToPossibleGeneral = async (mealId: string, source?: string, pmId?: string | null) => {
-    if (pmId) {
-      const pm = possibleMeals.find((p) => p.id === pmId);
-      updatePlanning.mutate({ id: pmId, day_of_week: null, meal_time: null });
-      // Resync compteurs : ce créneau ne doit plus maintenir un Prog. orphelin.
-      if (pm) {
-        const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-        const remainingMeals = possibleMeals.map((p) =>
-          p.id === pmId ? { ...p, day_of_week: null, meal_time: null } : p,
-        );
-        void updateFoodItemCountersForPlanning(
-          null,
-          ing ?? null,
-          null,
-          null,
-          pm.counter_start_date ?? null,
-          null,
-          remainingMeals,
-        );
-      }
-      return;
-    }
-
-    const meal = meals.find(m => m.id === mealId);
-    if (!meal) return;
-
-    // Pop-up si des optionnels existent (Tous / Au choix → Possible uniquement)
-    let includedOptionalKeys = new Set<string>();
-    const fromMasterOrAvailable = source === "master" || source === "available";
-    if (fromMasterOrAvailable) {
-      const optionals = listUniqueOptionalIngredients(meal.ingredients);
-      if (optionals.length > 0) {
-        const choice = await askOptionalIngredientInclusions(meal.name, optionals);
-        if (choice === null) return;
-        includedOptionalKeys = choice;
-      }
-    }
-
-    // 1. Analyser le stock avant déduction pour l'expiration (sans déduire)
-    const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
-
-    let snapshots: FoodItem[] = [];
-    let nameMatch: FoodItem | undefined;
-    let oldestCounterFromDeduction: string | null = null;
-    let consumedIngredientsFromDeduction: string | null = null;
-
-    // 2. Déduire les ingrédients du stock UNIQUEMENT si ça ne vient pas de "Tous" (master)
-    if (source !== "master") {
-      const deductionResult = await deductIngredientsFromStock(meal, undefined);
-      snapshots = deductionResult.snapshots;
-      oldestCounterFromDeduction = deductionResult.oldestCounter || null;
-      consumedIngredientsFromDeduction = deductionResult.consumedIngredients || null;
-      nameMatch = foodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
-      if (nameMatch && !snapshots.find(s => s.id === nameMatch.id)) {
-        if (!meal.ingredients?.trim()) {
-          const portion = await deductNameMatchStock(meal);
-          snapshots.push(attachFoodDeductionSnapshot(nameMatch, {
-            grams: portion.gramsDeducted,
-            quantity: portion.quantityDeducted,
-          }));
-        } else {
-          snapshots.push({ ...nameMatch });
-        }
-      }
-    }
-
-    // Override Possible : optionnels cochés deviennent obligatoires (recette maître inchangée)
-    let ingredientsOverride: string | null = null;
-    if (consumedIngredientsFromDeduction && consumedIngredientsFromDeduction !== meal.ingredients) {
-      ingredientsOverride = appendIncludedOptionalsToOverride(
-        consumedIngredientsFromDeduction,
-        meal.ingredients,
-        includedOptionalKeys,
-      );
-    } else if (includedOptionalKeys.size > 0) {
-      ingredientsOverride = applyOptionalInclusionsToIngredients(meal.ingredients, includedOptionalKeys);
-    }
-
-    // 3. Calculer les calories/protéines AVANT déduction pour les « figer » sur la nouvelle carte
-    const isAvailBefore = (name: string) => {
-      const fi = foodItems.find(f => strictNameMatch(f.name, name));
-      return !!fi && (fi.is_infinite || (fi.quantity ?? 0) > 0 || parseQty(fi.grams) > 0);
-    };
-    const mealForMacros =
-      ingredientsOverride && ingredientsOverride !== meal.ingredients
-        ? { ...meal, ingredients: ingredientsOverride }
-        : meal;
-    const preCal = getDisplayedCalories(mealForMacros, undefined, undefined, isAvailBefore);
-    const prePro = getDisplayedProtein(mealForMacros, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
-    // Fibres depuis la recette maître d’abord (l’override post-déduction pouvait omettre <fibres>).
-    const preFiber =
-      getDisplayedFiber(meal, undefined, undefined, isAvailBefore, foodItems, foodItemIndex)
-      ?? getDisplayedFiber(mealForMacros, undefined, undefined, isAvailBefore, foodItems, foodItemIndex);
-
-    // 4. Carte « Possible » = copie logique avant déduction stock
-    const finalCounterDate =
-      source === "master" || !recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems, foodItemIndex)
-        ? null
-        : oldestCounterFromDeduction || anBefore.earliestCounterDate || null;
-
-    const result = await moveToPossible.mutateAsync({
-      mealId,
-      expiration_date: anBefore.earliestExpiration,
-      counter_start_date: finalCounterDate
-    });
-
-    if (result?.id) {
-      if (snapshots.length > 0) updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
-
-      // Au choix + optionnels inclus : déduire le stock supplémentaire (comme une édition d'override)
-      if (
-        source !== "master" &&
-        includedOptionalKeys.size > 0 &&
-        ingredientsOverride
-      ) {
-        const oldForStock = consumedIngredientsFromDeduction ?? meal.ingredients;
-        const extraSnaps = await adjustStockForIngredientChange(
-          oldForStock,
-          ingredientsOverride,
-          snapshots,
-        );
-        if (extraSnaps.length > 0) {
-          updateSnapshots((prev) => ({
-            ...prev,
-            [result.id]: [...(prev[result.id] ?? snapshots), ...extraSnaps],
-          }));
-        }
-      }
-
-      if (ingredientsOverride && ingredientsOverride !== meal.ingredients) {
-        updatePossibleIngredients.mutate({ id: result.id, ingredients_override: ingredientsOverride });
-      }
-      if (source === "master") setMasterSourcePmIds(prev => new Set([...prev, result.id]));
-      if (source === "available" && typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
-        setCollapsedSections(prev => ({ ...prev, [`available-${meal.category}`]: true }));
-      }
-
-      // 5. Sauvegarder les macros "figées" dans les préférences pour cette carte
-      if (preCal !== null) {
-        const currentCals = getPreference<Record<string, string>>('planning_cal_overrides', {});
-        setPreference.mutate({ key: 'planning_cal_overrides', value: { ...currentCals, [result.id]: String(preCal) } });
-      }
-      if (prePro !== null) {
-        const currentPros = getPreference<Record<string, string>>('planning_pro_overrides', {});
-        setPreference.mutate({ key: 'planning_pro_overrides', value: { ...currentPros, [result.id]: String(prePro) } });
-      }
-      if (preFiber !== null) {
-        const currentFibers = getPreference<Record<string, string>>('planning_fiber_overrides', {});
-        setPreference.mutate({ key: 'planning_fiber_overrides', value: { ...currentFibers, [result.id]: String(preFiber) } });
-      }
-
-      // 6. Figer le badge compteur à l’arrivée (stock capturé avant déduction via closure foodItems).
-      freezePossibleBadgeCounter(
-        result.id,
-        ingredientsOverride ?? meal.ingredients,
-        null,
-        null,
-        undefined,
-        foodItems,
-      );
-    }
-  };
+  const {
+    optionalMoveDialog,
+    optionalIncludeKeys,
+    askOptionalIngredientInclusions,
+    finishOptionalMoveDialog,
+    toggleOptionalIncludeKey,
+  } = useOptionalIngredientsMoveDialog();
 
   // Modes de tri — extraits dans un hook dédié
   const {
@@ -1047,19 +691,7 @@ const Index = () => {
   const [showDevMenu, setShowDevMenu] = useState(false);
   const [chronoOpen, setChronoOpen] = useState(false);
   const [coursesTab, setCoursesTab] = useState<"liste" | "menu" | "boissons">("liste");
-  const stickyChromeRef = useRef<HTMLDivElement | null>(null);
-  const [stickyChromeHeight, setStickyChromeHeight] = useState(52);
-
-  /** Mesure la hauteur du bandeau sticky (header ± sous-onglets Repas). */
-  useEffect(() => {
-    const el = stickyChromeRef.current;
-    if (!el) return;
-    const update = () => setStickyChromeHeight(Math.ceil(el.getBoundingClientRect().height));
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [mainPage]);
+  const { stickyChromeRef, stickyChromeHeight } = useStickyChromeHeight([mainPage]);
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     const defaults: Record<string, boolean> = {};
@@ -1072,6 +704,28 @@ const Index = () => {
   const toggleSectionCollapse = (key: string) => {
     setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const { handleMoveToPossibleGeneral } = useMoveToPossible({
+    meals,
+    possibleMeals,
+    foodItems,
+    foodItemIndex,
+    moveToPossible,
+    updatePlanning,
+    updatePossibleIngredients,
+    deductIngredientsFromStock,
+    deductNameMatchStock,
+    adjustStockForIngredientChange,
+    updateFoodItemCountersForPlanning,
+    askOptionalIngredientInclusions,
+    updateSnapshots,
+    getPreference,
+    setPreference,
+    freezePossibleBadgeCounter,
+    setMasterSourcePmIds,
+    setCollapsedSections,
+    attachFoodDeductionSnapshot,
+  });
 
   const handleLogoClick = () => {
     setLogoClickCount((c) => {

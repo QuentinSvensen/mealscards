@@ -6,16 +6,22 @@
  * - Catalogue de repas (avec catégorie, calories, protéines, ingrédients…)
  * - Liste d'aliments (avec stockage, grammage, péremption…)
  * - Liste de courses (avec groupes, quantités, marques…)
+ * - Préférences client (JSON : masquer calories, fourchette, fibres, compteur figé, historique)
  * - Réinitialisation du score PIN de sécurité
  *
  * Format d'export : NOM (param=valeur; param2=valeur2)
  */
 import { Download, Upload, ShieldAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { MealCategory, Meal } from "@/hooks/useMeals";
 import type { ShoppingGroup, ShoppingItem } from "@/hooks/useShoppingList";
 import type { FoodItem, StorageType } from "@/hooks/useFoodItems";
+import {
+  buildClientPrefsBackupPayload,
+  parseClientPrefsBackupPayload,
+} from "@/domain/planning/clientPrefsBackup";
 
 function validateMealName(name: string): string | null {
   const trimmed = name.trim();
@@ -35,6 +41,8 @@ interface DevMenuProps {
 }
 
 export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingItems, foodItems, blockedCount, setBlockedCount }: DevMenuProps) {
+  const qc = useQueryClient();
+
   /** Crée un téléchargement fichier et libère l'URL blob pour éviter les fuites mémoire. */
   const downloadTextFile = (filename: string, content: string) => {
     const blob = new Blob([content], { type: "text/plain" });
@@ -44,6 +52,61 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
     a.download = filename;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  /** Exporte les préférences client récentes (masquer calories, fourchette, fibres, compteur figé, historique). */
+  const handleExportClientPrefs = () => {
+    const rows = qc.getQueryData<{ id: string; key: string; value: unknown }[]>(["user_preferences"]) ?? [];
+    const byKey = new Map(rows.map((r) => [r.key, r.value]));
+    const payload = buildClientPrefsBackupPayload((key) => byKey.get(key));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mealscards-prefs.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    toast({ title: `✅ ${Object.keys(payload.prefs).length} préf. exportées` });
+    onClose();
+  };
+
+  /** Importe un JSON de préférences client et les écrit en base (symétrie avec l’export). */
+  const handleImportClientPrefs = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = async (ev) => {
+      const file = (ev.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text) as unknown;
+        const entries = parseClientPrefsBackupPayload(parsed);
+        if (!entries || entries.length === 0) {
+          toast({ title: "❌ JSON invalide", description: "Backup préférences non reconnu.", variant: "destructive" });
+          return;
+        }
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        if (!userId) {
+          toast({ title: "Non connecté", variant: "destructive" });
+          return;
+        }
+        let ok = 0;
+        for (const { key, value } of entries) {
+          const { error } = await supabase.from("user_preferences").upsert(
+            { user_id: userId, key, value: value as any },
+            { onConflict: "user_id,key" },
+          );
+          if (!error) ok++;
+        }
+        await qc.invalidateQueries({ queryKey: ["user_preferences"] });
+        toast({ title: `✅ ${ok} préf. importées` });
+        onClose();
+      } catch {
+        toast({ title: "❌ Lecture JSON impossible", variant: "destructive" });
+      }
+    };
+    input.click();
   };
 
   /** Valide la catégorie repas importée et applique "plat" en fallback sécurisé. */
@@ -309,6 +372,11 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
           <button onClick={handleImportShopping} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Upload className="h-4 w-4" /> Importer courses (.txt)</button>
         </div>
         <p className="text-[10px] text-muted-foreground/50">Format: NOM (param=valeur; param2=valeur2)</p>
+        <div className="space-y-1">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Préférences (JSON)</p>
+          <button onClick={handleExportClientPrefs} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Download className="h-4 w-4" /> Exporter prefs (.json)</button>
+          <button onClick={handleImportClientPrefs} className="w-full flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-muted hover:bg-muted/80 text-foreground"><Upload className="h-4 w-4" /> Importer prefs (.json)</button>
+        </div>
         <div className="space-y-1">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest pt-1">Sécurité</p>
           <button onClick={async () => {
