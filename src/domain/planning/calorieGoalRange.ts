@@ -5,6 +5,9 @@
  * La borne haute reste la cible principale (compatibilité : c'est l'ancienne
  * valeur unique `planning_daily_goal`) et sert à tous les calculs de calories
  * restantes / seuil. La borne basse est optionnelle et purement indicative.
+ *
+ * Si seule la borne haute est renseignée, le Planning colore comme une
+ * fourchette virtuelle [max − 100, max].
  */
 
 /** Fourchette normalisée : borne basse optionnelle, borne haute = cible principale. */
@@ -12,6 +15,9 @@ export interface CalorieGoalRange {
   low: number | null;
   high: number;
 }
+
+/** Écart sous le max pour fabriquer une fourchette virtuelle quand le min est absent. */
+export const CALORIE_GOAL_VIRTUAL_LOW_OFFSET = 100;
 
 /**
  * Normalise une fourchette saisie par l'utilisateur (validation souple).
@@ -33,9 +39,28 @@ export function normalizeCalorieGoalRange(
 }
 
 /**
+ * Résout la fourchette utilisée pour les couleurs Planning.
+ * — Min réel distinct → fourchette saisie.
+ * — Max seul → fourchette virtuelle [max − 100, max] (basse ≥ 1).
+ */
+export function resolveCalorieGoalRangeForColoring(
+  low: number | null | undefined,
+  high: number | null | undefined,
+): CalorieGoalRange | null {
+  const { low: nLow, high: nHigh } = normalizeCalorieGoalRange(low, high);
+  if (nHigh <= 0) return null;
+  if (nLow != null && nLow > 0 && nLow !== nHigh) {
+    return { low: nLow, high: nHigh };
+  }
+  const virtualLow = Math.max(0, nHigh - CALORIE_GOAL_VIRTUAL_LOW_OFFSET);
+  if (virtualLow <= 0 || virtualLow >= nHigh) return null;
+  return { low: virtualLow, high: nHigh };
+}
+
+/**
  * Met en forme la cible calorique pour l'affichage des badges de jour.
  * Retourne « basse–haute » quand une borne basse distincte existe,
- * sinon la borne haute seule (comportement historique).
+ * sinon la borne haute seule (comportement historique — pas de min virtuel affiché).
  */
 export function formatCalorieGoalTarget(
   low: number | null | undefined,
@@ -49,29 +74,32 @@ export function formatCalorieGoalTarget(
 }
 
 /**
- * Indique si la borne basse de la fourchette calorique est active (min renseigné).
+ * Indique si une fourchette colorimétrique est active (min réel ou max seul → max−100).
  * Dans ce cas, le Planning masque les deltas « reste / + » par jour.
  */
 export function hasCalorieGoalRangeMin(
   low: number | null | undefined,
   high: number | null | undefined,
 ): boolean {
-  const { low: nLow, high: nHigh } = normalizeCalorieGoalRange(low, high);
-  return nLow != null && nLow > 0 && nLow !== nHigh;
+  return resolveCalorieGoalRangeForColoring(low, high) != null;
 }
 
 /**
- * Couleur du total kcal d'un jour quand une fourchette min–max est active :
- * vert dans la fourchette, rouge au-dessus, blanc (null) en dessous ou sans fourchette.
+ * Couleur du total kcal quand une fourchette (réelle ou virtuelle max−100) est active :
+ * vert dans la fourchette, rouge au-dessus, blanc (null) en dessous.
+ * `dayScale` multiplie la fourchette journalière (ex. 7 pour le total semaine).
  */
 export function getCalorieRangeTotalColorClass(
   total: number,
   low: number | null | undefined,
   high: number | null | undefined,
+  dayScale = 1,
 ): string | null {
-  if (!hasCalorieGoalRangeMin(low, high)) return null;
-  const { low: nLow, high: nHigh } = normalizeCalorieGoalRange(low, high);
-  if (nLow == null || nHigh <= 0) return null;
+  const daily = resolveCalorieGoalRangeForColoring(low, high);
+  if (!daily || daily.low == null || daily.high <= 0) return null;
+  const scale = Number.isFinite(dayScale) && dayScale > 0 ? dayScale : 1;
+  const nLow = daily.low * scale;
+  const nHigh = daily.high * scale;
   const rounded = Math.round(total);
   if (rounded > nHigh) return "text-red-400";
   if (rounded >= nLow) return "text-emerald-500";

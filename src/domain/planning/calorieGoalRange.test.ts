@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  CALORIE_GOAL_VIRTUAL_LOW_OFFSET,
   formatCalorieGoalTarget,
   getCalorieRangeTotalColorClass,
   hasCalorieGoalRangeMin,
   normalizeCalorieGoalRange,
+  resolveCalorieGoalRangeForColoring,
 } from "./calorieGoalRange";
 
 describe("normalizeCalorieGoalRange", () => {
@@ -35,7 +37,7 @@ describe("formatCalorieGoalTarget", () => {
     expect(formatCalorieGoalTarget(2000, 2300)).toBe("2000\u20132300");
   });
 
-  it("affiche uniquement la borne haute sans borne basse", () => {
+  it("affiche uniquement la borne haute sans borne basse (pas de min virtuel à l'affichage)", () => {
     expect(formatCalorieGoalTarget(null, 2300)).toBe("2300");
     expect(formatCalorieGoalTarget(0, 2300)).toBe("2300");
   });
@@ -49,31 +51,61 @@ describe("formatCalorieGoalTarget", () => {
   });
 });
 
+describe("resolveCalorieGoalRangeForColoring", () => {
+  it("conserve une fourchette min–max réelle", () => {
+    expect(resolveCalorieGoalRangeForColoring(2000, 2300)).toEqual({ low: 2000, high: 2300 });
+  });
+
+  it("fabrique [max − 100, max] quand seul le max est renseigné", () => {
+    expect(resolveCalorieGoalRangeForColoring(null, 2300)).toEqual({
+      low: 2300 - CALORIE_GOAL_VIRTUAL_LOW_OFFSET,
+      high: 2300,
+    });
+    expect(resolveCalorieGoalRangeForColoring(0, 2300)).toEqual({ low: 2200, high: 2300 });
+  });
+
+  it("retourne null si le max est trop bas pour un intervalle utile", () => {
+    expect(resolveCalorieGoalRangeForColoring(null, 50)).toBeNull();
+    expect(resolveCalorieGoalRangeForColoring(null, 0)).toBeNull();
+  });
+});
+
 describe("hasCalorieGoalRangeMin", () => {
   it("retourne true quand une borne basse distincte est renseignée", () => {
     expect(hasCalorieGoalRangeMin(2000, 2300)).toBe(true);
   });
 
-  it("retourne false quand seule la borne haute est renseignée", () => {
-    expect(hasCalorieGoalRangeMin(0, 2300)).toBe(false);
-    expect(hasCalorieGoalRangeMin(null, 2300)).toBe(false);
+  it("retourne true quand seule la borne haute est renseignée (fourchette virtuelle)", () => {
+    expect(hasCalorieGoalRangeMin(0, 2300)).toBe(true);
+    expect(hasCalorieGoalRangeMin(null, 2300)).toBe(true);
   });
 
-  it("retourne false quand les deux bornes sont identiques", () => {
-    expect(hasCalorieGoalRangeMin(2300, 2300)).toBe(false);
+  it("retourne true aussi quand les deux bornes saisies sont identiques (max seul → virtuel)", () => {
+    expect(hasCalorieGoalRangeMin(2300, 2300)).toBe(true);
   });
 });
 
 describe("getCalorieRangeTotalColorClass", () => {
-  it("retourne null sans fourchette min", () => {
-    expect(getCalorieRangeTotalColorClass(2132, 0, 2300)).toBeNull();
+  it("avec max seul : vert dans [max−100, max], rouge au-dessus, null en dessous", () => {
+    expect(getCalorieRangeTotalColorClass(2250, 0, 2300)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(2200, null, 2300)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(2300, 0, 2300)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(2400, 0, 2300)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(2199, 0, 2300)).toBeNull();
   });
 
-  it("vert dans la fourchette, rouge au-dessus, null en dessous", () => {
+  it("vert dans la fourchette réelle, rouge au-dessus, null en dessous", () => {
     expect(getCalorieRangeTotalColorClass(2132, 2000, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2000, 2000, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2300, 2000, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2400, 2000, 2300)).toBe("text-red-400");
     expect(getCalorieRangeTotalColorClass(1900, 2000, 2300)).toBeNull();
+  });
+
+  it("applique dayScale sur la fourchette journalière (total semaine)", () => {
+    // Max seul 2300 → virtuel 2200–2300 × 7 = 15400–16100
+    expect(getCalorieRangeTotalColorClass(15500, 0, 2300, 7)).toBe("text-emerald-500");
+    expect(getCalorieRangeTotalColorClass(16200, 0, 2300, 7)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(15000, 0, 2300, 7)).toBeNull();
   });
 });

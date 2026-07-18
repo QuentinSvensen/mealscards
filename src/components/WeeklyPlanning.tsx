@@ -4502,9 +4502,9 @@ export function WeeklyPlanning({
           const totalUpToToday = datesUpToToday.reduce((sum, d) => sum + getDayCalories(d.key, d.iso), 0);
           const avgCal = datesUpToToday.length > 0 ? Math.round(totalUpToToday / datesUpToToday.length) : 0;
           /** Couleur d’un total/moyenne masqué : vert dans la fourchette, rouge au-dessus, blanc en dessous. */
-          const maskedCalColor = (value: number, low: number, high: number) =>
-            getCalorieRangeTotalColorClass(value, low, high) ?? "text-white";
-          const weekTotalColor = maskedCalColor(weekTotal, WEEKLY_GOAL_LOW, WEEKLY_GOAL);
+          const maskedCalColor = (value: number, low: number, high: number, dayScale = 1) =>
+            getCalorieRangeTotalColorClass(value, low, high, dayScale) ?? "text-white";
+          const weekTotalColor = maskedCalColor(weekTotal, DAILY_GOAL_LOW, DAILY_GOAL, DEFAULT_WEEKLY_MULTIPLIER);
           const avg7Color = maskedCalColor(rolling7DayAvg, DAILY_GOAL_LOW, DAILY_GOAL);
           const avg14Color = maskedCalColor(rolling14DayAvg, DAILY_GOAL_LOW, DAILY_GOAL);
           const avgUpToColor = maskedCalColor(avgCal, DAILY_GOAL_LOW, DAILY_GOAL);
@@ -5100,7 +5100,7 @@ export function WeeklyPlanning({
                 const weekGoalHigh = backupTotals.archivedDailyGoal * 7;
                 const dayGoal = backupTotals.archivedDailyGoal;
                 const weekTotalColor =
-                  getCalorieRangeTotalColorClass(weekTotalCals, 0, weekGoalHigh) ?? "text-white";
+                  getCalorieRangeTotalColorClass(weekTotalCals, 0, dayGoal, 7) ?? "text-white";
                 const avgColor =
                   getCalorieRangeTotalColorClass(avgCal, 0, dayGoal) ?? "text-white";
 
@@ -5871,7 +5871,7 @@ export function WeeklyPlanning({
             const nextWeekGoalLow = NEXT_DAILY_GOAL_LOW > 0 ? NEXT_DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0;
             const nextWeekGoalHigh = NEXT_DAILY_GOAL * DEFAULT_WEEKLY_MULTIPLIER;
             const weekTotalColor =
-              getCalorieRangeTotalColorClass(total, nextWeekGoalLow, nextWeekGoalHigh) ?? "text-white";
+              getCalorieRangeTotalColorClass(total, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL, DEFAULT_WEEKLY_MULTIPLIER) ?? "text-white";
             const avgColor =
               getCalorieRangeTotalColorClass(avgCal, NEXT_DAILY_GOAL_LOW, NEXT_DAILY_GOAL) ?? "text-white";
             return (
