@@ -62,6 +62,7 @@ const MemoizedPossibleMealCard = React.memo(
       !!prevProps.onReturnToMaster === !!nextProps.onReturnToMaster &&
       !!prevProps.onReturnWithoutDeduction === !!nextProps.onReturnWithoutDeduction &&
       !!prevProps.onUpdateQuantity === !!nextProps.onUpdateQuantity &&
+      !!prevProps.onRename === !!nextProps.onRename &&
       (prevProps.expiredIngredientNames?.size ?? 0) === (nextProps.expiredIngredientNames?.size ?? 0) &&
       (prevProps.expiringSoonIngredientNames?.size ?? 0) === (nextProps.expiringSoonIngredientNames?.size ?? 0)
     );
@@ -94,6 +95,8 @@ interface PossibleListProps {
   onUpdateOvenTemp?: (id: string, temp: string | null) => void;
   onUpdateOvenMinutes?: (id: string, minutes: string | null) => void;
   onUpdateDescription?: (id: string, description: string | null) => void;
+  /** Renomme un repas créé uniquement dans Possible (`is_available: false`). */
+  onRename?: (id: string, name: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onSplitQuantity?: (id: string, ratio: number, baseIngredients: string | null) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
@@ -118,6 +121,7 @@ export function PossibleList({
   onReturnWithoutDeduction, onReturnToMaster, onDelete, onDuplicate,
   onUpdateExpiration, onUpdatePlanning, onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams,
   onUpdateIngredients, onUpdatePossibleIngredients, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription,
+  onRename,
   onUpdateQuantity, onSplitQuantity, onReorder, onExternalDrop, highlightedId, foodItems,
   ingredientMacroAutofillSources,
   onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals, deductionSnapshots = {},
@@ -250,6 +254,11 @@ export function PossibleList({
                 onUpdateOvenTemp={onUpdateOvenTemp ? (t) => onUpdateOvenTemp(pm.meals.id, t) : undefined}
                 onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
                 onUpdateDescription={onUpdateDescription ? (d) => onUpdateDescription(pm.meals.id, d) : undefined}
+                onRename={
+                  onRename && meal.is_available === false
+                    ? (name) => onRename(meal.id, name)
+                    : undefined
+                }
                 onUpdateQuantity={unParUnSourcePmIds.has(pm.id) ? (qty) => onUpdateQuantity(pm.id, qty) : undefined}
                 onSplitQuantity={onSplitQuantity ? (ratio, baseIng) => onSplitQuantity(pm.id, ratio, baseIng) : undefined}
                 onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}

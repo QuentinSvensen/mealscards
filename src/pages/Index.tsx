@@ -2180,6 +2180,7 @@ const Index = () => {
                           onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
                           onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
                           onUpdateDescription={(id, description) => updateDescription.mutate({ id, description })}
+                          onRename={(id, name) => renameMeal.mutate({ id, name })}
                           onReorder={(from, to) => handleReorderPossible(cat.value, from, to)}
                           onExternalDrop={(mealId, source, pmId) => handleMoveToPossibleGeneral(mealId, source, pmId)}
                           highlightedId={highlightedId}

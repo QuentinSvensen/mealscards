@@ -13,7 +13,7 @@
  * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
@@ -76,6 +76,8 @@ interface PossibleMealCardProps {
   onUpdateOvenMinutes?: (minutes: string | null) => void;
   /** Met à jour les consignes sur le repas maître (Tous). */
   onUpdateDescription?: (description: string | null) => void;
+  /** Renomme le repas (uniquement cartes créées directement dans Possible). */
+  onRename?: (name: string) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
@@ -216,14 +218,14 @@ export function PossibleMealCard({
   onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
   onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateQuantity,
   onUpdateIngredients, onUpdatePossibleIngredients, 
-  onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription,
+  onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onRename,
   onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
   realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
-  const [editing, setEditing] = useState<"calories" | "protein" | "fiber" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
+  const [editing, setEditing] = useState<"name" | "calories" | "protein" | "fiber" | "grams" | "quantity" | "ratio" | "oven_temp" | "oven_minutes" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calMobileOpen, setCalMobileOpen] = useState(false);
@@ -384,6 +386,10 @@ export function PossibleMealCard({
 
   const handleSaveEdit = () => {
     const val = editValue.trim() || null;
+    if (editing === "name" && onRename) {
+      const trimmed = editValue.trim();
+      if (trimmed && trimmed !== meal.name) onRename(trimmed);
+    }
     if (editing === "calories") onUpdateCalories(val);
     if (editing === "protein" && onUpdateProtein) onUpdateProtein(val);
     if (editing === "fiber" && onUpdateFiber) onUpdateFiber(val);
@@ -673,6 +679,7 @@ export function PossibleMealCard({
       {/* Superposition d'édition */}
       {editing ? (
         <Input autoFocus placeholder={
+          editing === "name" ? "Nom du repas" :
           editing === "ratio" ? "75% ou x2" :
             editing === "calories" ? "Ex: 350 kcal" :
               editing === "protein" ? "Ex: 28 g" :
@@ -853,6 +860,11 @@ export function PossibleMealCard({
               {onReturnWithoutDeduction && (
                 <DropdownMenuItem onClick={onReturnWithoutDeduction}>
                   <Undo2 className="mr-2 h-4 w-4" /> {onReturnWithoutDeductionLabel || 'Remettre au choix (sans déduire)'}
+                </DropdownMenuItem>
+              )}
+              {onRename && (
+                <DropdownMenuItem onClick={() => { setEditValue(meal.name); setEditing("name"); }}>
+                  <Pencil className="mr-2 h-4 w-4" /> Renommer
                 </DropdownMenuItem>
               )}
               {onSplitQuantity && detectedRatio !== null && detectedRatio >= 2 && Number.isInteger(detectedRatio) && (
