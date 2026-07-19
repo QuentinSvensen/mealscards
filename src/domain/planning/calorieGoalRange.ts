@@ -105,3 +105,24 @@ export function getCalorieRangeTotalColorClass(
   if (rounded >= nLow) return "text-emerald-500";
   return null;
 }
+
+/**
+ * Calcule les calories restantes du jour jusqu'à la borne haute d'objectif.
+ * Formule : max(0, objectifMax − calories déjà planifiées/consommées).
+ * Sert au bandeau Planning (« reste … ») et au filtre catalogue Extras.
+ */
+export function getRemainingDayCalories(goalHigh: number, dayCalories: number): number {
+  const high = typeof goalHigh === "number" && Number.isFinite(goalHigh) ? goalHigh : 0;
+  const consumed = typeof dayCalories === "number" && Number.isFinite(dayCalories) ? dayCalories : 0;
+  return Math.max(0, high - consumed);
+}
+
+/**
+ * Indique si les kcal d'un extra rentrent dans le budget calorique restant du jour.
+ */
+export function extraFitsRemainingCalories(extraKcal: number, remainingCalories: number): boolean {
+  const kcal = typeof extraKcal === "number" && Number.isFinite(extraKcal) ? extraKcal : 0;
+  const remaining =
+    typeof remainingCalories === "number" && Number.isFinite(remainingCalories) ? remainingCalories : 0;
+  return kcal <= remaining;
+}

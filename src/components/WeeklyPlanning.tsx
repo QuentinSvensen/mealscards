@@ -71,6 +71,7 @@ import { asNumberRecord } from "@/domain/planning/jsonCoerce";
 import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
+import { getRemainingDayCalories } from "@/domain/planning/calorieGoalRange";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearWeekdayScopedSnapshots } from "@/domain/planning/weekdaySnapshotUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
@@ -1919,6 +1920,8 @@ export function WeeklyPlanning({
                   breakfastAssignedSlotIds={breakfastAssignedSlotIds}
                   foodItems={foodItems}
                   singleIngredientDessertById={singleIngredientDessertById}
+                  dessertCatalog={allSingleIngredientDessertExtras}
+                  dessertPossibleCountById={dessertPossibleCountById}
                   savedSnapshots={savedSnapshots}
                   flashedKeys={flashedKeys}
                   setFlashedKeys={setFlashedKeys}
@@ -2039,6 +2042,8 @@ export function WeeklyPlanning({
                       slotAssignedIds={slotAssignedIds}
                       foodItems={foodItems}
                       dessertById={singleIngredientDessertById}
+                      dessertCatalog={allSingleIngredientDessertExtras}
+                      dessertPossibleCountById={dessertPossibleCountById}
                       snapshotFlashed={!!flashedKeys[`manual-${iso}-${time}`]}
                       snapshotSaved={!!(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
                       snapshotTitle={formatPlanningSnapshotTitle(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
@@ -2198,6 +2203,8 @@ export function WeeklyPlanning({
                   setCustomExtraCal={setCustomExtraCal}
                   customExtraProt={customExtraProt}
                   setCustomExtraProt={setCustomExtraProt}
+                  hideDayCalorieTotals={hideDayCalorieTotals}
+                  remainingDayCalories={getRemainingDayCalories(DAILY_GOAL, dayCalories)}
                 />
               </div>
               )}
@@ -2218,6 +2225,8 @@ export function WeeklyPlanning({
                   gouterAssignedIds={gouterAssignedIds}
                   foodItems={foodItems}
                   dessertById={singleIngredientDessertById}
+                  dessertCatalog={allSingleIngredientDessertExtras}
+                  dessertPossibleCountById={dessertPossibleCountById}
                   mealCards={gouterMeals.map((pm) => (
                     <div key={pm.id} className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center">
                       {renderMiniCard(pm, true)}

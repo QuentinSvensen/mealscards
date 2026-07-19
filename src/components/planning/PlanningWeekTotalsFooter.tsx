@@ -100,7 +100,8 @@ export function PlanningWeekTotalsFooter({
       </div>
       <div className="flex items-center gap-3 flex-wrap ml-auto">
         <span className="text-xs text-muted-foreground font-medium">
-          Moy. {hideDayCalorieTotals ? <span className={avgColor}>Calories</span> : avgCal}{" "}
+          Moy. semaine{" "}
+          {hideDayCalorieTotals ? <span className={avgColor}>Calories</span> : avgCal}{" "}
           kcal/j
           {avgDaysLabel != null && avgDaysLabel !== "" && (
             <>

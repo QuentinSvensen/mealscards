@@ -252,13 +252,70 @@ export function pickDayExtraSelections(
   return fallback;
 }
 
-/** Formate l'étiquette d'un extra placé en incluant ses grammes et sa quantité s'ils existent. */
+/**
+ * Formate un compteur extras (`#N`, ou `∞` sans préfixe si stock infini).
+ * Catalogue = reste dispo ; sélectionné (carte/chip) = quantité assignée via le même format `#N`.
+ */
+export function formatExtraRemainingCountLabel(remainingCount: number): string {
+  if (!Number.isFinite(remainingCount)) return "∞";
+  return `#${Math.max(0, Math.floor(remainingCount))}`;
+}
+
+/**
+ * Formate la quantité assignée / stepper pour carte et chip sélectionnés (`#1`, `#2`, …).
+ * Toujours un entier fini ≥ 1 — jamais le stock restant ni `∞`.
+ */
+export function formatExtraAssignedCountLabel(assignedCount: number): string {
+  return `#${Math.max(1, Math.floor(assignedCount) || 1)}`;
+}
+
+/**
+ * Résout le reste affichable d'une fiche aliment extra (`∞` si stock illimité).
+ * Sert sous-titres / chips quand l'extra pointe directement sur un `FoodItem`.
+ */
+export function resolveExtraFoodRemainingCount(
+  fi: Pick<FoodItem, "quantity" | "is_infinite">,
+): number | null {
+  if (fi.is_infinite) return Infinity;
+  if (fi.quantity == null) return null;
+  return Math.max(0, Math.floor(fi.quantity));
+}
+
+/**
+ * Indique si un compteur de reste doit être affiché (`#N` ou `∞`).
+ * Sert à unifier les gardes des formateurs (0 masqué, infini visible).
+ */
+export function shouldDisplayExtraRemainingCount(count: number | null | undefined): count is number {
+  return count != null && (count > 0 || !Number.isFinite(count));
+}
+
+/**
+ * Construit le sous-titre grammes + compteur (`#N` / `∞`).
+ * Catalogue : passer le reste dispo ; sélectionné : passer `assignedCount` (stepper).
+ */
+export function formatExtraQuantitySubtitle(
+  grams: string | null | undefined,
+  count: number | null | undefined,
+): string {
+  const rawGrams = (grams || "").trim();
+  const hasUnit = /[a-zA-Z]/.test(rawGrams);
+  const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
+  const q = shouldDisplayExtraRemainingCount(count)
+    ? formatExtraRemainingCountLabel(count)
+    : "";
+  return [g, q].filter(Boolean).join(" · ");
+}
+
+/**
+ * Formate l'étiquette d'un extra placé (grammes + compteur `#N` / `∞`).
+ * Le 3ᵉ argument est le nombre à afficher (reste catalogue ou quantité assignée selon l'appelant).
+ */
 export function formatPlacedExtraLabel(extraName: string, grams?: string | null, quantity?: number | null): string {
   const name = (extraName || "").trim();
   const rawGrams = (grams || "").trim();
   const hasUnit = /[a-zA-Z]/.test(rawGrams);
   const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
-  const q = quantity != null && quantity > 0 ? `#${quantity}` : "";
+  const q = shouldDisplayExtraRemainingCount(quantity) ? formatExtraRemainingCountLabel(quantity) : "";
   const prefix = [g, q].filter(Boolean).join(" ");
   if (!name) return prefix;
   if (!prefix) return name;
@@ -315,7 +372,8 @@ export function extractExtraDisplayQuantity(
 }
 
 /**
- * Construit le libellé complet d'une bulle d'extra déplacée (stock, dessert custom ou les deux).
+ * Construit le libellé d'une bulle d'extra avec un compteur (`#N` / `∞`).
+ * L'appelant fournit le nombre à afficher (reste catalogue ou quantité assignée).
  */
 export function getPlacedExtraLabel(
   extraId: string,
@@ -323,16 +381,19 @@ export function getPlacedExtraLabel(
   fi: FoodItem | null | undefined,
   foodItems: FoodItem[],
   dessertById: Map<string, { mealPayload: Meal }>,
+  /** Compteur à afficher (`#N` / `∞`). */
+  displayCount?: number | null,
 ): string {
   const name = custom?.name || fi?.name || "";
+  const count = shouldDisplayExtraRemainingCount(displayCount) ? displayCount : null;
   if (fi) {
-    return formatPlacedExtraLabel(name, fi.grams, fi.quantity);
+    return formatPlacedExtraLabel(name, fi.grams, count);
   }
   const dessert = dessertById.get(extraId);
   if (dessert) {
-    const { grams, quantity } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
-    if (grams || quantity) {
-      return formatPlacedExtraLabel(name, grams, quantity);
+    const { grams } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
+    if (grams || count) {
+      return formatPlacedExtraLabel(name, grams, count);
     }
   }
   // Secours : fiche stock homonyme (recette dessert sans grammage explicite dans les ingrédients).
@@ -343,9 +404,9 @@ export function getPlacedExtraLabel(
       f.storage_type !== "test",
   );
   if (stockByName) {
-    return formatPlacedExtraLabel(name, stockByName.grams, stockByName.quantity);
+    return formatPlacedExtraLabel(name, stockByName.grams, count);
   }
-  return formatPlacedExtraLabel(name, null, null);
+  return formatPlacedExtraLabel(name, null, count);
 }
 
 /** Regroupe une liste d'extras assignés en conservant l'ordre et le nombre d'occurrences. */
@@ -359,25 +420,27 @@ export function groupAssignedExtraIds(ids: string[]): Array<{ id: string; count:
   return groups;
 }
 
-/** Construit le texte d'une bulle d'extra assigné en affichant la quantité totale déplacée. */
+/**
+ * Construit le texte d'une bulle d'extra assigné / sélectionné (carte + chip).
+ * Les grammes suivent le stepper ; `#N` = quantité assignée (pas le stock restant).
+ */
 export function getAssignedExtraLabel(
   extraId: string,
-  count: number,
+  assignedCount: number,
   custom: { name: string } | null,
   fi: FoodItem | null | undefined,
   foodItems: FoodItem[],
   dessertById: Map<string, { mealPayload: Meal }>,
 ): string {
   const name = custom?.name || fi?.name || dessertById.get(extraId)?.mealPayload?.name || "";
+  const assigned = Math.max(1, Math.floor(assignedCount) || 1);
   if (fi) {
-    const totalQuantity = fi.quantity != null ? Math.max(1, fi.quantity) * Math.max(1, count) : null;
-    return formatPlacedExtraLabel(name, multiplyDisplayGrams(fi.grams, count), totalQuantity);
+    return formatPlacedExtraLabel(name, multiplyDisplayGrams(fi.grams, assigned), assigned);
   }
   const dessert = dessertById.get(extraId);
   if (dessert) {
-    const { grams, quantity } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
-    const totalQuantity = quantity != null ? Math.max(1, quantity) * Math.max(1, count) : null;
-    return formatPlacedExtraLabel(name, multiplyDisplayGrams(grams, count), totalQuantity);
+    const { grams } = extractExtraDisplayQuantity(dessert.mealPayload, foodItems);
+    return formatPlacedExtraLabel(name, multiplyDisplayGrams(grams, assigned), assigned);
   }
   const stockByName = foodItems.find(
     (f) =>
@@ -386,8 +449,11 @@ export function getAssignedExtraLabel(
       f.storage_type !== "test",
   );
   if (stockByName) {
-    const totalQuantity = stockByName.quantity != null ? Math.max(1, stockByName.quantity) * Math.max(1, count) : null;
-    return formatPlacedExtraLabel(name, multiplyDisplayGrams(stockByName.grams, count), totalQuantity);
+    return formatPlacedExtraLabel(
+      name,
+      multiplyDisplayGrams(stockByName.grams, assigned),
+      assigned,
+    );
   }
-  return formatPlacedExtraLabel(name, null, null);
+  return formatPlacedExtraLabel(name, null, assigned);
 }

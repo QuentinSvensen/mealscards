@@ -17,8 +17,10 @@ import {
   getCardDisplayFiber,
 } from "@/hooks/useCalorieBalance";
 import {
+  extraFitsRemainingCalories,
   formatCalorieGoalTarget,
   getCalorieRangeTotalColorClass,
+  getRemainingDayCalories,
   hasCalorieGoalRangeMin,
 } from "@/domain/planning/calorieGoalRange";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -42,6 +44,10 @@ import {
   resolveAssignedExtraForDisplay,
   getAssignedExtraLabel,
   resolvePlanningExtraFoodMacros,
+  formatExtraQuantitySubtitle,
+  formatExtraRemainingCountLabel,
+  resolveExtraFoodRemainingCount,
+  extractExtraDisplayQuantity,
 } from "@/domain/planning/extraDisplay";
 import { getDisplayedFiber as getMealFiber } from "@/lib/stockUtils";
 import { toast } from "@/hooks/use-toast";
@@ -273,9 +279,8 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
             const nextExtraSelMacros = sumDayExtras(effExtraSelMerged);
             dayTotal += effExtraCal + nextExtraSelMacros.cal;
 
-            const extraSelCalSum = nextExtraSelMacros.cal;
-            const dayCalBeforeExtras = dayTotal - effExtraCal - extraSelCalSum;
-            const remainingNextCal = Math.max(0, NEXT_DAILY_GOAL - dayCalBeforeExtras);
+            // Même formule que le bandeau « reste » : objectif max − total jour (extras inclus).
+            const remainingNextCal = getRemainingDayCalories(NEXT_DAILY_GOAL, dayTotal);
 
             let nxtDayPro = nextBreakfastTotalPro;
             for (const time of TIMES) {
@@ -740,6 +745,16 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                     ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
                                     : (row.fi ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary) : { cal: row.custom?.cal ?? 0, pro: row.custom?.prot ?? 0, fiber: 0 });
                                   const portionMacros = scaleExtraDisplayMacrosByCount(perOccurrence, count);
+                                  // Sélection : #N = quantité assignée (stepper) ; catalogue garde le reste ailleurs.
+                                  const dessertGrams = dessertExtra
+                                    ? extractExtraDisplayQuantity(dessertExtra.mealPayload, foodItems).grams
+                                    : null;
+                                  const selectedQtySubtitle = row.custom
+                                    ? ""
+                                    : formatExtraQuantitySubtitle(
+                                        isDessertExtra ? dessertGrams : row.fi?.grams,
+                                        count,
+                                      );
                                   return (
                                     <div
                                       key={`next-pop-sel-${extraId}-${index}`}
@@ -758,10 +773,8 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                     >
                                       <div className="flex-1 min-w-0">
                                         <p className="text-[11px] font-bold text-orange-600 break-words leading-snug">{displayName}</p>
-                                        {isDessertExtra && (
-                                          <p className="text-[9px] text-muted-foreground/50 font-medium">
-                                            x{dessertPossibleCountById.get(resolvedId) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(resolvedId) ?? 0)}
-                                          </p>
+                                        {selectedQtySubtitle && (
+                                          <p className="text-[9px] text-muted-foreground/50 font-medium">{selectedQtySubtitle}</p>
                                         )}
                                       </div>
                                       <div className="flex items-center gap-1.5 shrink-0">
@@ -808,7 +821,7 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                             🍗 {Math.round(portionMacros.pro)}
                                           </div>
                                         )}
-                                        {portionMacros.cal > 0 && (
+                                        {!hideDayCalorieTotals && portionMacros.cal > 0 && (
                                           <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
                                             <Flame className="w-2.5 h-2.5" />
                                             {Math.round(portionMacros.cal)}
@@ -838,29 +851,54 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                 const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) =>
                                   !isDessertExtraInSelections(effExtraSelMerged, d, allSingleIngredientDessertExtras, singleIngredientDessertById),
                                 );
+                                const catalogDessertExtras = hideDayCalorieTotals
+                                  ? unselectedDessertExtras.filter((d) =>
+                                      extraFitsRemainingCalories(d.cal, remainingNextCal),
+                                    )
+                                  : unselectedDessertExtras;
                                 const others = sortedItems.filter(fi => !effExtraSelMerged.includes(fi.id));
                                 const { above: catalogAbove } = splitSortedExtrasByDivider(
                                   sortedItems,
                                   extrasDividerAfterId,
                                 );
                                 const aboveIds = new Set(catalogAbove.map((fi) => fi.id));
-                                const othersAbove = others.filter((fi) => aboveIds.has(fi.id));
+                                const othersAboveRaw = others.filter((fi) => aboveIds.has(fi.id));
+                                const othersAbove = hideDayCalorieTotals
+                                  ? othersAboveRaw.filter((fi) =>
+                                      extraFitsRemainingCalories(
+                                        resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary).cal,
+                                        remainingNextCal,
+                                      ),
+                                    )
+                                  : othersAboveRaw;
+                                const catalogFilteredEmpty =
+                                  hideDayCalorieTotals &&
+                                  (othersAboveRaw.length > 0 || unselectedDessertExtras.length > 0) &&
+                                  othersAbove.length === 0 &&
+                                  catalogDessertExtras.length === 0;
                                 const renderRow = (fi: FoodItem) => {
-                                  const count = effExtraSelMerged.filter(id => id === fi.id).length;
+                                  const assignedCount = effExtraSelMerged.filter(id => id === fi.id).length;
                                   const perOccurrence = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary);
-                                  const macros = scaleExtraDisplayMacrosByCount(perOccurrence, count > 0 ? count : 1);
+                                  const macros = scaleExtraDisplayMacrosByCount(perOccurrence, assignedCount > 0 ? assignedCount : 1);
+                                  // Catalogue : reste dispo ; si déjà pris, #N = quantité assignée.
+                                  const qtySubtitle = formatExtraQuantitySubtitle(
+                                    fi.grams,
+                                    assignedCount > 0
+                                      ? assignedCount
+                                      : resolveExtraFoodRemainingCount(fi),
+                                  );
                                   return (
-                                    <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
+                                    <div key={fi.id} className={`w-full p-2 rounded-xl border transition-all group flex items-start gap-3 ${assignedCount > 0 ? 'bg-orange-500/20 border-orange-500/40 shadow-inner' : 'bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20'}`}>
                                       <div className="flex-1 min-w-0">
-                                        <p className={`text-[11px] font-bold transition-colors break-words leading-snug ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
-                                        {(fi.grams || fi.quantity) && (
-                                          <p className="text-[9px] text-muted-foreground/60">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
+                                        <p className={`text-[11px] font-bold transition-colors break-words leading-snug ${assignedCount > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
+                                        {qtySubtitle && (
+                                          <p className="text-[9px] text-muted-foreground/60">{qtySubtitle}</p>
                                         )}
                                       </div>
                                       <div className="flex items-center gap-1.5 shrink-0">
-                                        {count > 0 && (<>
+                                        {assignedCount > 0 && (<>
                                           <button onClick={() => { const u = { ...nextExtraSelections }; const c = u[iso] || u[key] || []; const idx = c.lastIndexOf(fi.id); if (idx >= 0) u[iso] = [...c.slice(0, idx), ...c.slice(idx + 1)]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/20 hover:bg-red-500/40 text-red-500 text-xs font-bold">−</button>
-                                          <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
+                                          <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{assignedCount}</span>
                                         </>)}
                                         <button onClick={() => { const u = { ...nextExtraSelections }; u[iso] = [...(u[iso] || u[key] || []), fi.id]; delete u[key]; setPreference.mutate({ key: 'next_week_extra_selections', value: u }); }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold">+</button>
                                         {macros.pro > 0 && (
@@ -868,7 +906,7 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                             🍗 {macros.pro}
                                           </div>
                                         )}
-                                        {macros.cal > 0 && (
+                                        {!hideDayCalorieTotals && macros.cal > 0 && (
                                           <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500">
                                             <Flame className="w-2.5 h-2.5" />
                                             {macros.cal}
@@ -880,15 +918,18 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                 };
                                 return (
                                   <>
-                                    {unselectedDessertExtras.length > 0 && (
+                                    {catalogDessertExtras.length > 0 && (
                                       <>
                                         <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                        {unselectedDessertExtras.map((d, index) => (
+                                        {catalogDessertExtras.map((d, index) => {
+                                          // Catalogue : #N = reste disponible.
+                                          const remainingCount = dessertPossibleCountById.get(d.id) ?? 0;
+                                          return (
                                           <div key={`next-unselected-dessert-${d.id}-${index}`} className="w-full p-2 rounded-xl border transition-all group flex items-start gap-3 bg-muted/30 hover:bg-orange-500/10 border-transparent hover:border-orange-500/20">
                                             <div className="flex-1 min-w-0">
                                               <p className="text-[11px] font-bold transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
                                               <p className="text-[9px] text-muted-foreground/50 font-medium">
-                                                x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}
+                                                {formatExtraRemainingCountLabel(remainingCount)}
                                               </p>
                                             </div>
                                             <div className="flex items-center gap-1.5 shrink-0">
@@ -914,14 +955,22 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                                 className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/20 hover:bg-orange-500/40 text-orange-500 text-xs font-bold"
                                               >+</button>
                                               {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-blue-500 border border-blue-500/10">🍗 {Math.round(d.prot)}</div>}
-                                              <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                              {!hideDayCalorieTotals && (
+                                                <div className="flex items-center gap-1 bg-orange-500/10 px-1.5 py-0.5 rounded-lg text-[9px] font-black text-orange-500"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                              )}
                                             </div>
                                           </div>
-                                        ))}
+                                          );
+                                        })}
                                         <Separator className="my-2 opacity-50" />
                                       </>
                                     )}
                                     {othersAbove.map(renderRow)}
+                                    {catalogFilteredEmpty && (
+                                      <p className="text-[10px] text-muted-foreground/70 italic text-center py-2">
+                                        Aucun extra dans le budget restant
+                                      </p>
+                                    )}
                                   </>
                                 );
                               })()}

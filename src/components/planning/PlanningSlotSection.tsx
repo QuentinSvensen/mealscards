@@ -23,6 +23,8 @@ export interface PlanningSlotSectionProps {
   slotAssignedIds: string[];
   foodItems: FoodItem[];
   dessertById: Map<string, { mealPayload: Meal; name?: string }>;
+  dessertCatalog?: Array<{ id: string; name: string }>;
+  dessertPossibleCountById?: Map<string, number>;
   snapshotFlashed: boolean;
   snapshotSaved: boolean;
   snapshotTitle: string;
@@ -63,6 +65,8 @@ export function PlanningSlotSection({
   slotAssignedIds,
   foodItems,
   dessertById,
+  dessertCatalog,
+  dessertPossibleCountById,
   snapshotFlashed,
   snapshotSaved,
   snapshotTitle,
@@ -167,6 +171,8 @@ export function PlanningSlotSection({
           title={`Extra assigné à ${timeLabel} — glisse pour déplacer`}
           foodItems={foodItems}
           dessertById={dessertById}
+          dessertCatalog={dessertCatalog}
+          dessertPossibleCountById={dessertPossibleCountById}
           keyPrefix={`${time}-assigned`}
           onDeselect={onDeselectExtra}
           onDragStartExtra={onDragStartExtra}

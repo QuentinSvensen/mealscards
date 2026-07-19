@@ -22,6 +22,8 @@ export interface PlanningGouterBandProps {
   gouterAssignedIds: string[];
   foodItems: FoodItem[];
   dessertById: Map<string, { mealPayload: Meal; name?: string }>;
+  dessertCatalog?: Array<{ id: string; name: string }>;
+  dessertPossibleCountById?: Map<string, number>;
   /** Cartes goûter déjà rendues (compact). */
   mealCards: ReactNode;
   /** Clés PlanningInput (défaut semaine courante ; préfixe next-* pour semaine suivante). */
@@ -60,6 +62,8 @@ export function PlanningGouterBand({
   gouterAssignedIds,
   foodItems,
   dessertById,
+  dessertCatalog,
+  dessertPossibleCountById,
   mealCards,
   manualCalStorageKey,
   manualProStorageKey,
@@ -135,6 +139,8 @@ export function PlanningGouterBand({
             title="Extra assigné à Goûter — glisse pour déplacer"
             foodItems={foodItems}
             dessertById={dessertById}
+            dessertCatalog={dessertCatalog}
+            dessertPossibleCountById={dessertPossibleCountById}
             wrapperClassName="flex flex-wrap gap-1"
             keyPrefix="gouter-assigned"
             onDeselect={onDeselectExtra}

@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   CALORIE_GOAL_VIRTUAL_LOW_OFFSET,
+  extraFitsRemainingCalories,
   formatCalorieGoalTarget,
   getCalorieRangeTotalColorClass,
+  getRemainingDayCalories,
   hasCalorieGoalRangeMin,
   normalizeCalorieGoalRange,
   resolveCalorieGoalRangeForColoring,
@@ -107,5 +109,32 @@ describe("getCalorieRangeTotalColorClass", () => {
     expect(getCalorieRangeTotalColorClass(15500, 0, 2300, 7)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(16200, 0, 2300, 7)).toBe("text-red-400");
     expect(getCalorieRangeTotalColorClass(15000, 0, 2300, 7)).toBeNull();
+  });
+});
+
+describe("getRemainingDayCalories", () => {
+  it("retourne max − déjà pris (planifié)", () => {
+    expect(getRemainingDayCalories(2300, 2000)).toBe(300);
+  });
+
+  it("plafonne à 0 quand le jour dépasse l'objectif", () => {
+    expect(getRemainingDayCalories(2300, 2500)).toBe(0);
+  });
+
+  it("tolère des entrées non numériques", () => {
+    expect(getRemainingDayCalories(Number.NaN, 100)).toBe(0);
+    expect(getRemainingDayCalories(2000, Number.NaN)).toBe(2000);
+  });
+});
+
+describe("extraFitsRemainingCalories", () => {
+  it("accepte un extra qui tient dans le reste", () => {
+    expect(extraFitsRemainingCalories(120, 150)).toBe(true);
+    expect(extraFitsRemainingCalories(150, 150)).toBe(true);
+  });
+
+  it("refuse un extra qui dépasse le reste", () => {
+    expect(extraFitsRemainingCalories(151, 150)).toBe(false);
+    expect(extraFitsRemainingCalories(10, 0)).toBe(false);
   });
 });

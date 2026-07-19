@@ -20,8 +20,12 @@ import {
   resolvePlanningExtraFoodMacros,
   getUnassignedExtraSelectionIds,
   countDisplayableExtraSelections,
+  formatExtraQuantitySubtitle,
+  formatExtraRemainingCountLabel,
+  resolveExtraFoodRemainingCount,
 } from "@/domain/planning/extraDisplay";
 import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
+import { extraFitsRemainingCalories } from "@/domain/planning/calorieGoalRange";
 import { toast } from "@/hooks/use-toast";
 
 /** Dessert catalogue (portion) utilisé par la colonne Extra. */
@@ -108,6 +112,10 @@ export interface PlanningExtraColumnProps {
   setCustomExtraCal: React.Dispatch<React.SetStateAction<string>>;
   customExtraProt: string;
   setCustomExtraProt: React.Dispatch<React.SetStateAction<string>>;
+  /** Pref « Masquer calories » : cache les badges flamme et filtre le catalogue. */
+  hideDayCalorieTotals: boolean;
+  /** Calories restantes du jour (objectif max − total planifié). */
+  remainingDayCalories: number;
 }
 
 /**
@@ -172,6 +180,8 @@ export function PlanningExtraColumn({
   setCustomExtraCal,
   customExtraProt,
   setCustomExtraProt,
+  hideDayCalorieTotals,
+  remainingDayCalories,
 }: PlanningExtraColumnProps) {
 const extraDropKey = `extra-${iso}`;
                   const isExtraDragOver = dragOverSlot === extraDropKey;
@@ -364,6 +374,12 @@ const extraDropKey = `extra-${iso}`;
                               const unselectedDessertExtras = singleIngredientDessertExtras.filter((d) =>
                                 !isDessertExtraInSelections(currentIds, d, allSingleIngredientDessertExtras, singleIngredientDessertById),
                               );
+                              // Sous « Masquer calories » : n'afficher que les extras ≤ calories restantes du jour.
+                              const catalogDessertExtras = hideDayCalorieTotals
+                                ? unselectedDessertExtras.filter((d) =>
+                                    extraFitsRemainingCalories(d.cal, remainingDayCalories),
+                                  )
+                                : unselectedDessertExtras;
 
                               // Réordonne les extras sélectionnés (standards + custom) en conservant les quantités.
                               const reorderSelectedExtras = (sourceId: string, targetId: string) => {
@@ -450,7 +466,22 @@ const extraDropKey = `extra-${iso}`;
                                 extrasDividerAfterId,
                               );
                               const aboveIds = new Set(catalogAbove.map((fi) => fi.id));
-                              const othersAbove = others.filter((fi) => aboveIds.has(fi.id));
+                              const othersAboveRaw = others.filter((fi) => aboveIds.has(fi.id));
+                              const othersAbove = hideDayCalorieTotals
+                                ? othersAboveRaw.filter((fi) =>
+                                    extraFitsRemainingCalories(
+                                      resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary).cal,
+                                      remainingDayCalories,
+                                    ),
+                                  )
+                                : othersAboveRaw;
+                              const catalogHasUnfilteredItems =
+                                othersAboveRaw.length > 0 || unselectedDessertExtras.length > 0;
+                              const catalogFilteredEmpty =
+                                hideDayCalorieTotals &&
+                                catalogHasUnfilteredItems &&
+                                othersAbove.length === 0 &&
+                                catalogDessertExtras.length === 0;
                               // Rend un extra sélectionné (normal ou custom) avec drag & drop, compte et macros.
                               /** Rend une ligne d'extra sélectionné avec une clé stable par section pour accepter les doublons. */
                               const renderSelectedRowById = (id: string, selectedSection: "top" | "middle" | "bottom", occurrenceIndex: number) => {
@@ -466,8 +497,8 @@ const extraDropKey = `extra-${iso}`;
                                 if (!c && !fi && !dessertExtra) return null;
                                 const isDessertExtra = !!dessertExtra;
                                 const canAddDessert = !isDessertExtra || canAddDessertById.get(catalogId) === true;
-                                const dessertPossibleCount = isDessertExtra ? (dessertPossibleCountById.get(catalogId) ?? 0) : null;
-                                const count = currentIds.filter((cid) => cid === id).length;
+                                // Quantité assignée (= chiffre du stepper − / N / +).
+                                const assignedCount = currentIds.filter((cid) => cid === id).length;
                                 const label = c ? c.name : (dessertExtra?.name ?? fi?.name ?? id);
                                 const portionMacros = dessertExtra
                                   ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
@@ -478,6 +509,13 @@ const extraDropKey = `extra-${iso}`;
                                 const dessertDisplayQty = dessertExtra
                                   ? extractExtraDisplayQuantity(dessertExtra.mealPayload, foodItems)
                                   : null;
+                                // Sous-titre sélection : grammes unitaires + quantité assignée (#N = stepper).
+                                const selectedQtySubtitle = c
+                                  ? ""
+                                  : formatExtraQuantitySubtitle(
+                                      isDessertExtra ? dessertDisplayQty?.grams : fi?.grams,
+                                      assignedCount,
+                                    );
                                 return (
                                   <div
                                     key={`${selectedSection}-${id}-${occurrenceIndex}`}
@@ -513,20 +551,8 @@ const extraDropKey = `extra-${iso}`;
                                   >
                                     <div className="flex-1 min-w-0">
                                       <p className="text-[11px] font-black transition-colors break-words leading-snug text-orange-600">{label}</p>
-                                      {(!c && !isDessertExtra && (fi?.grams || fi?.quantity)) && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">{fi?.grams ? `${fi.grams}` : ''}{fi?.grams && fi?.quantity ? ' · ' : ''}{fi?.quantity ? `x${fi.quantity}` : ''}</p>
-                                      )}
-                                      {(!c && !fi && dessertDisplayQty && (dessertDisplayQty.grams || dessertDisplayQty.quantity)) && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
-                                          {dessertDisplayQty.grams ? `${dessertDisplayQty.grams}` : ''}
-                                          {dessertDisplayQty.grams && dessertDisplayQty.quantity ? ' · ' : ''}
-                                          {dessertDisplayQty.quantity ? `x${dessertDisplayQty.quantity}` : ''}
-                                        </p>
-                                      )}
-                                      {dessertPossibleCount !== null && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">
-                                          x{dessertPossibleCount === Infinity ? <span className="text-xs">∞</span> : dessertPossibleCount}
-                                        </p>
+                                      {selectedQtySubtitle && (
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium mt-0.5">{selectedQtySubtitle}</p>
                                       )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
@@ -545,7 +571,7 @@ const extraDropKey = `extra-${iso}`;
                                         className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
                                         title="Désélectionner cet extra"
                                       >−</button>
-                                      <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
+                                      <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{assignedCount}</span>
                                       {canAddDessert && (
                                         <button
                                           onClick={async () => {
@@ -597,17 +623,26 @@ const extraDropKey = `extra-${iso}`;
                                           <Wheat className="w-2.5 h-2.5" />{Math.round(fiber)}
                                         </div>
                                       )}
-                                      <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
-                                        <Flame className="w-2.5 h-2.5" />{cal}
-                                      </div>
+                                      {!hideDayCalorieTotals && (
+                                        <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
+                                          <Flame className="w-2.5 h-2.5" />{cal}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 );
                               };
                               const renderRow = (fi: FoodItem, selectedSection: "top" | "bottom" | null = null) => {
-                                const count = currentIds.filter(id => id === fi.id).length;
+                                const assignedCount = currentIds.filter(id => id === fi.id).length;
                                 const perOccurrence = resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary);
-                                const macros = scaleExtraDisplayMacrosByCount(perOccurrence, count > 0 ? count : 1);
+                                const macros = scaleExtraDisplayMacrosByCount(perOccurrence, assignedCount > 0 ? assignedCount : 1);
+                                // Catalogue : #N / ∞ = reste dispo ; si déjà pris, #N = quantité assignée.
+                                const qtySubtitle = formatExtraQuantitySubtitle(
+                                  fi.grams,
+                                  assignedCount > 0
+                                    ? assignedCount
+                                    : resolveExtraFoodRemainingCount(fi),
+                                );
                                 return (
                                   <div
                                     key={fi.id}
@@ -638,16 +673,16 @@ const extraDropKey = `extra-${iso}`;
                                       setDraggedSelectedExtraId(null);
                                       setDraggedSelectedExtraOrigin(null);
                                     }}
-                                    className={`w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 ${count > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                    className={`w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 ${assignedCount > 0 ? 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-sm' : 'bg-muted/20 hover:bg-orange-500/5 border-transparent'} ${selectedSection ? 'cursor-grab active:cursor-grabbing' : ''}`}
                                   >
                                     <div className="flex-1 min-w-0">
-                                      <p className={`text-[11px] font-black transition-colors break-words leading-snug ${count > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
-                                      {(fi.grams || fi.quantity) && (
-                                        <p className="text-[9px] text-muted-foreground/50 font-medium">{fi.grams ? `${fi.grams}` : ''}{fi.grams && fi.quantity ? ' · ' : ''}{fi.quantity ? `x${fi.quantity}` : ''}</p>
+                                      <p className={`text-[11px] font-black transition-colors break-words leading-snug ${assignedCount > 0 ? 'text-orange-600' : 'text-foreground group-hover:text-orange-600'}`}>{fi.name}</p>
+                                      {qtySubtitle && (
+                                        <p className="text-[9px] text-muted-foreground/50 font-medium">{qtySubtitle}</p>
                                       )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      {count > 0 && (
+                                      {assignedCount > 0 && (
                                         <>
                                           <button
                                             onClick={async () => {
@@ -664,7 +699,7 @@ const extraDropKey = `extra-${iso}`;
                                             className="h-5 w-5 flex items-center justify-center rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold"
                                             title="Désélectionner cet extra"
                                           >−</button>
-                                          <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{count}</span>
+                                          <span className="text-[10px] font-black text-orange-500 min-w-[14px] text-center">{assignedCount}</span>
                                         </>
                                       )}
                                       <button
@@ -687,7 +722,7 @@ const extraDropKey = `extra-${iso}`;
                                           <Wheat className="w-2.5 h-2.5" />{macros.fiber}
                                         </div>
                                       )}
-                                      {macros.cal > 0 && (
+                                      {!hideDayCalorieTotals && macros.cal > 0 && (
                                         <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
                                           <Flame className="w-2.5 h-2.5" />{macros.cal}
                                         </div>
@@ -765,15 +800,21 @@ const extraDropKey = `extra-${iso}`;
                                       {selectedBottomIds.map((id, index) => renderSelectedRowById(id, "bottom", index))}
                                     </>
                                   )}
-                                  {(allSingleIngredientDessertExtras.some((d) => currentIds.includes(d.id)) || singleIngredientDessertExtras.length > 0) && (
+                                  {((!hideDayCalorieTotals && (allSingleIngredientDessertExtras.some((d) => currentIds.includes(d.id)) || singleIngredientDessertExtras.length > 0))
+                                    || catalogDessertExtras.length > 0) && (
                                     <>
                                       <Separator className="my-2 opacity-50" />
                                       <p className="text-[9px] font-semibold text-orange-500 px-1 pb-1">Desserts & Shakers</p>
-                                      {unselectedDessertExtras.map((d, index) => (
+                                      {catalogDessertExtras.map((d, index) => {
+                                        // Catalogue : #N = reste disponible après ce qui est déjà pris ailleurs.
+                                        const remainingCount = dessertPossibleCountById.get(d.id) ?? 0;
+                                        return (
                                         <div key={`unselected-dessert-${d.id}-${index}`} className="w-full my-0.5 p-2.5 rounded-2xl border transition-all group flex items-start gap-3 bg-muted/20 hover:bg-orange-500/5 border-transparent">
                                           <div className="flex-1 min-w-0">
                                             <p className="text-[11px] font-black transition-colors break-words leading-snug text-foreground group-hover:text-orange-600">{d.name}</p>
-                                            <p className="text-[9px] text-muted-foreground/50 font-medium">x{dessertPossibleCountById.get(d.id) === Infinity ? <span className="text-xs">∞</span> : (dessertPossibleCountById.get(d.id) ?? 0)}</p>
+                                            <p className="text-[9px] text-muted-foreground/50 font-medium">
+                                              {formatExtraRemainingCountLabel(remainingCount)}
+                                            </p>
                                           </div>
                                           <div className="flex items-center gap-1.5 shrink-0">
                                             <button onClick={async () => {
@@ -805,14 +846,22 @@ const extraDropKey = `extra-${iso}`;
                                             }} className="h-5 w-5 flex items-center justify-center rounded-full bg-orange-500/10 hover:bg-orange-500/20 text-orange-500 text-xs font-bold" title="Ajouter un">+</button>
                                             {d.prot > 0 && <div className="flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-blue-500 border border-blue-500/20">🍗 {Math.round(d.prot)}</div>}
                                             {d.fiber > 0 && <div className="flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-emerald-500 border border-emerald-500/20"><Wheat className="w-2.5 h-2.5" />{Math.round(d.fiber)}</div>}
-                                            <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                            {!hideDayCalorieTotals && (
+                                              <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20"><Flame className="w-2.5 h-2.5" />{Math.round(d.cal)}</div>
+                                            )}
                                           </div>
                                         </div>
-                                      ))}
+                                        );
+                                      })}
                                       <Separator className="my-2 opacity-50" />
                                     </>
                                   )}
                                   {othersAbove.map((fi) => renderRow(fi))}
+                                  {catalogFilteredEmpty && (
+                                    <p className="text-[10px] text-muted-foreground/70 italic text-center py-2">
+                                      Aucun extra dans le budget restant
+                                    </p>
+                                  )}
                                 </>
                               );
                             })()}

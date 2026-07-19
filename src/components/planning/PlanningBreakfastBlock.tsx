@@ -33,6 +33,8 @@ export interface PlanningBreakfastBlockProps {
   breakfastAssignedSlotIds: string[];
   foodItems: FoodItem[];
   singleIngredientDessertById: Map<string, { mealPayload: Meal; name?: string }>;
+  dessertCatalog?: Array<{ id: string; name: string }>;
+  dessertPossibleCountById?: Map<string, number>;
   savedSnapshots: Record<string, PlanningSnapshotEntry>;
   flashedKeys: Record<string, boolean>;
   setFlashedKeys: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
@@ -90,6 +92,8 @@ export function PlanningBreakfastBlock({
   breakfastAssignedSlotIds,
   foodItems,
   singleIngredientDessertById,
+  dessertCatalog,
+  dessertPossibleCountById,
   savedSnapshots,
   flashedKeys,
   setFlashedKeys,
@@ -358,6 +362,8 @@ export function PlanningBreakfastBlock({
                   title="Extra assigné au petit déj — glisse pour déplacer"
                   foodItems={foodItems}
                   dessertById={singleIngredientDessertById}
+                  dessertCatalog={dessertCatalog}
+                  dessertPossibleCountById={dessertPossibleCountById}
                   chipClassName="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
                   wrapperClassName="flex flex-wrap gap-1 mt-1"
                   keyPrefix="breakfast-assigned"

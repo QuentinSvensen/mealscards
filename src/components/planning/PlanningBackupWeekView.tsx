@@ -479,10 +479,10 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                             const backupUnassignedIds = getUnassignedExtraSelectionIds(bES, bESA, iso, key);
                             const manualCal = bEC[iso] || bEC[key] || 0;
                             const manualPro = bEP[iso] || bEP[key] || 0;
-                            const hasManual = manualCal > 0 || manualPro > 0;
+                            const hasVisibleManual = manualPro > 0 || (!hideDayCalorieTotals && manualCal > 0);
                             const hasUnassigned = backupUnassignedIds.length > 0;
 
-                            if (!hasUnassigned && !hasManual) {
+                            if (!hasUnassigned && !hasVisibleManual) {
                               return (
                                 <p className="text-[10px] text-muted-foreground italic text-center py-3">
                                   Aucun extra non déplacé
@@ -538,7 +538,7 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                                                 <Wheat className="w-2.5 h-2.5" />{Math.round(fiber)}
                                               </div>
                                             )}
-                                            {cal > 0 && (
+                                            {!hideDayCalorieTotals && cal > 0 && (
                                               <div className="flex items-center gap-1 bg-orange-500/10 px-2 py-0.5 rounded-full text-[9px] font-black text-orange-500 border border-orange-500/20">
                                                 <Flame className="w-2.5 h-2.5" />{cal}
                                               </div>
@@ -549,13 +549,13 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                                     })}
                                   </>
                                 )}
-                                {hasManual && (
+                                {hasVisibleManual && (
                                   <p className="text-[10px] text-muted-foreground px-1 pt-1 border-t border-white/5">
                                     <span className="font-semibold text-foreground/80">Ajout manuel : </span>
-                                    {manualCal > 0 && (
+                                    {!hideDayCalorieTotals && manualCal > 0 && (
                                       <span className="text-orange-500 font-bold">{Math.round(manualCal)} kcal</span>
                                     )}
-                                    {manualCal > 0 && manualPro > 0 && (
+                                    {!hideDayCalorieTotals && manualCal > 0 && manualPro > 0 && (
                                       <span className="text-muted-foreground/50"> · </span>
                                     )}
                                     {manualPro > 0 && (

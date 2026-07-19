@@ -14,6 +14,10 @@ export interface PlanningAssignedExtraChipsProps {
   title: string;
   foodItems: FoodItem[];
   dessertById: Map<string, { mealPayload: Meal; name?: string }>;
+  /** Conservé pour compat callers ; le chip affiche la quantité assignée, pas le reste. */
+  dessertCatalog?: Array<{ id: string; name: string }>;
+  /** Conservé pour compat callers ; non utilisé pour le label sélectionné. */
+  dessertPossibleCountById?: Map<string, number>;
   chipClassName?: string;
   /** Conteneur autour des chips (ex. `mt-1` pour le petit-déj, `pt-0.5` pour midi/soir). */
   wrapperClassName?: string;
@@ -25,6 +29,7 @@ export interface PlanningAssignedExtraChipsProps {
 
 /**
  * Affiche les bulles d’extras assignés à un créneau (drag pour déplacer, × pour retirer du jour).
+ * Le label montre la quantité assignée (`#N`), pas le stock restant.
  */
 export function PlanningAssignedExtraChips({
   assignedIds,
