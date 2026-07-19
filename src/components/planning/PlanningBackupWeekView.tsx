@@ -25,6 +25,7 @@ import {
   resolveAssignedExtraForDisplay,
   getAssignedExtraLabel,
   getUnassignedExtraSelectionIds,
+  resolveExtraColumnInputDisplayValue,
   resolvePlanningExtraFoodMacros,
 } from "@/domain/planning/extraDisplay";
 import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
@@ -460,10 +461,25 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                                 const assignedPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
                                 const extraCal = Math.max(0, sel.cal - assignedCal);
                                 const extraPro = Math.max(0, sel.pro - assignedPro);
+                                // Sous « Masquer calories » : n'afficher que les macros manuelles (pas l'auto chips).
+                                const displayCal = resolveExtraColumnInputDisplayValue(
+                                  bEC[iso] || bEC[key] || 0,
+                                  extraCal,
+                                  hideDayCalorieTotals,
+                                );
+                                const displayPro = resolveExtraColumnInputDisplayValue(
+                                  bEP[iso] || bEP[key] || 0,
+                                  extraPro,
+                                  hideDayCalorieTotals,
+                                );
                                 return (
                                   <>
-                                    <div className="text-[10px] text-orange-400 font-bold">{Math.round((bEC[iso] || bEC[key] || 0) + extraCal)}</div>
-                                    <div className="text-[10px] text-blue-400 font-bold">{Math.round((bEP[iso] || bEP[key] || 0) + extraPro)}</div>
+                                    <div className="text-[10px] text-orange-400 font-bold">
+                                      {displayCal > 0 ? Math.round(displayCal) : ""}
+                                    </div>
+                                    <div className="text-[10px] text-blue-400 font-bold">
+                                      {displayPro > 0 ? Math.round(displayPro) : ""}
+                                    </div>
                                   </>
                                 );
                               })()}

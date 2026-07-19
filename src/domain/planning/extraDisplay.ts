@@ -414,6 +414,34 @@ export function getPlacedExtraLabel(
   return formatPlacedExtraLabel(name, null, count);
 }
 
+/**
+ * Calcule la valeur affichée dans un input Extra (manuel + contribution auto des chips).
+ * Sous « Masquer calories », n'affiche que la saisie manuelle persistée (champ vide si aucune).
+ */
+export function resolveExtraColumnInputDisplayValue(
+  manualValue: number,
+  autoFromSelectedExtras: number,
+  hideDayCalorieTotals: boolean,
+): number {
+  const manual = Math.max(0, manualValue || 0);
+  if (hideDayCalorieTotals) return manual;
+  return manual + Math.max(0, autoFromSelectedExtras || 0);
+}
+
+/**
+ * Déduit la valeur manuelle à persister depuis la saisie de l'input Extra.
+ * Sous « Masquer calories », la saisie est déjà purement manuelle (ne pas soustraire l'auto).
+ */
+export function resolveExtraColumnManualFromInput(
+  inputValue: number,
+  autoFromSelectedExtras: number,
+  hideDayCalorieTotals: boolean,
+): number {
+  const raw = Math.max(0, inputValue || 0);
+  if (hideDayCalorieTotals) return raw;
+  return Math.max(0, raw - Math.max(0, autoFromSelectedExtras || 0));
+}
+
 /** Regroupe une liste d'extras assignés en conservant l'ordre et le nombre d'occurrences. */
 export function groupAssignedExtraIds(ids: string[]): Array<{ id: string; count: number }> {
   const groups: Array<{ id: string; count: number }> = [];

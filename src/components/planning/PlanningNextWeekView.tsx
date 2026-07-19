@@ -46,6 +46,8 @@ import {
   resolvePlanningExtraFoodMacros,
   formatExtraQuantitySubtitle,
   formatExtraRemainingCountLabel,
+  resolveExtraColumnInputDisplayValue,
+  resolveExtraColumnManualFromInput,
   resolveExtraFoodRemainingCount,
   extractExtraDisplayQuantity,
 } from "@/domain/planning/extraDisplay";
@@ -692,16 +694,46 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                     <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                     <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                       <PlanningInput storageKey={`next-ec-${iso}`}
-                        currentValue={(nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal) + nextUnassignedExtraMacros.cal}
-                        onSave={(val) => { const sel = nextUnassignedExtraMacros.cal; const m = Math.max(0, val - sel); const u = { ...nextExtraCalories }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_calories', value: u }); }}
+                        currentValue={resolveExtraColumnInputDisplayValue(
+                          nextExtraCalories[iso] ?? nextExtraCalories[key] ?? baseExtraCal,
+                          nextUnassignedExtraMacros.cal,
+                          hideDayCalorieTotals,
+                        )}
+                        onSave={(val) => {
+                          const m = resolveExtraColumnManualFromInput(val, nextUnassignedExtraMacros.cal, hideDayCalorieTotals);
+                          const u = { ...nextExtraCalories };
+                          if (m > 0) u[iso] = m; else { delete u[iso]; }
+                          delete u[key];
+                          setPreference.mutate({ key: 'next_week_extra_calories', value: u });
+                        }}
                         placeholder="kcal" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-400 placeholder:text-orange-300/20 focus:outline-none focus:border-orange-400/40 text-center" />
                       <PlanningInput storageKey={`next-ep-${iso}`}
-                        currentValue={(nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro) + nextUnassignedExtraMacros.pro}
-                        onSave={(val) => { const sel = nextUnassignedExtraMacros.pro; const m = Math.max(0, val - sel); const u = { ...nextExtraProteins }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_proteins', value: u }); }}
+                        currentValue={resolveExtraColumnInputDisplayValue(
+                          nextExtraProteins[iso] ?? nextExtraProteins[key] ?? baseExtraPro,
+                          nextUnassignedExtraMacros.pro,
+                          hideDayCalorieTotals,
+                        )}
+                        onSave={(val) => {
+                          const m = resolveExtraColumnManualFromInput(val, nextUnassignedExtraMacros.pro, hideDayCalorieTotals);
+                          const u = { ...nextExtraProteins };
+                          if (m > 0) u[iso] = m; else { delete u[iso]; }
+                          delete u[key];
+                          setPreference.mutate({ key: 'next_week_extra_proteins', value: u });
+                        }}
                         placeholder="prot" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
                       <PlanningInput storageKey={`next-ef-${iso}`}
-                        currentValue={effExtraFiber + nextUnassignedExtraMacros.fiber}
-                        onSave={(val) => { const sel = nextUnassignedExtraMacros.fiber; const m = Math.max(0, val - sel); const u = { ...nextExtraFibers }; if (m > 0) u[iso] = m; else { delete u[iso]; } delete u[key]; setPreference.mutate({ key: 'next_week_extra_fibers', value: u }); }}
+                        currentValue={resolveExtraColumnInputDisplayValue(
+                          effExtraFiber,
+                          nextUnassignedExtraMacros.fiber,
+                          hideDayCalorieTotals,
+                        )}
+                        onSave={(val) => {
+                          const m = resolveExtraColumnManualFromInput(val, nextUnassignedExtraMacros.fiber, hideDayCalorieTotals);
+                          const u = { ...nextExtraFibers };
+                          if (m > 0) u[iso] = m; else { delete u[iso]; }
+                          delete u[key];
+                          setPreference.mutate({ key: 'next_week_extra_fibers', value: u });
+                        }}
                         placeholder="fib" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
                       <div className="flex items-center gap-1 mt-1">
                         <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => setOpenExtrasDay(open ? `next-${iso}` : null)}>

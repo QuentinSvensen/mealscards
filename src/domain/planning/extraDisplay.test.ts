@@ -14,6 +14,8 @@ import {
   parseCustomExtraId,
   pickDayExtraSelections,
   resolveDessertCatalogId,
+  resolveExtraColumnInputDisplayValue,
+  resolveExtraColumnManualFromInput,
   resolveExtraFoodRemainingCount,
 } from "./extraDisplay";
 
@@ -96,6 +98,20 @@ describe("extraDisplay", () => {
     // Stepper à 1 → #1 (pas le count recette ni le reste catalogue).
     expect(getAssignedExtraLabel("d1", 1, { name: "Sundae" }, undefined, [], dessertById)).toBe("#1 Sundae");
     expect(getAssignedExtraLabel("d1", 2, { name: "Sundae" }, undefined, [], dessertById)).toBe("#2 Sundae");
+  });
+
+  it("affiche manuel seul sous Masquer calories, sinon manuel + auto des chips", () => {
+    expect(resolveExtraColumnInputDisplayValue(0, 150, false)).toBe(150);
+    expect(resolveExtraColumnInputDisplayValue(40, 150, false)).toBe(190);
+    expect(resolveExtraColumnInputDisplayValue(0, 150, true)).toBe(0);
+    expect(resolveExtraColumnInputDisplayValue(40, 150, true)).toBe(40);
+  });
+
+  it("persiste la saisie Extra : soustrait l'auto sauf sous Masquer calories", () => {
+    expect(resolveExtraColumnManualFromInput(150, 150, false)).toBe(0);
+    expect(resolveExtraColumnManualFromInput(190, 150, false)).toBe(40);
+    expect(resolveExtraColumnManualFromInput(40, 150, true)).toBe(40);
+    expect(resolveExtraColumnManualFromInput(0, 150, true)).toBe(0);
   });
 
   it("lit les sélections extras avec priorité ISO puis clé jour", () => {

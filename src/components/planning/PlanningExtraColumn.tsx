@@ -22,6 +22,8 @@ import {
   countDisplayableExtraSelections,
   formatExtraQuantitySubtitle,
   formatExtraRemainingCountLabel,
+  resolveExtraColumnInputDisplayValue,
+  resolveExtraColumnManualFromInput,
   resolveExtraFoodRemainingCount,
 } from "@/domain/planning/extraDisplay";
 import { parseFoodDessertExtraId } from "@/lib/foodDessertUtils";
@@ -220,9 +222,17 @@ const extraDropKey = `extra-${iso}`;
                   <div className="flex flex-col items-center gap-0.5 mt-1 w-full">
                     <PlanningInput
                       storageKey={`extra-${iso}`}
-                      currentValue={(extraCalories[iso] || 0) + unassignedExtraMacros.cal}
+                      currentValue={resolveExtraColumnInputDisplayValue(
+                        extraCalories[iso] || 0,
+                        unassignedExtraMacros.cal,
+                        hideDayCalorieTotals,
+                      )}
                       onSave={(val) => {
-                        const manual = Math.max(0, val - unassignedExtraMacros.cal);
+                        const manual = resolveExtraColumnManualFromInput(
+                          val,
+                          unassignedExtraMacros.cal,
+                          hideDayCalorieTotals,
+                        );
                         const updated = { ...extraCalories };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
@@ -233,9 +243,17 @@ const extraDropKey = `extra-${iso}`;
                     />
                     <PlanningInput
                       storageKey={`extra-prot-${iso}`}
-                      currentValue={(extraProteins[iso] || 0) + unassignedExtraMacros.pro}
+                      currentValue={resolveExtraColumnInputDisplayValue(
+                        extraProteins[iso] || 0,
+                        unassignedExtraMacros.pro,
+                        hideDayCalorieTotals,
+                      )}
                       onSave={(val) => {
-                        const manual = Math.max(0, val - unassignedExtraMacros.pro);
+                        const manual = resolveExtraColumnManualFromInput(
+                          val,
+                          unassignedExtraMacros.pro,
+                          hideDayCalorieTotals,
+                        );
                         const updated = { ...extraProteins };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
@@ -246,9 +264,17 @@ const extraDropKey = `extra-${iso}`;
                     />
                     <PlanningInput
                       storageKey={`extra-fib-${iso}`}
-                      currentValue={(extraFibers[iso] || 0) + unassignedExtraMacros.fiber}
+                      currentValue={resolveExtraColumnInputDisplayValue(
+                        extraFibers[iso] || 0,
+                        unassignedExtraMacros.fiber,
+                        hideDayCalorieTotals,
+                      )}
                       onSave={(val) => {
-                        const manual = Math.max(0, val - unassignedExtraMacros.fiber);
+                        const manual = resolveExtraColumnManualFromInput(
+                          val,
+                          unassignedExtraMacros.fiber,
+                          hideDayCalorieTotals,
+                        );
                         const updated = { ...extraFibers };
                         if (manual > 0) updated[iso] = manual;
                         else { delete updated[iso]; delete updated[key]; }
