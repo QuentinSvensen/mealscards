@@ -91,26 +91,34 @@ describe("hasCalorieGoalRangeMin", () => {
 });
 
 describe("getCalorieRangeTotalColorClass", () => {
-  it("avec max seul : vert dans [max−100, max], rouge au-dessus, null en dessous", () => {
+  it("avec max seul : vert dans [max−100, max], rouge au-dessus, noir si ≥ max+100", () => {
     expect(getCalorieRangeTotalColorClass(2250, 0, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2200, null, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2300, 0, 2300)).toBe("text-emerald-500");
-    expect(getCalorieRangeTotalColorClass(2400, 0, 2300)).toBe("text-red-400");
+    // Dépassement léger (< 100) → rouge
+    expect(getCalorieRangeTotalColorClass(2334, 0, 2300)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(2399, 0, 2300)).toBe("text-red-400");
+    // Dépassement ≥ 100 au-dessus du max → noir
+    expect(getCalorieRangeTotalColorClass(2400, 0, 2300)).toBe("text-black");
+    expect(getCalorieRangeTotalColorClass(2401, 0, 2300)).toBe("text-black");
     expect(getCalorieRangeTotalColorClass(2199, 0, 2300)).toBeNull();
   });
 
-  it("vert dans la fourchette réelle, rouge au-dessus, null en dessous", () => {
+  it("vert dans la fourchette réelle, rouge au-dessus du max, noir si ≥ max+100", () => {
     expect(getCalorieRangeTotalColorClass(2132, 2000, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2000, 2000, 2300)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(2300, 2000, 2300)).toBe("text-emerald-500");
-    expect(getCalorieRangeTotalColorClass(2400, 2000, 2300)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(2399, 2000, 2300)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(2400, 2000, 2300)).toBe("text-black");
     expect(getCalorieRangeTotalColorClass(1900, 2000, 2300)).toBeNull();
   });
 
   it("applique dayScale sur la fourchette journalière (total semaine)", () => {
-    // Max seul 2300 → virtuel 2200–2300 × 7 = 15400–16100
+    // Max seul 2300 → virtuel 2200–2300 × 7 ; rouge si > 16100 ; noir si ≥ 16800
     expect(getCalorieRangeTotalColorClass(15500, 0, 2300, 7)).toBe("text-emerald-500");
     expect(getCalorieRangeTotalColorClass(16200, 0, 2300, 7)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(16799, 0, 2300, 7)).toBe("text-red-400");
+    expect(getCalorieRangeTotalColorClass(16800, 0, 2300, 7)).toBe("text-black");
     expect(getCalorieRangeTotalColorClass(15000, 0, 2300, 7)).toBeNull();
   });
 });

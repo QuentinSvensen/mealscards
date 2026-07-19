@@ -86,9 +86,13 @@ export function hasCalorieGoalRangeMin(
   return resolveCalorieGoalRangeForColoring(low, high) != null;
 }
 
+/** Tolérance au-dessus du max avant de colorer le total en noir (≥ 100 kcal). */
+export const CALORIE_GOAL_OVER_MAX_BLACK_OFFSET = 100;
+
 /**
  * Couleur du total kcal quand une fourchette (réelle ou virtuelle max−100) est active :
- * vert dans la fourchette, rouge au-dessus, blanc (null) en dessous.
+ * vert dans la fourchette, rouge dès dépassement du max,
+ * noir si dépassement ≥ 100 kcal au-dessus du max, blanc (null) en dessous.
  * `dayScale` multiplie la fourchette journalière (ex. 7 pour le total semaine).
  */
 export function getCalorieRangeTotalColorClass(
@@ -102,7 +106,10 @@ export function getCalorieRangeTotalColorClass(
   const scale = Number.isFinite(dayScale) && dayScale > 0 ? dayScale : 1;
   const nLow = daily.low * scale;
   const nHigh = daily.high * scale;
+  const overBlack = nHigh + CALORIE_GOAL_OVER_MAX_BLACK_OFFSET * scale;
   const rounded = Math.round(total);
+  // Noir si dépassement ≥ 100 kcal au-dessus du max ; rouge dès le moindre dépassement.
+  if (rounded >= overBlack) return "text-black";
   if (rounded > nHigh) return "text-red-400";
   if (rounded >= nLow) return "text-emerald-500";
   return null;

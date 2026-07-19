@@ -37,6 +37,8 @@ import {
   findEarliestFuturePlannedSlotForFood,
   findEarliestOpenDateFromPossibleMeals,
   findLatestOpenDateFromPossibleMeals,
+  findEarliestPastPlannedOpenForFood,
+  isSealedPartialUseInPastPlanning,
 } from "@/lib/counters/possibleMealUsage";
 import {
   buildStockMap, findStockKey, pickBestAlternative,
