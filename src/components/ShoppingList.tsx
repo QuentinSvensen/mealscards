@@ -13,7 +13,7 @@
  *
  * Schémas de validation Zod pour les noms d'articles et de groupes.
  */
-import { useState, useRef, useEffect, useMemo, forwardRef } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef, type CSSProperties } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { z } from "zod";
 import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search, HelpCircle } from "lucide-react";
@@ -41,6 +41,158 @@ type DragPayload =
   | { kind: "group"; id: string };
 
 const EMPTY_NEEDS = {};
+
+/**
+ * Mesure la largeur réelle du texte et l'espace libre du spacer flex-1.
+ * Force le textarea à width:0 + nowrap : scrollWidth = texte (padding inclus), spacer = place restante.
+ */
+function measureNameFieldLayout(
+  ta: HTMLTextAreaElement,
+  spacer: HTMLElement | undefined,
+): { textWidth: number; available: number } {
+  const prevWidth = ta.style.width;
+  const prevMax = ta.style.maxWidth;
+  const prevMin = ta.style.minWidth;
+  const prevHeight = ta.style.height;
+  const prevWS = ta.style.whiteSpace;
+  const prevOverflow = ta.style.overflow;
+
+  ta.style.whiteSpace = "nowrap";
+  ta.style.overflow = "hidden";
+  ta.style.minWidth = "0";
+  ta.style.maxWidth = "none";
+  ta.style.height = "auto";
+  ta.style.width = "0px";
+  const textWidth = ta.scrollWidth;
+  const available = Math.floor(spacer?.getBoundingClientRect().width ?? 0);
+
+  ta.style.width = prevWidth;
+  ta.style.maxWidth = prevMax;
+  ta.style.minWidth = prevMin;
+  ta.style.height = prevHeight;
+  ta.style.whiteSpace = prevWS;
+  ta.style.overflow = prevOverflow;
+
+  return { textWidth, available };
+}
+
+/**
+ * Champ nom d'article : largeur calée sur la largeur réelle du texte (Mq collé juste après).
+ * Wrap + hauteur auto uniquement si le texte dépasse l'espace libre (spacer flex-1).
+ */
+function ShoppingItemNameField({
+  value,
+  checked,
+  onChange,
+  layoutKey,
+}: {
+  value: string;
+  checked: boolean;
+  onChange: (value: string) => void;
+  layoutKey: string;
+}) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [boxStyle, setBoxStyle] = useState<CSSProperties>(() => ({
+    width: `${Math.max(1, value.length)}ch`,
+  }));
+  const [isWrapped, setIsWrapped] = useState(false);
+
+  useLayoutEffect(() => {
+    /** Mesure largeur réelle du texte + espace libre (spacer), puis colle ou wrap. */
+    const measureAndApply = () => {
+      const ta = taRef.current;
+      if (!ta) return;
+      const row = ta.parentElement;
+      if (!row) return;
+
+      const kids = Array.from(row.children) as HTMLElement[];
+      const spacer = kids.find((k) => k !== ta && k.classList.contains("flex-1"));
+      const { textWidth, available } = measureNameFieldLayout(ta, spacer);
+
+      // Plancher anti-coupe : largeur ≥ contenu mesuré (scrollWidth inclut déjà le px-0.5)
+      const fittedWidth = Math.max(Math.ceil(textWidth), 1);
+
+      // Court / place suffisante → largeur = texte seul (Mq reste collé, gap uniforme)
+      if (available <= 0 || textWidth <= available) {
+        setIsWrapped(false);
+        setBoxStyle((prev) => {
+          if (
+            prev.width === fittedWidth &&
+            prev.maxWidth === undefined &&
+            prev.height === undefined
+          ) {
+            return prev;
+          }
+          return { width: fittedWidth };
+        });
+        return;
+      }
+
+      // Dépassement → wrap + hauteur dans l'espace libre uniquement
+      const prevWidth = ta.style.width;
+      const prevMax = ta.style.maxWidth;
+      const prevMin = ta.style.minWidth;
+      const prevHeight = ta.style.height;
+      const prevWS = ta.style.whiteSpace;
+      const prevOverflow = ta.style.overflow;
+
+      ta.style.whiteSpace = "pre-wrap";
+      ta.style.overflow = "hidden";
+      ta.style.minWidth = "0";
+      ta.style.width = `${available}px`;
+      ta.style.maxWidth = `${available}px`;
+      ta.style.height = "0px";
+      const h = Math.max(24, ta.scrollHeight);
+
+      ta.style.width = prevWidth;
+      ta.style.maxWidth = prevMax;
+      ta.style.minWidth = prevMin;
+      ta.style.height = prevHeight;
+      ta.style.whiteSpace = prevWS;
+      ta.style.overflow = prevOverflow;
+
+      setIsWrapped(true);
+      setBoxStyle((prev) => {
+        if (prev.width === available && prev.maxWidth === available && prev.height === h) return prev;
+        return { width: available, maxWidth: available, height: h };
+      });
+    };
+
+    measureAndApply();
+    const ta = taRef.current;
+    const row = ta?.parentElement;
+    if (!row) return;
+
+    const ro = new ResizeObserver(() => measureAndApply());
+    ro.observe(row);
+    window.addEventListener("resize", measureAndApply);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measureAndApply);
+    };
+  }, [value, layoutKey]);
+
+  return (
+    <textarea
+      ref={taRef}
+      rows={1}
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\n/g, ""))}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      style={boxStyle}
+      className={`min-h-6 leading-6 text-sm bg-transparent px-0.5 font-medium outline-none focus:ring-1 focus:ring-ring rounded resize-none ${
+        isWrapped
+          ? "overflow-hidden whitespace-pre-wrap break-words"
+          : "overflow-visible whitespace-nowrap"
+      } ${!checked ? "line-through text-muted-foreground" : "text-foreground"}`}
+    />
+  );
+}
 
 export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_props, ref) {
   const {
@@ -550,15 +702,14 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
         )}
 
         {/* Nom — largeur calée sur le texte pour garder marque / Qté juste à droite */}
-        <input
+        <ShoppingItemNameField
           value={getLocalName(item)}
-          onChange={(e) => handleNameChange(item, e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-          size={Math.max(1, getLocalName(item).length)}
-          className={`h-6 text-sm bg-transparent px-0.5 font-medium min-w-[2ch] outline-none focus:ring-1 focus:ring-ring rounded ${!item.checked ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+          checked={item.checked}
+          onChange={(v) => handleNameChange(item, v)}
+          layoutKey={`${showGreenChecks}|${isAmbiguous}|${isBrandEditing}|${isQtyEditing}|${isNbEditing}|${brand}|${qty}|${nb}|${item.secondary_checked}|${item.content_quantity_type}`}
         />
 
-        {/* Marque — en ligne juste après le nom */}
+        {/* Marque — en ligne juste après le nom (ml-1 = léger écart uniforme avec le texte) */}
         {isBrandEditing ? (
           <Input
             autoFocus
@@ -567,20 +718,20 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
             onChange={(e) => handleBrandChange(item, e.target.value)}
             onBlur={() => commitBrand(item)}
             onKeyDown={(e) => { if (e.key === "Enter") commitBrand(item); }}
-            className="h-6 w-20 text-xs italic border-border bg-background px-1 shrink-0"
+            className="ml-1 h-6 w-20 text-xs italic border-border bg-background px-1 shrink-0"
           />
         ) : (
           brand ? (
             <button
               onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
-              className="text-xs italic shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground"
+              className="ml-1 text-xs italic shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground"
             >
               {brand}
             </button>
           ) : (
             <button
               onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
-              className="text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
+              className="ml-1 text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
             >
               Mq
             </button>
