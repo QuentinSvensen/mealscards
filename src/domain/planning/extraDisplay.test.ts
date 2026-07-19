@@ -49,20 +49,21 @@ describe("extraDisplay", () => {
   });
 
   it("formate les libellés et multiplie les grammes affichables", () => {
-    expect(formatPlacedExtraLabel("Pomme", "120", 2)).toBe("120g #2 Pomme");
-    expect(formatPlacedExtraLabel("Pomme", "120", Infinity)).toBe("120g ∞ Pomme");
+    expect(formatPlacedExtraLabel("Pomme", "120", 2)).toBe("120g Pomme");
+    expect(formatPlacedExtraLabel("Pomme", "120", Infinity)).toBe("120g Pomme");
     expect(multiplyDisplayGrams("50g", 3)).toBe("150g");
     expect(multiplyDisplayGrams("1,5", 2)).toBe("3");
   });
 
-  it("affiche le reste catalogue (#N) et ∞ sans préfixe #", () => {
+  it("affiche le reste catalogue (#N) et ∞ sans préfixe # ; sans compteur si grammes", () => {
     expect(formatExtraRemainingCountLabel(2)).toBe("#2");
     expect(formatExtraRemainingCountLabel(Infinity)).toBe("∞");
     expect(formatExtraAssignedCountLabel(1)).toBe("#1");
     expect(formatExtraAssignedCountLabel(2)).toBe("#2");
-    expect(formatExtraQuantitySubtitle("120", 2)).toBe("120g · #2");
-    expect(formatExtraQuantitySubtitle("120", Infinity)).toBe("120g · ∞");
-    expect(formatExtraQuantitySubtitle("120", 1)).toBe("120g · #1");
+    expect(formatExtraQuantitySubtitle("120", 2)).toBe("120g");
+    expect(formatExtraQuantitySubtitle("120", Infinity)).toBe("120g");
+    expect(formatExtraQuantitySubtitle("120", 1)).toBe("120g");
+    expect(formatExtraQuantitySubtitle(null, 2)).toBe("#2");
   });
 
   it("résout le reste d'une fiche aliment (quantity / is_infinite)", () => {
@@ -71,7 +72,7 @@ describe("extraDisplay", () => {
     expect(resolveExtraFoodRemainingCount({ quantity: null, is_infinite: false })).toBeNull();
   });
 
-  it("affiche #N = quantité assignée (stepper), pas le stock restant", () => {
+  it("affiche la quantité assignée ; uniquement les grammes s'ils sont présents", () => {
     const fi = {
       id: "sundae-1",
       name: "Sundae",
@@ -80,10 +81,9 @@ describe("extraDisplay", () => {
       is_infinite: false,
       storage_type: "extras",
     } as FoodItem;
-    // Stepper à 1, stock encore à 2 → label sélectionné #1 (pris), pas #2.
-    expect(getAssignedExtraLabel("sundae-1", 1, null, fi, [fi], new Map())).toBe("150g #1 Sundae");
-    // Stepper à 2 → grammes ×2 et #2.
-    expect(getAssignedExtraLabel("sundae-1", 2, null, fi, [fi], new Map())).toBe("300g #2 Sundae");
+    // Avec grammes : pas de compteur à côté (stepper reste la source de la qté prise).
+    expect(getAssignedExtraLabel("sundae-1", 1, null, fi, [fi], new Map())).toBe("150g Sundae");
+    expect(getAssignedExtraLabel("sundae-1", 2, null, fi, [fi], new Map())).toBe("300g Sundae");
   });
 
   it("utilise la quantité assignée pour un dessert sans fiche aliment", () => {

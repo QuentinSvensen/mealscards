@@ -290,8 +290,9 @@ export function shouldDisplayExtraRemainingCount(count: number | null | undefine
 }
 
 /**
- * Construit le sous-titre grammes + compteur (`#N` / `∞`).
- * Catalogue : passer le reste dispo ; sélectionné : passer `assignedCount` (stepper).
+ * Construit le sous-titre grammes + compteur.
+ * S’il y a déjà un grammage, on n’affiche que les grammes (pas de compteur `#N` / `N`).
+ * Sans grammes : `#N` ou `∞`.
  */
 export function formatExtraQuantitySubtitle(
   grams: string | null | undefined,
@@ -300,22 +301,26 @@ export function formatExtraQuantitySubtitle(
   const rawGrams = (grams || "").trim();
   const hasUnit = /[a-zA-Z]/.test(rawGrams);
   const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
-  const q = shouldDisplayExtraRemainingCount(count)
+  if (g) return g;
+  return shouldDisplayExtraRemainingCount(count)
     ? formatExtraRemainingCountLabel(count)
     : "";
-  return [g, q].filter(Boolean).join(" · ");
 }
 
 /**
- * Formate l'étiquette d'un extra placé (grammes + compteur `#N` / `∞`).
- * Le 3ᵉ argument est le nombre à afficher (reste catalogue ou quantité assignée selon l'appelant).
+ * Formate l'étiquette d'un extra placé (grammes et/ou compteur).
+ * Avec grammes : uniquement les grammes (pas de compteur). Sans grammes : `#N` / `∞`.
  */
 export function formatPlacedExtraLabel(extraName: string, grams?: string | null, quantity?: number | null): string {
   const name = (extraName || "").trim();
   const rawGrams = (grams || "").trim();
   const hasUnit = /[a-zA-Z]/.test(rawGrams);
   const g = rawGrams ? (hasUnit ? rawGrams : `${rawGrams}g`) : "";
-  const q = shouldDisplayExtraRemainingCount(quantity) ? formatExtraRemainingCountLabel(quantity) : "";
+  const q = g
+    ? ""
+    : shouldDisplayExtraRemainingCount(quantity)
+      ? formatExtraRemainingCountLabel(quantity)
+      : "";
   const prefix = [g, q].filter(Boolean).join(" ");
   if (!name) return prefix;
   if (!prefix) return name;
