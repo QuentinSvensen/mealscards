@@ -8,6 +8,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { clearAvailableThresholdDayIso } from "@/lib/availableThresholdDaySession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -186,6 +187,11 @@ const EMPTY_MACRO_LIBRARY: IngredientMacroLibraryItem[] = [];
 const EMPTY_DEDUCTION_SNAPSHOTS: Record<string, FoodItem[]> = {};
 const MORNING_MEAL_PREF_KEY = "morning_meal_food_item_ids";
 
+/** Remet le scroll de la fenêtre en haut (le conteneur scrollable réel est window, pas un overflow parent). */
+function scrollWindowToTop() {
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPOSANT PRINCIPAL : Index
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -198,7 +204,17 @@ const Index = () => {
   const location = useLocation();
 
   const mainPage: MainPage = ROUTE_TO_PAGE[location.pathname] ?? "repas";
-  const setMainPage = (page: MainPage) => navigate(PAGE_TO_ROUTE[page]);
+  /** Change l’onglet principal et remonte le scroll hors Planning (évite la fuite du scroll auto jour courant). */
+  const setMainPage = (page: MainPage) => {
+    if (page !== "planning") scrollWindowToTop();
+    navigate(PAGE_TO_ROUTE[page]);
+  };
+
+  // Filet de sécurité (back/forward, URL directe) : hors Planning, toujours repartir du haut de page.
+  useEffect(() => {
+    if (mainPage === "planning") return;
+    scrollWindowToTop();
+  }, [mainPage]);
 
   const unlocked = !!session;
 
@@ -261,7 +277,13 @@ const Index = () => {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      // Déconnexion : vider le jour de seuil « Au choix » (mémoire JS, pas de stockage navigateur).
+      if (event === "SIGNED_OUT") {
+        clearAvailableThresholdDayIso();
+      }
+    });
     return () => subscription.unsubscribe();
   }, []);
 

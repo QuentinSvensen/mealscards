@@ -6,8 +6,11 @@ import {
   getCalorieRangeTotalColorClass,
   getRemainingDayCalories,
   hasCalorieGoalRangeMin,
+  hasExplicitCalorieGoalMin,
   normalizeCalorieGoalRange,
+  resolveAvailableCalorieThreshold,
   resolveCalorieGoalRangeForColoring,
+  resolveHabitualAvailableCalorieThreshold,
 } from "./calorieGoalRange";
 
 describe("normalizeCalorieGoalRange", () => {
@@ -124,6 +127,79 @@ describe("getRemainingDayCalories", () => {
   it("tolère des entrées non numériques", () => {
     expect(getRemainingDayCalories(Number.NaN, 100)).toBe(0);
     expect(getRemainingDayCalories(2000, Number.NaN)).toBe(2000);
+  });
+});
+
+describe("hasExplicitCalorieGoalMin", () => {
+  it("n’est vrai que si le min est explicitement > 0", () => {
+    expect(hasExplicitCalorieGoalMin(2000)).toBe(true);
+    expect(hasExplicitCalorieGoalMin(0)).toBe(false);
+    expect(hasExplicitCalorieGoalMin(null)).toBe(false);
+    expect(hasExplicitCalorieGoalMin(undefined)).toBe(false);
+  });
+});
+
+describe("resolveHabitualAvailableCalorieThreshold", () => {
+  it("sans jours antérieurs : seuil = reste brut (max − conso)", () => {
+    expect(resolveHabitualAvailableCalorieThreshold(2300, 2000, [])).toBe(300);
+    expect(resolveHabitualAvailableCalorieThreshold(2300, 2270)).toBe(30);
+  });
+
+  it("dim. 19 min vide + conso proche du max : lissage ≠ reste pile 30", () => {
+    // Lun–sam à 1500 kcal → écart moyen (1500 − 2300) = −800
+    // reste dimanche = 2300 − 2270 = 30 → seuil = 30 − (−800) = 830
+    const past = [1500, 1500, 1500, 1500, 1500, 1500];
+    expect(resolveHabitualAvailableCalorieThreshold(2300, 2270, past)).toBe(830);
+    expect(resolveHabitualAvailableCalorieThreshold(2300, 2270, past)).not.toBe(30);
+  });
+
+  it("ignore les jours antérieurs à conso 0", () => {
+    expect(resolveHabitualAvailableCalorieThreshold(2300, 2270, [0, 0, 1500])).toBe(830);
+  });
+});
+
+describe("resolveAvailableCalorieThreshold", () => {
+  it("avec min renseigné : seuil = round(max) − round(conso) (ex. 2200 − 1423 = 777)", () => {
+    expect(resolveAvailableCalorieThreshold(2200, 1423, 2000)).toBe(777);
+    expect(resolveAvailableCalorieThreshold(2300, 1480, 2100)).toBe(820);
+  });
+
+  it("avec min renseigné : arrondit max et conso comme le badge Planning", () => {
+    expect(resolveAvailableCalorieThreshold(2200.4, 1423.4, 2000)).toBe(777);
+    expect(resolveAvailableCalorieThreshold(2300, 1479.6, 2100)).toBe(820);
+    expect(resolveAvailableCalorieThreshold(2300, 1480.4, 2100)).toBe(820);
+  });
+
+  it("avec min renseigné : le min n’entre pas dans le calcul du seuil", () => {
+    expect(resolveAvailableCalorieThreshold(2200, 1423, 2000)).toBe(777);
+    expect(resolveAvailableCalorieThreshold(2200, 1423, 2100)).toBe(777);
+  });
+
+  it("avec min renseigné : plafonne à 0 si conso ≥ max", () => {
+    expect(resolveAvailableCalorieThreshold(2300, 2500, 2100)).toBe(0);
+  });
+
+  it("avec min > 0 : reste pile même si des jours antérieurs sous-consomment", () => {
+    const past = [1500, 1500, 1500, 1500, 1500, 1500];
+    expect(resolveAvailableCalorieThreshold(2300, 2270, 2100, past)).toBe(30);
+  });
+
+  it("sans min (vide / 0) : formule habituelle, pas le reste pile", () => {
+    const past = [1500, 1500, 1500, 1500, 1500, 1500];
+    expect(resolveAvailableCalorieThreshold(2300, 2270, 0, past)).toBe(830);
+    expect(resolveAvailableCalorieThreshold(2300, 2270, null, past)).toBe(830);
+    expect(resolveAvailableCalorieThreshold(2300, 2270, undefined, past)).toBe(830);
+    // Sans jours antérieurs → reste brut (cas lundi)
+    expect(resolveAvailableCalorieThreshold(2300, 2000, 0)).toBe(300);
+    expect(resolveAvailableCalorieThreshold(2300, 1479.6, 0)).toBeCloseTo(820.4, 5);
+  });
+
+  it("fourchette virtuelle max−100 n’active pas le mode strict (min non saisi)", () => {
+    // hasCalorieGoalRangeMin(null, 2300) est true (virtuel), mais goalLow reste 0/null
+    expect(hasCalorieGoalRangeMin(null, 2300)).toBe(true);
+    expect(hasExplicitCalorieGoalMin(null)).toBe(false);
+    const past = [1500, 1500, 1500, 1500, 1500, 1500];
+    expect(resolveAvailableCalorieThreshold(2300, 2270, null, past)).toBe(830);
   });
 });
 

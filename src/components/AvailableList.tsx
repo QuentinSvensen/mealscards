@@ -9,7 +9,7 @@
  *
  * Fonctionnalités avancées :
  * - Filtrage par seuil calorique restant (useRemainingCalories)
- * - Sélecteur de jour (14 j) en session : défaut = aujourd’hui, reset au refresh
+ * - Sélecteur de jour (14 j) en mémoire JS : défaut = aujourd’hui, reset au F5 / déconnexion
  * - Tri par calories, protéines, péremption ou manuel
  * - Recherche dans les noms et ingrédients
  * - Badges de ratio personnalisable (x2, 75%, etc.)
@@ -60,6 +60,10 @@ import {
   buildTwoWeekDates,
   resolveDefaultThresholdDayIso,
 } from "@/lib/planningWeekUtils";
+import {
+  getAvailableThresholdDayIso,
+  setAvailableThresholdDayIso,
+} from "@/lib/availableThresholdDaySession";
 
 type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 
@@ -307,23 +311,29 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   // Fenêtre de 14 jours (semaine actuelle + suivante) pour le sélecteur de seuil.
   const thresholdDayWindow = useMemo(() => buildTwoWeekDates(new Date()), [todayIso]);
   const defaultThresholdDayIso = resolveDefaultThresholdDayIso(thresholdDayWindow, todayIso);
-  // État de session uniquement : un F5 repart toujours sur aujourd’hui (pas de pref persistée).
-  const [sessionThresholdDayIso, setSessionThresholdDayIso] = useState(defaultThresholdDayIso);
+  // Mémoire JS (module) : survît aux remounts, pas au F5 ni à la déconnexion.
+  const [sessionThresholdDayIso, setSessionThresholdDayIso] = useState(() => {
+    const stored = getAvailableThresholdDayIso();
+    if (stored) return stored;
+    return resolveDefaultThresholdDayIso(buildTwoWeekDates(new Date()), format(new Date(), "yyyy-MM-dd"));
+  });
   const selectedThresholdDayIso = thresholdDayWindow.some((d) => d.iso === sessionThresholdDayIso)
     ? sessionThresholdDayIso
     : defaultThresholdDayIso;
   const selectedThresholdDay = thresholdDayWindow.find((d) => d.iso === selectedThresholdDayIso)
     ?? thresholdDayWindow[0];
+  // Seuil max affiché / filtre : si min Planning renseigné → pile max − conso du jour choisi.
   const baseCalorieThreshold = getTargetCalorieThreshold(selectedThresholdDayIso);
   const remainingProtein = getRemainingProtein(selectedThresholdDayIso);
   const [tempCalorieOverride, setTempCalorieOverride] = useState<number | null>(null);
   const calorieThreshold = tempCalorieOverride ?? baseCalorieThreshold;
 
   /**
-   * Change le jour du seuil pour la session courante et réinitialise l’override temporaire.
-   * Ne persiste rien : un refresh remet aujourd’hui.
+   * Change le jour du seuil en mémoire de session JS et réinitialise l’override temporaire.
+   * Conservé à la navigation ; remis à aujourd’hui seulement après F5 ou déconnexion.
    */
   const handleThresholdDayChange = (iso: string) => {
+    setAvailableThresholdDayIso(iso);
     setSessionThresholdDayIso(iso);
     setTempCalorieOverride(null);
   };
@@ -1872,6 +1882,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               </label>
               {useRemainingCalories && (
                 <div className="flex items-center gap-1.5 mt-0.5">
+                   {/* Valeur = baseCalorieThreshold (max − conso si min Planning renseigné). */}
                    <span className="text-[10px] text-muted-foreground">
                      Seuil max :
                    </span>

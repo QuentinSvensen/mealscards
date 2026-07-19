@@ -11,7 +11,7 @@ import {
   SLOT_MEAL_TOTAL_CLASS,
   SLOT_MEAL_TOTAL_SEP_CLASS,
 } from "@/components/planning/planningSlotStyles";
-import { MAIN_GRID_TIMES, TIMES, type Meal, type PossibleMeal } from "@/hooks/useMeals";
+import { MAIN_GRID_TIMES, type Meal, type PossibleMeal } from "@/hooks/useMeals";
 import {
   getCardDisplayCalories,
   getCardDisplayProtein,
@@ -83,6 +83,10 @@ export interface PlanningNextWeekViewProps {
   foodMacroIndex: any;
   isAvailableCb: (name: string) => boolean;
   getMealsForSlot: (key: string, time: string, iso: string) => PossibleMeal[];
+  /** Totaux jour alignés useCalorieBalance / seuil « Au choix » (pas de double comptage extras). */
+  getDayCalories: (dayKey: string, isoDate?: string) => number;
+  getDayProtein: (dayKey: string, isoDate?: string) => number;
+  getDayFiber: (dayKey: string, isoDate?: string) => number;
   sumDayExtras: (ids: string[]) => { cal: number; pro: number; fiber: number };
   resolveExtraSnapshotForDay: (iso: string, key: string) => any;
   allSingleIngredientDessertExtras: any[];
@@ -126,8 +130,6 @@ export interface PlanningNextWeekViewProps {
   renderMiniCard: (pm: PossibleMeal, compact?: boolean, showMacros?: boolean) => React.ReactNode;
   getMealCal: (meal: any, ingredientsOverride?: any) => number;
   getMealPro: (meal: any, ingredientsOverride?: any) => number;
-  parseCalories: (cal: string | null | undefined) => number;
-  parseProtein: (prot: string | null | undefined) => number;
 }
 
 /**
@@ -158,6 +160,9 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
     foodMacroIndex,
     isAvailableCb,
     getMealsForSlot,
+    getDayCalories,
+    getDayProtein,
+    getDayFiber,
     sumDayExtras,
     resolveExtraSnapshotForDay,
     allSingleIngredientDessertExtras,
@@ -201,8 +206,6 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
     renderMiniCard,
     getMealCal,
     getMealPro,
-    parseCalories,
-    parseProtein,
   } = props;
 
   return (
@@ -292,57 +295,14 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
               (hasNextBf || nextBreakfastAssignedIds.length > 0) &&
               (nextBreakfastTotalCals > 0 || nextBreakfastTotalPro > 0 || nextBreakfastTotalFiber > 0);
 
-            // Totaux jour : TIMES inclut déjà gouter ; manuels ignorés si cartes présentes (comme les bandes créneau)
-            let dayTotal = nextBreakfastTotalCals;
-            for (const time of TIMES) {
-              const kIso = `${iso}-${time}`;
-              const kKey = `${key}-${time}`;
-              const slotMeals = getMealsForSlot(key, time, iso);
-              const hasSlotMeals = slotMeals.length > 0;
-              if (!hasSlotMeals) {
-                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-                const baseManualCal = manualSnap?.cal || 0;
-                dayTotal += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? baseManualCal;
-              }
-              if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) dayTotal += DRINK_CALORIES;
-              dayTotal += slotMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
-            }
-            const nextExtraSelMacros = sumDayExtras(effExtraSelMerged);
-            dayTotal += effExtraCal + nextExtraSelMacros.cal;
+            // Totaux jour = même source que le seuil « Au choix » (évite le double comptage
+            // des extras assignés au matin déjà inclus dans nextBreakfastTotal*).
+            const dayTotal = getDayCalories(key, iso);
+            const nxtDayPro = getDayProtein(key, iso);
+            const nxtDayFiber = getDayFiber(key, iso);
 
             // Même formule que le bandeau « reste » : objectif max − total jour (extras inclus).
             const remainingNextCal = getRemainingDayCalories(NEXT_DAILY_GOAL, dayTotal);
-
-            let nxtDayPro = nextBreakfastTotalPro;
-            for (const time of TIMES) {
-              const kIso = `${iso}-${time}`;
-              const kKey = `${key}-${time}`;
-              const slotMeals = getMealsForSlot(key, time, iso);
-              const hasSlotMeals = slotMeals.length > 0;
-              if (!hasSlotMeals) {
-                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-                const baseManualPro = manualSnap?.prot || 0;
-                nxtDayPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? baseManualPro;
-              }
-              nxtDayPro += slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
-            }
-            nxtDayPro += effExtraPro + nextExtraSelMacros.pro;
-
-            let nxtDayFiber = nextBreakfastTotalFiber;
-            for (const time of TIMES) {
-              const kIso = `${iso}-${time}`;
-              const kKey = `${key}-${time}`;
-              const slotMeals = getMealsForSlot(key, time, iso);
-              const hasSlotMeals = slotMeals.length > 0;
-              if (!hasSlotMeals) {
-                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-                const baseManualFiber = manualSnap?.fiber || 0;
-                nxtDayFiber += nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? baseManualFiber;
-              }
-              nxtDayFiber += slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
-              // Fibres des extras assignés au créneau : déjà dans nextExtraSelMacros (fusion sélections + assignations)
-            }
-            nxtDayFiber += effExtraFiber + nextExtraSelMacros.fiber;
 
             const nextAssignedExtraIds = getAssignedExtraIdsForDay(nextExtraSlotAssignments, iso, key);
             const nextUnassignedExtraIds = effExtraSelMerged.filter(
@@ -1289,30 +1249,11 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
               </div>
             );
           })}
-          {/* Total semaine suivante */}
+          {/* Total semaine suivante — même source que les badges jour / seuil Au choix */}
           {(() => {
             let total = 0;
-            let totalPro = 0;
             for (const { key, iso } of weekDates) {
-              const bfSnap = (savedSnapshots[`breakfast-${iso}`] || savedSnapshots[`breakfast-${key}`]) as any;
-              const eBfSel = nextBreakfastSelections[iso] ?? nextBreakfastSelections[key] ?? bfSnap?.mealId;
-              const eBfMeal = eBfSel?.startsWith('meal:') ? allMealsById.get(eBfSel.slice(5)) : null;
-              if (eBfMeal) { total += parseCalories(eBfMeal.calories); totalPro += parseProtein(eBfMeal.protein); }
-              else { total += nextBreakfastManualCalories[iso] ?? nextBreakfastManualCalories[key] ?? bfSnap?.cal ?? 0; totalPro += nextBreakfastManualProteins[iso] ?? nextBreakfastManualProteins[key] ?? bfSnap?.prot ?? 0; }
-              for (const time of TIMES) {
-                const kIso = `${iso}-${time}`;
-                const kKey = `${key}-${time}`;
-                const manualSnap = (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`]) as any;
-                total += nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? manualSnap?.cal ?? 0;
-                totalPro += nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? manualSnap?.prot ?? 0;
-                if (nextDrinkChecks[kIso] || nextDrinkChecks[kKey]) total += DRINK_CALORIES;
-              }
-              const extraSnap = (savedSnapshots[`extra-${iso}`] || savedSnapshots[`extra-${key}`]) as any;
-              total += nextExtraCalories[iso] ?? nextExtraCalories[key] ?? extraSnap?.cal ?? 0;
-              totalPro += nextExtraProteins[iso] ?? nextExtraProteins[key] ?? extraSnap?.prot ?? 0;
-              const nextExtraSum = sumDayExtras(nextExtraSelections[iso] ?? nextExtraSelections[key] ?? extraSnap?.itemIds ?? []);
-              total += nextExtraSum.cal;
-              totalPro += nextExtraSum.pro;
+              total += getDayCalories(key, iso);
             }
             const avgCal = Math.round(total / 7);
             const nextWeekGoalLow = NEXT_DAILY_GOAL_LOW > 0 ? NEXT_DAILY_GOAL_LOW * DEFAULT_WEEKLY_MULTIPLIER : 0;

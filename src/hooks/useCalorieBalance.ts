@@ -6,9 +6,10 @@
  * les repas disponibles.
  *
  * Exports principaux :
- * - getTargetCalorieThreshold(iso?) : calories restantes = borne haute − total jour
- *   (goals / prefs semaine suivante si l’ISO est en weekOffset 1)
- * - getRemainingProtein(iso?) : protéines restantes = goal prot − prot du jour
+ * - getTargetCalorieThreshold(iso?) : seuil « Au choix » —
+ *   min > 0 → round(max) − round(conso) ; sinon lissage (reste − moy. écarts jours antérieurs).
+ *   Semaine suivante → next_week_* + snapshots 💾
+ * - getRemainingProtein(iso?) : protéines restantes = round(goal) − round(prot du jour)
  * - getDayProtein() : protéines consommées pour un jour donné
  * - getOverrideScaleRatio() : ratio d'échelle depuis un override de calories
  * - getCardDisplayCalories/Protein() : macros affichées pour une carte planning
@@ -34,8 +35,12 @@ import {
   computePlanningDayTotalCalories,
   type PlanningDayCalorieState,
 } from "@/domain/planning/planningDayCalories";
-import { getRemainingDayCalories } from "@/domain/planning/calorieGoalRange";
+import { resolveAvailableCalorieThreshold } from "@/domain/planning/calorieGoalRange";
+import { overlayDirectSnapshotsOntoNextWeekPrefs } from "@/domain/planning/overlayDirectSnapshotsOntoNextWeekPrefs";
+import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import {
+  buildWeekDates,
+  DAY_KEY_TO_INDEX,
   isIsoInNextPlanningWeek,
   resolvePlanningGoalForIso,
 } from "@/lib/planningWeekUtils";
@@ -239,6 +244,8 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   // Borne basse optionnelle de la fourchette calorique (0 = fourchette désactivée). La borne haute (DAILY_GOAL) reste la cible des calculs.
   const DAILY_GOAL_LOW = getPreference<number>('planning_daily_goal_low', 0);
   const NEXT_DAILY_GOAL = getPreference<number>('next_week_daily_goal', DAILY_GOAL);
+  // Borne basse semaine suivante (même rôle que DAILY_GOAL_LOW pour le seuil Au choix).
+  const NEXT_DAILY_GOAL_LOW = getPreference<number>('next_week_daily_goal_low', DAILY_GOAL_LOW);
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
@@ -250,18 +257,64 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const DAILY_FIBER_GOAL = getPreference<number>('planning_fiber_goal', 30);
 
   // Prefs semaine suivante (même sources que PlanningNextWeekView).
-  const nextBreakfastSelections = getPreference<Record<string, string>>('next_week_breakfast', {});
-  const nextManualCalories = getPreference<Record<string, number>>('next_week_manual_calories', {});
-  const nextManualProteins = getPreference<Record<string, number>>('next_week_manual_proteins', {});
-  const nextManualFibers = getPreference<Record<string, number>>('next_week_manual_fibers', {});
-  const nextExtraCalories = getPreference<Record<string, number>>('next_week_extra_calories', {});
-  const nextExtraProteins = getPreference<Record<string, number>>('next_week_extra_proteins', {});
-  const nextExtraFibers = getPreference<Record<string, number>>('next_week_extra_fibers', {});
-  const nextExtraSelections = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
+  const nextBreakfastSelectionsRaw = getPreference<Record<string, string>>('next_week_breakfast', {});
+  const nextManualCaloriesRaw = getPreference<Record<string, number>>('next_week_manual_calories', {});
+  const nextManualProteinsRaw = getPreference<Record<string, number>>('next_week_manual_proteins', {});
+  const nextManualFibersRaw = getPreference<Record<string, number>>('next_week_manual_fibers', {});
+  const nextExtraCaloriesRaw = getPreference<Record<string, number>>('next_week_extra_calories', {});
+  const nextExtraProteinsRaw = getPreference<Record<string, number>>('next_week_extra_proteins', {});
+  const nextExtraFibersRaw = getPreference<Record<string, number>>('next_week_extra_fibers', {});
+  const nextExtraSelectionsRaw = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
   const nextExtraSlotAssignments = getPreference<Record<string, string[]>>('next_week_extra_slot_assignments', {});
-  const nextBreakfastManualCalories = getPreference<Record<string, number>>('next_week_breakfast_manual_calories', {});
-  const nextBreakfastManualProteins = getPreference<Record<string, number>>('next_week_breakfast_manual_proteins', {});
+  const nextBreakfastManualCaloriesRaw = getPreference<Record<string, number>>('next_week_breakfast_manual_calories', {});
+  const nextBreakfastManualProteinsRaw = getPreference<Record<string, number>>('next_week_breakfast_manual_proteins', {});
   const nextDrinkChecks = getPreference<Record<string, boolean>>('next_week_drink_checks', {});
+  const savedSnapshots = getPreference<Record<string, PlanningSnapshotEntry>>('planning_saved_snapshots', {});
+
+  // Snapshots 💾 directs en fallback — aligné badge PlanningNextWeekView (sinon seuil trop haut, ex. 820 vs 777).
+  const nextWeekOverlay = useMemo(
+    () =>
+      overlayDirectSnapshotsOntoNextWeekPrefs(
+        {
+          breakfastSelections: nextBreakfastSelectionsRaw,
+          breakfastManualCalories: nextBreakfastManualCaloriesRaw,
+          breakfastManualProteins: nextBreakfastManualProteinsRaw,
+          manualCalories: nextManualCaloriesRaw,
+          manualProteins: nextManualProteinsRaw,
+          manualFibers: nextManualFibersRaw,
+          extraCalories: nextExtraCaloriesRaw,
+          extraProteins: nextExtraProteinsRaw,
+          extraFibers: nextExtraFibersRaw,
+          extraSelections: nextExtraSelectionsRaw,
+        },
+        savedSnapshots,
+        buildWeekDates(1),
+      ),
+    [
+      nextBreakfastSelectionsRaw,
+      nextBreakfastManualCaloriesRaw,
+      nextBreakfastManualProteinsRaw,
+      nextManualCaloriesRaw,
+      nextManualProteinsRaw,
+      nextManualFibersRaw,
+      nextExtraCaloriesRaw,
+      nextExtraProteinsRaw,
+      nextExtraFibersRaw,
+      nextExtraSelectionsRaw,
+      savedSnapshots,
+    ],
+  );
+
+  const nextBreakfastSelections = nextWeekOverlay.breakfastSelections;
+  const nextManualCalories = nextWeekOverlay.manualCalories;
+  const nextManualProteins = nextWeekOverlay.manualProteins;
+  const nextManualFibers = nextWeekOverlay.manualFibers;
+  const nextExtraCalories = nextWeekOverlay.extraCalories;
+  const nextExtraProteins = nextWeekOverlay.extraProteins;
+  const nextExtraFibers = nextWeekOverlay.extraFibers;
+  const nextExtraSelections = nextWeekOverlay.extraSelections;
+  const nextBreakfastManualCalories = nextWeekOverlay.breakfastManualCalories;
+  const nextBreakfastManualProteins = nextWeekOverlay.breakfastManualProteins;
 
   const planningMeals = useMemo(() => possibleMeals.filter((pm) => {
     if (pm.meals?.category === "plat") return true;
@@ -568,9 +621,13 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   };
 
   /**
-   * Calcule le seuil calorique restant pour un jour (défaut : aujourd’hui).
-   * Aligné sur le Planning : borne haute d’objectif − total jour (pas de lissage).
-   * Semaine suivante → NEXT_DAILY_GOAL + totaux `next_week_*`.
+   * Calcule le seuil calorique « Au choix » pour un jour (défaut : aujourd’hui).
+   * Si calorie min > 0 (planning_daily_goal_low / next_week_daily_goal_low selon le jour) :
+   * reste strict = max − conso (aligné badge Planning), sans lissage.
+   * Sinon (min vide) : formule historique — reste jour − moyenne des écarts
+   * (conso − max) des jours antérieurs de la même semaine (conso > 0).
+   * La fourchette virtuelle max−100 n’active pas le mode strict.
+   * Semaine suivante → goals + totaux `next_week_*`.
    */
   const getTargetCalorieThreshold = (targetIso?: string) => {
     // Midi local évite les décalages de fuseau sur les ISO `yyyy-MM-dd`.
@@ -580,13 +637,26 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const targetKey = JS_DAY_TO_KEY[targetDate.getDay()];
     const resolvedIso = targetIso ?? format(targetDate, 'yyyy-MM-dd');
     const goalHigh = resolvePlanningGoalForIso(resolvedIso, DAILY_GOAL, NEXT_DAILY_GOAL);
+    const goalLow = resolvePlanningGoalForIso(resolvedIso, DAILY_GOAL_LOW, NEXT_DAILY_GOAL_LOW);
     const dayConsumed = getDayCalories(targetKey, resolvedIso);
-    return getRemainingDayCalories(goalHigh, dayConsumed);
+
+    // Jours antérieurs de la même semaine planning (courante ou suivante) pour le lissage.
+    const weekOffset = isIsoInNextPlanningWeek(resolvedIso) ? 1 : 0;
+    const weekDays = buildWeekDates(weekOffset);
+    const dayIndex = DAY_KEY_TO_INDEX[targetKey] ?? 0;
+    const pastDayCalories: number[] = [];
+    for (let i = 0; i < dayIndex; i++) {
+      const day = weekDays[i];
+      if (!day) continue;
+      pastDayCalories.push(getDayCalories(day.key, day.iso));
+    }
+
+    return resolveAvailableCalorieThreshold(goalHigh, dayConsumed, goalLow, pastDayCalories);
   };
 
   /**
    * Calcule les protéines restantes pour un jour (défaut : aujourd’hui).
-   * Aligné sur le Planning : objectif prot du bon contexte − prot du jour.
+   * Aligné sur le Planning : round(objectif) − round(prot du jour) (évite 53 au lieu de 52).
    */
   const getRemainingProtein = (targetIso?: string) => {
     const targetDate = targetIso
@@ -596,7 +666,11 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const resolvedIso = targetIso ?? format(targetDate, 'yyyy-MM-dd');
     const proteinGoal = resolvePlanningGoalForIso(resolvedIso, DAILY_PROTEIN_GOAL, NEXT_PROTEIN_GOAL);
     const dayConsumed = getDayProtein(targetKey, resolvedIso);
-    return Math.max(0, proteinGoal - dayConsumed);
+    const goal =
+      typeof proteinGoal === "number" && Number.isFinite(proteinGoal) ? proteinGoal : 0;
+    const consumed =
+      typeof dayConsumed === "number" && Number.isFinite(dayConsumed) ? dayConsumed : 0;
+    return Math.max(0, Math.round(goal) - Math.round(consumed));
   };
 
   return { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_GOAL_LOW, DAILY_PROTEIN_GOAL, DAILY_FIBER_GOAL, getRecordSelectedExtraIds: (day: string) => (getPreference<Record<string, string[]>>('planning_extra_selections', {})[day] || []), getBreakfastForDay, getTargetCalorieThreshold, getRemainingProtein };

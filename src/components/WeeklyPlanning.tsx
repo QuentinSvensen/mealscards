@@ -698,16 +698,21 @@ export function WeeklyPlanning({
   const [customExtraFiber, setCustomExtraFiber] = useState('');
   const backupCardTapRef = useRef<{ key: string; at: number } | null>(null);
 
+  // Aligne la vue sur le jour courant au montage ; cleanup pour éviter que le scroll « fuite » vers un autre onglet.
   useEffect(() => {
-    if (todayRef.current) {
-      setTimeout(() => {
-        const el = todayRef.current;
-        if (!el) return;
-        const headerHeight = 112;
-        const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
-        window.scrollTo({ top, behavior: "smooth" });
-      }, 200);
-    }
+    if (!todayRef.current) return;
+    const timerId = window.setTimeout(() => {
+      const el = todayRef.current;
+      if (!el) return;
+      const headerHeight = 112;
+      const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
+      window.scrollTo({ top, behavior: "smooth" });
+    }, 200);
+    return () => {
+      window.clearTimeout(timerId);
+      // Interrompt un smooth scroll en cours au démontage (changement d’onglet).
+      window.scrollTo({ top: window.scrollY, left: 0, behavior: "auto" });
+    };
   }, []);
 
   // Auto-consommation du petit déjeuner pour les jours passés
@@ -2373,6 +2378,9 @@ export function WeeklyPlanning({
           foodMacroIndex={foodMacroIndex}
           isAvailableCb={isAvailableCb}
           getMealsForSlot={getMealsForSlot}
+          getDayCalories={getDayCalories}
+          getDayProtein={getDayProtein}
+          getDayFiber={getDayFiber}
           sumDayExtras={sumDayExtras}
           resolveExtraSnapshotForDay={resolveExtraSnapshotForDay}
           allSingleIngredientDessertExtras={allSingleIngredientDessertExtras}
@@ -2416,8 +2424,6 @@ export function WeeklyPlanning({
           renderMiniCard={renderMiniCard}
           getMealCal={getMealCal}
           getMealPro={getMealPro}
-          parseCalories={parseCalories}
-          parseProtein={parseProtein}
         />
       )}
 

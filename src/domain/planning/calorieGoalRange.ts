@@ -3,11 +3,13 @@
  *
  * L'objectif calorique peut désormais être une fourchette « basse–haute ».
  * La borne haute reste la cible principale (compatibilité : c'est l'ancienne
- * valeur unique `planning_daily_goal`) et sert à tous les calculs de calories
- * restantes / seuil. La borne basse est optionnelle et purement indicative.
+ * valeur unique `planning_daily_goal`) et sert aux calculs de calories
+ * restantes. La borne basse optionnelle (> 0) active le mode strict du seuil
+ * « Au choix » (reste pile) ; sinon on garde le lissage historique.
  *
  * Si seule la borne haute est renseignée, le Planning colore comme une
- * fourchette virtuelle [max − 100, max].
+ * fourchette virtuelle [max − 100, max]. Cette fourchette virtuelle n’active
+ * PAS le mode strict du seuil « Au choix » (seul un min explicitement > 0 le fait).
  */
 
 /** Fourchette normalisée : borne basse optionnelle, borne haute = cible principale. */
@@ -115,6 +117,68 @@ export function getRemainingDayCalories(goalHigh: number, dayCalories: number): 
   const high = typeof goalHigh === "number" && Number.isFinite(goalHigh) ? goalHigh : 0;
   const consumed = typeof dayCalories === "number" && Number.isFinite(dayCalories) ? dayCalories : 0;
   return Math.max(0, high - consumed);
+}
+
+/**
+ * Indique si une borne basse calorique a été explicitement saisie (> 0).
+ * La fourchette virtuelle max−100 (colorimétrie Planning) ne compte pas.
+ */
+export function hasExplicitCalorieGoalMin(low: number | null | undefined): boolean {
+  return typeof low === "number" && Number.isFinite(low) && low > 0;
+}
+
+/**
+ * Seuil « Au choix » historique (lissage) : reste du jour − moyenne des écarts
+ * (conso − objectif) des jours antérieurs de la même semaine ayant conso > 0.
+ * Si les jours passés sont sous l'objectif, l'écart moyen est négatif → le seuil augmente
+ * (ex. reste 30 et moyenne −800 → seuil ≈ 830, pas le reste pile).
+ */
+export function resolveHabitualAvailableCalorieThreshold(
+  goalHigh: number,
+  dayCalories: number,
+  pastDayCalories: readonly number[] = [],
+): number {
+  const high = typeof goalHigh === "number" && Number.isFinite(goalHigh) ? goalHigh : 0;
+  const consumed =
+    typeof dayCalories === "number" && Number.isFinite(dayCalories) ? dayCalories : 0;
+
+  let differencesSum = 0;
+  let daysCount = 0;
+  for (const past of pastDayCalories) {
+    if (typeof past === "number" && Number.isFinite(past) && past > 0) {
+      differencesSum += past - high;
+      daysCount++;
+    }
+  }
+
+  const avgDifference = daysCount > 0 ? differencesSum / daysCount : 0;
+  // Pas de clamp du reste avant lissage (comportement historique pré-strict).
+  const remainingToday = high - consumed;
+  return Math.max(0, remainingToday - avgDifference);
+}
+
+/**
+ * Calcule le seuil max « Au choix » (filtre « Carte en fonction des calories restantes »).
+ * — Si calorie min explicitement renseignée (> 0) : mode strict
+ *   max(0, Math.round(borneHaute) − Math.round(conso)) — le min n’entre pas dans le calcul,
+ *   il active seulement ce mode (ex. 2200 − 1423 = 777).
+ * — Sinon (min vide / 0) : formule habituelle de lissage
+ *   resolveHabitualAvailableCalorieThreshold (moyenne des écarts des jours antérieurs).
+ *   La fourchette virtuelle max−100 ne compte PAS comme min renseigné.
+ */
+export function resolveAvailableCalorieThreshold(
+  goalHigh: number,
+  dayCalories: number,
+  goalLow: number | null | undefined = null,
+  pastDayCalories: readonly number[] = [],
+): number {
+  if (hasExplicitCalorieGoalMin(goalLow)) {
+    const high = typeof goalHigh === "number" && Number.isFinite(goalHigh) ? goalHigh : 0;
+    const consumed =
+      typeof dayCalories === "number" && Number.isFinite(dayCalories) ? dayCalories : 0;
+    return Math.max(0, Math.round(high) - Math.round(consumed));
+  }
+  return resolveHabitualAvailableCalorieThreshold(goalHigh, dayCalories, pastDayCalories);
 }
 
 /**
