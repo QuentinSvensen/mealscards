@@ -13,7 +13,7 @@
  *
  * Schémas de validation Zod pour les noms d'articles et de groupes.
  */
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef, type CSSProperties } from "react";
+import { useState, useRef, useEffect, useMemo, forwardRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { z } from "zod";
 import { Plus, Trash2, Pencil, ChevronDown, ChevronRight, Search, HelpCircle } from "lucide-react";
@@ -43,153 +43,69 @@ type DragPayload =
 const EMPTY_NEEDS = {};
 
 /**
- * Mesure la largeur réelle du texte et l'espace libre du spacer flex-1.
- * Force le textarea à width:0 + nowrap : scrollWidth = texte (padding inclus), spacer = place restante.
+ * Champ nom en édition : textarea inline qui s'adapte au contenu (field-sizing)
+ * pour garder Mq/Qté dans le même flux sans reprendre toute la largeur en bloc.
  */
-function measureNameFieldLayout(
-  ta: HTMLTextAreaElement,
-  spacer: HTMLElement | undefined,
-): { textWidth: number; available: number } {
-  const prevWidth = ta.style.width;
-  const prevMax = ta.style.maxWidth;
-  const prevMin = ta.style.minWidth;
-  const prevHeight = ta.style.height;
-  const prevWS = ta.style.whiteSpace;
-  const prevOverflow = ta.style.overflow;
-
-  ta.style.whiteSpace = "nowrap";
-  ta.style.overflow = "hidden";
-  ta.style.minWidth = "0";
-  ta.style.maxWidth = "none";
-  ta.style.height = "auto";
-  ta.style.width = "0px";
-  const textWidth = ta.scrollWidth;
-  const available = Math.floor(spacer?.getBoundingClientRect().width ?? 0);
-
-  ta.style.width = prevWidth;
-  ta.style.maxWidth = prevMax;
-  ta.style.minWidth = prevMin;
-  ta.style.height = prevHeight;
-  ta.style.whiteSpace = prevWS;
-  ta.style.overflow = prevOverflow;
-
-  return { textWidth, available };
-}
-
-/**
- * Champ nom d'article : largeur calée sur la largeur réelle du texte (Mq collé juste après).
- * Wrap + hauteur auto uniquement si le texte dépasse l'espace libre (spacer flex-1).
- */
-function ShoppingItemNameField({
+function ShoppingItemNameEditor({
   value,
   checked,
   onChange,
-  layoutKey,
+  onCommit,
 }: {
   value: string;
   checked: boolean;
   onChange: (value: string) => void;
-  layoutKey: string;
+  onCommit: () => void;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const [boxStyle, setBoxStyle] = useState<CSSProperties>(() => ({
-    width: `${Math.max(1, value.length)}ch`,
-  }));
-  const [isWrapped, setIsWrapped] = useState(false);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  const committedRef = useRef(false);
 
-  useLayoutEffect(() => {
-    /** Mesure largeur réelle du texte + espace libre (spacer), puis colle ou wrap. */
-    const measureAndApply = () => {
-      const ta = taRef.current;
-      if (!ta) return;
-      const row = ta.parentElement;
-      if (!row) return;
+  /** Valide une seule fois (blur, Entrée, Échap ou clic extérieur). */
+  const commitOnce = () => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    commitRef.current();
+  };
 
-      const kids = Array.from(row.children) as HTMLElement[];
-      const spacer = kids.find((k) => k !== ta && k.classList.contains("flex-1"));
-      const { textWidth, available } = measureNameFieldLayout(ta, spacer);
-
-      // Plancher anti-coupe : largeur ≥ contenu mesuré (scrollWidth inclut déjà le px-0.5)
-      const fittedWidth = Math.max(Math.ceil(textWidth), 1);
-
-      // Court / place suffisante → largeur = texte seul (Mq reste collé, gap uniforme)
-      if (available <= 0 || textWidth <= available) {
-        setIsWrapped(false);
-        setBoxStyle((prev) => {
-          if (
-            prev.width === fittedWidth &&
-            prev.maxWidth === undefined &&
-            prev.height === undefined
-          ) {
-            return prev;
-          }
-          return { width: fittedWidth };
-        });
-        return;
-      }
-
-      // Dépassement → wrap + hauteur dans l'espace libre uniquement
-      const prevWidth = ta.style.width;
-      const prevMax = ta.style.maxWidth;
-      const prevMin = ta.style.minWidth;
-      const prevHeight = ta.style.height;
-      const prevWS = ta.style.whiteSpace;
-      const prevOverflow = ta.style.overflow;
-
-      ta.style.whiteSpace = "pre-wrap";
-      ta.style.overflow = "hidden";
-      ta.style.minWidth = "0";
-      ta.style.width = `${available}px`;
-      ta.style.maxWidth = `${available}px`;
-      ta.style.height = "0px";
-      const h = Math.max(24, ta.scrollHeight);
-
-      ta.style.width = prevWidth;
-      ta.style.maxWidth = prevMax;
-      ta.style.minWidth = prevMin;
-      ta.style.height = prevHeight;
-      ta.style.whiteSpace = prevWS;
-      ta.style.overflow = prevOverflow;
-
-      setIsWrapped(true);
-      setBoxStyle((prev) => {
-        if (prev.width === available && prev.maxWidth === available && prev.height === h) return prev;
-        return { width: available, maxWidth: available, height: h };
-      });
-    };
-
-    measureAndApply();
+  useEffect(() => {
     const ta = taRef.current;
-    const row = ta?.parentElement;
-    if (!row) return;
+    if (!ta) return;
+    ta.focus();
+    const len = ta.value.length;
+    try {
+      ta.setSelectionRange(len, len);
+    } catch {
+      /* ignore si focus refusé */
+    }
 
-    const ro = new ResizeObserver(() => measureAndApply());
-    ro.observe(row);
-    window.addEventListener("resize", measureAndApply);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measureAndApply);
+    /** Ferme l'édition même si le textarea n'a jamais reçu le focus. */
+    const onPointerDown = (e: PointerEvent) => {
+      if (ta.contains(e.target as Node)) return;
+      commitOnce();
     };
-  }, [value, layoutKey]);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
 
   return (
     <textarea
       ref={taRef}
+      autoFocus
       rows={1}
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/\n/g, ""))}
+      onBlur={commitOnce}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
+        if (e.key === "Enter" || e.key === "Escape") {
           e.preventDefault();
-          e.currentTarget.blur();
+          commitOnce();
         }
       }}
-      style={boxStyle}
-      className={`min-h-6 leading-6 text-sm bg-transparent px-0.5 font-medium outline-none focus:ring-1 focus:ring-ring rounded resize-none ${
-        isWrapped
-          ? "overflow-hidden whitespace-pre-wrap break-words"
-          : "overflow-visible whitespace-nowrap"
-      } ${!checked ? "line-through text-muted-foreground" : "text-foreground"}`}
+      className={`inline-block align-baseline max-w-full min-h-6 min-w-[3ch] leading-6 text-sm bg-transparent px-0.5 font-medium outline-none focus:ring-1 focus:ring-ring rounded resize-none overflow-hidden whitespace-pre-wrap break-words [field-sizing:content] ${
+        !checked ? "line-through text-muted-foreground" : "text-foreground"
+      }`}
     />
   );
 }
@@ -330,8 +246,8 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
     }
   }, [isMobile, groups]);
 
-  // état d'édition par article : "marque" | "quantité" | "nb" | null
-  const [editingField, setEditingField] = useState<Record<string, "brand" | "qty" | "nb" | null>>({});
+  // état d'édition par article : "nom" | "marque" | "quantité" | "nb" | null
+  const [editingField, setEditingField] = useState<Record<string, "name" | "brand" | "qty" | "nb" | null>>({});
 
   // Temporisateurs d'anti-rebond (debounce)
   const nameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -382,12 +298,21 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
     setEditingField(prev => ({ ...prev, [item.id]: null }));
   };
 
+  /** Met à jour le nom local avec anti-rebond vers le serveur. */
   const handleNameChange = (item: ShoppingItem, value: string) => {
     setLocalNames(prev => ({ ...prev, [item.id]: value }));
     clearTimeout(nameTimers.current[item.id]);
     nameTimers.current[item.id] = setTimeout(() => {
       if (value.trim()) renameItem.mutate({ id: item.id, name: value.trim() });
     }, 600);
+  };
+
+  /** Valide le nom en cours d'édition et quitte le mode édition. */
+  const commitName = (item: ShoppingItem) => {
+    clearTimeout(nameTimers.current[item.id]);
+    const val = getLocalName(item);
+    if (val.trim()) renameItem.mutate({ id: item.id, name: val.trim() });
+    setEditingField(prev => ({ ...prev, [item.id]: null }));
   };
 
   const handleBrandChange = (item: ShoppingItem, value: string) => {
@@ -531,6 +456,8 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
     const brand = getLocalBrand(item);
     const qty = getLocalQuantity(item);
     const nb = getLocalNb(item);
+    const name = getLocalName(item);
+    const isNameEditing = fieldEditing === "name";
     const isBrandEditing = fieldEditing === "brand";
     const isQtyEditing = fieldEditing === "qty";
     const isNbEditing = fieldEditing === "nb";
@@ -544,7 +471,7 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverKey(`item:${item.id}`); }}
         onDragLeave={() => setDragOverKey(null)}
         onDrop={(e) => handleDropOnItem(e, item)}
-        className={`flex items-center gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
+        className={`flex items-start gap-0.5 py-1.5 pl-0.5 pr-1 rounded-lg transition-colors cursor-grab active:cursor-grabbing ${isOver ? 'ring-2 ring-primary/60 bg-primary/5' : ''} ${!item.checked ? 'opacity-40' : ''}`}
       >
         {/* Case à cocher secondaire OU indicateur ambigu (cliquable avec la couleur du groupe) */}
         {showGreenChecks && (isAmbiguous ? (() => {
@@ -568,85 +495,91 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
           };
 
           return (
-            <button
-              onClick={() => {
-                const now = Date.now();
-                const lastUncheck = needKey ? (lastAmbiguousUncheck.current[needKey] || 0) : 0;
-                const isQuickReclick = now - lastUncheck < 800;
+            <div className="shrink-0 self-start h-6 flex items-center">
+              <button
+                onClick={() => {
+                  const now = Date.now();
+                  const lastUncheck = needKey ? (lastAmbiguousUncheck.current[needKey] || 0) : 0;
+                  const isQuickReclick = now - lastUncheck < 800;
 
-                if (!item.secondary_checked && !isQuickReclick) {
-                  // Cocher cet article (confirmer le choix)
-                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
-                  // Ne pas enregistrer la quantité — la quantité verte est calculée à la volée
-                  // Décocher les frères dans le même groupe ambigu
-                  if (needKey) {
-                    for (const [sibId, sibData] of ambiguousItemData) {
-                      if (sibId !== item.id && sibData.needKey === needKey) {
-                        const sibItem = items.find(i => i.id === sibId);
-                        if (sibItem?.secondary_checked) {
-                          toggleSecondaryCheck.mutate({ id: sibId, secondary_checked: false });
+                  if (!item.secondary_checked && !isQuickReclick) {
+                    // Cocher cet article (confirmer le choix)
+                    toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: true });
+                    // Ne pas enregistrer la quantité — la quantité verte est calculée à la volée
+                    // Décocher les frères dans le même groupe ambigu
+                    if (needKey) {
+                      for (const [sibId, sibData] of ambiguousItemData) {
+                        if (sibId !== item.id && sibData.needKey === needKey) {
+                          const sibItem = items.find(i => i.id === sibId);
+                          if (sibItem?.secondary_checked) {
+                            toggleSecondaryCheck.mutate({ id: sibId, secondary_checked: false });
+                          }
                         }
                       }
                     }
+                  } else if (item.secondary_checked) {
+                    // Décocher du ✓ vert → les frères réapparaîtront comme ❓
+                    toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
+                    if (needKey) {
+                      lastAmbiguousUncheck.current[needKey] = now;
+                    }
+                  } else if (isQuickReclick) {
+                    // Re-clic rapide sur ❓ après décochage → rejeter tout le groupe ambigu
+                    if (needKey) {
+                      setDismissedAmbiguous(prev => new Set([...prev, needKey]));
+                    }
+                  } else {
+                    // Clic normal sur un ❓ non coché qui était déjà décoché → juste décocher
+                    toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
                   }
-                } else if (item.secondary_checked) {
-                  // Décocher du ✓ vert → les frères réapparaîtront comme ❓
-                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
-                  if (needKey) {
-                    lastAmbiguousUncheck.current[needKey] = now;
-                  }
-                } else if (isQuickReclick) {
-                  // Re-clic rapide sur ❓ après décochage → rejeter tout le groupe ambigu
-                  if (needKey) {
-                    setDismissedAmbiguous(prev => new Set([...prev, needKey]));
-                  }
-                } else {
-                  // Clic normal sur un ❓ non coché qui était déjà décoché → juste décocher
-                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
-                }
-              }}
-              className={`shrink-0 w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${item.secondary_checked
-                ? `bg-green-400 border-green-400 text-white`
-                : `${color.borderLight} ${color.text} ${color.hover}`
-                }`}
-              title="Plusieurs articles correspondent à un ingrédient du menu"
-            >
-              {item.secondary_checked ? '✓' : '?'}
-            </button>
+                }}
+                className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] font-bold transition-colors ${item.secondary_checked
+                  ? `bg-green-400 border-green-400 text-white`
+                  : `${color.borderLight} ${color.text} ${color.hover}`
+                  }`}
+                title="Plusieurs articles correspondent à un ingrédient du menu"
+              >
+                {item.secondary_checked ? '✓' : '?'}
+              </button>
+            </div>
           );
         })() : (
-          <Checkbox
-            checked={item.secondary_checked}
-            onCheckedChange={(checked) => {
-              toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked });
-              // Décocher le vert ne fait que retirer la superposition verte ; ne PAS effacer la quantité manuelle (blanche)
-            }}
-            className="shrink-0 opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
-          />
+          <div className="shrink-0 self-start h-6 flex items-center">
+            <Checkbox
+              checked={item.secondary_checked}
+              onCheckedChange={(checked) => {
+                toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: !!checked });
+                // Décocher le vert ne fait que retirer la superposition verte ; ne PAS effacer la quantité manuelle (blanche)
+              }}
+              className="opacity-100 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400 data-[state=checked]:text-white"
+            />
+          </div>
         ))}
 
-        {/* Case à cocher principale */}
-        <Checkbox
-          checked={item.checked}
-          onCheckedChange={(checked) => {
-            toggleItem.mutate({ id: item.id, checked: !!checked });
-            if (!checked) {
-              // Décocher le jaune décoche aussi le vert et efface la quantité
-              if (item.secondary_checked) {
-                toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
+        {/* Case à cocher principale — centrée sur la 1re ligne (h-6 = leading-6 du nom) */}
+        <div className="shrink-0 self-start h-6 flex items-center">
+          <Checkbox
+            checked={item.checked}
+            onCheckedChange={(checked) => {
+              toggleItem.mutate({ id: item.id, checked: !!checked });
+              if (!checked) {
+                // Décocher le jaune décoche aussi le vert et efface la quantité
+                if (item.secondary_checked) {
+                  toggleSecondaryCheck.mutate({ id: item.id, secondary_checked: false });
+                }
+                if (item.quantity) {
+                  updateItemQuantity.mutate({ id: item.id, quantity: null });
+                  setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+                }
               }
-              if (item.quantity) {
-                updateItemQuantity.mutate({ id: item.id, quantity: null });
-                setLocalQuantities(prev => { const next = { ...prev }; delete next[item.id]; return next; });
-              }
-            }
-          }}
-          className={`shrink-0 opacity-100 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
-        />
+            }}
+            className={`opacity-100 ${item.checked ? 'border-yellow-500 data-[state=checked]:bg-yellow-500 data-[state=checked]:text-black' : ''}`}
+          />
+        </div>
 
-        {/* Nb (quantité de contenu) — petite cellule avant le nom */}
+        {/* Nb (quantité de contenu) — centrée sur la 1re ligne, comme les checkboxes */}
         {isNbEditing ? (
-          <div className="flex items-center gap-0 shrink-0">
+          <div className="flex items-center gap-0 shrink-0 self-start h-6">
             <Input
               autoFocus
               placeholder="Nb"
@@ -671,10 +604,10 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
           </div>
         ) : (
           nb ? (
-            <div className="flex items-center gap-0 shrink-0">
+            <div className="flex items-center gap-0 shrink-0 self-start h-6">
               <button
                 onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
-                className="text-[10px] px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground font-medium"
+                className="text-[10px] h-6 flex items-center px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground font-medium"
               >
                 {nb}
               </button>
@@ -685,7 +618,7 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
                   const next = cur === 'g' ? 'qty' : 'g';
                   updateItemContentQuantityType.mutate({ id: item.id, content_quantity_type: next });
                 }}
-                className="text-[8px] font-bold text-muted-foreground/40 hover:text-muted-foreground px-0.5"
+                className="text-[8px] font-bold text-muted-foreground/40 hover:text-muted-foreground px-0.5 h-6 flex items-center"
                 title="Basculer grammes/quantité"
               >
                 {item.content_quantity_type === 'g' ? 'g' : '#'}
@@ -694,130 +627,151 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
           ) : (
             <button
               onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "nb" }))}
-              className="text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
+              className="text-[9px] shrink-0 self-start h-6 flex items-center px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
             >
               Nb
             </button>
           )
         )}
 
-        {/* Nom — largeur calée sur le texte pour garder marque / Qté juste à droite */}
-        <ShoppingItemNameField
-          value={getLocalName(item)}
-          checked={item.checked}
-          onChange={(v) => handleNameChange(item, v)}
-          layoutKey={`${showGreenChecks}|${isAmbiguous}|${isBrandEditing}|${isQtyEditing}|${isNbEditing}|${brand}|${qty}|${nb}|${item.secondary_checked}|${item.content_quantity_type}`}
-        />
-
-        {/* Marque — en ligne juste après le nom (ml-1 = léger écart uniforme avec le texte) */}
-        {isBrandEditing ? (
-          <Input
-            autoFocus
-            placeholder="Marque"
-            value={brand}
-            onChange={(e) => handleBrandChange(item, e.target.value)}
-            onBlur={() => commitBrand(item)}
-            onKeyDown={(e) => { if (e.key === "Enter") commitBrand(item); }}
-            className="ml-1 h-6 w-20 text-xs italic border-border bg-background px-1 shrink-0"
-          />
-        ) : (
-          brand ? (
-            <button
-              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
-              className="ml-1 text-xs italic shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground"
-            >
-              {brand}
-            </button>
+        {/* Nom + Mq + Qté en flux inline : Mq/Qté suivent la dernière ligne du nom wrappé */}
+        <div className="min-w-0 flex-1 text-sm leading-6">
+          {isNameEditing ? (
+            <ShoppingItemNameEditor
+              value={name}
+              checked={item.checked}
+              onChange={(v) => handleNameChange(item, v)}
+              onCommit={() => commitName(item)}
+            />
           ) : (
-            <button
-              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
-              className="ml-1 text-[9px] shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20"
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "name" }))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setEditingField(prev => ({ ...prev, [item.id]: "name" }));
+                }
+              }}
+              className={`inline whitespace-normal break-words px-0.5 font-medium rounded cursor-text hover:bg-muted/40 ${
+                !item.checked ? "line-through text-muted-foreground" : "text-foreground"
+              }`}
             >
-              Mq
-            </button>
-          )
-        )}
+              {name || "\u00A0"}
+            </span>
+          )}
 
-        {/* Quantité — en ligne juste après la marque */}
-        {isQtyEditing ? (
-          <div className="flex items-baseline gap-0.5 shrink-0">
-            <span className="text-sm font-bold text-foreground">×</span>
+          {/* Marque — inline juste après le nom (ml-1 conservé) */}
+          {isBrandEditing ? (
             <Input
               autoFocus
-              placeholder="Qté"
-              value={qty}
-              onChange={(e) => handleQuantityChange(item, e.target.value)}
-              onBlur={() => commitQty(item)}
-              onKeyDown={(e) => { if (e.key === "Enter") commitQty(item); }}
-              className="h-6 w-12 text-sm font-bold border-border bg-background px-1 shrink-0"
+              placeholder="Marque"
+              value={brand}
+              onChange={(e) => handleBrandChange(item, e.target.value)}
+              onBlur={() => commitBrand(item)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitBrand(item); }}
+              className="ml-1 inline-flex h-6 w-20 text-xs italic border-border bg-background px-1 align-baseline"
             />
-          </div>
-        ) : (
-          (() => {
-            // Calculer la quantité verte à la volée à partir des besoins du menu
-            const computeGreenQty = (): string | null => {
-              if (!item.secondary_checked) return null;
-              const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
-              const itemKey = normalizeKey(item.name);
-              // Vérifier les données ambiguës en premier
-              const ambData = ambiguousItemData.get(item.id);
-              const checkKey = ambData?.needKey;
+          ) : (
+            brand ? (
+              <button
+                type="button"
+                onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
+                className="ml-1 text-xs italic px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground align-baseline"
+              >
+                {brand}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "brand" }))}
+                className="ml-1 text-[9px] px-0.5 rounded hover:bg-muted/60 transition-colors text-muted-foreground/20 align-baseline"
+              >
+                Mq
+              </button>
+            )
+          )}
 
-              for (const [nk, need] of Object.entries(needsRaw)) {
-                if (checkKey ? nk === checkKey : (normalizeKey(item.name) === normalizeKey(nk))) {
-                  const nb = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
-                  const nbType = item.content_quantity_type;
-                  let qtyNeeded = 1;
-                  if (nb > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) {
-                    qtyNeeded = Math.ceil(need.grams / nb);
-                  } else if (nb > 0 && need.count > 0) {
-                    qtyNeeded = Math.ceil(need.count / nb);
-                  } else if (need.count > 0) {
-                    qtyNeeded = Math.ceil(need.count);
+          {/* Quantité — inline juste après la marque */}
+          {isQtyEditing ? (
+            <span className="inline-flex items-baseline gap-0.5 align-baseline">
+              <span className="text-sm font-bold text-foreground">×</span>
+              <Input
+                autoFocus
+                placeholder="Qté"
+                value={qty}
+                onChange={(e) => handleQuantityChange(item, e.target.value)}
+                onBlur={() => commitQty(item)}
+                onKeyDown={(e) => { if (e.key === "Enter") commitQty(item); }}
+                className="inline-flex h-6 w-12 text-sm font-bold border-border bg-background px-1 align-baseline"
+              />
+            </span>
+          ) : (
+            (() => {
+              // Calculer la quantité verte à la volée à partir des besoins du menu
+              const computeGreenQty = (): string | null => {
+                if (!item.secondary_checked) return null;
+                const needsRaw = getPreference<Record<string, { grams: number; count: number }>>('menu_generator_needs_v1', {});
+                // Vérifier les données ambiguës en premier
+                const ambData = ambiguousItemData.get(item.id);
+                const checkKey = ambData?.needKey;
+
+                for (const [nk, need] of Object.entries(needsRaw)) {
+                  if (checkKey ? nk === checkKey : (normalizeKey(item.name) === normalizeKey(nk))) {
+                    const nbVal = item.content_quantity ? parseFloat(item.content_quantity.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
+                    const nbType = item.content_quantity_type;
+                    let qtyNeeded = 1;
+                    if (nbVal > 0 && (nbType === 'g' || (!nbType && /g/i.test(item.content_quantity || ''))) && need.grams > 0) {
+                      qtyNeeded = Math.ceil(need.grams / nbVal);
+                    } else if (nbVal > 0 && need.count > 0) {
+                      qtyNeeded = Math.ceil(need.count / nbVal);
+                    } else if (need.count > 0) {
+                      qtyNeeded = Math.ceil(need.count);
+                    }
+                    return String(qtyNeeded);
                   }
-                  return String(qtyNeeded);
                 }
+                return null;
+              };
+
+              const greenQty = computeGreenQty();
+              const userQty = qty;
+
+              if (showGreenChecks && greenQty) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
+                    className="px-0.5 rounded hover:bg-muted/60 transition-colors align-baseline"
+                  >
+                    <span className="text-sm font-bold text-green-500">×{greenQty}</span>
+                  </button>
+                );
               }
-              return null;
-            };
-
-            const greenQty = computeGreenQty();
-            const userQty = qty; // manual quantity from the item
-
-            if (showGreenChecks && greenQty) {
-              // Afficher la quantité verte en superposition de la quantité utilisateur
-              return (
+              if (userQty) return (
                 <button
+                  type="button"
                   onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
-                  className="shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors"
+                  className="px-0.5 rounded hover:bg-muted/60 transition-colors align-baseline"
                 >
-                  <span className="text-sm font-bold text-green-500">×{greenQty}</span>
+                  <span className="text-sm font-bold text-foreground">×{userQty}</span>
                 </button>
               );
-            }
-            // Afficher la quantité manuelle de l'utilisateur (ou l'espace réservé Qté)
-            if (userQty) return (
-              <button
-                onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
-                className="shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors"
-              >
-                <span className="text-sm font-bold text-foreground">×{userQty}</span>
-              </button>
-            );
-            return (
-              <button
-                onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
-                className="shrink-0 px-0.5 rounded hover:bg-muted/60 transition-colors text-[9px] text-muted-foreground/20"
-              >
-                Qté
-              </button>
-            );
-          })()
-        )}
+              return (
+                <button
+                  type="button"
+                  onClick={() => setEditingField(prev => ({ ...prev, [item.id]: "qty" }))}
+                  className="px-0.5 rounded hover:bg-muted/60 transition-colors text-[9px] text-muted-foreground/20 align-baseline"
+                >
+                  Qté
+                </button>
+              );
+            })()
+          )}
+        </div>
 
-        {/* Espace flexible : pousse la poubelle tout à droite sans séparer marque / Qté du nom */}
-        <div className="flex-1" />
-        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 text-muted-foreground hover:text-destructive shrink-0">
+        <Button size="icon" variant="ghost" onClick={() => deleteItem.mutate(item.id)} className="h-5 w-5 mt-0.5 text-muted-foreground hover:text-destructive shrink-0">
           <Trash2 className="h-3 w-3" />
         </Button>
       </div>
