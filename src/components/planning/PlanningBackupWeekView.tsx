@@ -518,7 +518,7 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                                       const dessertExtra = singleIngredientDessertById.get(extraId);
                                       const isFoodDessert = !!parseFoodDessertExtraId(extraId);
                                       const perOccurrence = custom
-                                        ? { cal: custom.cal, pro: custom.prot, fiber: dessertExtra?.fiber ?? 0 }
+                                        ? { cal: custom.cal, pro: custom.prot, fiber: custom.fiber || dessertExtra?.fiber || 0 }
                                         : fi
                                           ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary, { asDessertFood: isFoodDessert })
                                           : { cal: 0, pro: 0, fiber: 0 };

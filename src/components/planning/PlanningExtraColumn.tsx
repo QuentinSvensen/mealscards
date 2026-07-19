@@ -13,6 +13,7 @@ import { clearExtraSnapshotsForWeekday, clearNextWeekExtraStateForDay } from "@/
 import { formatPlanningSnapshotTitle } from "@/domain/planning/formatPlanningSnapshotTitle";
 import { scaleExtraDisplayMacrosByCount } from "@/lib/planningExtraMacros";
 import {
+  buildCustomExtraSelectionId,
   parseCustomExtraId,
   resolveDessertCatalogId,
   isDessertExtraInSelections,
@@ -114,6 +115,8 @@ export interface PlanningExtraColumnProps {
   setCustomExtraCal: React.Dispatch<React.SetStateAction<string>>;
   customExtraProt: string;
   setCustomExtraProt: React.Dispatch<React.SetStateAction<string>>;
+  customExtraFiber: string;
+  setCustomExtraFiber: React.Dispatch<React.SetStateAction<string>>;
   /** Pref « Masquer calories » : cache les badges flamme et filtre le catalogue. */
   hideDayCalorieTotals: boolean;
   /** Calories restantes du jour (objectif max − total planifié). */
@@ -182,6 +185,8 @@ export function PlanningExtraColumn({
   setCustomExtraCal,
   customExtraProt,
   setCustomExtraProt,
+  customExtraFiber,
+  setCustomExtraFiber,
   hideDayCalorieTotals,
   remainingDayCalories,
 }: PlanningExtraColumnProps) {
@@ -286,7 +291,12 @@ const extraDropKey = `extra-${iso}`;
                     <div className="flex items-center gap-1 mt-1">
                       <Popover open={openExtrasDay === (iso || key)} onOpenChange={(open) => {
                         setOpenExtrasDay(open ? (iso || key) : null);
-                        if (open) { setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt(''); }
+                        if (open) {
+                          setCustomExtraName('');
+                          setCustomExtraCal('');
+                          setCustomExtraProt('');
+                          setCustomExtraFiber('');
+                        }
                       }}>
                         <PopoverTrigger asChild>
                           <button
@@ -316,13 +326,17 @@ const extraDropKey = `extra-${iso}`;
                                   const name = customExtraName.trim();
                                   const cal = customExtraCal.trim();
                                   const prot = customExtraProt.trim() || '0';
-                                  const customId = `custom::${name}::${cal}::${prot}`;
+                                  const fiber = customExtraFiber.trim() || '0';
+                                  const customId = buildCustomExtraSelectionId(name, cal, prot, fiber);
                                   const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                                   const updated = { ...extraSels };
                                   const current = updated[iso] || [];
                                   if (iso) updated[iso] = [...current, customId]; else updated[key] = [...current, customId];
                                   setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                  setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
+                                  setCustomExtraName('');
+                                  setCustomExtraCal('');
+                                  setCustomExtraProt('');
+                                  setCustomExtraFiber('');
                                 }
                               }}
                               placeholder="Nom"
@@ -356,19 +370,37 @@ const extraDropKey = `extra-${iso}`;
                                 className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-blue-400 placeholder:text-blue-400/20 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-center transition-all shadow-sm"
                               />
                             </div>
+                            <div className="relative group/fib shrink-0">
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                value={customExtraFiber}
+                                onChange={(e) => setCustomExtraFiber(e.target.value)}
+                                readOnly={isTouchDevice}
+                                onFocus={(e) => {
+                                  if (isTouchDevice) e.currentTarget.readOnly = false;
+                                }}
+                                placeholder="fib"
+                                className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-emerald-500 placeholder:text-emerald-400/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center transition-all shadow-sm"
+                              />
+                            </div>
                             <button
                               onClick={() => {
                                 const name = customExtraName.trim();
                                 const cal = customExtraCal.trim();
                                 if (!name || !cal) return;
                                 const prot = customExtraProt.trim() || '0';
-                                const customId = `custom::${name}::${cal}::${prot}`;
+                                const fiber = customExtraFiber.trim() || '0';
+                                const customId = buildCustomExtraSelectionId(name, cal, prot, fiber);
                                 const extraSels = getPreference<Record<string, string[]>>('planning_extra_selections', {});
                                 const updated = { ...extraSels };
                                 const current = updated[iso] || [];
                                 if (iso) updated[iso] = [...current, customId]; else updated[key] = [...current, customId];
                                 setPreference.mutate({ key: 'planning_extra_selections', value: updated });
-                                setCustomExtraName(''); setCustomExtraCal(''); setCustomExtraProt('');
+                                setCustomExtraName('');
+                                setCustomExtraCal('');
+                                setCustomExtraProt('');
+                                setCustomExtraFiber('');
                               }}
                               disabled={!customExtraName.trim() || !customExtraCal.trim()}
                               className="h-8 w-8 shrink-0 flex items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-600 hover:from-orange-500 hover:to-orange-700 disabled:opacity-30 text-white shadow-lg shadow-orange-500/20 transition-all hover:scale-110 active:scale-95"
@@ -531,7 +563,8 @@ const extraDropKey = `extra-${iso}`;
                                   : (fi ? resolvePlanningExtraFoodMacros(fi, ingredientMacroLibrary) : { cal: 0, pro: 0, fiber: 0 });
                                 const prot = c ? c.prot : portionMacros.pro;
                                 const cal = c ? c.cal : portionMacros.cal;
-                                const fiber = c ? (dessertExtra?.fiber ?? 0) : portionMacros.fiber;
+                                // Custom : fibre encodée dans l’id ; dessert catalogue homonyme en secours.
+                                const fiber = c ? (c.fiber || dessertExtra?.fiber || 0) : portionMacros.fiber;
                                 const dessertDisplayQty = dessertExtra
                                   ? extractExtraDisplayQuantity(dessertExtra.mealPayload, foodItems)
                                   : null;

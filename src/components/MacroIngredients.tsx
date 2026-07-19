@@ -16,6 +16,7 @@ import {
   type IngredientMacroEntry,
   type IngredientMacroLibraryItem,
 } from "@/domain/macros/ingredientMacroDatabase";
+import { normalizeForMatch } from "@/lib/ingredientUtils";
 
 interface MacroIngredientsProps {
   meals: Meal[];
@@ -80,11 +81,12 @@ export function MacroIngredients({
     [meals, possibleMeals, macroLibrary, foodItems],
   );
 
+  // Filtre la liste sans accent ni casse (ex. « pate » → « Pâte… ») ; l'affichage des noms reste inchangé.
   const filteredEntries = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = normalizeForMatch(searchQuery);
     if (!query) return entries;
     return entries.filter((entry) =>
-      entry.displayName.toLowerCase().includes(query),
+      normalizeForMatch(entry.displayName).includes(query),
     );
   }, [entries, searchQuery]);
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { Meal } from "@/hooks/useMeals";
 import {
+  appendNextWeekExtraSelection,
+  buildCustomExtraSelectionId,
   buildDessertExtraId,
   formatExtraAssignedCountLabel,
   formatExtraQuantitySubtitle,
@@ -25,9 +27,21 @@ describe("extraDisplay", () => {
       name: "Yaourt",
       cal: 120,
       prot: 8,
+      fiber: 0,
+    });
+    expect(parseCustomExtraId("custom::Collation::100::5::3")).toEqual({
+      name: "Collation",
+      cal: 100,
+      prot: 5,
+      fiber: 3,
     });
     expect(parseCustomExtraId("food-dessert::abc")).toBeNull();
     expect(buildDessertExtraId("Yaourt", 120.4, 7.6)).toBe("custom::Yaourt::120::8");
+    expect(buildCustomExtraSelectionId("Collation", "100", "5")).toBe("custom::Collation::100::5::0");
+    expect(buildCustomExtraSelectionId("Collation", "100", "5", "3")).toBe("custom::Collation::100::5::3");
+    expect(
+      appendNextWeekExtraSelection({ mardi: ["a"] }, "2026-07-21", "mardi", "custom::X::10::1"),
+    ).toEqual({ "2026-07-21": ["a", "custom::X::10::1"] });
   });
 
   it("normalise les noms d'extras pour la comparaison", () => {

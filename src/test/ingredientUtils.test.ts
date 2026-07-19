@@ -14,6 +14,16 @@ import {
 import { buildFoodItemIndex } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 
+// ─── NORMALISATION RECHERCHE ────────────────────────────────────────────────
+
+describe("normalizeForMatch", () => {
+  it("matche sans accent ni casse (pate ↔ pâte)", () => {
+    expect(normalizeForMatch("pate")).toBe(normalizeForMatch("pâte"));
+    expect(normalizeForMatch("Pâte à tartiner").includes(normalizeForMatch("pate"))).toBe(true);
+    expect(normalizeForMatch("Pâtes").includes(normalizeForMatch("PATE"))).toBe(true);
+  });
+});
+
 // ─── CALORIE COMPUTATION ────────────────────────────────────────────────────
 
 describe("computeIngredientCalories", () => {

@@ -50,6 +50,19 @@ describe("planningExtraMacros", () => {
     expect(macros).toEqual({ cal: 117, pro: 1, fiber: 1 });
   });
 
+  it("inclut la fibre d'un extra custom (0 si segment absent)", () => {
+    expect(aggregateExtraSelectionMacros(["custom::Barre::200::10::4"], [], [], new Map(), {})).toEqual({
+      cal: 200,
+      pro: 10,
+      fiber: 4,
+    });
+    expect(aggregateExtraSelectionMacros(["custom::Barre::200::10"], [], [], new Map(), {})).toEqual({
+      cal: 200,
+      pro: 10,
+      fiber: 0,
+    });
+  });
+
   it("inclut les extras assignés à un créneau même s'ils manquent dans les sélections", () => {
     const merged = mergeExtraDaySelectionIds(
       [],

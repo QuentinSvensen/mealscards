@@ -23,6 +23,36 @@ export function buildDessertExtraId(name: string, cal: number, prot: number): st
   return `custom::${name}::${Math.round(cal)}::${Math.round(prot)}`;
 }
 
+/**
+ * Construit l'id de sélection d'un extra custom saisi dans le popover (Nom / kcal / prot / fib).
+ * Conserve les chaînes telles quelles ; fibre omise ou vide → `0` (rétrocompat lecture sans 5ᵉ segment).
+ */
+export function buildCustomExtraSelectionId(
+  name: string,
+  cal: string,
+  prot: string,
+  fiber: string = "0",
+): string {
+  return `custom::${name}::${cal}::${prot}::${fiber.trim() || "0"}`;
+}
+
+/**
+ * Ajoute un id d'extra aux sélections next-week d'un jour (clé ISO prioritaire, repli jour).
+ * Sert la création d'extras custom et les ajouts catalogue en semaine suivante.
+ */
+export function appendNextWeekExtraSelection(
+  selections: Record<string, string[]>,
+  iso: string,
+  key: string,
+  extraId: string,
+): Record<string, string[]> {
+  const updated = { ...selections };
+  const current = updated[iso] || updated[key] || [];
+  updated[iso] = [...current, extraId];
+  delete updated[key];
+  return updated;
+}
+
 /** Résout les macros affichées d'un aliment extra dans le popover planning. */
 export function resolvePlanningExtraFoodMacros(
   fi: FoodItem,
@@ -137,7 +167,7 @@ export function resolveAssignedExtraForDisplay(
   foodItems: FoodItem[],
   dessertById: Map<string, { mealPayload: Meal; name?: string }>,
   catalogDessertId?: string,
-): { custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
+): { custom: { name: string; cal: number; prot: number; fiber: number } | null; fi: FoodItem | undefined } | null {
   const custom = parseCustomExtraId(extraId);
   if (custom) return { custom, fi: undefined };
 
@@ -160,7 +190,7 @@ export function resolveNextWeekUnassignedExtraRow(
   dessertById: Map<string, { name: string; mealPayload?: Meal }>,
   allDessertCatalog: Array<{ id: string; name: string }>,
   dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
-): { labelId: string; custom: { name: string; cal: number; prot: number } | null; fi: FoodItem | undefined } | null {
+): { labelId: string; custom: { name: string; cal: number; prot: number; fiber: number } | null; fi: FoodItem | undefined } | null {
   const catalogId = resolveDessertCatalogId(extraId, allDessertCatalog, dessertById, dessertExtraStockSnapshots);
   const resolved = resolveAssignedExtraForDisplay(extraId, foodItems, dessertById, catalogId ?? undefined);
   if (resolved) {

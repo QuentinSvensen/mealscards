@@ -43,6 +43,19 @@ describe("extraSlotOps", () => {
     expect(assigned["2026-05-28-gouter"]).toEqual(["x", "x"]);
   });
 
+  it("assigne un extra au matin (petit-déj) avec la clé ISO-matin", () => {
+    const assigned = assignExtraToDaySlotMap(
+      { "2026-05-28-midi": ["x"] },
+      "x",
+      "2026-05-28",
+      "lundi",
+      "matin",
+      1,
+    );
+    expect(assigned["2026-05-28-midi"]).toEqual([]);
+    expect(assigned["2026-05-28-matin"]).toEqual(["x"]);
+  });
+
   it("retire un extra d'un créneau sans toucher aux autres", () => {
     const next = removeExtraFromDaySlotMap(
       { "2026-05-28-gouter": ["x", "y"], "2026-05-28-midi": ["x"] },

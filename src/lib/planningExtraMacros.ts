@@ -9,14 +9,17 @@ import {
 } from "@/lib/foodDessertUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 
-/** Décode un extra personnalisé encodé dans un id `custom::…`. */
-export function parsePlanningCustomExtraId(id: string): { name: string; cal: number; prot: number } | null {
+/** Décode un extra personnalisé encodé dans un id `custom::…` (fibre optionnelle, défaut 0). */
+export function parsePlanningCustomExtraId(
+  id: string,
+): { name: string; cal: number; prot: number; fiber: number } | null {
   if (!id.startsWith("custom::")) return null;
   const parts = id.slice(8).split("::");
   return {
     name: parts[0] || "Personnalisé",
     cal: parseFloat((parts[1] || "0").replace(",", ".")) || 0,
     prot: parseFloat((parts[2] || "0").replace(",", ".")) || 0,
+    fiber: parseFloat((parts[3] || "0").replace(",", ".")) || 0,
   };
 }
 
@@ -145,6 +148,7 @@ export function aggregateExtraSelectionMacros(
     if (custom) {
       cal += custom.cal;
       pro += custom.prot;
+      fiber += custom.fiber;
       continue;
     }
     const foodDessertItemId = parseFoodDessertExtraId(id);

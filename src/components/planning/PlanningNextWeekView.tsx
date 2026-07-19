@@ -1,7 +1,8 @@
-import { Flame, Plus, Sparkles, Wheat, Zap } from "lucide-react";
+import { Check, Flame, Plus, Sparkles, Wheat, Zap } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { PlanningInput } from "@/components/planning/PlanningInput";
+import { PlanningAssignedExtraChips } from "@/components/planning/PlanningAssignedExtraChips";
 import { PlanningGouterBand } from "@/components/planning/PlanningGouterBand";
 import { PlanningWeekTotalsFooter } from "@/components/planning/PlanningWeekTotalsFooter";
 import {
@@ -50,6 +51,8 @@ import {
   resolveExtraColumnManualFromInput,
   resolveExtraFoodRemainingCount,
   extractExtraDisplayQuantity,
+  buildCustomExtraSelectionId,
+  appendNextWeekExtraSelection,
 } from "@/domain/planning/extraDisplay";
 import { getDisplayedFiber as getMealFiber } from "@/lib/stockUtils";
 import { toast } from "@/hooks/use-toast";
@@ -105,6 +108,15 @@ export interface PlanningNextWeekViewProps {
   setDraggedSelectedExtraOrigin: React.Dispatch<React.SetStateAction<{ iso: string; key: string } | null>>;
   openExtrasDay: string | null;
   setOpenExtrasDay: React.Dispatch<React.SetStateAction<string | null>>;
+  isTouchDevice: boolean;
+  customExtraName: string;
+  setCustomExtraName: React.Dispatch<React.SetStateAction<string>>;
+  customExtraCal: string;
+  setCustomExtraCal: React.Dispatch<React.SetStateAction<string>>;
+  customExtraProt: string;
+  setCustomExtraProt: React.Dispatch<React.SetStateAction<string>>;
+  customExtraFiber: string;
+  setCustomExtraFiber: React.Dispatch<React.SetStateAction<string>>;
   setPreference: { mutate: (args: { key: string; value: unknown }) => void };
   handleNextWeekDrop: (e: React.DragEvent, iso: string, time: string) => void;
   unassignNextExtraFromAllDaySlots: (extraId: string, iso: string, key: string) => void;
@@ -171,6 +183,15 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
     setDraggedSelectedExtraOrigin,
     openExtrasDay,
     setOpenExtrasDay,
+    isTouchDevice,
+    customExtraName,
+    setCustomExtraName,
+    customExtraCal,
+    setCustomExtraCal,
+    customExtraProt,
+    setCustomExtraProt,
+    customExtraFiber,
+    setCustomExtraFiber,
     setPreference,
     handleNextWeekDrop,
     unassignNextExtraFromAllDaySlots,
@@ -253,15 +274,23 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
             const effectiveNxtBfPro = isBfAlsoInMatin ? 0 : nxtBfPro;
             const effectiveNxtBfFiber = isBfAlsoInMatin ? 0 : nxtBfFiber;
 
+            const breakfastDropKey = `${iso}-matin`;
             const nextBreakfastAssignedIds =
-              nextExtraSlotAssignments[`${iso}-matin`] ?? nextExtraSlotAssignments[`${key}-matin`] ?? [];
+              nextExtraSlotAssignments[breakfastDropKey] ?? nextExtraSlotAssignments[`${key}-matin`] ?? [];
             const nextBreakfastAssigned = sumDayExtras(nextBreakfastAssignedIds);
             const nextBreakfastTotalCals = effectiveNxtBfCal + matinCals + nextBreakfastAssigned.cal;
             const nextBreakfastTotalPro = effectiveNxtBfPro + matinPro + nextBreakfastAssigned.pro;
             const nextBreakfastTotalFiber = effectiveNxtBfFiber + matinFiber + nextBreakfastAssigned.fiber;
+            const isBreakfastDragOver =
+              dragOverSlot === breakfastDropKey || dragOverSlot === `${key}-matin`;
 
             // Indicateur unifié pour savoir si un petit déj est sélectionné (meal: ou pm: ou programmed matin)
             const hasNextBf = !!(effBfMeal || effBfPm || matinMeals.length > 0);
+            // Affiche les macros du créneau si repas OU extras déjà posés sur matin
+            const showBreakfastMacros =
+              !hideDayCalorieTotals &&
+              (hasNextBf || nextBreakfastAssignedIds.length > 0) &&
+              (nextBreakfastTotalCals > 0 || nextBreakfastTotalPro > 0 || nextBreakfastTotalFiber > 0);
 
             // Totaux jour : TIMES inclut déjà gouter ; manuels ignorés si cartes présentes (comme les bandes créneau)
             let dayTotal = nextBreakfastTotalCals;
@@ -370,8 +399,36 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
               <div key={iso} className="rounded-2xl bg-card/80 backdrop-blur-sm p-2 sm:p-4">
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <h3 className="text-sm sm:text-base font-bold text-foreground">{display}</h3>
-                  {/* Petit déj selector */}
-                  <div className="flex items-center gap-1">
+                  {/* Zone de drop petit-déj / matin : accepte les extras (comme PlanningBreakfastBlock en semaine courante) */}
+                  <div
+                    data-slot={`${key}-matin`}
+                    data-day={iso}
+                    data-time="matin"
+                    title="Déposer un extra sur le petit-déj"
+                    className={`rounded-xl border border-dashed px-2 py-1.5 transition-colors ${
+                      isBreakfastDragOver
+                        ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20"
+                        : "border-border/55 bg-background/10 hover:border-primary/40"
+                    }`}
+                    onDragOver={(e) => {
+                      const canAccept = !!(
+                        draggedSelectedExtraId ||
+                        e.dataTransfer.types.includes("text/plain")
+                      );
+                      if (!canAccept) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDragOverSlot(breakfastDropKey);
+                    }}
+                    onDragLeave={() =>
+                      setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))
+                    }
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      handleNextWeekDrop(e, iso, "matin");
+                    }}
+                  >
+                    <div className="flex items-center gap-1 flex-wrap">
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
@@ -463,7 +520,7 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                       </PopoverContent>
                     </Popover>
 
-                    {hasNextBf && !hideDayCalorieTotals && (
+                    {showBreakfastMacros && (
                       <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-muted-foreground bg-muted/30 dark:bg-muted/20 px-2 py-0.5 rounded-full border border-border/40 shadow-sm leading-none h-5">
                         {nextBreakfastTotalCals > 0 && (
                           <span className="flex items-center gap-0.5">
@@ -501,6 +558,31 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                           placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40" />
                       </>
                     )}
+                    </div>
+                    <PlanningAssignedExtraChips
+                      assignedIds={nextBreakfastAssignedIds}
+                      dayIso={iso}
+                      dayKey={key}
+                      title="Extra assigné au petit déj — glisse pour déplacer"
+                      foodItems={foodItems}
+                      dessertById={singleIngredientDessertById}
+                      dessertCatalog={allSingleIngredientDessertExtras}
+                      dessertPossibleCountById={dessertPossibleCountById}
+                      chipClassName="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-orange-500/15 text-orange-600 border border-orange-500/20 cursor-grab active:cursor-grabbing"
+                      wrapperClassName="flex flex-wrap gap-1 mt-1"
+                      keyPrefix="next-breakfast-assigned"
+                      onDeselect={deselectNextExtraForDay}
+                      onDragStartExtra={(extraId, dayIso, dayKey, e) => {
+                        setDraggedSelectedExtraId(extraId);
+                        setDraggedSelectedExtraOrigin({ iso: dayIso, key: dayKey });
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", extraId);
+                      }}
+                      onDragEndExtra={() => {
+                        setDraggedSelectedExtraId(null);
+                        setDraggedSelectedExtraOrigin(null);
+                      }}
+                    />
                   </div>
                   <div className="flex-1" />
                   <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
@@ -669,6 +751,21 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                   {(() => {
                     const nextExtraDropKey = `next-extra-${iso}`;
                     const isNextExtraDragOver = dragOverSlot === nextExtraDropKey;
+                    /** Persiste un extra custom (Nom/kcal/prot/fib) dans les sélections next-week du jour. */
+                    const createCustomNextWeekExtra = () => {
+                      const name = customExtraName.trim();
+                      const cal = customExtraCal.trim();
+                      if (!name || !cal) return;
+                      const prot = customExtraProt.trim() || "0";
+                      const fiber = customExtraFiber.trim() || "0";
+                      const customId = buildCustomExtraSelectionId(name, cal, prot, fiber);
+                      const updated = appendNextWeekExtraSelection(nextExtraSelections, iso, key, customId);
+                      setPreference.mutate({ key: "next_week_extra_selections", value: updated });
+                      setCustomExtraName("");
+                      setCustomExtraCal("");
+                      setCustomExtraProt("");
+                      setCustomExtraFiber("");
+                    };
                     return (
                   <div
                     className={`min-h-[44px] sm:min-h-[52px] rounded-xl border border-dashed p-1 sm:p-1.5 w-12 sm:w-20 flex flex-col items-center transition-colors ${isNextExtraDragOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3"}`}
@@ -736,17 +833,94 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                         }}
                         placeholder="fib" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
                       <div className="flex items-center gap-1 mt-1">
-                        <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => setOpenExtrasDay(open ? `next-${iso}` : null)}>
+                        <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => {
+                          setOpenExtrasDay(open ? `next-${iso}` : null);
+                          if (open) {
+                            setCustomExtraName('');
+                            setCustomExtraCal('');
+                            setCustomExtraProt('');
+                            setCustomExtraFiber('');
+                          }
+                        }}>
                           <PopoverTrigger asChild>
                             <button className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableNextWeekExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`} title="Ajouter un Extra">
                               <Plus className="h-3 w-3" />
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl"
+                            className="w-[min(28rem,calc(100vw-1.5rem))] p-3 bg-card/95 backdrop-blur-md border-orange-200/20 shadow-2xl rounded-2xl max-h-[56vh]"
                             align="center"
                             onOpenAutoFocus={(e) => e.preventDefault()}
                           >
+                            {/* Formulaire d'ajout custom — même UX que la semaine courante */}
+                            <div className="flex items-center gap-1.5 mb-3 pb-3 border-b border-white/5">
+                              <input
+                                type="text"
+                                value={customExtraName}
+                                onChange={(e) => setCustomExtraName(e.target.value)}
+                                readOnly={isTouchDevice}
+                                onFocus={(e) => {
+                                  if (isTouchDevice) e.currentTarget.readOnly = false;
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && customExtraName.trim() && customExtraCal.trim()) {
+                                    createCustomNextWeekExtra();
+                                  }
+                                }}
+                                placeholder="Nom"
+                                className="flex-1 min-w-0 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-3 text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all shadow-sm"
+                              />
+                              <div className="relative group/cal shrink-0">
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  value={customExtraCal}
+                                  onChange={(e) => setCustomExtraCal(e.target.value)}
+                                  readOnly={isTouchDevice}
+                                  onFocus={(e) => {
+                                    if (isTouchDevice) e.currentTarget.readOnly = false;
+                                  }}
+                                  placeholder="kcal"
+                                  className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-orange-500 placeholder:text-orange-300/30 focus:outline-none focus:ring-2 focus:ring-orange-500/20 text-center transition-all shadow-sm"
+                                />
+                              </div>
+                              <div className="relative group/prot shrink-0">
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  value={customExtraProt}
+                                  onChange={(e) => setCustomExtraProt(e.target.value)}
+                                  readOnly={isTouchDevice}
+                                  onFocus={(e) => {
+                                    if (isTouchDevice) e.currentTarget.readOnly = false;
+                                  }}
+                                  placeholder="prot"
+                                  className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-blue-400 placeholder:text-blue-400/20 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-center transition-all shadow-sm"
+                                />
+                              </div>
+                              <div className="relative group/fib shrink-0">
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  value={customExtraFiber}
+                                  onChange={(e) => setCustomExtraFiber(e.target.value)}
+                                  readOnly={isTouchDevice}
+                                  onFocus={(e) => {
+                                    if (isTouchDevice) e.currentTarget.readOnly = false;
+                                  }}
+                                  placeholder="fib"
+                                  className="w-14 h-8 text-[11px] bg-muted/40 border border-white/5 rounded-full px-1 text-emerald-500 placeholder:text-emerald-400/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center transition-all shadow-sm"
+                                />
+                              </div>
+                              <button
+                                onClick={createCustomNextWeekExtra}
+                                disabled={!customExtraName.trim() || !customExtraCal.trim()}
+                                className="h-8 w-8 shrink-0 flex items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-600 hover:from-orange-500 hover:to-orange-700 disabled:opacity-30 text-white shadow-lg shadow-orange-500/20 transition-all hover:scale-110 active:scale-95"
+                                title="Valider"
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                            </div>
                             <div className="flex items-center justify-between mb-3">
                               <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> Extras disponibles</p>
                               <Zap className="w-3 h-3 text-amber-400 animate-pulse" />
@@ -775,7 +949,13 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                   const displayName = row.custom?.name || dessertExtra?.name || row.fi?.name || resolvedId;
                                   const perOccurrence = dessertExtra
                                     ? { cal: dessertExtra.cal, pro: dessertExtra.prot, fiber: dessertExtra.fiber }
-                                    : (row.fi ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary) : { cal: row.custom?.cal ?? 0, pro: row.custom?.prot ?? 0, fiber: 0 });
+                                    : (row.fi
+                                      ? resolvePlanningExtraFoodMacros(row.fi, ingredientMacroLibrary)
+                                      : {
+                                          cal: row.custom?.cal ?? 0,
+                                          pro: row.custom?.prot ?? 0,
+                                          fiber: row.custom?.fiber ?? 0,
+                                        });
                                   const portionMacros = scaleExtraDisplayMacrosByCount(perOccurrence, count);
                                   // Sélection : #N = quantité assignée (stepper) ; catalogue garde le reste ailleurs.
                                   const dessertGrams = dessertExtra
@@ -867,7 +1047,7 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                               if (unassignedRows.length === 0) return null;
                               return (
                               <div className="mb-3 pb-3 border-b border-white/5 space-y-1">
-                                <p className="text-[9px] font-semibold text-orange-500 px-1">Sélectionnés — glisse vers un créneau</p>
+                                <p className="text-[9px] font-semibold text-orange-500 px-1">Extras sélectionnés</p>
                                 {unassignedRows}
                               </div>
                               );

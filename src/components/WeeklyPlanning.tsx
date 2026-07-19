@@ -695,6 +695,7 @@ export function WeeklyPlanning({
   const [customExtraName, setCustomExtraName] = useState('');
   const [customExtraCal, setCustomExtraCal] = useState('');
   const [customExtraProt, setCustomExtraProt] = useState('');
+  const [customExtraFiber, setCustomExtraFiber] = useState('');
   const backupCardTapRef = useRef<{ key: string; at: number } | null>(null);
 
   useEffect(() => {
@@ -2203,6 +2204,8 @@ export function WeeklyPlanning({
                   setCustomExtraCal={setCustomExtraCal}
                   customExtraProt={customExtraProt}
                   setCustomExtraProt={setCustomExtraProt}
+                  customExtraFiber={customExtraFiber}
+                  setCustomExtraFiber={setCustomExtraFiber}
                   hideDayCalorieTotals={hideDayCalorieTotals}
                   remainingDayCalories={getRemainingDayCalories(DAILY_GOAL, dayCalories)}
                 />
@@ -2395,6 +2398,15 @@ export function WeeklyPlanning({
           setDraggedSelectedExtraOrigin={setDraggedSelectedExtraOrigin}
           openExtrasDay={openExtrasDay}
           setOpenExtrasDay={setOpenExtrasDay}
+          isTouchDevice={isTouchDevice}
+          customExtraName={customExtraName}
+          setCustomExtraName={setCustomExtraName}
+          customExtraCal={customExtraCal}
+          setCustomExtraCal={setCustomExtraCal}
+          customExtraProt={customExtraProt}
+          setCustomExtraProt={setCustomExtraProt}
+          customExtraFiber={customExtraFiber}
+          setCustomExtraFiber={setCustomExtraFiber}
           setPreference={setPreference}
           handleNextWeekDrop={handleNextWeekDrop}
           unassignNextExtraFromAllDaySlots={unassignNextExtraFromAllDaySlots}
