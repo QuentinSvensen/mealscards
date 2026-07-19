@@ -6,17 +6,19 @@
  * les repas disponibles.
  *
  * Exports principaux :
- * - getTargetCalorieThreshold() : calories restantes pour la journée
+ * - getTargetCalorieThreshold(iso?) : calories restantes = borne haute − total jour
+ *   (goals / prefs semaine suivante si l’ISO est en weekOffset 1)
+ * - getRemainingProtein(iso?) : protéines restantes = goal prot − prot du jour
  * - getDayProtein() : protéines consommées pour un jour donné
  * - getOverrideScaleRatio() : ratio d'échelle depuis un override de calories
  * - getCardDisplayCalories/Protein() : macros affichées pour une carte planning
  */
 import { useMemo } from 'react';
-import { format, startOfWeek, addDays } from 'date-fns';
-import { useMeals, DAYS, PLANNING_DAY_SLOTS, type PossibleMeal, type Meal } from '@/hooks/useMeals';
+import { format } from 'date-fns';
+import { useMeals, PLANNING_DAY_SLOTS, type PossibleMeal, type Meal } from '@/hooks/useMeals';
 import { usePreferences } from '@/hooks/usePreferences';
-import { type FoodItemMacroIndex, computeIngredientCalories, computeIngredientProtein } from '@/lib/ingredientUtils';
-import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
+import { type FoodItemMacroIndex } from '@/lib/ingredientUtils';
+import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
 import {
   DESSERT_FOOD_PREF_KEY,
 } from "@/lib/foodDessertUtils";
@@ -32,11 +34,15 @@ import {
   computePlanningDayTotalCalories,
   type PlanningDayCalorieState,
 } from "@/domain/planning/planningDayCalories";
+import { getRemainingDayCalories } from "@/domain/planning/calorieGoalRange";
+import {
+  isIsoInNextPlanningWeek,
+  resolvePlanningGoalForIso,
+} from "@/lib/planningWeekUtils";
 
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 
 const DEFAULT_DAILY_GOAL = 2750;
-const DRINK_CALORIES = 150;
 
 const JS_DAY_TO_KEY: Record<number, string> = {
   1: "lundi",
@@ -46,10 +52,6 @@ const JS_DAY_TO_KEY: Record<number, string> = {
   5: "vendredi",
   6: "samedi",
   0: "dimanche",
-};
-
-const DAY_KEY_TO_INDEX: Record<string, number> = {
-  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
 };
 
 /** Extrait un nombre de kcal depuis une chaîne potentiellement bruitée (symboles, virgules). */
@@ -236,14 +238,30 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const DAILY_GOAL = getPreference<number>('planning_daily_goal', DEFAULT_DAILY_GOAL);
   // Borne basse optionnelle de la fourchette calorique (0 = fourchette désactivée). La borne haute (DAILY_GOAL) reste la cible des calculs.
   const DAILY_GOAL_LOW = getPreference<number>('planning_daily_goal_low', 0);
+  const NEXT_DAILY_GOAL = getPreference<number>('next_week_daily_goal', DAILY_GOAL);
   const manualProteins = getPreference<Record<string, number>>('planning_manual_proteins', {});
   const extraProteins = getPreference<Record<string, number>>('planning_extra_proteins', {});
   const breakfastManualProteins = getPreference<Record<string, number>>('planning_breakfast_manual_proteins', {});
   const DAILY_PROTEIN_GOAL = getPreference<number>('planning_protein_goal', getPreference<number>('planning_daily_protein_goal', 110));
+  const NEXT_PROTEIN_GOAL = getPreference<number>('next_week_protein_goal', DAILY_PROTEIN_GOAL);
   const manualFibers = getPreference<Record<string, number>>('planning_manual_fibers', {});
   const extraFibers = getPreference<Record<string, number>>('planning_extra_fibers', {});
   const breakfastManualFibers = getPreference<Record<string, number>>('planning_breakfast_manual_fibers', {});
   const DAILY_FIBER_GOAL = getPreference<number>('planning_fiber_goal', 30);
+
+  // Prefs semaine suivante (même sources que PlanningNextWeekView).
+  const nextBreakfastSelections = getPreference<Record<string, string>>('next_week_breakfast', {});
+  const nextManualCalories = getPreference<Record<string, number>>('next_week_manual_calories', {});
+  const nextManualProteins = getPreference<Record<string, number>>('next_week_manual_proteins', {});
+  const nextManualFibers = getPreference<Record<string, number>>('next_week_manual_fibers', {});
+  const nextExtraCalories = getPreference<Record<string, number>>('next_week_extra_calories', {});
+  const nextExtraProteins = getPreference<Record<string, number>>('next_week_extra_proteins', {});
+  const nextExtraFibers = getPreference<Record<string, number>>('next_week_extra_fibers', {});
+  const nextExtraSelections = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
+  const nextExtraSlotAssignments = getPreference<Record<string, string[]>>('next_week_extra_slot_assignments', {});
+  const nextBreakfastManualCalories = getPreference<Record<string, number>>('next_week_breakfast_manual_calories', {});
+  const nextBreakfastManualProteins = getPreference<Record<string, number>>('next_week_breakfast_manual_proteins', {});
+  const nextDrinkChecks = getPreference<Record<string, boolean>>('next_week_drink_checks', {});
 
   const planningMeals = useMemo(() => possibleMeals.filter((pm) => {
     if (pm.meals?.category === "plat") return true;
@@ -270,16 +288,25 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     ],
   );
 
-  const sumDayExtraMacros = useMemo(
-    () => (ids: string[] | undefined) =>
-      aggregateExtraSelectionMacros(
-        ids,
+  // Catalogue desserts semaine suivante (sélections / assignations `next_week_*`).
+  const nextDessertCatalogById = useMemo(
+    () =>
+      buildPlanningDessertCatalogById(
         foodItems,
+        dessertFoodItemIds,
         ingredientMacroLibrary,
-        dessertCatalogById,
+        nextExtraSelections,
+        nextExtraSlotAssignments,
         dessertExtraStockSnapshots,
       ),
-    [dessertCatalogById, dessertExtraStockSnapshots, foodItems, ingredientMacroLibrary],
+    [
+      dessertExtraStockSnapshots,
+      dessertFoodItemIds,
+      foodItems,
+      ingredientMacroLibrary,
+      nextExtraSelections,
+      nextExtraSlotAssignments,
+    ],
   );
 
   const planningDayCalorieState = useMemo(
@@ -321,8 +348,57 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     ],
   );
 
+  const nextPlanningDayCalorieState = useMemo(
+    (): PlanningDayCalorieState => ({
+      possibleMeals: planningMeals,
+      allMeals,
+      petitDejMeals,
+      foodItems,
+      breakfastSelections: nextBreakfastSelections,
+      manualCalories: nextManualCalories,
+      extraCalories: nextExtraCalories,
+      extraSelections: nextExtraSelections,
+      extraSlotAssignments: nextExtraSlotAssignments,
+      dessertFoodItemIds,
+      dessertExtraStockSnapshots,
+      ingredientMacroLibrary,
+      breakfastManualCalories: nextBreakfastManualCalories,
+      drinkChecks: nextDrinkChecks,
+      calOverrides,
+      isAvailable,
+    }),
+    [
+      planningMeals,
+      allMeals,
+      petitDejMeals,
+      foodItems,
+      nextBreakfastSelections,
+      nextManualCalories,
+      nextExtraCalories,
+      nextExtraSelections,
+      nextExtraSlotAssignments,
+      dessertFoodItemIds,
+      dessertExtraStockSnapshots,
+      ingredientMacroLibrary,
+      nextBreakfastManualCalories,
+      nextDrinkChecks,
+      calOverrides,
+      isAvailable,
+    ],
+  );
+
+  /** Choisit l’état calorique (semaine courante vs suivante) selon la date ISO. */
+  const resolveCalorieStateForIso = (isoDate?: string): PlanningDayCalorieState =>
+    isoDate && isIsoInNextPlanningWeek(isoDate)
+      ? nextPlanningDayCalorieState
+      : planningDayCalorieState;
+
+  /**
+   * Calcule le total calorique d’un jour planning.
+   * Pour une ISO de semaine suivante, utilise les prefs `next_week_*` (comme PlanningNextWeekView).
+   */
   const getDayCalories = (dayKey: string, isoDate?: string): number =>
-    computePlanningDayTotalCalories(planningDayCalorieState, dayKey, isoDate);
+    computePlanningDayTotalCalories(resolveCalorieStateForIso(isoDate), dayKey, isoDate);
 
   const getMealsForSlot = (dayKey: string, time: string, isoDate?: string) =>
     planningMeals.filter((pm) =>
@@ -330,9 +406,16 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       pm.meal_time === time,
     );
 
-  /** Résout un ID de sélection de petit-déjeuner en un objet de type Meal. */
+  /**
+   * Résout un ID de sélection de petit-déjeuner en un objet Meal,
+   * en prenant la map breakfast de la semaine courante ou suivante selon l’ISO.
+   */
   const getBreakfastForDay = (dayKey: string, isoDate?: string): Meal | null => {
-    const selId = pickPlanningDayValue(breakfastSelections, isoDate, dayKey);
+    const bfMap =
+      isoDate && isIsoInNextPlanningWeek(isoDate)
+        ? nextBreakfastSelections
+        : breakfastSelections;
+    const selId = pickPlanningDayValue(bfMap, isoDate, dayKey);
     if (!selId) return null;
 
     if (selId.startsWith("pm:")) {
@@ -358,20 +441,33 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     );
   };
 
+  /**
+   * Agrège les protéines du jour (cartes, manuel, petit-déj, extras).
+   * Branche sur les prefs semaine suivante quand l’ISO est en weekOffset 1.
+   */
   const getDayProtein = (dayKey: string, isoDate?: string): number => {
+    const useNext = !!(isoDate && isIsoInNextPlanningWeek(isoDate));
+    const bfMap = useNext ? nextBreakfastSelections : breakfastSelections;
+    const manualProMap = useNext ? nextManualProteins : manualProteins;
+    const bfManualProMap = useNext ? nextBreakfastManualProteins : breakfastManualProteins;
+    const extraProMap = useNext ? nextExtraProteins : extraProteins;
+    const extraSelMap = useNext ? nextExtraSelections : extraSelections;
+    const extraAssignMap = useNext ? nextExtraSlotAssignments : extraSlotAssignments;
+    const dessertCatalog = useNext ? nextDessertCatalogById : dessertCatalogById;
+
     const slotTimes = [...PLANNING_DAY_SLOTS] as string[];
     const mealPro = slotTimes.reduce((total, time) => {
       const slotMeals = getMealsForSlot(dayKey, time, isoDate);
       if (slotMeals.length > 0) {
         return total + slotMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
       }
-      return total + (pickPlanningSlotValue(manualProteins, isoDate, dayKey, time) ?? 0);
+      return total + (pickPlanningSlotValue(manualProMap, isoDate, dayKey, time) ?? 0);
     }, 0);
 
     const breakfast = getBreakfastForDay(dayKey, isoDate);
     let breakfastPro = 0;
     if (breakfast) {
-      const selId = pickPlanningDayValue(breakfastSelections, isoDate, dayKey);
+      const selId = pickPlanningDayValue(bfMap, isoDate, dayKey);
       if (selId?.startsWith('pm:')) {
         const pmId = selId.slice(3);
         const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
@@ -386,37 +482,56 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         breakfastPro = getDisplayedProtein(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
       }
     } else {
-      breakfastPro = pickPlanningDayValue(breakfastManualProteins, isoDate, dayKey) ?? 0;
+      breakfastPro = pickPlanningDayValue(bfManualProMap, isoDate, dayKey) ?? 0;
     }
 
-    const extraManual = pickPlanningDayValue(extraProteins, isoDate, dayKey) ?? 0;
+    const extraManual = pickPlanningDayValue(extraProMap, isoDate, dayKey) ?? 0;
 
     const dayIso = isoDate ?? "";
     const selectedExtraIds = mergeExtraDaySelectionIds(
-      pickPlanningDayValue(extraSelections, isoDate, dayKey) ?? [],
-      extraSlotAssignments,
+      pickPlanningDayValue(extraSelMap, isoDate, dayKey) ?? [],
+      extraAssignMap,
       dayIso,
       dayKey,
     );
-    const extraSelected = sumDayExtraMacros(selectedExtraIds);
+    const extraSelected = aggregateExtraSelectionMacros(
+      selectedExtraIds,
+      foodItems,
+      ingredientMacroLibrary,
+      dessertCatalog,
+      dessertExtraStockSnapshots,
+    );
 
     return mealPro + breakfastPro + extraManual + extraSelected.pro;
   };
 
+  /**
+   * Agrège les fibres du jour (cartes, manuel, petit-déj, extras).
+   * Branche sur les prefs semaine suivante quand l’ISO est en weekOffset 1.
+   */
   const getDayFiber = (dayKey: string, isoDate?: string): number => {
+    const useNext = !!(isoDate && isIsoInNextPlanningWeek(isoDate));
+    const bfMap = useNext ? nextBreakfastSelections : breakfastSelections;
+    const manualFiberMap = useNext ? nextManualFibers : manualFibers;
+    const bfManualFiberMap = useNext ? {} : breakfastManualFibers;
+    const extraFiberMap = useNext ? nextExtraFibers : extraFibers;
+    const extraSelMap = useNext ? nextExtraSelections : extraSelections;
+    const extraAssignMap = useNext ? nextExtraSlotAssignments : extraSlotAssignments;
+    const dessertCatalog = useNext ? nextDessertCatalogById : dessertCatalogById;
+
     const slotTimes = [...PLANNING_DAY_SLOTS] as string[];
     const mealFiber = slotTimes.reduce((total, time) => {
       const slotMeals = getMealsForSlot(dayKey, time, isoDate);
       if (slotMeals.length > 0) {
         return total + slotMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, fiberOverrides[pm.id], isAvailable, foodItems, foodItemMacroIndex), 0);
       }
-      return total + (pickPlanningSlotValue(manualFibers, isoDate, dayKey, time) ?? 0);
+      return total + (pickPlanningSlotValue(manualFiberMap, isoDate, dayKey, time) ?? 0);
     }, 0);
 
     const breakfast = getBreakfastForDay(dayKey, isoDate);
     let breakfastFiber = 0;
     if (breakfast) {
-      const selId = pickPlanningDayValue(breakfastSelections, isoDate, dayKey);
+      const selId = pickPlanningDayValue(bfMap, isoDate, dayKey);
       if (selId?.startsWith('pm:')) {
         const pmId = selId.slice(3);
         const possiblePdj = possibleMeals.find(pm => pm.id === pmId);
@@ -429,56 +544,59 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         breakfastFiber = getDisplayedFiber(breakfast, null, undefined, isAvailable, foodItems, foodItemMacroIndex) || 0;
       }
     } else {
-      breakfastFiber = pickPlanningDayValue(breakfastManualFibers, isoDate, dayKey) ?? 0;
+      breakfastFiber = pickPlanningDayValue(bfManualFiberMap, isoDate, dayKey) ?? 0;
     }
 
-    const extraManual = pickPlanningDayValue(extraFibers, isoDate, dayKey) ?? 0;
+    const extraManual = pickPlanningDayValue(extraFiberMap, isoDate, dayKey) ?? 0;
 
     const dayIso = isoDate ?? "";
     const selectedExtraIds = mergeExtraDaySelectionIds(
-      pickPlanningDayValue(extraSelections, isoDate, dayKey) ?? [],
-      extraSlotAssignments,
+      pickPlanningDayValue(extraSelMap, isoDate, dayKey) ?? [],
+      extraAssignMap,
       dayIso,
       dayKey,
     );
-    const extraSelected = sumDayExtraMacros(selectedExtraIds);
+    const extraSelected = aggregateExtraSelectionMacros(
+      selectedExtraIds,
+      foodItems,
+      ingredientMacroLibrary,
+      dessertCatalog,
+      dessertExtraStockSnapshots,
+    );
 
     return mealFiber + breakfastFiber + extraManual + extraSelected.fiber;
   };
 
-  const getTargetCalorieThreshold = () => {
-    const todayNum = new Date().getDay();
-    const todayKey = JS_DAY_TO_KEY[todayNum];
-    const todayIndex = DAY_KEY_TO_INDEX[todayKey];
-    const currentStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-
-    let differencesSum = 0;
-    let daysCount = 0;
-
-    for (let i = 0; i < todayIndex; i++) {
-      const pastDayKey = DAYS[i];
-      const pastIso = format(addDays(currentStart, i), 'yyyy-MM-dd');
-      const consumed = getDayCalories(pastDayKey, pastIso);
-      if (consumed > 0) {
-        differencesSum += (consumed - DAILY_GOAL);
-        daysCount++;
-      }
-    }
-
-    const avgDifference = daysCount > 0 ? (differencesSum / daysCount) : 0;
-    const todayIso = format(new Date(), 'yyyy-MM-dd');
-    const todayConsumed = getDayCalories(todayKey, todayIso);
-    const remainingToday = DAILY_GOAL - todayConsumed;
-    const threshold = remainingToday - avgDifference;
-    return Math.max(0, threshold);
+  /**
+   * Calcule le seuil calorique restant pour un jour (défaut : aujourd’hui).
+   * Aligné sur le Planning : borne haute d’objectif − total jour (pas de lissage).
+   * Semaine suivante → NEXT_DAILY_GOAL + totaux `next_week_*`.
+   */
+  const getTargetCalorieThreshold = (targetIso?: string) => {
+    // Midi local évite les décalages de fuseau sur les ISO `yyyy-MM-dd`.
+    const targetDate = targetIso
+      ? new Date(`${targetIso}T12:00:00`)
+      : new Date();
+    const targetKey = JS_DAY_TO_KEY[targetDate.getDay()];
+    const resolvedIso = targetIso ?? format(targetDate, 'yyyy-MM-dd');
+    const goalHigh = resolvePlanningGoalForIso(resolvedIso, DAILY_GOAL, NEXT_DAILY_GOAL);
+    const dayConsumed = getDayCalories(targetKey, resolvedIso);
+    return getRemainingDayCalories(goalHigh, dayConsumed);
   };
 
-  const getRemainingProtein = () => {
-    const todayNum = new Date().getDay();
-    const todayKey = JS_DAY_TO_KEY[todayNum];
-    const todayIso = format(new Date(), 'yyyy-MM-dd');
-    const todayConsumed = getDayProtein(todayKey, todayIso);
-    return Math.max(0, DAILY_PROTEIN_GOAL - todayConsumed);
+  /**
+   * Calcule les protéines restantes pour un jour (défaut : aujourd’hui).
+   * Aligné sur le Planning : objectif prot du bon contexte − prot du jour.
+   */
+  const getRemainingProtein = (targetIso?: string) => {
+    const targetDate = targetIso
+      ? new Date(`${targetIso}T12:00:00`)
+      : new Date();
+    const targetKey = JS_DAY_TO_KEY[targetDate.getDay()];
+    const resolvedIso = targetIso ?? format(targetDate, 'yyyy-MM-dd');
+    const proteinGoal = resolvePlanningGoalForIso(resolvedIso, DAILY_PROTEIN_GOAL, NEXT_PROTEIN_GOAL);
+    const dayConsumed = getDayProtein(targetKey, resolvedIso);
+    return Math.max(0, proteinGoal - dayConsumed);
   };
 
   return { getDayCalories, getDayProtein, getDayFiber, DAILY_GOAL, DAILY_GOAL_LOW, DAILY_PROTEIN_GOAL, DAILY_FIBER_GOAL, getRecordSelectedExtraIds: (day: string) => (getPreference<Record<string, string[]>>('planning_extra_selections', {})[day] || []), getBreakfastForDay, getTargetCalorieThreshold, getRemainingProtein };

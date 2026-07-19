@@ -55,3 +55,45 @@ export function buildWeekDates(weekOffset: number, ref: Date = new Date()): Plan
     };
   });
 }
+
+/**
+ * Construit les 14 jours utiles pour le sélecteur de seuil « Au choix » :
+ * semaine courante (7) + semaine suivante (7).
+ */
+export function buildTwoWeekDates(ref: Date = new Date()): PlanningWeekDayInfo[] {
+  return [...buildWeekDates(0, ref), ...buildWeekDates(1, ref)];
+}
+
+/**
+ * Choisit le jour de seuil par défaut dans une fenêtre de dates :
+ * aujourd’hui s’il y figure, sinon le premier jour de la fenêtre.
+ */
+export function resolveDefaultThresholdDayIso(
+  windowDays: PlanningWeekDayInfo[],
+  todayIso: string,
+): string {
+  if (windowDays.some((d) => d.iso === todayIso)) return todayIso;
+  return windowDays[0]?.iso ?? todayIso;
+}
+
+/**
+ * Indique si une date ISO appartient à la semaine suivante du planning (weekOffset === 1).
+ * Sert à choisir les objectifs / prefs `next_week_*` plutôt que ceux de la semaine courante.
+ */
+export function isIsoInNextPlanningWeek(iso: string, ref: Date = new Date()): boolean {
+  return buildWeekDates(1, ref).some((d) => d.iso === iso);
+}
+
+/**
+ * Résout un objectif planning (calories, protéines, etc.) selon la date ISO :
+ * semaine suivante → valeur « next », sinon valeur de la semaine courante.
+ */
+export function resolvePlanningGoalForIso<T>(
+  iso: string | undefined,
+  currentGoal: T,
+  nextGoal: T,
+  ref: Date = new Date(),
+): T {
+  if (!iso) return currentGoal;
+  return isIsoInNextPlanningWeek(iso, ref) ? nextGoal : currentGoal;
+}

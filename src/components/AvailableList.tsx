@@ -9,6 +9,7 @@
  *
  * Fonctionnalités avancées :
  * - Filtrage par seuil calorique restant (useRemainingCalories)
+ * - Sélecteur de jour (14 j) en session : défaut = aujourd’hui, reset au refresh
  * - Tri par calories, protéines, péremption ou manuel
  * - Recherche dans les noms et ingrédients
  * - Badges de ratio personnalisable (x2, 75%, etc.)
@@ -20,7 +21,7 @@
  */
 import { useState, Fragment, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
+import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Calendar, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,11 @@ import { DESSERT_FOOD_PREF_KEY } from "@/lib/foodDessertUtils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import {
+  buildTwoWeekDates,
+  resolveDefaultThresholdDayIso,
+} from "@/lib/planningWeekUtils";
 
 type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 
@@ -296,14 +302,31 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     if (!stock) return false;
     return stock.infinite || stock.grams > 0 || stock.count > 0;
   };
-  const { getTargetCalorieThreshold, getDayProtein, DAILY_PROTEIN_GOAL } = useCalorieBalance(isAvailableCb);
-  const baseCalorieThreshold = getTargetCalorieThreshold();
-  const JS_DAY_TO_KEY: Record<number, string> = { 1:"lundi",2:"mardi",3:"mercredi",4:"jeudi",5:"vendredi",6:"samedi",0:"dimanche" };
-  const todayIso = format(new Date(), 'yyyy-MM-dd');
-  const todayProtein = getDayProtein(JS_DAY_TO_KEY[new Date().getDay()], todayIso);
-  const remainingProtein = Math.max(0, DAILY_PROTEIN_GOAL - todayProtein);
+  const { getTargetCalorieThreshold, getRemainingProtein } = useCalorieBalance(isAvailableCb);
+  const todayIso = format(new Date(), "yyyy-MM-dd");
+  // Fenêtre de 14 jours (semaine actuelle + suivante) pour le sélecteur de seuil.
+  const thresholdDayWindow = useMemo(() => buildTwoWeekDates(new Date()), [todayIso]);
+  const defaultThresholdDayIso = resolveDefaultThresholdDayIso(thresholdDayWindow, todayIso);
+  // État de session uniquement : un F5 repart toujours sur aujourd’hui (pas de pref persistée).
+  const [sessionThresholdDayIso, setSessionThresholdDayIso] = useState(defaultThresholdDayIso);
+  const selectedThresholdDayIso = thresholdDayWindow.some((d) => d.iso === sessionThresholdDayIso)
+    ? sessionThresholdDayIso
+    : defaultThresholdDayIso;
+  const selectedThresholdDay = thresholdDayWindow.find((d) => d.iso === selectedThresholdDayIso)
+    ?? thresholdDayWindow[0];
+  const baseCalorieThreshold = getTargetCalorieThreshold(selectedThresholdDayIso);
+  const remainingProtein = getRemainingProtein(selectedThresholdDayIso);
   const [tempCalorieOverride, setTempCalorieOverride] = useState<number | null>(null);
   const calorieThreshold = tempCalorieOverride ?? baseCalorieThreshold;
+
+  /**
+   * Change le jour du seuil pour la session courante et réinitialise l’override temporaire.
+   * Ne persiste rien : un refresh remet aujourd’hui.
+   */
+  const handleThresholdDayChange = (iso: string) => {
+    setSessionThresholdDayIso(iso);
+    setTempCalorieOverride(null);
+  };
 
   const parseRatioInput = (input: string, maxRatio: number): number | null => {
     const trimmed = input.trim().toLowerCase();
@@ -1890,21 +1913,50 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
             </div>
           </div>
           {useRemainingCalories && (
-            <label
-              htmlFor={`filter-full-recipes-${category.value}`}
-              className="ml-auto flex items-center gap-2 rounded-xl bg-background/40 px-2 py-1 text-[10px] font-bold text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-              title="Afficher uniquement les recettes complètes à 100% qui rentrent dans les calories restantes"
-            >
-              <Checkbox
-                id={`filter-full-recipes-${category.value}`}
-                checked={showOnlyFullRemainingRecipes}
-                onCheckedChange={(checked) => {
-                  setAvailPref.mutate({ key: `available_full_remaining_recipes_${category.value}`, value: !!checked });
-                  if (checked) setCustomRatios({});
-                }}
-              />
-              <span className="whitespace-nowrap">100%</span>
-            </label>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              {/* Sélecteur de date : style badge calendrier des cartes Possible */}
+              <Select value={selectedThresholdDayIso} onValueChange={handleThresholdDayChange}>
+                <SelectTrigger
+                  className="h-5 min-w-[58px] w-auto justify-start gap-1 px-1.5 py-0 border border-border/50 bg-background/60 text-foreground text-[10px] rounded-md hover:bg-background/80 transition-colors [&>svg:last-child]:hidden focus:ring-0 focus:ring-offset-0"
+                  title="Jour utilisé pour le seuil max (calories / protéines restantes)"
+                >
+                  <Calendar className="h-2.5 w-2.5 opacity-50 shrink-0" />
+                  <span className="whitespace-nowrap">
+                    {selectedThresholdDay
+                      ? format(parseISO(selectedThresholdDay.iso), "eee d", { locale: fr })
+                      : "Jour"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {thresholdDayWindow.map((d) => (
+                    <SelectItem
+                      key={d.iso}
+                      value={d.iso}
+                      className={d.iso === todayIso ? "bg-primary/15 focus:bg-primary/25 font-bold" : ""}
+                    >
+                      {d.iso === todayIso
+                        ? `📅 ${format(parseISO(d.iso), "EEEE d", { locale: fr }).replace(/^\w/, (c) => c.toUpperCase())}`
+                        : format(parseISO(d.iso), "EEEE d", { locale: fr }).replace(/^\w/, (c) => c.toUpperCase())}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <label
+                htmlFor={`filter-full-recipes-${category.value}`}
+                className="flex items-center gap-2 rounded-xl bg-background/40 px-2 py-1 text-[10px] font-bold text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                title="Afficher uniquement les recettes complètes à 100% qui rentrent dans les calories restantes"
+              >
+                <Checkbox
+                  id={`filter-full-recipes-${category.value}`}
+                  checked={showOnlyFullRemainingRecipes}
+                  onCheckedChange={(checked) => {
+                    setAvailPref.mutate({ key: `available_full_remaining_recipes_${category.value}`, value: !!checked });
+                    if (checked) setCustomRatios({});
+                  }}
+                />
+                <span className="whitespace-nowrap">100%</span>
+              </label>
+            </div>
           )}
         </div>
       )}
