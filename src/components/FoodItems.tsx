@@ -1616,20 +1616,6 @@ export function FoodItems() {
               </span>
             </div>
           )}
-          {pendingGrams.trim() && (
-            <div className="mb-3">
-              <button
-                onClick={() => {
-                  setSuggestedIsIndivisible(null);
-                  setPendingIsIndivisible(prev => !prev);
-                }}
-                className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${pendingIsIndivisible ? 'bg-orange-500/20 text-orange-300 border-orange-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'}`}
-                title={pendingIsIndivisible ? "Indivisible activé pour cet aliment" : "Marquer cet aliment comme indivisible"}
-              >
-                <Lock className="h-3 w-3" />Indivisible
-              </button>
-            </div>
-          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <Button onClick={() => confirmAdd('frigo')} variant="outline" className={`flex-1 gap-1.5 ${suggestedStorageType === 'frigo' ? 'ring-2 ring-primary/50 bg-primary/10' : ''}`}>
               <Refrigerator className="h-4 w-4 text-blue-400" /> Frigo
