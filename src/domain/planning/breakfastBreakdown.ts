@@ -14,6 +14,35 @@ export interface BreakfastBreakdownItem {
   pro: number;
 }
 
+/** Indique si une ligne du détail est un extra assigné au matin (déjà affiché à part). */
+export function isBreakfastBreakdownExtraItem(item: BreakfastBreakdownItem): boolean {
+  return item.id.startsWith("extra-");
+}
+
+/**
+ * Retourne uniquement les vrais petits déj (cartes / sélection / saisie),
+ * sans les extras matin déjà visibles via leur pastille.
+ */
+export function getBreakfastMealOnlyBreakdownItems(
+  items: BreakfastBreakdownItem[],
+): BreakfastBreakdownItem[] {
+  return items.filter((item) => !isBreakfastBreakdownExtraItem(item));
+}
+
+/**
+ * Libellé du bouton petit-déj : ignore les extras pour ne pas afficher
+ * « Plusieurs petits déj » quand il n’y a qu’un Cookie + un extra.
+ */
+export function getBreakfastButtonLabel(
+  items: BreakfastBreakdownItem[],
+  emptyLabel = "🥐 Petit déj",
+): string {
+  const meals = getBreakfastMealOnlyBreakdownItems(items);
+  if (meals.length > 1) return "Plusieurs petits déj";
+  if (meals.length === 1) return meals[0].name;
+  return emptyLabel;
+}
+
 /** Indique si une carte Possible petit-déj est déjà comptée via le créneau matin ce jour-là. */
 export function isBackupBreakfastPmAlreadyInMatinSlot(
   pm: PossibleMealBackupCard | undefined,

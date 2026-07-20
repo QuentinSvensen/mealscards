@@ -6,6 +6,8 @@ import { DRINK_CALORIES, TIME_LABELS } from "@/components/planning/planningSlotS
 import { MAIN_GRID_TIMES } from "@/hooks/useMeals";
 import {
   buildBackupBreakfastBreakdownItems,
+  getBreakfastButtonLabel,
+  getBreakfastMealOnlyBreakdownItems,
   isBackupBreakfastPmAlreadyInMatinSlot,
 } from "@/domain/planning/breakfastBreakdown";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
@@ -313,14 +315,10 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                             isAvailable: isAvailableCb,
                             foodMacroIndex,
                           });
-                          const breakfastLabel =
-                            breakfastBreakdownItems.length > 1
-                              ? 'Plusieurs petits déj'
-                              : breakfastBreakdownItems.length === 1
-                                ? breakfastBreakdownItems[0].name
-                                : '🥐 Petit déj';
+                          const breakfastLabel = getBreakfastButtonLabel(breakfastBreakdownItems);
+                          const mealOnlyBreakdown = getBreakfastMealOnlyBreakdownItems(breakfastBreakdownItems);
 
-                          if (breakfastBreakdownItems.length > 1) {
+                          if (mealOnlyBreakdown.length > 1) {
                             return (
                               <Popover>
                                 <PopoverTrigger asChild>

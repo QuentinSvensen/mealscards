@@ -6,6 +6,10 @@ import { PlanningSlotMacrosBadge } from "@/components/planning/PlanningSlotMacro
 import { PlanningAssignedExtraChips } from "@/components/planning/PlanningAssignedExtraChips";
 import { BreakfastBreakdownList } from "@/components/planning/BreakfastBreakdownList";
 import type { BreakfastBreakdownItem } from "@/domain/planning/breakfastBreakdown";
+import {
+  getBreakfastButtonLabel,
+  getBreakfastMealOnlyBreakdownItems,
+} from "@/domain/planning/breakfastBreakdown";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
@@ -160,15 +164,11 @@ export function PlanningBreakfastBlock({
                           if (bm) setPopupBreakfast({ meal: bm, day: iso });
                         }}
                       >
-                        {(() => {
-                          if (liveBreakfastBreakdown.length > 1) return 'Plusieurs petits déj';
-                          if (liveBreakfastBreakdown.length === 1) return liveBreakfastBreakdown[0].name;
-                          return '🥐 Petit déj';
-                        })()}
+                        {getBreakfastButtonLabel(liveBreakfastBreakdown)}
                       </button>
                     </PopoverTrigger>
                     <PopoverContent className="w-56 p-2" align="start">
-                      {liveBreakfastBreakdown.length > 1 && (
+                      {getBreakfastMealOnlyBreakdownItems(liveBreakfastBreakdown).length > 1 && (
                         <>
                           <BreakfastBreakdownList
                             items={liveBreakfastBreakdown}

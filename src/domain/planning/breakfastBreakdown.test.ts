@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildBackupBreakfastBreakdownItems,
+  getBreakfastButtonLabel,
   isBackupBreakfastPmAlreadyInMatinSlot,
 } from "./breakfastBreakdown";
 import type { PossibleMealBackupCard } from "./types";
@@ -59,5 +60,22 @@ describe("breakfastBreakdown", () => {
 
     expect(items).toHaveLength(1);
     expect(items[0].name).toBe("Cookie maison");
+  });
+
+  it("affiche le nom du repas et ignore les extras pour le libellé du bouton", () => {
+    const label = getBreakfastButtonLabel([
+      { id: "matin-1", name: "Cookie maison", cal: 328, pro: 38 },
+      { id: "extra-fi-1", name: "Pate a tartiner", cal: 43, pro: 1 },
+    ]);
+    expect(label).toBe("Cookie maison");
+  });
+
+  it("garde Plusieurs petits déj seulement s'il y a plusieurs repas", () => {
+    const label = getBreakfastButtonLabel([
+      { id: "matin-1", name: "Cookie maison", cal: 328, pro: 38 },
+      { id: "matin-2", name: "Shaker", cal: 200, pro: 30 },
+      { id: "extra-fi-1", name: "Pate a tartiner", cal: 43, pro: 1 },
+    ]);
+    expect(label).toBe("Plusieurs petits déj");
   });
 });
