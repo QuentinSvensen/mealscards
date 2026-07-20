@@ -844,89 +844,257 @@ function ingredientLineHasContent(line: IngLine): boolean {
   return Boolean(line.name.trim() || line.qty.trim() || line.count.trim());
 }
 
-/**
- * Regroupe tous les ingrédients de la recette pour la pop-up avant transfert vers Possible
- * (bundles « + » → affichage « et »). Chaque item indique s'il était optionnel.
- * `name` sert au matching stock (dates de péremption) ; `qty`/`count` à l'édition live.
- */
-export function listRecipeIngredientGroups(
-  ingredients: string | null | undefined,
-): {
-  items: {
-    key: string;
-    label: string;
-    name: string;
-    qty: string;
-    count: string;
-    isOptional: boolean;
-  }[];
+/** Item affiché dans la pop-up d'ingrédients (transfert → Possible). */
+export type OptionalIngredientChoice = {
+  key: string;
+  label: string;
+  /** Nom brut de l'ingrédient (matching stock / péremption). */
+  name: string;
+  /** Quantité (ex. « 90g ») éditable dans la pop-up. */
+  qty: string;
+  /** Compteur unitaire (ex. « 2 ») éditable dans la pop-up. */
+  count: string;
+  isOptional: boolean;
+};
+
+/** Une alternative d'un groupe (bundle « + » éventuel). */
+export type OptionalIngredientAlt = {
+  items: OptionalIngredientChoice[];
   isBundle: boolean;
-}[] {
-  if (!ingredients?.trim()) return [];
-  const groups: {
-    items: {
-      key: string;
-      label: string;
-      name: string;
-      qty: string;
-      count: string;
-      isOptional: boolean;
-    }[];
-    isBundle: boolean;
-  }[] = [];
-  let current: {
-    items: {
-      key: string;
-      label: string;
-      name: string;
-      qty: string;
-      count: string;
-      isOptional: boolean;
-    }[];
-    isBundle: boolean;
-  } | null = null;
+};
 
-  for (const line of parseIngredientsToLines(ingredients)) {
-    if (!ingredientLineHasContent(line) || !line.name.trim()) {
-      if (current && current.items.length > 0) groups.push(current);
-      current = null;
-      continue;
-    }
+/**
+ * Groupe d'ingrédients pour la pop-up :
+ * - 1 alternative = ingrédient(s) simples ou bundle « et »
+ * - plusieurs alternatives = choix « ou » (|)
+ */
+export type OptionalIngredientGroup = {
+  alternatives: OptionalIngredientAlt[];
+};
 
-    const item = {
-      key: optionalIngredientKey(line),
-      label: optionalIngredientLabel(line),
-      name: line.name.trim(),
-      qty: line.qty,
-      count: line.count,
-      isOptional: line.isOptional,
-    };
+/** Snapshot stock minimal (évite import runtime circulaire avec stockMap). */
+export type OptionalStockSnapshot = {
+  grams: number;
+  count: number;
+  infinite: boolean;
+};
 
-    if (line.isAnd && current) {
-      current.items.push(item);
-      current.isBundle = true;
-    } else {
-      if (current && current.items.length > 0) groups.push(current);
-      current = { items: [item], isBundle: false };
-    }
-  }
-  if (current && current.items.length > 0) groups.push(current);
-  return groups;
+/**
+ * Convertit une ligne parsée en choix affiché dans la pop-up.
+ */
+function lineToOptionalChoice(line: IngLine): OptionalIngredientChoice {
+  return {
+    key: optionalIngredientKey(line),
+    label: optionalIngredientLabel(line),
+    name: line.name.trim(),
+    qty: line.qty,
+    count: line.count,
+    isOptional: line.isOptional,
+  };
 }
 
 /**
- * Clés cochées par défaut : tous les ingrédients non optionnels de la recette.
+ * Regroupe tous les ingrédients de la recette pour la pop-up avant transfert vers Possible
+ * (bundles « + » → affichage « et », alternatives « | » → affichage « ou »).
+ * `name` sert au matching stock (dates de péremption / stock restant) ; `qty`/`count` à l'édition live.
+ */
+export function listRecipeIngredientGroups(
+  ingredients: string | null | undefined,
+): OptionalIngredientGroup[] {
+  if (!ingredients?.trim()) return [];
+  return groupParsedIngredientLinesForDisplay(parseIngredientsToLines(ingredients)).map((alts) => ({
+    alternatives: alts.map((alt) => ({
+      items: alt.map(lineToOptionalChoice),
+      isBundle: alt.length > 1,
+    })),
+  }));
+}
+
+/**
+ * Indique si une alternative est entièrement disponible dans le stock
+ * (même règle que la déduction : première alt satisfaisante).
+ */
+function isOptionalAltAvailableInStock(
+  items: OptionalIngredientChoice[],
+  stockMap: Map<string, OptionalStockSnapshot>,
+): boolean {
+  for (const item of items) {
+    if (item.isOptional) continue;
+    const wantKey = normalizeKey(item.name);
+    let stock = stockMap.get(wantKey);
+    if (!stock) {
+      for (const [k, v] of stockMap) {
+        if (strictNameMatch(k, item.name)) {
+          stock = v;
+          break;
+        }
+      }
+    }
+    if (!stock) return false;
+    if (stock.infinite) continue;
+    const needCount = parseFloat(String(item.count).replace(",", ".")) || 0;
+    const needQty = parseQty(item.qty);
+    if (needCount > 0 && stock.count < needCount) return false;
+    if (needQty > 0 && stock.grams < needQty) return false;
+  }
+  return true;
+}
+
+/**
+ * Clés cochées par défaut :
+ * - hors « ou » : tous les non optionnels
+ * - avec « ou » : uniquement l'alternative que la déduction stock aurait prise
+ *   (première alternative entièrement disponible ; sinon aucune)
  */
 export function defaultIncludedIngredientKeys(
-  groups: { items: { key: string; isOptional: boolean }[] }[],
+  groups: OptionalIngredientGroup[],
+  stockMap?: Map<string, OptionalStockSnapshot>,
 ): Set<string> {
   const keys = new Set<string>();
   for (const group of groups) {
-    for (const item of group.items) {
+    const alts = group.alternatives;
+    if (alts.length === 0) continue;
+
+    if (alts.length === 1) {
+      for (const item of alts[0].items) {
+        if (!item.isOptional) keys.add(item.key);
+      }
+      continue;
+    }
+
+    // Groupe « ou » : même ordre de priorité que getMealMultiple / pickBestAlternative.
+    let chosen = stockMap
+      ? alts.find((alt) => isOptionalAltAvailableInStock(alt.items, stockMap))
+      : alts[0];
+    if (!chosen && !stockMap) chosen = alts[0];
+    if (!chosen) continue;
+    for (const item of chosen.items) {
       if (!item.isOptional) keys.add(item.key);
     }
   }
   return keys;
+}
+
+/**
+ * Bulle de stock style carte Aliments (#N, grammage, reste partiel).
+ */
+export type IngredientStockBubble = {
+  kind: "quantity" | "grams" | "remainder" | "infinite";
+  label: string;
+};
+
+/**
+ * Tous les lots stock au nom exact de l'ingrédient (hors extras).
+ */
+export function listIngredientStockFoodItems(
+  ingredientName: string,
+  foodItems: FoodItem[],
+): FoodItem[] {
+  const key = normalizeKey(ingredientName);
+  if (!key) return [];
+  return foodItems.filter(
+    (fi) => fi.storage_type !== "extras" && normalizeKey(fi.name) === key,
+  );
+}
+
+/**
+ * Choisit le lot prioritaire (déduction / péremption) pour la date affichée.
+ */
+export function resolveIngredientStockFoodItem(
+  ingredientName: string,
+  foodItems: FoodItem[],
+): FoodItem | null {
+  const matches = listIngredientStockFoodItems(ingredientName, foodItems);
+  if (matches.length === 0) return null;
+  return [...matches].sort(sortStockDeductionPriorityLocal)[0];
+}
+
+/**
+ * Tri local aligné sur la déduction : compteur ouvert d'abord, puis péremption proche.
+ * (évite un import circulaire avec stockFormatting).
+ */
+function sortStockDeductionPriorityLocal(a: FoodItem, b: FoodItem): number {
+  const aHas = !!a.counter_start_date;
+  const bHas = !!b.counter_start_date;
+  if (aHas && !bHas) return -1;
+  if (!aHas && bHas) return 1;
+  if (aHas && bHas) {
+    const aD = computeCounterDays(a.counter_start_date) ?? 0;
+    const bD = computeCounterDays(b.counter_start_date) ?? 0;
+    if (aD !== bD) return bD - aD;
+  }
+  if (a.expiration_date && b.expiration_date) return a.expiration_date.localeCompare(b.expiration_date);
+  if (a.expiration_date) return -1;
+  if (b.expiration_date) return 1;
+  return 0;
+}
+
+/** Nombre d'unités représentées par une fiche aliment. */
+function foodItemUnitCount(fi: FoodItem): number {
+  if (fi.quantity == null || fi.quantity < 1) return 1;
+  return fi.quantity;
+}
+
+/**
+ * Agrège tous les lots d'un même aliment en bulles style Aliments.
+ * Ex. 2 fiches Pain (300|250 + 300) → `#2`, `300g`, `→250g`.
+ */
+export function getIngredientStockBubbles(items: FoodItem[] | FoodItem | null | undefined): IngredientStockBubble[] {
+  const list = !items ? [] : Array.isArray(items) ? items : [items];
+  if (list.length === 0) return [];
+  if (list.some((fi) => fi.is_infinite)) return [{ kind: "infinite", label: "∞" }];
+
+  let totalUnits = 0;
+  let unitGrams = 0;
+  let remainder: number | null = null;
+
+  for (const fi of list) {
+    totalUnits += foodItemUnitCount(fi);
+    const unit = parseQty(fi.grams);
+    if (unit > 0 && unitGrams <= 0) unitGrams = unit;
+  }
+
+  // Reste : celui du lot qui serait consommé en premier (entamé / péremption).
+  for (const fi of [...list].sort(sortStockDeductionPriorityLocal)) {
+    const unit = parseQty(fi.grams);
+    const partial = parsePartialQty(fi.grams);
+    if (unit > 0 && partial > 0 && partial < unit) {
+      remainder = partial;
+      if (unitGrams <= 0) unitGrams = unit;
+      break;
+    }
+  }
+
+  const bubbles: IngredientStockBubble[] = [];
+  // Comme Aliments : pas de #1
+  if (totalUnits > 1) {
+    bubbles.push({ kind: "quantity", label: formatNumeric(totalUnits) });
+  }
+  if (unitGrams > 0) {
+    bubbles.push({ kind: "grams", label: `${formatNumeric(unitGrams)}g` });
+  }
+  if (remainder !== null) {
+    bubbles.push({ kind: "remainder", label: `→${formatNumeric(remainder)}g` });
+  }
+
+  return bubbles;
+}
+
+/**
+ * Formate le stock d'un ingrédient comme sur la carte Aliments (texte compact),
+ * en agrégeant tous les lots du même nom.
+ */
+export function formatIngredientRemainingStock(
+  ingredientName: string,
+  foodItems: FoodItem[],
+): string {
+  const lots = listIngredientStockFoodItems(ingredientName, foodItems);
+  if (lots.length === 0) return "—";
+  const bubbles = getIngredientStockBubbles(lots);
+  if (bubbles.length === 0) return "—";
+  return bubbles
+    .map((b) => (b.kind === "quantity" ? `#${b.label}` : b.label))
+    .join(" ");
 }
 
 /**
@@ -937,20 +1105,13 @@ export function listOptionalIngredientGroups(
   ingredients: string | null | undefined,
 ): { items: { key: string; label: string }[]; isBundle: boolean }[] {
   return listRecipeIngredientGroups(ingredients)
-    .map((group) => ({
-      isBundle: group.isBundle,
-      items: group.items.filter((item) => item.isOptional).map(({ key, label }) => ({ key, label })),
-    }))
+    .flatMap((group) =>
+      group.alternatives.map((alt) => ({
+        isBundle: alt.isBundle,
+        items: alt.items.filter((item) => item.isOptional).map(({ key, label }) => ({ key, label })),
+      })),
+    )
     .filter((group) => group.items.length > 0);
-}
-
-/**
- * Liste les ingrédients optionnels uniques d'une recette (pour la pop-up avant transfert vers Possible).
- */
-export function listUniqueOptionalIngredients(
-  ingredients: string | null | undefined,
-): { key: string; label: string }[] {
-  return listOptionalIngredientGroups(ingredients).flatMap((group) => group.items);
 }
 
 /** Édition de quantité/compte par clé d'ingrédient (pop-up → Possible). */
@@ -999,95 +1160,17 @@ export function buildIngredientsOverrideFromSelection(
  * Initialise les champs qty/count éditables de la pop-up à partir des groupes affichés.
  */
 export function defaultIngredientQtyEdits(
-  groups: { items: { key: string; qty: string; count: string }[] }[],
+  groups: OptionalIngredientGroup[],
 ): Record<string, IngredientQtyEdit> {
   const edits: Record<string, IngredientQtyEdit> = {};
   for (const group of groups) {
-    for (const item of group.items) {
-      edits[item.key] = { qty: item.qty, count: item.count };
+    for (const alt of group.alternatives) {
+      for (const item of alt.items) {
+        edits[item.key] = { qty: item.qty, count: item.count };
+      }
     }
   }
   return edits;
-}
-
-/**
- * Produit un override Possible : retire le « ? » des optionnels cochés (includeKeys).
- * La recette maître n'est pas modifiée — à utiliser uniquement pour ingredients_override.
- */
-export function applyOptionalInclusionsToIngredients(
-  ingredients: string | null | undefined,
-  includeKeys: Set<string>,
-): string | null {
-  if (!ingredients?.trim() || includeKeys.size === 0) return ingredients ?? null;
-  const lines = parseIngredientsToLines(ingredients);
-  let changed = false;
-  for (const line of lines) {
-    if (!line.isOptional || !line.name.trim()) continue;
-    if (includeKeys.has(optionalIngredientKey(line))) {
-      line.isOptional = false;
-      changed = true;
-    }
-  }
-  if (!changed) return ingredients ?? null;
-  return serializeIngredients(lines) ?? ingredients ?? null;
-}
-
-/**
- * Enrichit un override déjà consommé (sans optionnels) en y ajoutant les optionnels
- * choisis comme ingrédients normaux, depuis la recette d'origine.
- */
-export function appendIncludedOptionalsToOverride(
-  consumedOverride: string | null,
-  originalIngredients: string | null | undefined,
-  includeKeys: Set<string>,
-): string | null {
-  if (includeKeys.size === 0) return consumedOverride;
-  if (!consumedOverride?.trim()) {
-    return applyOptionalInclusionsToIngredients(originalIngredients, includeKeys);
-  }
-
-  const includedLines = parseIngredientsToLines(originalIngredients ?? null)
-    .filter((l) => l.isOptional && l.name.trim() && includeKeys.has(optionalIngredientKey(l)))
-    .map((l) => ({ ...l, isOptional: false, isOr: false, isAnd: false }));
-  if (includedLines.length === 0) return consumedOverride;
-
-  const added = serializeIngredients(includedLines);
-  if (!added) return consumedOverride;
-  return `${consumedOverride}, ${added}`;
-}
-
-/**
- * Comme `appendIncludedOptionalsToOverride`, mais multiplie les quantités des optionnels
- * inclus par `ratio` (transfert Au choix → Possible après xN / %).
- * `scaleIncluded` sérialise puis scale les lignes optionnelles cochées.
- */
-export function appendIncludedOptionalsToOverrideScaled(
-  consumedOverride: string | null,
-  originalIngredients: string | null | undefined,
-  includeKeys: Set<string>,
-  scaleIncluded: (optionalIngredients: string) => string | null,
-): string | null {
-  if (includeKeys.size === 0) return consumedOverride;
-
-  const includedOptionalLines = parseIngredientsToLines(originalIngredients ?? null)
-    .filter((l) => l.isOptional && l.name.trim() && includeKeys.has(optionalIngredientKey(l)))
-    .map((l) => ({ ...l, isOr: false, isAnd: false }));
-  if (includedOptionalLines.length === 0) return consumedOverride;
-
-  const serializedOptionals = serializeIngredients(includedOptionalLines);
-  if (!serializedOptionals) return consumedOverride;
-  const scaledOptionals = scaleIncluded(serializedOptionals);
-  if (!scaledOptionals?.trim()) return consumedOverride;
-
-  // Après scale, retirer les « ? » restants pour les rendre obligatoires sur Possible
-  const requiredScaled =
-    applyOptionalInclusionsToIngredients(
-      scaledOptionals,
-      new Set(listUniqueOptionalIngredients(scaledOptionals).map((o) => o.key)),
-    ) ?? scaledOptionals.replace(/^\?/gm, "").replace(/,\s*\?/g, ", ");
-
-  if (!consumedOverride?.trim()) return requiredScaled;
-  return `${consumedOverride}, ${requiredScaled}`;
 }
 
 /**
@@ -1320,6 +1403,145 @@ export function computeIngredientFiber(
   foodItemIndex?: FoodItemMacroIndex,
 ): number | null {
   return _computeMacro(ingredientStr, 'fiber', _fiberCache, isAvailable, ratio, foodItems, foodItemIndex);
+}
+
+/**
+ * Calcule calories, protéines et fibres en une seule passe de parsing
+ * (évite 3× `_computeMacro` dans la pop-up optionnels).
+ */
+export function computeIngredientMacros(
+  ingredientStr: string | null,
+  isAvailable?: (name: string) => boolean,
+  ratio: number = 1,
+  foodItems?: FoodItem[],
+  foodItemIndex?: FoodItemMacroIndex,
+): { cal: number | null; pro: number | null; fiber: number | null } {
+  if (!ingredientStr?.trim()) return { cal: null, pro: null, fiber: null };
+  const useFoodMacroFallback = !!foodItems?.length;
+  const lines = parseIngredientsToLines(ingredientStr);
+
+  const groups: IngLine[][][] = [];
+  let currentGroup: IngLine[][] = [];
+  let currentAlt: IngLine[] = [];
+
+  for (const line of lines) {
+    if (line.isOptional) continue;
+    if (line.isAnd) {
+      currentAlt.push(line);
+    } else if (line.isOr) {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      currentAlt = [line];
+    } else {
+      if (currentAlt.length > 0) currentGroup.push(currentAlt);
+      if (currentGroup.length > 0) groups.push(currentGroup);
+      currentGroup = [];
+      currentAlt = [line];
+    }
+  }
+  if (currentAlt.length > 0) currentGroup.push(currentAlt);
+  if (currentGroup.length > 0) groups.push(currentGroup);
+
+  let totalCal = 0;
+  let totalPro = 0;
+  let totalFiber = 0;
+  let hasCal = false;
+  let hasPro = false;
+  let hasFiber = false;
+
+  /** Résout la valeur d'un champ macro pour une ligne (inline ou fiche aliment). */
+  const resolveField = (item: IngLine, field: "cal" | "pro" | "fiber"): number | null => {
+    const rawVal = field === "cal" ? item.cal : field === "pro" ? item.pro : item.fiber;
+    const raw = String(rawVal ?? "").trim();
+    let val = parseFloat(raw.replace(",", "."));
+    if ((!Number.isFinite(val) || raw === "") && useFoodMacroFallback) {
+      const fromFood = resolveMacroPer100FromFoodItems(
+        item.name,
+        field === "cal" ? "calories" : field === "fiber" ? "fiber" : "protein",
+        foodItems!,
+        foodItemIndex,
+      );
+      if (fromFood !== null) val = fromFood;
+      else if (raw === "") return null;
+    }
+    if (!Number.isFinite(val) || raw === "" && !useFoodMacroFallback) return null;
+    const qty = parseFloat(item.qty.replace(",", "."));
+    const count = parseFloat(item.count.replace(",", "."));
+    if (qty > 0) return val * qty / 100;
+    if (count > 0) return val * count;
+    return val;
+  };
+
+  for (const alternativeList of groups) {
+    let chosenAlt = alternativeList[0];
+    if (isAvailable) {
+      for (const alt of alternativeList) {
+        if (isAvailable(alt[0].name)) {
+          chosenAlt = alt;
+          break;
+        }
+      }
+    }
+    for (const item of chosenAlt) {
+      const cal = resolveField(item, "cal");
+      if (cal !== null) {
+        hasCal = true;
+        totalCal += cal;
+      }
+      const pro = resolveField(item, "pro");
+      if (pro !== null) {
+        hasPro = true;
+        totalPro += pro;
+      }
+      const fiber = resolveField(item, "fiber");
+      if (fiber !== null) {
+        hasFiber = true;
+        totalFiber += fiber;
+      }
+    }
+  }
+
+  return {
+    cal: hasCal ? Math.round(totalCal * ratio) : null,
+    pro: hasPro ? Math.round(totalPro * ratio) : null,
+    fiber: hasFiber ? Math.round(totalFiber * ratio) : null,
+  };
+}
+
+/**
+ * Précalcule la date de péremption la plus proche par nom d'ingrédient normalisé.
+ * Sert à éviter un filtre/tri O(n) du stock à chaque ligne de la pop-up.
+ */
+export function buildIngredientExpirationLookup(
+  foodItems: FoodItem[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const fi of foodItems) {
+    if (!fi.expiration_date) continue;
+    const key = normalizeKey(fi.name);
+    if (!key) continue;
+    const existing = map.get(key);
+    if (!existing || fi.expiration_date < existing) {
+      map.set(key, fi.expiration_date);
+    }
+  }
+  return map;
+}
+
+/**
+ * Retrouve la péremption la plus proche pour un nom d'ingrédient via la map précalculée.
+ */
+export function lookupEarliestExpiration(
+  ingredientName: string,
+  expirationByKey: Map<string, string>,
+): string | null {
+  const exact = expirationByKey.get(normalizeKey(ingredientName));
+  if (exact) return exact;
+  let best: string | null = null;
+  for (const [key, date] of expirationByKey) {
+    if (!strictNameMatch(key, ingredientName)) continue;
+    if (!best || date < best) best = date;
+  }
+  return best;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

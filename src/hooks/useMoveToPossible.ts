@@ -5,33 +5,56 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import type { OptionalIngredientGroup } from "@/components/OptionalIngredientsMoveDialog";
 import type { OptionalIngredientSelection } from "@/hooks/useOptionalIngredientsMoveDialog";
 import {
   listRecipeIngredientGroups,
   buildIngredientsOverrideFromSelection,
   parseQty,
   strictNameMatch,
+  type OptionalIngredientGroup,
 } from "@/lib/ingredientUtils";
 import {
   analyzeMealIngredients,
+  buildScaledMealForRatio,
   getDisplayedCalories,
   getDisplayedProtein,
   getDisplayedFiber,
   recipeHasFiniteCounterableIngredients,
   type FoodItemIndex,
+  type StockInfo,
 } from "@/lib/stockUtils";
 
-export interface UseMoveToPossibleDeps {
+/** Données métier nécessaires au transfert. */
+export type MoveToPossibleData = {
   meals: Meal[];
   possibleMeals: PossibleMeal[];
   foodItems: FoodItem[];
   foodItemIndex: FoodItemIndex;
+  stockMap: Map<string, StockInfo>;
+};
+
+/** Mutations Supabase / préférences liées au transfert. */
+export type MoveToPossibleMutations = {
   moveToPossible: {
     mutateAsync: (args: {
       mealId: string;
       expiration_date?: string | null;
       counter_start_date?: string | null;
+    }) => Promise<{ id: string } | null | undefined>;
+  };
+  addMealToPossibleDirectly: {
+    mutateAsync: (args: {
+      name: string;
+      category: string;
+      calories?: string | null;
+      protein?: string | null;
+      grams?: string | null;
+      ingredients?: string | null;
+      expiration_date?: string | null;
+      counter_start_date?: string | null;
+      oven_temp?: number | null;
+      oven_minutes?: number | null;
+      possible_quantity?: number;
     }) => Promise<{ id: string } | null | undefined>;
   };
   updatePlanning: {
@@ -40,6 +63,12 @@ export interface UseMoveToPossibleDeps {
   updatePossibleIngredients: {
     mutate: (args: { id: string; ingredients_override: string | null }) => void;
   };
+  getPreference: <T>(key: string, fallback: T) => T;
+  setPreference: { mutate: (args: { key: string; value: unknown }) => void };
+};
+
+/** Opérations stock liées au transfert. */
+export type MoveToPossibleStockOps = {
   deductIngredientsFromStock: (
     meal: Meal,
     forcedCounterDate?: string,
@@ -67,14 +96,21 @@ export interface UseMoveToPossibleDeps {
     createdAt?: string | null,
     allPossibleMeals?: PossibleMeal[],
   ) => Promise<void>;
+  attachFoodDeductionSnapshot: (
+    fi: FoodItem,
+    portion: { grams: number; quantity: number },
+  ) => FoodItem;
+};
+
+/** UI / état local liés au transfert. */
+export type MoveToPossibleUi = {
   askOptionalIngredientInclusions: (
     mealName: string,
     groups: OptionalIngredientGroup[],
     ingredients?: string | null,
+    stockMap?: Map<string, StockInfo>,
   ) => Promise<OptionalIngredientSelection | null>;
   updateSnapshots: (updater: (prev: Record<string, FoodItem[]>) => Record<string, FoodItem[]>) => void;
-  getPreference: <T>(key: string, fallback: T) => T;
-  setPreference: { mutate: (args: { key: string; value: unknown }) => void };
   freezePossibleBadgeCounter: (
     pmId: string,
     ingredients: string | null | undefined,
@@ -85,37 +121,42 @@ export interface UseMoveToPossibleDeps {
   ) => void;
   setMasterSourcePmIds: Dispatch<SetStateAction<Set<string>>>;
   setCollapsedSections: Dispatch<SetStateAction<Record<string, boolean>>>;
-  attachFoodDeductionSnapshot: (
-    fi: FoodItem,
-    portion: { grams: number; quantity: number },
-  ) => FoodItem;
+};
+
+export interface UseMoveToPossibleDeps {
+  data: MoveToPossibleData;
+  mutations: MoveToPossibleMutations;
+  stockOps: MoveToPossibleStockOps;
+  ui: MoveToPossibleUi;
 }
 
 /**
- * Retourne le handler de transfert vers Possible (branche déplanification + nouveau transfert).
+ * Retourne les handlers de transfert vers Possible (complet + partiel / ratio).
  */
 export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
+  const { data, mutations, stockOps, ui } = deps;
+  const { meals, possibleMeals, foodItems, foodItemIndex, stockMap } = data;
   const {
-    meals,
-    possibleMeals,
-    foodItems,
-    foodItemIndex,
     moveToPossible,
+    addMealToPossibleDirectly,
     updatePlanning,
     updatePossibleIngredients,
-    deductIngredientsFromStock,
-    deductNameMatchStock,
-    adjustStockForIngredientChange,
-    updateFoodItemCountersForPlanning,
-    askOptionalIngredientInclusions,
-    updateSnapshots,
     getPreference,
     setPreference,
+  } = mutations;
+  const {
+    deductIngredientsFromStock,
+    deductNameMatchStock,
+    updateFoodItemCountersForPlanning,
+    attachFoodDeductionSnapshot,
+  } = stockOps;
+  const {
+    askOptionalIngredientInclusions,
+    updateSnapshots,
     freezePossibleBadgeCounter,
     setMasterSourcePmIds,
     setCollapsedSections,
-    attachFoodDeductionSnapshot,
-  } = deps;
+  } = ui;
 
   /** Transfère un repas vers Possible, ou déplanifie si `pmId` est fourni. */
   const handleMoveToPossibleGeneral = async (
@@ -154,7 +195,7 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
     if (fromMasterOrAvailable) {
       const groups = listRecipeIngredientGroups(meal.ingredients);
       if (groups.length > 0) {
-        const choice = await askOptionalIngredientInclusions(meal.name, groups, meal.ingredients);
+        const choice = await askOptionalIngredientInclusions(meal.name, groups, meal.ingredients, stockMap);
         if (choice === null) return;
         selectionOverride = buildIngredientsOverrideFromSelection(
           meal.ingredients,
@@ -270,5 +311,88 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
     }
   };
 
-  return { handleMoveToPossibleGeneral };
+  /**
+   * Transfert partiel Au choix → Possible (ratio / %) avec pop-up optionnels
+   * et création directe d'une carte Possible (copie logique).
+   */
+  const handleMovePartialToPossible = async (meal: Meal, ratio: number, category: string) => {
+    const partialMeal = buildScaledMealForRatio(meal, ratio, stockMap);
+
+    let selectionOverride: string | null = null;
+    const recipeGroups = listRecipeIngredientGroups(partialMeal.ingredients);
+    if (recipeGroups.length > 0) {
+      const choice = await askOptionalIngredientInclusions(
+        meal.name,
+        recipeGroups,
+        partialMeal.ingredients,
+        stockMap,
+      );
+      if (choice === null) return;
+      selectionOverride = buildIngredientsOverrideFromSelection(
+        partialMeal.ingredients,
+        choice.includeKeys,
+        choice.qtyEdits,
+      );
+    }
+
+    const mealForTransfer =
+      selectionOverride && selectionOverride !== partialMeal.ingredients
+        ? { ...partialMeal, ingredients: selectionOverride }
+        : partialMeal;
+
+    const anBefore = analyzeMealIngredients(mealForTransfer, foodItems, foodItemIndex);
+
+    const { snapshots, oldestCounter, consumedIngredients } = await deductIngredientsFromStock(mealForTransfer);
+
+    let finalCounterDate: string | null = null;
+    if (recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems, foodItemIndex)) {
+      if (oldestCounter) finalCounterDate = oldestCounter;
+      else if (anBefore.earliestCounterDate) finalCounterDate = anBefore.earliestCounterDate;
+    }
+
+    // xN entier → quantité Possible = N (permet de diviser ensuite)
+    const integerMultiple =
+      Number.isFinite(ratio) && ratio >= 2 && Math.abs(ratio - Math.round(ratio)) < 1e-6
+        ? Math.round(ratio)
+        : undefined;
+
+    const result = await addMealToPossibleDirectly.mutateAsync({
+      name: meal.name,
+      category,
+      calories: meal.calories,
+      protein: meal.protein,
+      grams: meal.grams,
+      ingredients: meal.ingredients,
+      expiration_date: anBefore.earliestExpiration,
+      counter_start_date: finalCounterDate,
+      oven_temp: meal.oven_temp,
+      oven_minutes: meal.oven_minutes,
+      ...(integerMultiple ? { possible_quantity: integerMultiple } : {}),
+    });
+
+    if (result?.id) {
+      updateSnapshots((prev) => ({ ...prev, [result.id]: snapshots }));
+      const finalOverride =
+        consumedIngredients
+        || (selectionOverride && selectionOverride !== meal.ingredients
+          ? selectionOverride
+          : null)
+        || (partialMeal.ingredients && partialMeal.ingredients !== meal.ingredients
+          ? partialMeal.ingredients
+          : null);
+      if (finalOverride && finalOverride !== meal.ingredients) {
+        updatePossibleIngredients.mutate({ id: result.id, ingredients_override: finalOverride });
+      }
+      freezePossibleBadgeCounter(
+        result.id,
+        finalOverride ?? meal.ingredients,
+        null,
+        null,
+        undefined,
+        foodItems,
+      );
+    }
+  };
+
+  return { handleMoveToPossibleGeneral, handleMovePartialToPossible };
 }

@@ -1,22 +1,27 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
-  computeIngredientCalories, computeIngredientProtein,
+  computeIngredientCalories, computeIngredientProtein, computeIngredientMacros,
   smartFoodContains, cleanIngredientText,
   parseIngredientsToLines, serializeIngredients,
   extractIngredientMacros, applyIngredientMacros,
   normalizeForMatch, normalizeKey,
   formatPlannedCounterOpenFr,
   getCounterDaysBadgeTooltip,
-  listUniqueOptionalIngredients,
   listOptionalIngredientGroups,
   listRecipeIngredientGroups,
   defaultIncludedIngredientKeys,
   buildIngredientsOverrideFromSelection,
-  applyOptionalInclusionsToIngredients,
   optionalIngredientKey,
-  appendIncludedOptionalsToOverride,
-  appendIncludedOptionalsToOverrideScaled,
+  buildIngredientExpirationLookup,
+  lookupEarliestExpiration,
+  formatIngredientRemainingStock,
 } from "@/lib/ingredientUtils";
+import {
+  clearAvailableThresholdDayIso,
+  getAvailableThresholdDayIso,
+  setAvailableThresholdDayIso,
+  subscribeAvailableThresholdDay,
+} from "@/lib/availableThresholdDaySession";
 import { buildFoodItemIndex } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 
@@ -260,27 +265,31 @@ describe("getCounterDaysBadgeTooltip (ouverture future)", () => {
 
 // ─── Optionnels → Possible ───────────────────────────────────────────────────
 
-describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
+describe("listRecipeIngredientGroups / buildIngredientsOverrideFromSelection", () => {
   const recipe = "200g Poulet{165}, ?80g Poitrine, 100g Riz{130}, ?Fromage";
 
   it("liste les optionnels uniques avec label", () => {
-    const list = listUniqueOptionalIngredients(recipe);
+    const list = listOptionalIngredientGroups(recipe).flatMap((g) => g.items);
     expect(list.map((o) => o.key)).toEqual(["poitrine|80g", "fromage"]);
     expect(list[0].label).toMatch(/Poitrine/i);
   });
 
-  it("retire le ? uniquement pour les clés cochées (override Possible)", () => {
-    const override = applyOptionalInclusionsToIngredients(recipe, new Set(["poitrine|80g"]));
+  it("retire les non cochés via sélection (override Possible)", () => {
+    const groups = listRecipeIngredientGroups(recipe);
+    const keys = defaultIncludedIngredientKeys(groups);
+    keys.add("poitrine|80g");
+    const override = buildIngredientsOverrideFromSelection(recipe, keys);
     expect(override).toContain("80g Poitrine");
-    expect(override).not.toMatch(/\?80g Poitrine|\?Poitrine/i);
-    expect(override).toMatch(/\?Fromage/);
-    // La sérialisation peut reformater, mais Poulet reste non optionnel
+    expect(override).not.toMatch(/\?/);
+    expect(override).not.toMatch(/Fromage/i);
     expect(override).toMatch(/Poulet/);
   });
 
-  it("ajoute les optionnels inclus à un override déjà consommé", () => {
-    const consumed = "200g Poulet{165}, 100g Riz{130}";
-    const merged = appendIncludedOptionalsToOverride(consumed, recipe, new Set(["poitrine|80g"]));
+  it("peut reconstruire un override consommé + optionnel via sélection complète", () => {
+    const consumedPlusOptional = "200g Poulet{165}, 100g Riz{130}, 80g Poitrine";
+    const groups = listRecipeIngredientGroups(consumedPlusOptional);
+    const keys = defaultIncludedIngredientKeys(groups);
+    const merged = buildIngredientsOverrideFromSelection(consumedPlusOptional, keys);
     expect(merged).toContain("Poulet");
     expect(merged).toMatch(/80g Poitrine/);
     expect(merged).not.toMatch(/\?/);
@@ -297,23 +306,23 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
       "11g Beurre de cacahuète",
     ]);
     expect(groups[2].items[0].label).toBe("22g Chocolat");
-    expect(listUniqueOptionalIngredients(cookie)).toHaveLength(4);
+    expect(listOptionalIngredientGroups(cookie).flatMap((g) => g.items)).toHaveLength(4);
   });
 
   it("n'inclut que l'optionnel coché quand deux Chocolat existent", () => {
     const cookie = "?12g Chocolat, ?22g Chocolat";
     const lines = parseIngredientsToLines(cookie);
     const key12 = optionalIngredientKey(lines[0]);
-    const override = applyOptionalInclusionsToIngredients(cookie, new Set([key12]));
+    const override = buildIngredientsOverrideFromSelection(cookie, new Set([key12]));
     expect(override).toMatch(/12g Chocolat/);
-    expect(override).not.toMatch(/\?12g Chocolat/);
-    expect(override).toMatch(/\?22g Chocolat/);
+    expect(override).not.toMatch(/\?/);
+    expect(override).not.toMatch(/22g Chocolat/);
   });
 
   it("liste toute la recette et pré-coche les non optionnels", () => {
     const cookie = "20g Beurre, ?12g Chocolat, 100g Farine";
     const groups = listRecipeIngredientGroups(cookie);
-    expect(groups.flatMap((g) => g.items).map((i) => i.label)).toEqual([
+    expect(groups.flatMap((g) => g.alternatives.flatMap((a) => a.items)).map((i) => i.label)).toEqual([
       "20g Beurre",
       "12g Chocolat",
       "100g Farine",
@@ -326,7 +335,7 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
     const cookie = "20g Beurre, ?12g Chocolat, ?22g Chocolat";
     const groups = listRecipeIngredientGroups(cookie);
     const keys = defaultIncludedIngredientKeys(groups);
-    keys.add(groups.flatMap((g) => g.items).find((i) => i.label === "12g Chocolat")!.key);
+    keys.add(groups.flatMap((g) => g.alternatives.flatMap((a) => a.items)).find((i) => i.label === "12g Chocolat")!.key);
     const override = buildIngredientsOverrideFromSelection(cookie, keys);
     expect(override).toMatch(/20g Beurre/);
     expect(override).toMatch(/12g Chocolat/);
@@ -335,11 +344,11 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
   });
 
   it("applique les quantités éditées dans l'override de sélection", () => {
-    const recipe = "90g Pâtes, 200g Lardons";
-    const groups = listRecipeIngredientGroups(recipe);
+    const recipeQty = "90g Pâtes, 200g Lardons";
+    const groups = listRecipeIngredientGroups(recipeQty);
     const keys = defaultIncludedIngredientKeys(groups);
-    const patesKey = groups.flatMap((g) => g.items).find((i) => i.name === "Pâtes")!.key;
-    const override = buildIngredientsOverrideFromSelection(recipe, keys, {
+    const patesKey = groups.flatMap((g) => g.alternatives.flatMap((a) => a.items)).find((i) => i.name === "Pâtes")!.key;
+    const override = buildIngredientsOverrideFromSelection(recipeQty, keys, {
       [patesKey]: { qty: "120g", count: "" },
     });
     expect(override).toMatch(/120g Pâtes/);
@@ -347,18 +356,104 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
     expect(override).not.toMatch(/90g Pâtes/);
   });
 
-  it("ajoute les optionnels inclus scalés à un override consommé", () => {
-    const recipe = "200g Poulet{165}, ?80g Poitrine, 100g Riz{130}";
-    const consumed = "400g Poulet{165}, 200g Riz{130}";
-    const key = optionalIngredientKey(parseIngredientsToLines(recipe)[1]);
-    const merged = appendIncludedOptionalsToOverrideScaled(
-      consumed,
-      recipe,
-      new Set([key]),
-      (opt) => opt.replace(/80g/g, "160g"),
-    );
-    expect(merged).toContain("400g Poulet");
-    expect(merged).toMatch(/160g Poitrine/);
-    expect(merged).not.toMatch(/\?/);
+  it("pré-coche seulement l'alternative « ou » disponible en stock", () => {
+    const recipeOr = "100g Poulet | 100g Saumon, 50g Riz";
+    const groups = listRecipeIngredientGroups(recipeOr);
+    expect(groups[0].alternatives).toHaveLength(2);
+    const stockMap = new Map([
+      ["saumon", { grams: 200, count: 1, infinite: false }],
+      ["riz", { grams: 100, count: 1, infinite: false }],
+    ]);
+    const keys = defaultIncludedIngredientKeys(groups, stockMap);
+    expect([...keys]).toContain("saumon|100g");
+    expect([...keys]).not.toContain("poulet|100g");
+    expect([...keys]).toContain("riz|50g");
+  });
+
+  it("calcule cal/pro/fiber en une seule passe", () => {
+    const macros = computeIngredientMacros("100g Poulet{165}[31]<0>");
+    expect(macros.cal).toBe(165);
+    expect(macros.pro).toBe(31);
+    expect(macros.fiber).toBe(0);
+  });
+
+  it("lookup péremption via map précalculée", () => {
+    const items = [
+      { name: "Poulet", expiration_date: "2026-07-22" },
+      { name: "Poulet", expiration_date: "2026-07-20" },
+      { name: "Riz", expiration_date: null },
+    ] as FoodItem[];
+    const map = buildIngredientExpirationLookup(items);
+    expect(lookupEarliestExpiration("Poulet", map)).toBe("2026-07-20");
+    expect(lookupEarliestExpiration("Riz", map)).toBeNull();
+  });
+
+  it("affiche le stock comme sur Aliments (#N unité →reste)", () => {
+    const items = [
+      {
+        name: "Fuet",
+        quantity: 2,
+        grams: "150|100",
+        is_infinite: false,
+        storage_type: "frigo",
+      },
+    ] as FoodItem[];
+    expect(formatIngredientRemainingStock("Fuet", items)).toBe("#2 150g →100g");
+  });
+
+  it("ne prend que le lot au nom exact (Pain ≠ autre aliment)", () => {
+    const items = [
+      {
+        name: "Pain",
+        quantity: null,
+        grams: "300|250",
+        is_infinite: false,
+        storage_type: "frigo",
+        expiration_date: "2026-07-30",
+        counter_start_date: "2026-07-20T10:00:00.000Z",
+      },
+      {
+        name: "Pain",
+        quantity: null,
+        grams: "300",
+        is_infinite: false,
+        storage_type: "frigo",
+        expiration_date: "2026-07-31",
+        counter_start_date: null,
+      },
+      {
+        name: "Baguette",
+        quantity: null,
+        grams: "250|80",
+        is_infinite: false,
+        storage_type: "frigo",
+      },
+    ] as FoodItem[];
+    // 2 fiches Pain agrégées → #2 300g →250g
+    expect(formatIngredientRemainingStock("Pain", items)).toBe("#2 300g →250g");
+    expect(formatIngredientRemainingStock("Baguette", items)).toBe("250g →80g");
+  });
+});
+
+describe("availableThresholdDaySession", () => {
+  beforeEach(() => {
+    clearAvailableThresholdDayIso();
+  });
+
+  it("mémorise et notifie le jour choisi", () => {
+    let notified = 0;
+    const unsub = subscribeAvailableThresholdDay(() => {
+      notified += 1;
+    });
+    expect(getAvailableThresholdDayIso()).toBeNull();
+    setAvailableThresholdDayIso("2026-07-20");
+    expect(getAvailableThresholdDayIso()).toBe("2026-07-20");
+    expect(notified).toBe(1);
+    setAvailableThresholdDayIso("2026-07-20");
+    expect(notified).toBe(1);
+    clearAvailableThresholdDayIso();
+    expect(getAvailableThresholdDayIso()).toBeNull();
+    expect(notified).toBe(2);
+    unsub();
   });
 });

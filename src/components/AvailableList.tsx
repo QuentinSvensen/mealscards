@@ -17,9 +17,9 @@
  * - Aliments indivisibles : ratios discrets (getValidDiscreteRatios)
  *
  * tryFitMeal() : vérifie si un repas rentre dans le budget calorique restant
- * buildUnifiedItems() : fusionne toutes les sources en liste unifiée triée
+ * Pipeline unifié : `buildUnifiedAvailableItems` (src/lib/availableListPipeline.ts)
  */
-import { useState, Fragment, useEffect, useMemo } from "react";
+import { useState, Fragment, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Calendar, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
@@ -64,10 +64,18 @@ import {
 import {
   getAvailableThresholdDayIso,
   setAvailableThresholdDayIso,
+  subscribeAvailableThresholdDay,
 } from "@/lib/availableThresholdDaySession";
 import { getCalorieRangeTotalColorClass } from "@/domain/planning/calorieGoalRange";
-
-type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
+import {
+  buildUnifiedAvailableItems,
+  splitIsMealByExpiration,
+  type AvailableFullItem,
+  type AvailableNameMatch,
+  type AvailablePartialItem,
+  type AvailableSortMode,
+  type UnifiedAvail,
+} from "@/lib/availableListPipeline";
 
 /**
  * Indique si un aliment est marqué comme option planning (repas, matin ou dessert)
@@ -301,27 +309,30 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   useEffect(() => {
     if (!tapModeForUnusedSuggestions) setMobileUnusedSuggestionKey(null);
   }, [tapModeForUnusedSuggestions]);
-  const isAvailableCb = (name: string) => {
-    const key = findStockKey(stockMap, name);
-    if (!key) return false;
-    const stock = stockMap.get(key);
-    if (!stock) return false;
-    return stock.infinite || stock.grams > 0 || stock.count > 0;
-  };
+  const isAvailableCb = useMemo(() => {
+    return (name: string) => {
+      const key = findStockKey(stockMap, name);
+      if (!key) return false;
+      const stock = stockMap.get(key);
+      if (!stock) return false;
+      return stock.infinite || stock.grams > 0 || stock.count > 0;
+    };
+  }, [stockMap]);
   const { getTargetCalorieThreshold, getRemainingProtein, getDayCalories, DAILY_GOAL, DAILY_GOAL_LOW } = useCalorieBalance(isAvailableCb);
   const todayIso = format(new Date(), "yyyy-MM-dd");
   // Fenêtre de 14 jours (semaine actuelle + suivante) pour le sélecteur de seuil.
   const thresholdDayWindow = useMemo(() => buildTwoWeekDates(new Date()), [todayIso]);
   const defaultThresholdDayIso = resolveDefaultThresholdDayIso(thresholdDayWindow, todayIso);
-  // Mémoire JS (module) : survît aux remounts, pas au F5 ni à la déconnexion.
-  const [sessionThresholdDayIso, setSessionThresholdDayIso] = useState(() => {
-    const stored = getAvailableThresholdDayIso();
-    if (stored) return stored;
-    return resolveDefaultThresholdDayIso(buildTwoWeekDates(new Date()), format(new Date(), "yyyy-MM-dd"));
-  });
-  const selectedThresholdDayIso = thresholdDayWindow.some((d) => d.iso === sessionThresholdDayIso)
-    ? sessionThresholdDayIso
-    : defaultThresholdDayIso;
+  // Mémoire JS (module) via useSyncExternalStore : survît aux remounts, pas au F5 ni à la déconnexion.
+  const sessionThresholdDayIso = useSyncExternalStore(
+    subscribeAvailableThresholdDay,
+    getAvailableThresholdDayIso,
+    () => null,
+  );
+  const selectedThresholdDayIso =
+    sessionThresholdDayIso && thresholdDayWindow.some((d) => d.iso === sessionThresholdDayIso)
+      ? sessionThresholdDayIso
+      : defaultThresholdDayIso;
   const selectedThresholdDay = thresholdDayWindow.find((d) => d.iso === selectedThresholdDayIso)
     ?? thresholdDayWindow[0];
   // Seuil max affiché / filtre : si min Planning renseigné → pile max − conso du jour choisi.
@@ -344,7 +355,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
    */
   const handleThresholdDayChange = (iso: string) => {
     setAvailableThresholdDayIso(iso);
-    setSessionThresholdDayIso(iso);
     setTempCalorieOverride(null);
   };
 
@@ -409,39 +419,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return getDisplayedProtein(resolved, undefined, undefined, isAvailableCb, foodItems, foodItemIndex) ?? 0;
   };
 
-  const getUnifiedItemName = (u: {
-    type: 'isMeal' | 'nm' | 'av' | 'partial';
-    fi?: FoodItem;
-    nm?: NameMatch;
-    item?: { meal: Meal };
-  }): string => {
-    if (u.type === 'isMeal') return u.fi?.name ?? '';
-    if (u.type === 'nm') return u.nm?.meal.name ?? '';
-    return u.item?.meal.name ?? '';
-  };
-
-  const getUnifiedItemIngredients = (u: {
-    type: 'isMeal' | 'nm' | 'av' | 'partial';
-    fi?: FoodItem;
-    nm?: NameMatch;
-    item?: { meal: Meal };
-  }): string => {
-    if (u.type === 'av' || u.type === 'partial') return u.item?.meal.ingredients ?? '';
-    return '';
-  };
-
-  const matchesSearch = (u: any): boolean => {
-    if (!searchQuery.trim()) return true;
-    const q = normalizeForMatch(searchQuery);
-    const name = normalizeForMatch(getUnifiedItemName(u));
-    if (name.includes(q)) return true;
-    const ing = normalizeForMatch(getUnifiedItemIngredients(u));
-    if (ing.includes(q)) return true;
-    return false;
-  };
-
   // 1. Repas réalisables via correspondance d'ingrédients
-  const available: { meal: Meal; multiple: number | null }[] = meals
+  const available: AvailableFullItem[] = meals
     .filter(meal => meal.ingredients?.trim())
     .map((meal) => {
       const rawMultiple = getMealMultiple(meal, stockMap);
@@ -452,18 +431,18 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const availableMealIds = new Set(available.map(a => a.meal.id));
 
   // 1b. Recettes partielles (50-100%)
-  const partialAvailable: { meal: Meal; ratio: number }[] = meals
+  const partialAvailable: AvailablePartialItem[] = meals
     .filter(meal => meal.ingredients?.trim() && !availableMealIds.has(meal.id))
     .map(meal => {
       const ratio = getMealFractionalRatio(meal, stockMap);
       if (ratio === null) return null;
       return { meal, ratio };
     })
-    .filter(Boolean) as { meal: Meal; ratio: number }[];
+    .filter(Boolean) as AvailablePartialItem[];
   const partialMealIds = new Set(partialAvailable.map(p => p.meal.id));
 
   // 2. Correspondance par nom
-  type NameMatch = { meal: Meal; fi: FoodItem; portionsAvailable: number | null };
+  type NameMatch = AvailableNameMatch;
 
   /** Construit un repas factice avec les macros de la portion unitaire pour un aliment-repas. */
   const buildIsMealCalorieMeal = (fi: FoodItem): Meal => {
@@ -486,6 +465,119 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       }
     }
     return { ...nm.meal, calories: baseCal > 0 ? String(Math.round(baseCal)) : nm.meal.calories, ingredients: null };
+  };
+
+  const tryFitMeal = (meal: Meal, overrideRatio: number | null, isScalable: boolean = true): { show: boolean; newRatio: number | null } => {
+    if (!useRemainingCalories) return { show: true, newRatio: overrideRatio };
+
+    const baseRaw = getAvailableSortMacroValue(meal, "calories");
+    if (baseRaw === null || baseRaw === 0) return { show: true, newRatio: overrideRatio }; // No cal info, keep it
+
+    const startingRatio = overrideRatio ?? 1;
+    let currentCal = getAvailableSortMacroValue(meal, "calories", startingRatio);
+
+    if (currentCal !== null && currentCal <= calorieThreshold) {
+      return { show: true, newRatio: startingRatio };
+    }
+
+    if (!isScalable) return { show: false, newRatio: null };
+
+    let targetRatio = calorieThreshold / baseRaw;
+    if (targetRatio < 0.5) return { show: false, newRatio: null };
+
+    const validRatios = getValidDiscreteRatios(meal, stockMap);
+
+    if (!validRatios) {
+       // Continuous: direct calculation instead of while loop (O(1) vs O(50))
+       // Round down to nearest 0.01 to ensure we don't exceed threshold
+       const directRatio = Math.floor(targetRatio * 100) / 100;
+       if (directRatio < 0.5) return { show: false, newRatio: null };
+       const checkCal = getAvailableSortMacroValue(meal, "calories", directRatio);
+       if (checkCal !== null && checkCal <= calorieThreshold) return { show: true, newRatio: directRatio };
+       // Edge case: rounding artifacts — try one step down
+       const fallback = directRatio - 0.01;
+       if (fallback >= 0.5) {
+         const fbCal = getAvailableSortMacroValue(meal, "calories", fallback);
+         if (fbCal !== null && fbCal <= calorieThreshold) return { show: true, newRatio: fallback };
+       }
+       return { show: false, newRatio: null };
+    } else {
+       // Discrete
+       const EPSILON = 0.001;
+       let bestValid = -1;
+       for (const r of validRatios) {
+         if (r <= targetRatio + EPSILON && r > bestValid) {
+           bestValid = r;
+         }
+       }
+       
+       if (bestValid < 0.5) return { show: false, newRatio: null };
+       
+       currentCal = getAvailableSortMacroValue(meal, "calories", bestValid);
+       if (currentCal !== null && currentCal <= calorieThreshold) {
+         return { show: true, newRatio: bestValid };
+       }
+       
+       // Fallback: search descending if rounding pushed it over
+       const sortedRatios = [...validRatios].sort((a,b) => b-a);
+       for (const r of sortedRatios) {
+         if (r <= targetRatio + EPSILON && r >= 0.5) {
+            currentCal = getAvailableSortMacroValue(meal, "calories", r);
+            if (currentCal !== null && currentCal <= calorieThreshold) return { show: true, newRatio: r };
+         }
+       }
+       return { show: false, newRatio: null };
+    }
+  };
+
+  /**
+   * Filtre « 100 % » : garde uniquement les recettes entre 90% et 100%.
+   * - 100% stock → OK
+   * - 90–99% (partiel stock ou ajusté au budget calories) → OK
+   * - < 90% → masqué
+   */
+  const matchesShowOnlyFullRemainingRecipes = (
+    u: UnifiedAvail,
+    localCalculatedRatios: Record<string, number>
+  ): boolean => {
+    if (u.type === 'isMeal') {
+      return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
+    }
+    if (u.type === 'av') {
+      const mealId = u.item.meal.id;
+      const fitFull = tryFitMeal(u.item.meal, 1, false);
+      if (fitFull.show) return true;
+
+      const fitNear = tryFitMeal(u.item.meal, 1, true);
+      const r = fitNear.newRatio ?? 0;
+      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
+        localCalculatedRatios[mealId] = r;
+        return true;
+      }
+      return false;
+    }
+    if (u.type === 'partial') {
+      // Recette partielle (stock incomplet) : ne garder que les ratios >= 90%.
+      const partialKey = `partial-${u.item.meal.id}`;
+      const baseRatio = u.item.ratio ?? 0;
+      if (baseRatio >= 1) {
+        // Sécurité : un "partial" ne devrait pas être à 100, mais s'il l'est, on le laisse passer.
+        return tryFitMeal(u.item.meal, 1, false).show;
+      }
+      if (baseRatio < MIN_NEAR_FULL_REMAINING_RATIO) return false;
+
+      const fitAtBase = tryFitMeal(u.item.meal, baseRatio, false);
+      if (fitAtBase.show) return true;
+
+      const fitNear = tryFitMeal(u.item.meal, baseRatio, true);
+      const r = fitNear.newRatio ?? 0;
+      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
+        localCalculatedRatios[partialKey] = r;
+        return true;
+      }
+      return false;
+    }
+    return false;
   };
 
   const nameMatches: NameMatch[] = [];
@@ -624,8 +716,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return result;
   })();
 
-  // Tri
-  let sortedAvailable = [...available];
+  // Tri des listes sources (avant fusion unifiée)
+  let sortedAvailable: AvailableFullItem[] = [...available];
   let sortedNameMatches = [...nameMatches];
   let sortedIsMealItems = [...isMealItems];
 
@@ -667,255 +759,55 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const bc = computeCounterDays(b.counter_start_date);
       return compareExpirationWithCounter(a.expiration_date, b.expiration_date, ac, bc);
     });
-    const isMealNoDate = sortedIsMealItems.filter(fi => !fi.expiration_date);
-    const isMealWithDate = sortedIsMealItems.filter(fi => !!fi.expiration_date);
-    sortedIsMealItems = isMealNoDate;
-    (sortedIsMealItems as any).__withDate = isMealWithDate;
   }
 
-  type UnifiedAvail =
-    | { type: 'isMeal'; key: string; fi: FoodItem }
-    | { type: 'nm'; key: string; nm: NameMatch; nmIdx: number }
-    | { type: 'av'; key: string; item: typeof available[0] }
-    | { type: 'partial'; key: string; item: typeof partialAvailable[0] };
+  const isMealBuckets = splitIsMealByExpiration(sortedIsMealItems);
 
-  const buildUnifiedItems = (): UnifiedAvail[] => {
-    const sortedIsMealItemsWithDates: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
-    const allSortedIsMealItems = [...sortedIsMealItems, ...sortedIsMealItemsWithDates];
-    let items: UnifiedAvail[] = [
-      ...sortedNameMatches.map((nm, i) => ({ type: 'nm' as const, key: `nm-${nm.meal.id}-${nm.fi.id}`, nm, nmIdx: i })),
-      ...sortedAvailable.map(item => ({ type: 'av' as const, key: item.meal.id, item })),
-      ...partialAvailable.map(item => ({ type: 'partial' as const, key: `partial-${item.meal.id}`, item })),
-      ...allSortedIsMealItems.map(fi => ({ type: 'isMeal' as const, key: `fi-${fi.id}`, fi }))
-    ];
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      items = items.filter(matchesSearch);
-    }
-
-    // Au lieu de polluer le state global React customRatios lors du JS de rendu,
-    // on gère une copie locale pour cette passe de calcul :
-    const localCalculatedRatios: Record<string, number> = {};
-
-    if (useRemainingCalories) {
-      items = items.filter(u => {
-        if (showOnlyFullRemainingRecipes) {
-          return matchesShowOnlyFullRemainingRecipes(u, localCalculatedRatios);
-        }
-        if (u.type === 'isMeal') {
-          return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
-        }
-        if (u.type === 'nm') {
-          return tryFitMeal(buildNameMatchCalorieMeal(u.nm), 1, false).show;
-        }
-        if (u.type === 'av') {
-          const ratioToTry = customRatios[u.item.meal.id] ?? 1;
-          const fitResult = tryFitMeal(u.item.meal, ratioToTry);
-          if (fitResult.show && fitResult.newRatio !== null && fitResult.newRatio !== ratioToTry) {
-            localCalculatedRatios[u.item.meal.id] = fitResult.newRatio;
-          }
-          return fitResult.show;
-        }
-        if (u.type === 'partial') {
-          const ratioToTry = customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-          const fitResult = tryFitMeal(u.item.meal, ratioToTry);
-          if (fitResult.show && fitResult.newRatio !== null && fitResult.newRatio !== ratioToTry) {
-            localCalculatedRatios[`partial-${u.item.meal.id}`] = fitResult.newRatio;
-          }
-          return fitResult.show;
-        }
-        return true;
-      });
-
-      // Patch en place des `items` avec les ratios locaux (pour qu'ils soient récupérés correctement pendant le sort et le rendu final)
-      items = items.map(u => {
-        if (u.type === 'av' && localCalculatedRatios[u.item.meal.id] !== undefined) {
-           u.item = { ...u.item, calculatedRatio: localCalculatedRatios[u.item.meal.id] } as any; // trick type local
-        }
-        if (u.type === 'partial' && localCalculatedRatios[`partial-${u.item.meal.id}`] !== undefined) {
-           u.item = { ...u.item, calculatedRatio: localCalculatedRatios[`partial-${u.item.meal.id}`] } as any;
-        }
-        return u;
-      });
-    }
-
-    if (sortMode === "manual" && storedOrder.length > 0) {
-      const orderMap = new Map(storedOrder.map((k: string, i: number) => [k, i]));
-      items.sort((a, b) => {
-        const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-        const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-        if (aIsMeal !== bIsMeal) return aIsMeal - bIsMeal;
-        return (orderMap.get(a.key) ?? Infinity) - (orderMap.get(b.key) ?? Infinity);
-      });
-    }
-    if (sortMode === "calories" || sortMode === "protein") {
-      const dir = sortAsc ? 1 : -1;
-      const getVal = (u: UnifiedAvail): number => {
-        if (sortMode === "calories") {
-          if (u.type === 'isMeal') return getAvailableSortMacroValue(buildIsMealCalorieMeal(u.fi), "calories");
-          if (u.type === 'nm') return getAvailableSortMacroValue(buildNameMatchCalorieMeal(u.nm), "calories");
-          if (u.type === 'av') {
-            const dynRatio = (u.item as any).calculatedRatio;
-            const ratio = dynRatio ?? customRatios[u.item.meal.id] ?? 1;
-            return getAvailableSortMacroValue(u.item.meal, "calories", ratio);
-          }
-          if (u.type === 'partial') {
-            const dynRatio = (u.item as any).calculatedRatio;
-            const ratio = dynRatio ?? customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-            return getAvailableSortMacroValue(u.item.meal, "calories", ratio);
-          }
-          return 0;
-        }
-
-        if (u.type === 'isMeal') return getAvailableSortMacroValue(buildIsMealCalorieMeal(u.fi), "protein");
-        if (u.type === 'nm') return getAvailableSortMacroValue(buildNameMatchCalorieMeal(u.nm), "protein");
-        if (u.type === 'av') {
-          const dynRatio = (u.item as any).calculatedRatio;
-          const ratio = dynRatio ?? customRatios[u.item.meal.id] ?? 1;
-          return getAvailableSortMacroValue(u.item.meal, "protein", ratio);
-        }
-        if (u.type === 'partial') {
-          const dynRatio = (u.item as any).calculatedRatio;
-          const ratio = dynRatio ?? customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-          return getAvailableSortMacroValue(u.item.meal, "protein", ratio);
-        }
-        return 0;
-      };
-      items.sort((a, b) => {
-        // Seuls les repas seuls sans date restent en bas ; ceux avec péremption suivent le tri macros.
-        const aPinnedBottom = a.type === 'isMeal' && !a.fi.expiration_date ? 1 : 0;
-        const bPinnedBottom = b.type === 'isMeal' && !b.fi.expiration_date ? 1 : 0;
-        if (aPinnedBottom !== bPinnedBottom) return aPinnedBottom - bPinnedBottom;
-        return dir * (getVal(a) - getVal(b));
-      });
-    } else if (sortMode === "manual") {
-      // En tri manuel sans ordre enregistré, garder les repas seuls groupés en bas.
-      if (storedOrder.length === 0) {
-        items.sort((a, b) => {
-          const aIsMeal = a.type === 'isMeal' ? 1 : 0;
-          const bIsMeal = b.type === 'isMeal' ? 1 : 0;
-          return aIsMeal - bIsMeal;
-        });
-      }
-    }
-    return items;
-  };
-
-  const tryFitMeal = (meal: Meal, overrideRatio: number | null, isScalable: boolean = true): { show: boolean; newRatio: number | null } => {
-    if (!useRemainingCalories) return { show: true, newRatio: overrideRatio };
-
-    const baseRaw = getAvailableSortMacroValue(meal, "calories");
-    if (baseRaw === null || baseRaw === 0) return { show: true, newRatio: overrideRatio }; // No cal info, keep it
-
-    const startingRatio = overrideRatio ?? 1;
-    let currentCal = getAvailableSortMacroValue(meal, "calories", startingRatio);
-
-    if (currentCal !== null && currentCal <= calorieThreshold) {
-      return { show: true, newRatio: startingRatio };
-    }
-
-    if (!isScalable) return { show: false, newRatio: null };
-
-    let targetRatio = calorieThreshold / baseRaw;
-    if (targetRatio < 0.5) return { show: false, newRatio: null };
-
-    const validRatios = getValidDiscreteRatios(meal, stockMap);
-
-    if (!validRatios) {
-       // Continuous: direct calculation instead of while loop (O(1) vs O(50))
-       // Round down to nearest 0.01 to ensure we don't exceed threshold
-       const directRatio = Math.floor(targetRatio * 100) / 100;
-       if (directRatio < 0.5) return { show: false, newRatio: null };
-       const checkCal = getAvailableSortMacroValue(meal, "calories", directRatio);
-       if (checkCal !== null && checkCal <= calorieThreshold) return { show: true, newRatio: directRatio };
-       // Edge case: rounding artifacts — try one step down
-       const fallback = directRatio - 0.01;
-       if (fallback >= 0.5) {
-         const fbCal = getAvailableSortMacroValue(meal, "calories", fallback);
-         if (fbCal !== null && fbCal <= calorieThreshold) return { show: true, newRatio: fallback };
-       }
-       return { show: false, newRatio: null };
-    } else {
-       // Discrete
-       const EPSILON = 0.001;
-       let bestValid = -1;
-       for (const r of validRatios) {
-         if (r <= targetRatio + EPSILON && r > bestValid) {
-           bestValid = r;
-         }
-       }
-       
-       if (bestValid < 0.5) return { show: false, newRatio: null };
-       
-       currentCal = getAvailableSortMacroValue(meal, "calories", bestValid);
-       if (currentCal !== null && currentCal <= calorieThreshold) {
-         return { show: true, newRatio: bestValid };
-       }
-       
-       // Fallback: search descending if rounding pushed it over
-       const sortedRatios = [...validRatios].sort((a,b) => b-a);
-       for (const r of sortedRatios) {
-         if (r <= targetRatio + EPSILON && r >= 0.5) {
-            currentCal = getAvailableSortMacroValue(meal, "calories", r);
-            if (currentCal !== null && currentCal <= calorieThreshold) return { show: true, newRatio: r };
-         }
-       }
-       return { show: false, newRatio: null };
-    }
-  };
-
-  /**
-   * Filtre « 100 % » : garde uniquement les recettes entre 90% et 100%.
-   * - 100% stock → OK
-   * - 90–99% (partiel stock ou ajusté au budget calories) → OK
-   * - < 90% → masqué
-   */
-  const matchesShowOnlyFullRemainingRecipes = (
-    u: { type: string; fi?: FoodItem; item?: { meal: Meal; ratio?: number } },
-    localCalculatedRatios: Record<string, number>
-  ): boolean => {
-    if (u.type === 'isMeal' && u.fi) {
-      return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
-    }
-    if (u.type === 'av' && u.item) {
-      const mealId = u.item.meal.id;
-      const fitFull = tryFitMeal(u.item.meal, 1, false);
-      if (fitFull.show) return true;
-
-      const fitNear = tryFitMeal(u.item.meal, 1, true);
-      const r = fitNear.newRatio ?? 0;
-      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
-        localCalculatedRatios[mealId] = r;
-        return true;
-      }
-      return false;
-    }
-    if (u.type === 'partial' && u.item) {
-      // Recette partielle (stock incomplet) : ne garder que les ratios >= 90%.
-      const partialKey = `partial-${u.item.meal.id}`;
-      const baseRatio = u.item.ratio ?? 0;
-      if (baseRatio >= 1) {
-        // Sécurité : un "partial" ne devrait pas être à 100, mais s'il l'est, on le laisse passer.
-        return tryFitMeal(u.item.meal, 1, false).show;
-      }
-      if (baseRatio < MIN_NEAR_FULL_REMAINING_RATIO) return false;
-
-      const fitAtBase = tryFitMeal(u.item.meal, baseRatio, false);
-      if (fitAtBase.show) return true;
-
-      const fitNear = tryFitMeal(u.item.meal, baseRatio, true);
-      const r = fitNear.newRatio ?? 0;
-      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
-        localCalculatedRatios[partialKey] = r;
-        return true;
-      }
-      return false;
-    }
-    return false;
-  };
-
-  const unifiedItems = buildUnifiedItems();
+  const unifiedItems = useMemo(
+    () =>
+      buildUnifiedAvailableItems({
+        sortedAvailable,
+        sortedNameMatches,
+        isMealBuckets,
+        partialAvailable,
+        searchQuery,
+        useRemainingCalories,
+        showOnlyFullRemainingRecipes,
+        customRatios,
+        sortMode,
+        sortAsc,
+        storedOrder,
+        foodItems,
+        foodItemIndex,
+        helpers: {
+          getAvailableSortMacroValue,
+          buildIsMealCalorieMeal,
+          buildNameMatchCalorieMeal,
+          tryFitMeal,
+          matchesShowOnlyFullRemainingRecipes,
+        },
+      }),
+    // Les helpers ferment sur stockMap / seuils / macros — deps données ci-dessous suffisent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      sortedAvailable,
+      sortedNameMatches,
+      isMealBuckets,
+      partialAvailable,
+      searchQuery,
+      useRemainingCalories,
+      showOnlyFullRemainingRecipes,
+      customRatios,
+      sortMode,
+      sortAsc,
+      storedOrder,
+      foodItems,
+      foodItemIndex,
+      calorieThreshold,
+      stockMap,
+      ingredientMacroAutofillSources,
+    ],
+  );
 
   const totalIsMealCount = unifiedItems.filter(u => u.type === 'isMeal').length;
   const totalCount = unifiedItems.length;
@@ -1080,7 +972,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const maxRatio = multiple === Infinity ? 99 : (multiple ?? 1);
 
     // Apply local calculated ratio if any (from filter), otherwise user's custom ratio, otherwise 1
-    const dynCalculatedRatio = (item as any).calculatedRatio;
+    const dynCalculatedRatio = item.calculatedRatio;
     const customRatio = dynCalculatedRatio ?? customRatios[meal.id];
     const isCalorieRestrictedRatio = dynCalculatedRatio !== undefined && dynCalculatedRatio < 1;
 
@@ -1177,7 +1069,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
   const renderPartialCard = (item: typeof partialAvailable[0], unifiedIdx?: number) => {
     const { meal, ratio: defaultRatio } = item;
-    const dynCalculatedRatio = (item as any).calculatedRatio;
+    const dynCalculatedRatio = item.calculatedRatio;
     const customRatio = dynCalculatedRatio ?? customRatios[`partial-${meal.id}`];
 
     const effectiveRatio = customRatio ?? defaultRatio;
@@ -1232,8 +1124,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   };
 
   const handleAvReorder = (fromIdx: number, toIdx: number) => {
-    const items = buildUnifiedItems();
-    const reordered = [...items];
+    const reordered = [...unifiedItems];
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     setAvailPref.mutate({ key: `available_order_${category.value}`, value: reordered.map(u => u.key) });
@@ -1992,168 +1883,36 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           {isPlat && (unusedFoodItems.length > 0 || crossCategoryExpiringItems.length > 0) && renderUnusedItems(unusedFoodItems, crossCategoryExpiringItems)}
 
           {(() => {
-            const isMealWithDate: FoodItem[] = (sortedIsMealItems as any).__withDate || [];
-
-            if (sortMode === "expiration") {
-              type UnifiedItem =
-                | { type: 'isMeal'; fi: FoodItem; sortDate: string | null; sortCounter: number | null; sortCalories: number | null }
-                | { type: 'nm'; nm: NameMatch; nmIdx: number; sortDate: string | null; sortCounter: number | null; sortCalories: number | null }
-                | { type: 'av'; item: typeof available[0]; sortDate: string | null; sortCounter: number | null; sortCalories: number | null }
-                | { type: 'partial'; item: typeof partialAvailable[0]; sortDate: string | null; sortCounter: number | null; sortCalories: number | null };
-
-              const unified: UnifiedItem[] = [];
-              for (const fi of [...sortedIsMealItems, ...isMealWithDate]) {
-                const counter = computeCounterDays(fi.counter_start_date);
-                unified.push({ type: 'isMeal', fi, sortDate: fi.expiration_date, sortCounter: counter, sortCalories: getAvailableSortMacroValue(buildIsMealCalorieMeal(fi), "calories") });
-              }
-              for (let i = 0; i < sortedNameMatches.length; i++) {
-                const nm = sortedNameMatches[i];
-                const counter = computeCounterDays(nm.fi.counter_start_date);
-                unified.push({ type: 'nm', nm, nmIdx: i, sortDate: nm.fi.expiration_date, sortCounter: counter, sortCalories: getAvailableSortMacroValue(buildNameMatchCalorieMeal(nm), "calories") });
-              }
-              for (const item of sortedAvailable) {
-                const an = analyzeMealIngredients(item.meal, foodItems, foodItemIndex);
-                const ratio = customRatios[item.meal.id] ?? 1;
-                unified.push({ type: 'av', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getAvailableSortMacroValue(item.meal, "calories", ratio) });
-              }
-              for (const item of partialAvailable) {
-                const an = analyzeMealIngredients(item.meal, foodItems, foodItemIndex);
-                const ratio = customRatios[`partial-${item.meal.id}`] ?? item.ratio;
-                unified.push({ type: 'partial', item, sortDate: an.earliestExpiration, sortCounter: an.maxIngredientCounter, sortCalories: getAvailableSortMacroValue(item.meal, "calories", ratio) });
-              }
-              
-              // Apply search filter
-              let filteredUnified = searchQuery.trim() ? unified.filter(u => {
-                const name = normalizeForMatch(u.type === 'isMeal' ? (u.fi?.name ?? '') : u.type === 'nm' ? (u.nm?.meal.name ?? '') : (u.item?.meal.name ?? ''));
-                const q = normalizeForMatch(searchQuery);
-                if (name.includes(q)) return true;
-                if (u.type === 'av' || u.type === 'partial') {
-                  const ing = normalizeForMatch(u.item?.meal.ingredients ?? '');
-                  if (ing.includes(q)) return true;
-                }
-                return false;
-              }) : unified;
-              if (useRemainingCalories) {
-                const expirationCalculatedRatios: Record<string, number> = {};
-                filteredUnified = filteredUnified.filter(u => {
-                  if (showOnlyFullRemainingRecipes) {
-                    return matchesShowOnlyFullRemainingRecipes(u, expirationCalculatedRatios);
-                  }
-                  if (u.type === 'isMeal') {
-                    return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
-                  }
-                  if (u.type === 'nm') {
-                    return tryFitMeal(buildNameMatchCalorieMeal(u.nm), 1, false).show;
-                  }
-                  if (u.type === 'av') {
-                    const ratioToTry = customRatios[u.item.meal.id] ?? 1;
-                    const fitResult = tryFitMeal(u.item.meal, ratioToTry);
-                    if (fitResult.show && fitResult.newRatio !== null && fitResult.newRatio !== ratioToTry) {
-                       u.item = { ...u.item, calculatedRatio: fitResult.newRatio } as any;
-                    }
-                    return fitResult.show;
-                  }
-                  if (u.type === 'partial') {
-                    const ratioToTry = customRatios[`partial-${u.item.meal.id}`] ?? u.item.ratio;
-                    const fitResult = tryFitMeal(u.item.meal, ratioToTry);
-                    if (fitResult.show && fitResult.newRatio !== null && fitResult.newRatio !== ratioToTry) {
-                       u.item = { ...u.item, calculatedRatio: fitResult.newRatio } as any;
-                    }
-                    return fitResult.show;
-                  }
-                  return true;
-                });
-                if (showOnlyFullRemainingRecipes) {
-                  filteredUnified = filteredUnified.map(u => {
-                    if (u.type === 'av' && expirationCalculatedRatios[u.item.meal.id] !== undefined) {
-                      u.item = { ...u.item, calculatedRatio: expirationCalculatedRatios[u.item.meal.id] } as any;
-                    }
-                    if (u.type === 'partial' && expirationCalculatedRatios[`partial-${u.item.meal.id}`] !== undefined) {
-                      u.item = { ...u.item, calculatedRatio: expirationCalculatedRatios[`partial-${u.item.meal.id}`] } as any;
-                    }
-                    return u;
-                  });
-                }
-              }
-
-              filteredUnified.sort((a, b) => {
-                // Seuls les repas seuls SANS date restent sous le séparateur « Repas seuls ».
-                // Ceux avec une date de péremption s'intercalent dans le tri général.
-                const aPinnedBottom = a.type === 'isMeal' && !a.sortDate ? 1 : 0;
-                const bPinnedBottom = b.type === 'isMeal' && !b.sortDate ? 1 : 0;
-                if (aPinnedBottom !== bPinnedBottom) return aPinnedBottom - bPinnedBottom;
-
-                const baseCmp = compareExpirationWithCounter(a.sortDate, b.sortDate, a.sortCounter, b.sortCounter);
-                if (baseCmp !== 0) return baseCmp;
-
-                const aFav = a.type === 'nm' ? !!a.nm.meal.is_favorite : (a.type === 'av' || a.type === 'partial') ? !!a.item.meal.is_favorite : false;
-                const bFav = b.type === 'nm' ? !!b.nm.meal.is_favorite : (b.type === 'av' || b.type === 'partial') ? !!b.item.meal.is_favorite : false;
-                if (aFav !== bFav) return aFav ? -1 : 1;
-
-                // Same group + same date => calories ascending as tiebreaker
-                if (a.sortCalories !== null && b.sortCalories !== null && a.sortCalories !== b.sortCalories) return a.sortCalories - b.sortCalories;
-                if (a.sortCalories !== null && b.sortCalories === null) return -1;
-                if (a.sortCalories === null && b.sortCalories !== null) return 1;
-
-                return getUnifiedItemName(a).localeCompare(getUnifiedItemName(b));
-              });
-
-              // Find where past/today ends and future begins
-              const todayStr = new Date().toISOString().slice(0, 10);
-              let dateSeparatorInserted = false;
-              const firstIsMealNoDateIdx = showMealItemsInAvailable
-                ? filteredUnified.findIndex((u) => u.type === 'isMeal' && !u.sortDate)
-                : -1;
-
-              return filteredUnified.map((u, idx) => {
-                const elements: React.ReactNode[] = [];
-
-                // Date separator: between past/today and future items (only for group 2 = has date, no counter)
-                if (!dateSeparatorInserted && u.sortDate && u.sortDate > todayStr && (u.sortCounter === null || u.sortCounter <= 0)) {
-                  // Check that at least one previous item had a date ≤ today
-                  const hasPastBefore = filteredUnified.slice(0, idx).some(prev => prev.sortDate && prev.sortDate <= todayStr && (prev.sortCounter === null || prev.sortCounter <= 0));
-                  if (hasPastBefore) {
-                    dateSeparatorInserted = true;
-                    elements.push(
-                      <div key="sep-date-future" className="my-1.5">
-                        <Separator className="opacity-30" />
-                      </div>
-                    );
-                  }
-                }
-
-                const sep = (idx === firstIsMealNoDateIdx && firstIsMealNoDateIdx > 0) ? (
-                  <div key={`sep-ismeal`} className="flex items-center gap-2 my-2">
-                    <Separator className="flex-1" />
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>
-                    <Separator className="flex-1" />
-                  </div>
-                ) : null;
-                const card = u.type === 'isMeal' ? renderIsMealCard(u.fi, idx)
-                  : u.type === 'nm' ? renderNameMatchCard(u.nm, u.nmIdx, idx)
-                  : u.type === 'partial' ? renderPartialCard(u.item, idx)
-                  : renderAvailableCard(u.item, idx);
-                if (elements.length > 0 || sep) {
-                  return <Fragment key={`wrapper-${idx}`}>{...elements}{sep}{card}</Fragment>;
-                }
-                return card;
-              });
-            }
-
-            // manual or calories: use unified items
-            const unifiedItems = buildUnifiedItems();
             const firstIsMealNoDateIdx = showMealItemsInAvailable
               ? unifiedItems.findIndex((u) => u.type === 'isMeal' && !u.fi.expiration_date)
               : -1;
             // En manuel : séparateur avant le premier repas seul (tous regroupés).
-            // En calories/protéines : séparateur seulement avant ceux sans date.
+            // En calories/protéines/péremption : séparateur seulement avant ceux sans date.
             const firstPinnedIsMealIdx =
               sortMode === "manual"
                 ? (showMealItemsInAvailable ? unifiedItems.findIndex((u) => u.type === 'isMeal') : -1)
                 : firstIsMealNoDateIdx;
+
+            const todayStr = new Date().toISOString().slice(0, 10);
+            let dateSeparatorInserted = false;
+
             return unifiedItems.map((u, idx) => {
+              const elements: React.ReactNode[] = [];
+
+              if (sortMode === "expiration" && !dateSeparatorInserted && u.sortDate && u.sortDate > todayStr && (u.sortCounter === null || u.sortCounter <= 0)) {
+                const hasPastBefore = unifiedItems.slice(0, idx).some(prev => prev.sortDate && prev.sortDate <= todayStr && (prev.sortCounter === null || prev.sortCounter <= 0));
+                if (hasPastBefore) {
+                  dateSeparatorInserted = true;
+                  elements.push(
+                    <div key="sep-date-future" className="my-1.5">
+                      <Separator className="opacity-30" />
+                    </div>
+                  );
+                }
+              }
+
               const sep = (idx === firstPinnedIsMealIdx && firstPinnedIsMealIdx > 0) ? (
-                <div key={`sep-ismeal-m`} className="flex items-center gap-2 my-2">
+                <div key={`sep-ismeal`} className="flex items-center gap-2 my-2">
                   <Separator className="flex-1" />
                   <span className="text-[10px] text-muted-foreground flex items-center gap-1"><UtensilsCrossed className="h-3 w-3" />Repas seuls</span>
                   <Separator className="flex-1" />
@@ -2163,7 +1922,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                 : u.type === 'nm' ? renderNameMatchCard(u.nm, u.nmIdx, idx)
                 : u.type === 'partial' ? renderPartialCard(u.item, idx)
                 : renderAvailableCard(u.item, idx);
-              return sep ? <Fragment key={`wrapper-m-${idx}`}>{sep}{card}</Fragment> : card;
+              if (elements.length > 0 || sep) {
+                return <Fragment key={`wrapper-${idx}`}>{...elements}{sep}{card}</Fragment>;
+              }
+              return card;
             });
           })()}
 

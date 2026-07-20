@@ -1,8 +1,11 @@
 /**
  * Mémoire de session JS pour le jour du seuil « Au choix ».
- * Survît aux remounts / navigation in-app, pas au F5 ni à la déconnexion.
- * Volontairement hors localStorage / sessionStorage.
- * Notifie les abonnés React (`useSyncExternalStore`) à chaque changement.
+ *
+ * Contrat :
+ * - Volontairement hors localStorage / sessionStorage (JS only).
+ * - Survît aux remounts / navigation in-app.
+ * - Remis à null au F5 (rechargement) et via clearAvailableThresholdDayIso à la déconnexion.
+ * - Notifie les abonnés React (`useSyncExternalStore`) à chaque changement.
  */
 
 /** Jour ISO choisi pour le seuil calories restantes (null = pas encore choisi cette session). */
@@ -17,17 +20,10 @@ function emitAvailableThresholdDayChange(): void {
 }
 
 /**
- * Lit le jour de seuil mémorisé en session JS.
+ * Lit le jour de seuil mémorisé en session JS (snapshot pour useSyncExternalStore).
  * Sert à restaurer le choix après un remount sans recharger la page.
  */
 export function getAvailableThresholdDayIso(): string | null {
-  return sessionThresholdDayIso;
-}
-
-/**
- * Snapshot pour `useSyncExternalStore` (même valeur que getAvailableThresholdDayIso).
- */
-export function getAvailableThresholdDayIsoSnapshot(): string | null {
   return sessionThresholdDayIso;
 }
 
