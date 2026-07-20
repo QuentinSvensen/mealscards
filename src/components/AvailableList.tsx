@@ -59,11 +59,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import {
   buildTwoWeekDates,
   resolveDefaultThresholdDayIso,
+  resolvePlanningGoalForIso,
 } from "@/lib/planningWeekUtils";
 import {
   getAvailableThresholdDayIso,
   setAvailableThresholdDayIso,
 } from "@/lib/availableThresholdDaySession";
+import { getCalorieRangeTotalColorClass } from "@/domain/planning/calorieGoalRange";
 
 type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 
@@ -306,7 +308,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     if (!stock) return false;
     return stock.infinite || stock.grams > 0 || stock.count > 0;
   };
-  const { getTargetCalorieThreshold, getRemainingProtein } = useCalorieBalance(isAvailableCb);
+  const { getTargetCalorieThreshold, getRemainingProtein, getDayCalories, DAILY_GOAL, DAILY_GOAL_LOW } = useCalorieBalance(isAvailableCb);
   const todayIso = format(new Date(), "yyyy-MM-dd");
   // Fenêtre de 14 jours (semaine actuelle + suivante) pour le sélecteur de seuil.
   const thresholdDayWindow = useMemo(() => buildTwoWeekDates(new Date()), [todayIso]);
@@ -328,6 +330,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const [tempCalorieOverride, setTempCalorieOverride] = useState<number | null>(null);
   const calorieThreshold = tempCalorieOverride ?? baseCalorieThreshold;
 
+  const nextDailyGoal = getAvailPref<number>("next_week_daily_goal", DAILY_GOAL);
+  const nextDailyGoalLow = getAvailPref<number>("next_week_daily_goal_low", DAILY_GOAL_LOW);
+  const thresholdDayCalories = getDayCalories(selectedThresholdDay.key, selectedThresholdDay.iso);
+  const thresholdDayGoalHigh = resolvePlanningGoalForIso(selectedThresholdDayIso, DAILY_GOAL, nextDailyGoal);
+  const thresholdDayGoalLow = resolvePlanningGoalForIso(selectedThresholdDayIso, DAILY_GOAL_LOW, nextDailyGoalLow);
+  const seuilCalorieWordClass =
+    getCalorieRangeTotalColorClass(thresholdDayCalories, thresholdDayGoalLow, thresholdDayGoalHigh) ?? "text-white";
+
   /**
    * Change le jour du seuil en mémoire de session JS et réinitialise l’override temporaire.
    * Conservé à la navigation ; remis à aujourd’hui seulement après F5 ou déconnexion.
@@ -337,6 +347,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     setSessionThresholdDayIso(iso);
     setTempCalorieOverride(null);
   };
+
+  // Aligne la session JS sur le jour effectivement affiché (défaut inclus), pour la pop-up optionnels.
+  useEffect(() => {
+    setAvailableThresholdDayIso(selectedThresholdDayIso);
+  }, [selectedThresholdDayIso]);
 
   const parseRatioInput = (input: string, maxRatio: number): number | null => {
     const trimmed = input.trim().toLowerCase();
@@ -1887,7 +1902,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                      Seuil max :
                    </span>
                    {hideCalorieDisplay ? (
-                     <span className="text-sm font-bold text-foreground">Calorie</span>
+                     <span className={`text-sm font-bold ${seuilCalorieWordClass}`}>Calorie</span>
                    ) : (
                      <>
                    <input

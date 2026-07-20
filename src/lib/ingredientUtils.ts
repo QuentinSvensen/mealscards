@@ -824,7 +824,7 @@ export function ingredientsForPossibleCardDisplay(ingredients: string | null | u
 }
 
 /**
- * Clé stable pour un ingrédient optionnel (distingue ex. 12g Chocolat et 22g Chocolat).
+ * Clé stable pour un ingrédient (distingue ex. 12g Chocolat et 22g Chocolat).
  */
 export function optionalIngredientKey(line: Pick<IngLine, "qty" | "count" | "name">): string {
   const nameKey = normalizeKey(line.name || "");
@@ -833,31 +833,74 @@ export function optionalIngredientKey(line: Pick<IngLine, "qty" | "count" | "nam
   return [nameKey, qty, count].filter(Boolean).join("|");
 }
 
-/** Libellé affiché d'une ligne d'ingrédient optionnel. */
+/** Libellé affiché d'une ligne d'ingrédient. */
 function optionalIngredientLabel(line: IngLine): string {
   const qtyPart = [formatQtyDisplay(line.qty), line.count.trim()].filter(Boolean).join(" ");
   return [qtyPart, line.name.trim()].filter(Boolean).join(" ").trim() || line.name.trim();
 }
 
+/** Indique si une ligne d'ingrédient a un contenu affichable. */
+function ingredientLineHasContent(line: IngLine): boolean {
+  return Boolean(line.name.trim() || line.qty.trim() || line.count.trim());
+}
+
 /**
- * Regroupe les ingrédients optionnels pour la pop-up avant transfert vers Possible
- * (bundles « + » → affichage « et »).
+ * Regroupe tous les ingrédients de la recette pour la pop-up avant transfert vers Possible
+ * (bundles « + » → affichage « et »). Chaque item indique s'il était optionnel.
+ * `name` sert au matching stock (dates de péremption) ; `qty`/`count` à l'édition live.
  */
-export function listOptionalIngredientGroups(
+export function listRecipeIngredientGroups(
   ingredients: string | null | undefined,
-): { items: { key: string; label: string }[]; isBundle: boolean }[] {
+): {
+  items: {
+    key: string;
+    label: string;
+    name: string;
+    qty: string;
+    count: string;
+    isOptional: boolean;
+  }[];
+  isBundle: boolean;
+}[] {
   if (!ingredients?.trim()) return [];
-  const groups: { items: { key: string; label: string }[]; isBundle: boolean }[] = [];
-  let current: { items: { key: string; label: string }[]; isBundle: boolean } | null = null;
+  const groups: {
+    items: {
+      key: string;
+      label: string;
+      name: string;
+      qty: string;
+      count: string;
+      isOptional: boolean;
+    }[];
+    isBundle: boolean;
+  }[] = [];
+  let current: {
+    items: {
+      key: string;
+      label: string;
+      name: string;
+      qty: string;
+      count: string;
+      isOptional: boolean;
+    }[];
+    isBundle: boolean;
+  } | null = null;
 
   for (const line of parseIngredientsToLines(ingredients)) {
-    if (!line.isOptional || !line.name.trim()) {
+    if (!ingredientLineHasContent(line) || !line.name.trim()) {
       if (current && current.items.length > 0) groups.push(current);
       current = null;
       continue;
     }
 
-    const item = { key: optionalIngredientKey(line), label: optionalIngredientLabel(line) };
+    const item = {
+      key: optionalIngredientKey(line),
+      label: optionalIngredientLabel(line),
+      name: line.name.trim(),
+      qty: line.qty,
+      count: line.count,
+      isOptional: line.isOptional,
+    };
 
     if (line.isAnd && current) {
       current.items.push(item);
@@ -872,12 +915,99 @@ export function listOptionalIngredientGroups(
 }
 
 /**
+ * Clés cochées par défaut : tous les ingrédients non optionnels de la recette.
+ */
+export function defaultIncludedIngredientKeys(
+  groups: { items: { key: string; isOptional: boolean }[] }[],
+): Set<string> {
+  const keys = new Set<string>();
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (!item.isOptional) keys.add(item.key);
+    }
+  }
+  return keys;
+}
+
+/**
+ * Regroupe les ingrédients optionnels pour la pop-up avant transfert vers Possible
+ * (bundles « + » → affichage « et »).
+ */
+export function listOptionalIngredientGroups(
+  ingredients: string | null | undefined,
+): { items: { key: string; label: string }[]; isBundle: boolean }[] {
+  return listRecipeIngredientGroups(ingredients)
+    .map((group) => ({
+      isBundle: group.isBundle,
+      items: group.items.filter((item) => item.isOptional).map(({ key, label }) => ({ key, label })),
+    }))
+    .filter((group) => group.items.length > 0);
+}
+
+/**
  * Liste les ingrédients optionnels uniques d'une recette (pour la pop-up avant transfert vers Possible).
  */
 export function listUniqueOptionalIngredients(
   ingredients: string | null | undefined,
 ): { key: string; label: string }[] {
   return listOptionalIngredientGroups(ingredients).flatMap((group) => group.items);
+}
+
+/** Édition de quantité/compte par clé d'ingrédient (pop-up → Possible). */
+export type IngredientQtyEdit = { qty: string; count: string };
+
+/**
+ * Produit un override Possible à partir des ingrédients cochés dans la pop-up :
+ * retire les non cochés, enlève le « ? » des optionnels conservés,
+ * et applique les quantités éventuellement modifiées (`qtyEdits`).
+ */
+export function buildIngredientsOverrideFromSelection(
+  ingredients: string | null | undefined,
+  includeKeys: Set<string>,
+  qtyEdits?: Record<string, IngredientQtyEdit>,
+): string | null {
+  if (!ingredients?.trim()) return ingredients ?? null;
+  const lines = parseIngredientsToLines(ingredients);
+  const contentFlags = lines.map((line) => ingredientLineHasContent(line) && !!line.name.trim());
+  const keptFlags = lines.map((line, index) => {
+    if (!contentFlags[index]) return false;
+    const key = optionalIngredientKey(line);
+    return !!key && includeKeys.has(key);
+  });
+
+  const out: IngLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!keptFlags[i]) continue;
+    const key = optionalIngredientKey(lines[i]);
+    const edit = qtyEdits?.[key];
+    const line: IngLine = {
+      ...lines[i],
+      isOptional: false,
+      qty: edit ? edit.qty : lines[i].qty,
+      count: edit ? edit.count : lines[i].count,
+    };
+    if (out.length === 0 || i === 0 || !keptFlags[i - 1]) {
+      line.isAnd = false;
+      line.isOr = false;
+    }
+    out.push(line);
+  }
+  return serializeIngredients(out);
+}
+
+/**
+ * Initialise les champs qty/count éditables de la pop-up à partir des groupes affichés.
+ */
+export function defaultIngredientQtyEdits(
+  groups: { items: { key: string; qty: string; count: string }[] }[],
+): Record<string, IngredientQtyEdit> {
+  const edits: Record<string, IngredientQtyEdit> = {};
+  for (const group of groups) {
+    for (const item of group.items) {
+      edits[item.key] = { qty: item.qty, count: item.count };
+    }
+  }
+  return edits;
 }
 
 /**

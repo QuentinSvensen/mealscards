@@ -9,6 +9,9 @@ import {
   getCounterDaysBadgeTooltip,
   listUniqueOptionalIngredients,
   listOptionalIngredientGroups,
+  listRecipeIngredientGroups,
+  defaultIncludedIngredientKeys,
+  buildIngredientsOverrideFromSelection,
   applyOptionalInclusionsToIngredients,
   optionalIngredientKey,
   appendIncludedOptionalsToOverride,
@@ -305,6 +308,43 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
     expect(override).toMatch(/12g Chocolat/);
     expect(override).not.toMatch(/\?12g Chocolat/);
     expect(override).toMatch(/\?22g Chocolat/);
+  });
+
+  it("liste toute la recette et pré-coche les non optionnels", () => {
+    const cookie = "20g Beurre, ?12g Chocolat, 100g Farine";
+    const groups = listRecipeIngredientGroups(cookie);
+    expect(groups.flatMap((g) => g.items).map((i) => i.label)).toEqual([
+      "20g Beurre",
+      "12g Chocolat",
+      "100g Farine",
+    ]);
+    const defaults = defaultIncludedIngredientKeys(groups);
+    expect([...defaults].sort()).toEqual(["beurre|20g", "farine|100g"].sort());
+  });
+
+  it("construit un override depuis la sélection cochée", () => {
+    const cookie = "20g Beurre, ?12g Chocolat, ?22g Chocolat";
+    const groups = listRecipeIngredientGroups(cookie);
+    const keys = defaultIncludedIngredientKeys(groups);
+    keys.add(groups.flatMap((g) => g.items).find((i) => i.label === "12g Chocolat")!.key);
+    const override = buildIngredientsOverrideFromSelection(cookie, keys);
+    expect(override).toMatch(/20g Beurre/);
+    expect(override).toMatch(/12g Chocolat/);
+    expect(override).not.toMatch(/\?/);
+    expect(override).not.toMatch(/22g Chocolat/);
+  });
+
+  it("applique les quantités éditées dans l'override de sélection", () => {
+    const recipe = "90g Pâtes, 200g Lardons";
+    const groups = listRecipeIngredientGroups(recipe);
+    const keys = defaultIncludedIngredientKeys(groups);
+    const patesKey = groups.flatMap((g) => g.items).find((i) => i.name === "Pâtes")!.key;
+    const override = buildIngredientsOverrideFromSelection(recipe, keys, {
+      [patesKey]: { qty: "120g", count: "" },
+    });
+    expect(override).toMatch(/120g Pâtes/);
+    expect(override).toMatch(/200g Lardons/);
+    expect(override).not.toMatch(/90g Pâtes/);
   });
 
   it("ajoute les optionnels inclus scalés à un override consommé", () => {

@@ -6,10 +6,10 @@ import type { Dispatch, SetStateAction } from "react";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { OptionalIngredientGroup } from "@/components/OptionalIngredientsMoveDialog";
+import type { OptionalIngredientSelection } from "@/hooks/useOptionalIngredientsMoveDialog";
 import {
-  listOptionalIngredientGroups,
-  applyOptionalInclusionsToIngredients,
-  appendIncludedOptionalsToOverride,
+  listRecipeIngredientGroups,
+  buildIngredientsOverrideFromSelection,
   parseQty,
   strictNameMatch,
 } from "@/lib/ingredientUtils";
@@ -70,7 +70,8 @@ export interface UseMoveToPossibleDeps {
   askOptionalIngredientInclusions: (
     mealName: string,
     groups: OptionalIngredientGroup[],
-  ) => Promise<Set<string> | null>;
+    ingredients?: string | null,
+  ) => Promise<OptionalIngredientSelection | null>;
   updateSnapshots: (updater: (prev: Record<string, FoodItem[]>) => Record<string, FoodItem[]>) => void;
   getPreference: <T>(key: string, fallback: T) => T;
   setPreference: { mutate: (args: { key: string; value: unknown }) => void };
@@ -147,20 +148,29 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
     const meal = meals.find((m) => m.id === mealId);
     if (!meal) return;
 
-    // Pop-up si des optionnels existent (Tous / Au choix → Possible uniquement)
-    let includedOptionalKeys = new Set<string>();
+    // Pop-up pour chaque carte Tous / Au choix → Possible (même sans optionnels)
+    let selectionOverride: string | null = null;
     const fromMasterOrAvailable = source === "master" || source === "available";
     if (fromMasterOrAvailable) {
-      const groups = listOptionalIngredientGroups(meal.ingredients);
+      const groups = listRecipeIngredientGroups(meal.ingredients);
       if (groups.length > 0) {
-        const choice = await askOptionalIngredientInclusions(meal.name, groups);
+        const choice = await askOptionalIngredientInclusions(meal.name, groups, meal.ingredients);
         if (choice === null) return;
-        includedOptionalKeys = choice;
+        selectionOverride = buildIngredientsOverrideFromSelection(
+          meal.ingredients,
+          choice.includeKeys,
+          choice.qtyEdits,
+        );
       }
     }
 
+    const mealForTransfer =
+      selectionOverride && selectionOverride !== meal.ingredients
+        ? { ...meal, ingredients: selectionOverride }
+        : meal;
+
     // 1. Analyser le stock avant déduction pour l'expiration (sans déduire)
-    const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
+    const anBefore = analyzeMealIngredients(mealForTransfer, foodItems, foodItemIndex);
 
     let snapshots: FoodItem[] = [];
     let nameMatch: FoodItem | undefined;
@@ -169,14 +179,14 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
 
     // 2. Déduire les ingrédients du stock UNIQUEMENT si ça ne vient pas de "Tous" (master)
     if (source !== "master") {
-      const deductionResult = await deductIngredientsFromStock(meal, undefined);
+      const deductionResult = await deductIngredientsFromStock(mealForTransfer, undefined);
       snapshots = deductionResult.snapshots;
       oldestCounterFromDeduction = deductionResult.oldestCounter || null;
       consumedIngredientsFromDeduction = deductionResult.consumedIngredients || null;
       nameMatch = foodItems.find((fi) => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch && !snapshots.find((s) => s.id === nameMatch!.id)) {
-        if (!meal.ingredients?.trim()) {
-          const portion = await deductNameMatchStock(meal);
+        if (!mealForTransfer.ingredients?.trim()) {
+          const portion = await deductNameMatchStock(mealForTransfer);
           snapshots.push(attachFoodDeductionSnapshot(nameMatch, {
             grams: portion.gramsDeducted,
             quantity: portion.quantityDeducted,
@@ -187,16 +197,12 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
       }
     }
 
-    // Override Possible : optionnels cochés deviennent obligatoires (recette maître inchangée)
+    // Override Possible : sélection cochée dans la pop-up (recette maître inchangée)
     let ingredientsOverride: string | null = null;
     if (consumedIngredientsFromDeduction && consumedIngredientsFromDeduction !== meal.ingredients) {
-      ingredientsOverride = appendIncludedOptionalsToOverride(
-        consumedIngredientsFromDeduction,
-        meal.ingredients,
-        includedOptionalKeys,
-      );
-    } else if (includedOptionalKeys.size > 0) {
-      ingredientsOverride = applyOptionalInclusionsToIngredients(meal.ingredients, includedOptionalKeys);
+      ingredientsOverride = consumedIngredientsFromDeduction;
+    } else if (selectionOverride && selectionOverride !== meal.ingredients) {
+      ingredientsOverride = selectionOverride;
     }
 
     // 3. Calculer les calories/protéines AVANT déduction pour les « figer » sur la nouvelle carte
@@ -229,26 +235,6 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
 
     if (result?.id) {
       if (snapshots.length > 0) updateSnapshots((prev) => ({ ...prev, [result.id]: snapshots }));
-
-      // Au choix + optionnels inclus : déduire le stock supplémentaire (comme une édition d'override)
-      if (
-        source !== "master" &&
-        includedOptionalKeys.size > 0 &&
-        ingredientsOverride
-      ) {
-        const oldForStock = consumedIngredientsFromDeduction ?? meal.ingredients;
-        const extraSnaps = await adjustStockForIngredientChange(
-          oldForStock,
-          ingredientsOverride,
-          snapshots,
-        );
-        if (extraSnaps.length > 0) {
-          updateSnapshots((prev) => ({
-            ...prev,
-            [result.id]: [...(prev[result.id] ?? snapshots), ...extraSnaps],
-          }));
-        }
-      }
 
       if (ingredientsOverride && ingredientsOverride !== meal.ingredients) {
         updatePossibleIngredients.mutate({ id: result.id, ingredients_override: ingredientsOverride });

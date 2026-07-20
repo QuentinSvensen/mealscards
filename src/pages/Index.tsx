@@ -31,9 +31,8 @@ import {
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, smartFoodContains,
   extractIngredientMacros,
-  listOptionalIngredientGroups,
-  applyOptionalInclusionsToIngredients,
-  appendIncludedOptionalsToOverride,
+  listRecipeIngredientGroups,
+  buildIngredientsOverrideFromSelection,
 } from "@/lib/ingredientUtils";
 import { OptionalIngredientsMoveDialog } from "@/components/OptionalIngredientsMoveDialog";
 import { useOptionalIngredientsMoveDialog } from "@/hooks/useOptionalIngredientsMoveDialog";
@@ -699,9 +698,11 @@ const Index = () => {
   const {
     optionalMoveDialog,
     optionalIncludeKeys,
+    optionalQtyEdits,
     askOptionalIngredientInclusions,
     finishOptionalMoveDialog,
     toggleOptionalIncludeKey,
+    updateOptionalQtyEdit,
   } = useOptionalIngredientsMoveDialog();
 
   // Modes de tri — extraits dans un hook dédié
@@ -1018,10 +1019,21 @@ const Index = () => {
       <OptionalIngredientsMoveDialog
         open={!!optionalMoveDialog}
         mealName={optionalMoveDialog?.mealName ?? ""}
+        ingredients={optionalMoveDialog?.ingredients ?? null}
         groups={optionalMoveDialog?.groups ?? []}
         includeKeys={optionalIncludeKeys}
+        qtyEdits={optionalQtyEdits}
+        foodItems={foodItems}
+        foodItemIndex={foodItemIndex}
+        hideDayCalorieTotals={hideDayCalorieTotals}
         onToggleKey={toggleOptionalIncludeKey}
-        onConfirm={() => finishOptionalMoveDialog(new Set(optionalIncludeKeys))}
+        onQtyEdit={updateOptionalQtyEdit}
+        onConfirm={() =>
+          finishOptionalMoveDialog({
+            includeKeys: new Set(optionalIncludeKeys),
+            qtyEdits: optionalQtyEdits,
+          })
+        }
         onCancel={() => finishOptionalMoveDialog(null)}
       />
 
@@ -1193,21 +1205,34 @@ const Index = () => {
                           onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
                           onMoveToPossible={(mealId) => handleMoveToPossibleGeneral(mealId, "available")}
                           onMovePartialToPossible={async (meal, ratio) => {
-                            // Scaler d'abord pour afficher les bonnes qtés dans la pop-up optionnels
+                            // Scaler d'abord pour afficher les bonnes qtés dans la pop-up
                             const partialMeal = buildScaledMealForRatio(meal, ratio, stockMap);
 
-                            let includedOptionalKeys = new Set<string>();
-                            const optionalGroups = listOptionalIngredientGroups(partialMeal.ingredients);
-                            if (optionalGroups.length > 0) {
-                              const choice = await askOptionalIngredientInclusions(meal.name, optionalGroups);
+                            let selectionOverride: string | null = null;
+                            const recipeGroups = listRecipeIngredientGroups(partialMeal.ingredients);
+                            if (recipeGroups.length > 0) {
+                              const choice = await askOptionalIngredientInclusions(
+                                meal.name,
+                                recipeGroups,
+                                partialMeal.ingredients,
+                              );
                               if (choice === null) return;
-                              includedOptionalKeys = choice;
+                              selectionOverride = buildIngredientsOverrideFromSelection(
+                                partialMeal.ingredients,
+                                choice.includeKeys,
+                                choice.qtyEdits,
+                              );
                             }
 
-                            const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
+                            const mealForTransfer =
+                              selectionOverride && selectionOverride !== partialMeal.ingredients
+                                ? { ...partialMeal, ingredients: selectionOverride }
+                                : partialMeal;
 
-                            // 1. Deduct FIRST (portion déjà multipliée)
-                            const { snapshots, oldestCounter, consumedIngredients } = await deductIngredientsFromStock(partialMeal);
+                            const anBefore = analyzeMealIngredients(mealForTransfer, foodItems, foodItemIndex);
+
+                            // 1. Deduct FIRST (portion déjà multipliée, sélection cochée)
+                            const { snapshots, oldestCounter, consumedIngredients } = await deductIngredientsFromStock(mealForTransfer);
 
                             let finalCounterDate: string | null = null;
                             if (recipeHasFiniteCounterableIngredients(meal.ingredients, foodItems, foodItemIndex)) {
@@ -1233,27 +1258,14 @@ const Index = () => {
 
                             if (result?.id) {
                               updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
-                              // Override scalé : les optionnels sont absents du consumed → les réinjecter
-                              // depuis la recette scalée (clés déjà multipliées, comme dans la pop-up).
-                              let finalOverride =
+                              const finalOverride =
                                 consumedIngredients
+                                || (selectionOverride && selectionOverride !== meal.ingredients
+                                  ? selectionOverride
+                                  : null)
                                 || (partialMeal.ingredients && partialMeal.ingredients !== meal.ingredients
                                   ? partialMeal.ingredients
                                   : null);
-                              if (includedOptionalKeys.size > 0) {
-                                if (consumedIngredients) {
-                                  finalOverride = appendIncludedOptionalsToOverride(
-                                    consumedIngredients,
-                                    partialMeal.ingredients,
-                                    includedOptionalKeys,
-                                  );
-                                } else {
-                                  finalOverride = applyOptionalInclusionsToIngredients(
-                                    finalOverride ?? partialMeal.ingredients,
-                                    includedOptionalKeys,
-                                  );
-                                }
-                              }
                               if (finalOverride && finalOverride !== meal.ingredients) {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: finalOverride });
                               }
