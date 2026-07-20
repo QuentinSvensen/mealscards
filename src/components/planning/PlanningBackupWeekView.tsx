@@ -9,7 +9,12 @@ import {
   isBackupBreakfastPmAlreadyInMatinSlot,
 } from "@/domain/planning/breakfastBreakdown";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
-import { getCalorieRangeTotalColorClass } from "@/domain/planning/calorieGoalRange";
+import {
+  formatCalorieGoalTarget,
+  getCalorieRangeTotalColorClass,
+  getRemainingDayCalories,
+  hasCalorieGoalRangeMin,
+} from "@/domain/planning/calorieGoalRange";
 import {
   getCardDisplayCalories,
   getCardDisplayProtein,
@@ -47,7 +52,7 @@ export interface PlanningBackupWeekViewProps {
   ingredientMacroLibrary: IngredientMacroLibraryItem[] | null | undefined;
   sumDayExtras: (ids: string[]) => { cal: number; pro: number; fiber: number };
   hideDayCalorieTotals: boolean;
-  backupTotals: { archivedDailyGoal: number; archivedProteinGoal: number };
+  backupTotals: { archivedDailyGoal: number; archivedDailyGoalLow: number; archivedProteinGoal: number };
   openExtrasDay: string | null;
   setOpenExtrasDay: React.Dispatch<React.SetStateAction<string | null>>;
   parseCalories: (cal: string | null | undefined) => number;
@@ -89,6 +94,33 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
           );
           const isNF = backupRaw && !Array.isArray(backupRaw) && backupRaw.cards;
           const cards: any[] = isNF ? backupRaw.cards : (Array.isArray(backupRaw) ? backupRaw : []);
+
+          // Construit le mapping index-jour (lun=0…dim=6) → ISO de la semaine archivée,
+          // pour afficher les cartes même si les ISO du backup diffèrent de la semaine affichée.
+          const backupDayIndexToIso: Record<number, string> = {};
+          if (isNF && backupRaw.weekStartISO) {
+            const start = new Date(`${backupRaw.weekStartISO}T12:00:00`);
+            for (let i = 0; i < 7; i++) {
+              const d = new Date(start);
+              d.setDate(d.getDate() + i);
+              const iso = d.toISOString().split('T')[0];
+              const dow = d.getDay(); // 0=dim
+              const idx = dow === 0 ? 6 : dow - 1; // lun=0…dim=6
+              backupDayIndexToIso[idx] = iso;
+            }
+          }
+
+          // Retourne l'ISO archivé correspondant au jour affiché (par index ou par clé/ISO direct).
+          const resolveBackupDayIso = (displayIso: string, displayKey: string): string => {
+            // Chercher d'abord une correspondance directe (même semaine de backup)
+            const directMatch = cards.some((c: any) => c.day_of_week === displayIso || c.day_of_week === displayKey);
+            if (directMatch) return displayIso;
+            // Sinon, mapper par position dans la semaine
+            const d = new Date(`${displayIso}T12:00:00`);
+            const dow = d.getDay();
+            const idx = dow === 0 ? 6 : dow - 1;
+            return backupDayIndexToIso[idx] ?? displayIso;
+          };
           const bMC = isNF ? (backupRaw.manualCalories || {}) : {};
           const bMP = isNF ? (backupRaw.manualProteins || {}) : {};
           const bEC = isNF ? (backupRaw.extraCalories || {}) : {};
@@ -138,7 +170,10 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                 <p className="text-xs font-bold text-amber-600 dark:text-amber-400">📋 Lecture seule — Dernière sauvegarde avant reset</p>
               </div>
               {weekDates.map(({ key, iso, display }) => {
-                const dayCards = cards.filter((c: any) => c.day_of_week === iso || c.day_of_week === key);
+                // bIso = ISO du jour dans la semaine archivée (peut différer de iso si reset entre-temps)
+                const bIso = resolveBackupDayIso(iso, key);
+                const bKey = key; // la clé jour (lundi, mardi…) reste la même
+                const dayCards = cards.filter((c: any) => c.day_of_week === bIso || c.day_of_week === bKey);
                 const midiCards = dayCards.filter((c: any) => c.meal_time === 'midi');
                 const soirCards = dayCards.filter((c: any) => c.meal_time === 'soir');
                 const matinCards = dayCards.filter((c: any) => c.meal_time === 'matin');
@@ -152,21 +187,21 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                 let gouterSlotCal = 0, gouterSlotPro = 0;
 
                 // Calcul du petit déjeuner
-                const bfSel = bBS[iso] || bBS[key];
+                const bfSel = bBS[bIso] || bBS[bKey];
                 if (bfSel?.startsWith('meal:')) {
                   const m = allMealsById.get(bfSel.slice(5));
                   if (m) { bfSlotCal += parseCalories(m.calories); bfSlotPro += parseProtein(m.protein); }
                 } else if (bfSel?.startsWith('pm:')) {
                   const pm = cards.find(c => c.id === bfSel.slice(3));
-                  if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, iso, key, matinCards)) {
+                  if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, bIso, bKey, matinCards)) {
                     const m = allMealsById.get(pm.meal_id);
                     const fullPm = m ? { ...pm, meals: m } : pm;
                     bfSlotCal += getCardDisplayCalories(fullPm, bCO[pm.id], isAvailableCb);
                     bfSlotPro += getCardDisplayProtein(fullPm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
                   }
                 } else {
-                  bfSlotCal += (bBC[iso] || bBC[key] || 0);
-                  const bfManualPro = isNF ? (backupRaw.breakfastManualProteins?.[iso] || backupRaw.breakfastManualProteins?.[key] || 0) : 0;
+                  bfSlotCal += (bBC[bIso] || bBC[bKey] || 0);
+                  const bfManualPro = isNF ? (backupRaw.breakfastManualProteins?.[bIso] || backupRaw.breakfastManualProteins?.[bKey] || 0) : 0;
                   bfSlotPro += bfManualPro;
                 }
 
@@ -185,10 +220,10 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                   return { cals, pros };
                 };
 
-                const matinAssignedIds = bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? [];
-                const midiAssignedIds = bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? [];
-                const soirAssignedIds = bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? [];
-                const gouterAssignedIds = bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? [];
+                const matinAssignedIds = bESA[`${bIso}-matin`] ?? bESA[`${bKey}-matin`] ?? [];
+                const midiAssignedIds = bESA[`${bIso}-midi`] ?? bESA[`${bKey}-midi`] ?? [];
+                const soirAssignedIds = bESA[`${bIso}-soir`] ?? bESA[`${bKey}-soir`] ?? [];
+                const gouterAssignedIds = bESA[`${bIso}-gouter`] ?? bESA[`${bKey}-gouter`] ?? [];
                 const matinAssigned = sumDayExtras(matinAssignedIds);
                 const midiAssigned = sumDayExtras(midiAssignedIds);
                 const soirAssigned = sumDayExtras(soirAssignedIds);
@@ -201,31 +236,31 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                 const resMidi = processCards(midiCards);
                 midiSlotCal = resMidi.cals + midiAssigned.cal;
                 midiSlotPro = resMidi.pros + midiAssigned.pro;
-                if (midiCards.length === 0) { midiSlotCal += (bMC[`${iso}-midi`] || bMC[`${key}-midi`] || 0); midiSlotPro += (bMP[`${iso}-midi`] || bMP[`${key}-midi`] || 0); }
-                if (bDC[`${iso}-midi`] || bDC[`${key}-midi`]) midiSlotCal += DRINK_CALORIES;
+                if (midiCards.length === 0) { midiSlotCal += (bMC[`${bIso}-midi`] || bMC[`${bKey}-midi`] || 0); midiSlotPro += (bMP[`${bIso}-midi`] || bMP[`${bKey}-midi`] || 0); }
+                if (bDC[`${bIso}-midi`] || bDC[`${bKey}-midi`]) midiSlotCal += DRINK_CALORIES;
 
                 const resSoir = processCards(soirCards);
                 soirSlotCal = resSoir.cals + soirAssigned.cal;
                 soirSlotPro = resSoir.pros + soirAssigned.pro;
-                if (soirCards.length === 0) { soirSlotCal += (bMC[`${iso}-soir`] || bMC[`${key}-soir`] || 0); soirSlotPro += (bMP[`${iso}-soir`] || bMP[`${key}-soir`] || 0); }
-                if (bDC[`${iso}-soir`] || bDC[`${key}-soir`]) soirSlotCal += DRINK_CALORIES;
+                if (soirCards.length === 0) { soirSlotCal += (bMC[`${bIso}-soir`] || bMC[`${bKey}-soir`] || 0); soirSlotPro += (bMP[`${bIso}-soir`] || bMP[`${bKey}-soir`] || 0); }
+                if (bDC[`${bIso}-soir`] || bDC[`${bKey}-soir`]) soirSlotCal += DRINK_CALORIES;
 
                 const resGouter = processCards(gouterCards);
                 gouterSlotCal = resGouter.cals + gouterAssigned.cal;
                 gouterSlotPro = resGouter.pros + gouterAssigned.pro;
                 if (gouterCards.length === 0) {
-                  gouterSlotCal += (bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0);
-                  gouterSlotPro += (bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0);
+                  gouterSlotCal += (bMC[`${bIso}-gouter`] || bMC[`${bKey}-gouter`] || 0);
+                  gouterSlotPro += (bMP[`${bIso}-gouter`] || bMP[`${bKey}-gouter`] || 0);
                 }
-                if (bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) gouterSlotCal += DRINK_CALORIES;
+                if (bDC[`${bIso}-gouter`] || bDC[`${bKey}-gouter`]) gouterSlotCal += DRINK_CALORIES;
 
                 let dayTotal = bfSlotCal + midiSlotCal + soirSlotCal + gouterSlotCal;
                 let dayPro = bfSlotPro + midiSlotPro + soirSlotPro + gouterSlotPro;
 
                 // Extras (sauvegarde : mêmes ids que le planning courant, y compris extras saisis à la main)
-                dayTotal += (bEC[iso] || bEC[key] || 0);
-                dayPro += (bEP[iso] || bEP[key] || 0);
-                const backupExtraSum = sumDayExtras(bES[iso] || bES[key]);
+                dayTotal += (bEC[bIso] || bEC[bKey] || 0);
+                dayPro += (bEP[bIso] || bEP[bKey] || 0);
+                const backupExtraSum = sumDayExtras(bES[bIso] || bES[bKey]);
                 const backupAssignedExtraCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
                 const backupAssignedExtraPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
                 const backupUnassignedExtraCal = Math.max(0, backupExtraSum.cal - backupAssignedExtraCal);
@@ -261,10 +296,10 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                       <h3 className="text-sm sm:text-base font-bold text-foreground">{display}</h3>
                       <div className="flex items-center gap-1">
                         {(() => {
-                          const bfSelLabel = bBS[iso] || bBS[key];
+                          const bfSelLabel = bBS[bIso] || bBS[bKey];
                           const breakfastBreakdownItems = buildBackupBreakfastBreakdownItems({
-                            key,
-                            iso,
+                            key: bKey,
+                            iso: bIso,
                             matinCards,
                             bfSel: bfSelLabel,
                             cards,
@@ -343,15 +378,15 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                       <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap justify-end">
                         <span className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap">
                           <Flame className="h-2.5 w-2.5 text-orange-500" />
-                          <span className={getCalorieRangeTotalColorClass(dayTotal, 0, backupTotals.archivedDailyGoal) ?? undefined}>
+                          <span className={getCalorieRangeTotalColorClass(dayTotal, backupTotals.archivedDailyGoalLow, backupTotals.archivedDailyGoal) ?? undefined}>
                             {hideDayCalorieTotals ? "Calories" : Math.round(dayTotal)}
                           </span>
                           {" "}
-                          <span className="text-muted-foreground/50 font-normal">/ {backupTotals.archivedDailyGoal}</span>
+                          <span className="text-muted-foreground/50 font-normal">/ {formatCalorieGoalTarget(backupTotals.archivedDailyGoalLow, backupTotals.archivedDailyGoal)}</span>
                         </span>
-                        {dayTotal > 0 && !hideDayCalorieTotals && (
-                          <span className={`text-[10px] font-bold whitespace-nowrap ${backupTotals.archivedDailyGoal - dayTotal > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
-                            {backupTotals.archivedDailyGoal - dayTotal > 0 ? `reste ${Math.round(backupTotals.archivedDailyGoal - dayTotal)}` : `+${Math.round(dayTotal - backupTotals.archivedDailyGoal)}`}
+                        {dayTotal > 0 && !hideDayCalorieTotals && !hasCalorieGoalRangeMin(backupTotals.archivedDailyGoalLow, backupTotals.archivedDailyGoal) && (
+                          <span className={`text-[10px] font-bold whitespace-nowrap ${getRemainingDayCalories(backupTotals.archivedDailyGoal, dayTotal) > 0 ? 'text-muted-foreground/60' : 'text-orange-500'}`}>
+                            {getRemainingDayCalories(backupTotals.archivedDailyGoal, dayTotal) > 0 ? `reste ${Math.round(getRemainingDayCalories(backupTotals.archivedDailyGoal, dayTotal))}` : `+${Math.round(dayTotal - backupTotals.archivedDailyGoal)}`}
                           </span>
                         )}
                         {dayPro > 0 && (
@@ -452,23 +487,23 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                             <span className="text-[8px] sm:text-[9px] font-semibold text-orange-400/80 uppercase tracking-wide">Extra</span>
                             <div className="flex flex-col items-center gap-1 mt-1 w-full opacity-60">
                               {(() => {
-                                const sel = sumDayExtras(bES[iso] || bES[key]);
-                                const matinAssigned = sumDayExtras(bESA[`${iso}-matin`] ?? bESA[`${key}-matin`] ?? []);
-                                const midiAssigned = sumDayExtras(bESA[`${iso}-midi`] ?? bESA[`${key}-midi`] ?? []);
-                                const soirAssigned = sumDayExtras(bESA[`${iso}-soir`] ?? bESA[`${key}-soir`] ?? []);
-                                const gouterAssigned = sumDayExtras(bESA[`${iso}-gouter`] ?? bESA[`${key}-gouter`] ?? []);
+                                const sel = sumDayExtras(bES[bIso] || bES[bKey]);
+                                const matinAssigned = sumDayExtras(bESA[`${bIso}-matin`] ?? bESA[`${bKey}-matin`] ?? []);
+                                const midiAssigned = sumDayExtras(bESA[`${bIso}-midi`] ?? bESA[`${bKey}-midi`] ?? []);
+                                const soirAssigned = sumDayExtras(bESA[`${bIso}-soir`] ?? bESA[`${bKey}-soir`] ?? []);
+                                const gouterAssigned = sumDayExtras(bESA[`${bIso}-gouter`] ?? bESA[`${bKey}-gouter`] ?? []);
                                 const assignedCal = matinAssigned.cal + midiAssigned.cal + soirAssigned.cal + gouterAssigned.cal;
                                 const assignedPro = matinAssigned.pro + midiAssigned.pro + soirAssigned.pro + gouterAssigned.pro;
                                 const extraCal = Math.max(0, sel.cal - assignedCal);
                                 const extraPro = Math.max(0, sel.pro - assignedPro);
                                 // Sous « Masquer calories » : n'afficher que les macros manuelles (pas l'auto chips).
                                 const displayCal = resolveExtraColumnInputDisplayValue(
-                                  bEC[iso] || bEC[key] || 0,
+                                  bEC[bIso] || bEC[bKey] || 0,
                                   extraCal,
                                   hideDayCalorieTotals,
                                 );
                                 const displayPro = resolveExtraColumnInputDisplayValue(
-                                  bEP[iso] || bEP[key] || 0,
+                                  bEP[bIso] || bEP[bKey] || 0,
                                   extraPro,
                                   hideDayCalorieTotals,
                                 );
@@ -492,9 +527,9 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                           onOpenAutoFocus={(e) => e.preventDefault()}
                         >
                           {(() => {
-                            const backupUnassignedIds = getUnassignedExtraSelectionIds(bES, bESA, iso, key);
-                            const manualCal = bEC[iso] || bEC[key] || 0;
-                            const manualPro = bEP[iso] || bEP[key] || 0;
+                            const backupUnassignedIds = getUnassignedExtraSelectionIds(bES, bESA, bIso, bKey);
+                            const manualCal = bEC[bIso] || bEC[bKey] || 0;
+                            const manualPro = bEP[bIso] || bEP[bKey] || 0;
                             const hasVisibleManual = manualPro > 0 || (!hideDayCalorieTotals && manualCal > 0);
                             const hasUnassigned = backupUnassignedIds.length > 0;
 
@@ -588,13 +623,13 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                     <div className="mt-1.5 min-h-[34px] rounded-xl border border-dashed border-orange-300/45 bg-orange-500/3 p-0.5 sm:p-1 flex items-center">
                       <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
                         <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
-                        {(bDC[`${iso}-gouter`] || bDC[`${key}-gouter`]) && (
+                        {(bDC[`${bIso}-gouter`] || bDC[`${bKey}-gouter`]) && (
                           <span className="flex items-center gap-0.5 text-[7px] sm:text-[8px] rounded-full px-1 py-px bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">🥤 +{DRINK_CALORIES}</span>
                         )}
                         {gouterCards.length === 0 && (
                           <>
-                            <div className="text-[10px] text-muted-foreground px-1 opacity-60">{bMC[`${iso}-gouter`] || bMC[`${key}-gouter`] || 0} kcal</div>
-                            <div className="text-[10px] text-blue-400 px-1 opacity-60">{bMP[`${iso}-gouter`] || bMP[`${key}-gouter`] || 0} prot</div>
+                            <div className="text-[10px] text-muted-foreground px-1 opacity-60">{bMC[`${bIso}-gouter`] || bMC[`${bKey}-gouter`] || 0} kcal</div>
+                            <div className="text-[10px] text-blue-400 px-1 opacity-60">{bMP[`${bIso}-gouter`] || bMP[`${bKey}-gouter`] || 0} prot</div>
                           </>
                         )}
                         {renderBackupCards(gouterCards)}
@@ -634,18 +669,19 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                 const processedDays = dailyTotals.length;
                 const avgCal = processedDays > 0 ? Math.round(weekTotalCals / processedDays) : 0;
                 const weekGoalHigh = backupTotals.archivedDailyGoal * 7;
+                const weekGoalLow = backupTotals.archivedDailyGoalLow > 0 ? backupTotals.archivedDailyGoalLow * 7 : 0;
                 return (
                   <PlanningWeekTotalsFooter
                     title="Total semaine"
                     weekTotal={weekTotalCals}
                     avgCal={avgCal}
                     avgDaysLabel={`${processedDays}j`}
-                    goalLow={0}
+                    goalLow={backupTotals.archivedDailyGoalLow}
                     goalHigh={backupTotals.archivedDailyGoal}
+                    displayGoalLow={weekGoalLow > 0 ? weekGoalLow : undefined}
                     displayGoalHigh={weekGoalHigh}
                     hideDayCalorieTotals={hideDayCalorieTotals}
                     weekDayScale={7}
-                    goalAsSingleHigh
                   />
                 );
               })()}

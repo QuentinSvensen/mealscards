@@ -2,6 +2,7 @@ import { Flame, Loader2 } from "lucide-react";
 
 export interface PlanningHeaderBackupTotals {
   archivedDailyGoal: number;
+  archivedDailyGoalLow: number;
   archivedProteinGoal: number;
 }
 
@@ -155,6 +156,14 @@ export function PlanningHeader({
         <>
           <div className="flex items-center gap-1">
             <Flame className="h-3 w-3 text-orange-500" />
+            {backupTotals.archivedDailyGoalLow > 0 && (
+              <>
+                <div className="w-14 h-6 text-xs bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-500/80 flex items-center justify-center font-bold">
+                  {Math.round(backupTotals.archivedDailyGoalLow)}
+                </div>
+                <span className="text-[9px] text-orange-400/50">–</span>
+              </>
+            )}
             <div className="w-16 h-6 text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 flex items-center justify-center font-bold">
               {Math.round(backupTotals.archivedDailyGoal)}
             </div>

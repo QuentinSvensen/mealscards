@@ -5,9 +5,9 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import type { OptionalIngredientChoice } from "@/components/OptionalIngredientsMoveDialog";
+import type { OptionalIngredientGroup } from "@/components/OptionalIngredientsMoveDialog";
 import {
-  listUniqueOptionalIngredients,
+  listOptionalIngredientGroups,
   applyOptionalInclusionsToIngredients,
   appendIncludedOptionalsToOverride,
   parseQty,
@@ -69,7 +69,7 @@ export interface UseMoveToPossibleDeps {
   ) => Promise<void>;
   askOptionalIngredientInclusions: (
     mealName: string,
-    optionals: OptionalIngredientChoice[],
+    groups: OptionalIngredientGroup[],
   ) => Promise<Set<string> | null>;
   updateSnapshots: (updater: (prev: Record<string, FoodItem[]>) => Record<string, FoodItem[]>) => void;
   getPreference: <T>(key: string, fallback: T) => T;
@@ -151,9 +151,9 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
     let includedOptionalKeys = new Set<string>();
     const fromMasterOrAvailable = source === "master" || source === "available";
     if (fromMasterOrAvailable) {
-      const optionals = listUniqueOptionalIngredients(meal.ingredients);
-      if (optionals.length > 0) {
-        const choice = await askOptionalIngredientInclusions(meal.name, optionals);
+      const groups = listOptionalIngredientGroups(meal.ingredients);
+      if (groups.length > 0) {
+        const choice = await askOptionalIngredientInclusions(meal.name, groups);
         if (choice === null) return;
         includedOptionalKeys = choice;
       }

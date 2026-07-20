@@ -31,6 +31,9 @@ import {
   parseQty, parsePartialQty, formatNumeric, encodeStoredGrams,
   getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, smartFoodContains,
   extractIngredientMacros,
+  listOptionalIngredientGroups,
+  applyOptionalInclusionsToIngredients,
+  appendIncludedOptionalsToOverride,
 } from "@/lib/ingredientUtils";
 import { OptionalIngredientsMoveDialog } from "@/components/OptionalIngredientsMoveDialog";
 import { useOptionalIngredientsMoveDialog } from "@/hooks/useOptionalIngredientsMoveDialog";
@@ -1015,7 +1018,7 @@ const Index = () => {
       <OptionalIngredientsMoveDialog
         open={!!optionalMoveDialog}
         mealName={optionalMoveDialog?.mealName ?? ""}
-        optionals={optionalMoveDialog?.optionals ?? []}
+        groups={optionalMoveDialog?.groups ?? []}
         includeKeys={optionalIncludeKeys}
         onToggleKey={toggleOptionalIncludeKey}
         onConfirm={() => finishOptionalMoveDialog(new Set(optionalIncludeKeys))}
@@ -1190,10 +1193,20 @@ const Index = () => {
                           onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
                           onMoveToPossible={(mealId) => handleMoveToPossibleGeneral(mealId, "available")}
                           onMovePartialToPossible={async (meal, ratio) => {
+                            // Scaler d'abord pour afficher les bonnes qtés dans la pop-up optionnels
                             const partialMeal = buildScaledMealForRatio(meal, ratio, stockMap);
+
+                            let includedOptionalKeys = new Set<string>();
+                            const optionalGroups = listOptionalIngredientGroups(partialMeal.ingredients);
+                            if (optionalGroups.length > 0) {
+                              const choice = await askOptionalIngredientInclusions(meal.name, optionalGroups);
+                              if (choice === null) return;
+                              includedOptionalKeys = choice;
+                            }
+
                             const anBefore = analyzeMealIngredients(meal, foodItems, foodItemIndex);
 
-                            // 1. Deduct FIRST
+                            // 1. Deduct FIRST (portion déjà multipliée)
                             const { snapshots, oldestCounter, consumedIngredients } = await deductIngredientsFromStock(partialMeal);
 
                             let finalCounterDate: string | null = null;
@@ -1202,6 +1215,12 @@ const Index = () => {
                               else if (anBefore.earliestCounterDate) finalCounterDate = anBefore.earliestCounterDate;
                             }
 
+                            // xN entier → quantité Possible = N (permet de diviser ensuite)
+                            const integerMultiple =
+                              Number.isFinite(ratio) && ratio >= 2 && Math.abs(ratio - Math.round(ratio)) < 1e-6
+                                ? Math.round(ratio)
+                                : undefined;
+
                             const result = await addMealToPossibleDirectly.mutateAsync({
                               name: meal.name, category: cat.value,
                               calories: meal.calories, protein: meal.protein, grams: meal.grams, ingredients: meal.ingredients,
@@ -1209,11 +1228,32 @@ const Index = () => {
                               counter_start_date: finalCounterDate,
                               oven_temp: meal.oven_temp,
                               oven_minutes: meal.oven_minutes,
+                              ...(integerMultiple ? { possible_quantity: integerMultiple } : {}),
                             });
 
                             if (result?.id) {
                               updateSnapshots(prev => ({ ...prev, [result.id]: snapshots }));
-                              const finalOverride = consumedIngredients || (partialMeal.ingredients && partialMeal.ingredients !== meal.ingredients ? partialMeal.ingredients : null);
+                              // Override scalé : les optionnels sont absents du consumed → les réinjecter
+                              // depuis la recette scalée (clés déjà multipliées, comme dans la pop-up).
+                              let finalOverride =
+                                consumedIngredients
+                                || (partialMeal.ingredients && partialMeal.ingredients !== meal.ingredients
+                                  ? partialMeal.ingredients
+                                  : null);
+                              if (includedOptionalKeys.size > 0) {
+                                if (consumedIngredients) {
+                                  finalOverride = appendIncludedOptionalsToOverride(
+                                    consumedIngredients,
+                                    partialMeal.ingredients,
+                                    includedOptionalKeys,
+                                  );
+                                } else {
+                                  finalOverride = applyOptionalInclusionsToIngredients(
+                                    finalOverride ?? partialMeal.ingredients,
+                                    includedOptionalKeys,
+                                  );
+                                }
+                              }
                               if (finalOverride && finalOverride !== meal.ingredients) {
                                 updatePossibleIngredients.mutate({ id: result.id, ingredients_override: finalOverride });
                               }

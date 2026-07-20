@@ -8,8 +8,11 @@ import {
   formatPlannedCounterOpenFr,
   getCounterDaysBadgeTooltip,
   listUniqueOptionalIngredients,
+  listOptionalIngredientGroups,
   applyOptionalInclusionsToIngredients,
+  optionalIngredientKey,
   appendIncludedOptionalsToOverride,
+  appendIncludedOptionalsToOverrideScaled,
 } from "@/lib/ingredientUtils";
 import { buildFoodItemIndex } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -259,12 +262,12 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
 
   it("liste les optionnels uniques avec label", () => {
     const list = listUniqueOptionalIngredients(recipe);
-    expect(list.map((o) => o.key)).toEqual(["poitrine", "fromage"]);
+    expect(list.map((o) => o.key)).toEqual(["poitrine|80g", "fromage"]);
     expect(list[0].label).toMatch(/Poitrine/i);
   });
 
   it("retire le ? uniquement pour les clés cochées (override Possible)", () => {
-    const override = applyOptionalInclusionsToIngredients(recipe, new Set(["poitrine"]));
+    const override = applyOptionalInclusionsToIngredients(recipe, new Set(["poitrine|80g"]));
     expect(override).toContain("80g Poitrine");
     expect(override).not.toMatch(/\?80g Poitrine|\?Poitrine/i);
     expect(override).toMatch(/\?Fromage/);
@@ -274,9 +277,48 @@ describe("listUniqueOptionalIngredients / applyOptionalInclusions", () => {
 
   it("ajoute les optionnels inclus à un override déjà consommé", () => {
     const consumed = "200g Poulet{165}, 100g Riz{130}";
-    const merged = appendIncludedOptionalsToOverride(consumed, recipe, new Set(["poitrine"]));
+    const merged = appendIncludedOptionalsToOverride(consumed, recipe, new Set(["poitrine|80g"]));
     expect(merged).toContain("Poulet");
     expect(merged).toMatch(/80g Poitrine/);
+    expect(merged).not.toMatch(/\?/);
+  });
+
+  it("distingue deux optionnels homonymes (ex. 12g et 22g Chocolat)", () => {
+    const cookie =
+      "20g Beurre, ?12g Chocolat + ?11g Beurre de cacahuète, ?5g Pâte, ?22g Chocolat";
+    const groups = listOptionalIngredientGroups(cookie);
+    expect(groups).toHaveLength(3);
+    expect(groups[0].isBundle).toBe(true);
+    expect(groups[0].items.map((i) => i.label)).toEqual([
+      "12g Chocolat",
+      "11g Beurre de cacahuète",
+    ]);
+    expect(groups[2].items[0].label).toBe("22g Chocolat");
+    expect(listUniqueOptionalIngredients(cookie)).toHaveLength(4);
+  });
+
+  it("n'inclut que l'optionnel coché quand deux Chocolat existent", () => {
+    const cookie = "?12g Chocolat, ?22g Chocolat";
+    const lines = parseIngredientsToLines(cookie);
+    const key12 = optionalIngredientKey(lines[0]);
+    const override = applyOptionalInclusionsToIngredients(cookie, new Set([key12]));
+    expect(override).toMatch(/12g Chocolat/);
+    expect(override).not.toMatch(/\?12g Chocolat/);
+    expect(override).toMatch(/\?22g Chocolat/);
+  });
+
+  it("ajoute les optionnels inclus scalés à un override consommé", () => {
+    const recipe = "200g Poulet{165}, ?80g Poitrine, 100g Riz{130}";
+    const consumed = "400g Poulet{165}, 200g Riz{130}";
+    const key = optionalIngredientKey(parseIngredientsToLines(recipe)[1]);
+    const merged = appendIncludedOptionalsToOverrideScaled(
+      consumed,
+      recipe,
+      new Set([key]),
+      (opt) => opt.replace(/80g/g, "160g"),
+    );
+    expect(merged).toContain("400g Poulet");
+    expect(merged).toMatch(/160g Poitrine/);
     expect(merged).not.toMatch(/\?/);
   });
 });

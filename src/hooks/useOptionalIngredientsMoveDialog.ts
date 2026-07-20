@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { OptionalIngredientChoice } from "@/components/OptionalIngredientsMoveDialog";
+import type { OptionalIngredientGroup } from "@/components/OptionalIngredientsMoveDialog";
 
 /**
  * Orchestre la pop-up des ingrédients optionnels lors d’un transfert vers Possible.
@@ -8,17 +8,17 @@ import type { OptionalIngredientChoice } from "@/components/OptionalIngredientsM
 export function useOptionalIngredientsMoveDialog() {
   const [optionalMoveDialog, setOptionalMoveDialog] = useState<{
     mealName: string;
-    optionals: OptionalIngredientChoice[];
+    groups: OptionalIngredientGroup[];
   } | null>(null);
   const [optionalIncludeKeys, setOptionalIncludeKeys] = useState<Set<string>>(() => new Set());
   const optionalMoveResolveRef = useRef<((keys: Set<string> | null) => void) | null>(null);
 
   /** Demande à l'utilisateur quels optionnels inclure sur la carte Possible (null = annulation). */
-  const askOptionalIngredientInclusions = (mealName: string, optionals: OptionalIngredientChoice[]) =>
+  const askOptionalIngredientInclusions = (mealName: string, groups: OptionalIngredientGroup[]) =>
     new Promise<Set<string> | null>((resolve) => {
       optionalMoveResolveRef.current = resolve;
       setOptionalIncludeKeys(new Set());
-      setOptionalMoveDialog({ mealName, optionals });
+      setOptionalMoveDialog({ mealName, groups });
     });
 
   /** Ferme la pop-up optionnels et résout la promesse en attente. */

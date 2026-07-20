@@ -289,40 +289,42 @@ export function PossibleMealCard({
     return stock.infinite || stock.grams > 0 || stock.count > 0;
   } : undefined;
 
-  // Détecter le ratio de mise à l'échelle à partir de l'override vs les ingrédients originaux
-  // Retourne le ratio uniquement si TOUS les ingrédients non optionnels ont le même ratio
+  // Détecter le ratio de mise à l'échelle à partir de l'override vs les ingrédients originaux.
+  // Ignore les optionnels (sinon un 2e « Chocolat » non inclus fausse le ratio, ex. 60/22).
+  // Découpe aussi les bundles « + ».
   const detectScaleRatio = (): number | null => {
     if (!pm.ingredients_override || !meal) return null;
-    // Pour les cartes infinies/simples sans ingrédients, synthétiser la même base utilisée lors de la mise à l'échelle
     const baseIngStr = meal.ingredients
       ? meal.ingredients
       : (() => {
         const baseGrams = parseFloat((meal.grams || "0").replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
         return baseGrams > 0 ? `${baseGrams}g ${meal.name}` : `1 ${meal.name}`;
       })();
-    const parseToMap = (str: string) => {
+
+    /** Parse une recette en map nom → qté, en ignorant les optionnels si demandé. */
+    const parseToMap = (str: string, skipOptionals: boolean) => {
       const map = new Map<string, { qty: number; count: number }>();
       str.split(/(?:\n|,(?!\d))/).map(s => s.trim()).filter(Boolean).forEach(group => {
         const alt = group.split(/\|/)[0].trim();
-        const isOptional = alt.startsWith("?");
-        const cleanAlt = isOptional ? alt.slice(1).trim() : alt;
-
-        // Utiliser la clé normalisée pour la correspondance
-        const { text: withoutMetrics } = extractMetrics(cleanAlt);
-        const parsed = parseIngredientLineRaw(withoutMetrics);
-        if (!parsed.name) return;
-        const key = normalizeKey(parsed.name);
-
-        // Ne garder que la première occurrence (on pourrait sommer, mais généralement une ligne par ingrédient)
-        if (!map.has(key)) {
-          map.set(key, { qty: parsed.qty, count: parsed.count });
-        }
+        alt.split(/\+/).map(s => s.trim()).filter(Boolean).forEach(rawItem => {
+          const isOptional = rawItem.startsWith("?");
+          if (skipOptionals && isOptional) return;
+          const cleanAlt = isOptional ? rawItem.slice(1).trim() : rawItem;
+          const { text: withoutMetrics } = extractMetrics(cleanAlt);
+          const parsed = parseIngredientLineRaw(withoutMetrics);
+          if (!parsed.name) return;
+          const key = normalizeKey(parsed.name);
+          if (!map.has(key)) {
+            map.set(key, { qty: parsed.qty, count: parsed.count });
+          }
+        });
       });
       return map;
     };
 
-    const baseMap = parseToMap(baseIngStr);
-    const overMap = parseToMap(pm.ingredients_override);
+    // Base : seulement les obligatoires. Override : tout (les inclus n'ont plus de « ? »).
+    const baseMap = parseToMap(baseIngStr, true);
+    const overMap = parseToMap(pm.ingredients_override, false);
 
     if (baseMap.size === 0 || overMap.size === 0) return null;
 
@@ -354,6 +356,19 @@ export function PossibleMealCard({
     return firstRatio;
   };
   const detectedRatio = detectScaleRatio();
+  // Facteur de division : ratio ingrédients détecté, sinon quantité #N de la carte Possible.
+  const splitFactor =
+    detectedRatio !== null && detectedRatio >= 2 && Number.isInteger(detectedRatio)
+      ? detectedRatio
+      : pm.quantity >= 2
+        ? pm.quantity
+        : null;
+  const displayMultiplier =
+    detectedRatio !== null
+      ? detectedRatio
+      : pm.quantity >= 2
+        ? pm.quantity
+        : null;
   const nutritionScore = getPossibleMealNutritionScore(
     pm,
     detectedRatio ?? undefined,
@@ -629,10 +644,10 @@ export function PossibleMealCard({
       style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
     >
       {/* Badge multiplicateur — épinglé en haut à droite absolu */}
-      {detectedRatio !== null && !editing && !editingIngredients && (
+      {displayMultiplier !== null && !editing && !editingIngredients && (
         <div className="absolute top-0 right-0 z-10">
-          <button onClick={() => { setEditValue(detectedRatio >= 1 ? `x${Math.round(detectedRatio * 10) / 10}` : `${Math.round(detectedRatio * 100)}%`); setEditing("ratio"); }} className="bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-tr-2xl rounded-bl-2xl hover:bg-orange-500/90 transition-colors shadow-sm">
-            {detectedRatio >= 1 && Number.isInteger(detectedRatio) ? `x${detectedRatio}` : `${Math.round(detectedRatio * 100)}%`}
+          <button onClick={() => { setEditValue(displayMultiplier >= 1 ? `x${Math.round(displayMultiplier * 10) / 10}` : `${Math.round(displayMultiplier * 100)}%`); setEditing("ratio"); }} className="bg-orange-500/80 text-white text-[10px] font-black px-1.5 py-0.5 rounded-tr-2xl rounded-bl-2xl hover:bg-orange-500/90 transition-colors shadow-sm">
+            {displayMultiplier >= 1 && Number.isInteger(displayMultiplier) ? `x${displayMultiplier}` : `${Math.round(displayMultiplier * 100)}%`}
           </button>
         </div>
       )}
@@ -867,14 +882,14 @@ export function PossibleMealCard({
                   <Pencil className="mr-2 h-4 w-4" /> Renommer
                 </DropdownMenuItem>
               )}
-              {onSplitQuantity && detectedRatio !== null && detectedRatio >= 2 && Number.isInteger(detectedRatio) && (
+              {onSplitQuantity && splitFactor !== null && (
                 <DropdownMenuItem onClick={() => {
                   const baseIng = pm.ingredients_override ? pm.ingredients_override : meal.ingredients ? meal.ingredients : (() => {
                     const baseGrams = parseFloat((meal.grams || "0").replace(/[^0-9.,]/g, '').replace(',', '.')) || 0;
                     return baseGrams > 0 ? `${baseGrams}g ${meal.name}` : `1 ${meal.name}`;
                   })();
-                  const baseIngredients = scaleIngredientStringExact(baseIng, 1 / detectedRatio, undefined, true);
-                  onSplitQuantity(detectedRatio, baseIngredients);
+                  const baseIngredients = scaleIngredientStringExact(baseIng, 1 / splitFactor, undefined, true);
+                  onSplitQuantity(splitFactor, baseIngredients);
                 }}>
                   <SplitSquareHorizontal className="mr-2 h-4 w-4" /> Diviser les quantités
                 </DropdownMenuItem>

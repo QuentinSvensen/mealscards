@@ -1081,6 +1081,8 @@ export function WeeklyPlanning({
     // Objectifs tels qu’au moment de la sauvegarde (ne pas utiliser les objectifs courants / semaine suivante)
     const archivedDailyGoal =
       isNF && backupRaw.daily_goal != null && backupRaw.daily_goal > 0 ? backupRaw.daily_goal : DEFAULT_DAILY_GOAL;
+    const archivedDailyGoalLow =
+      isNF && backupRaw.daily_goal_low != null && backupRaw.daily_goal_low > 0 ? backupRaw.daily_goal_low : 0;
     const archivedProteinGoal =
       isNF && backupRaw.protein_goal != null && backupRaw.protein_goal > 0 ? backupRaw.protein_goal : DAILY_PROTEIN_GOAL;
 
@@ -1148,7 +1150,7 @@ export function WeeklyPlanning({
       totalPro += dayPro;
     });
 
-    return { totalCal, totalPro, archivedDailyGoal, archivedProteinGoal };
+    return { totalCal, totalPro, archivedDailyGoal, archivedDailyGoalLow, archivedProteinGoal };
   }, [getPreference, weekOffset, allMealsById, foodItems, weekDates, calOverrides, proOverrides, todayISO, isAvailableCb, foodMacroIndex]);
 
   const handleAddExtraItem = (day: string, item: FoodItem, remove = false) => {
