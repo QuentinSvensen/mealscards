@@ -935,15 +935,27 @@ export function PossibleMealCard({
               <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
                 <Percent className="mr-2 h-4 w-4" /> Pourcentage / Multiple
               </DropdownMenuItem>
-              {onUpdateOvenTemp && (
-                <DropdownMenuItem onClick={() => { setEditValue(meal.oven_temp || ""); setEditing("oven_temp"); }}>
-                  <Thermometer className="mr-2 h-4 w-4" /> Température (°C)
-                </DropdownMenuItem>
-              )}
-              {onUpdateOvenMinutes && (
-                <DropdownMenuItem onClick={() => { setEditValue(meal.oven_minutes || ""); setEditing("oven_minutes"); }}>
-                  <Timer className="mr-2 h-4 w-4" /> Durée (min)
-                </DropdownMenuItem>
+              {(onUpdateOvenTemp || onUpdateOvenMinutes) && (
+                <div className="flex items-stretch gap-0.5 px-1 py-0.5" role="group" aria-label="Cuisson">
+                  {onUpdateOvenTemp && (
+                    <DropdownMenuItem
+                      className="flex-1 min-w-0 justify-center px-1.5"
+                      onClick={() => { setEditValue(meal.oven_temp || ""); setEditing("oven_temp"); }}
+                    >
+                      <Thermometer className="mr-1 h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Temp. (°C)</span>
+                    </DropdownMenuItem>
+                  )}
+                  {onUpdateOvenMinutes && (
+                    <DropdownMenuItem
+                      className="flex-1 min-w-0 justify-center px-1.5"
+                      onClick={() => { setEditValue(meal.oven_minutes || ""); setEditing("oven_minutes"); }}
+                    >
+                      <Timer className="mr-1 h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Durée (min)</span>
+                    </DropdownMenuItem>
+                  )}
+                </div>
               )}
               {onUpdateDescription && (
                 <DropdownMenuItem onSelect={() => openDescriptionEditor()}>
