@@ -72,7 +72,7 @@ import { asNumberRecord } from "@/domain/planning/jsonCoerce";
 import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
-import { getRemainingDayCalories } from "@/domain/planning/calorieGoalRange";
+import { getRemainingDayCalories, isDayCaloriesGoalMet } from "@/domain/planning/calorieGoalRange";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearWeekdayScopedSnapshots } from "@/domain/planning/weekdaySnapshotUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
@@ -100,8 +100,8 @@ import {
 import {
   aggregateExtraSelectionMacros,
   getAssignedExtraIdsForDay,
-  pickPlanningSlotValue,
 } from "@/lib/planningExtraMacros";
+import { resolveManualSlotMacros } from "@/domain/planning/resolveManualSlotMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { usePlanningResetRestore } from "@/hooks/usePlanningResetRestore";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
@@ -1856,9 +1856,16 @@ export function WeeklyPlanning({
           const gouterMealPro = gouterMeals.reduce((sum, pm) => sum + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
           const gouterMealFiber = gouterMeals.reduce((sum, pm) => sum + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
           const hasGouterMeals = gouterMeals.length > 0;
-          const gouterManualCal = manualCalories[`${iso}-gouter`] || 0;
-          const gouterManualPro = manualProteins[`${iso}-gouter`] || 0;
-          const gouterManualFiber = manualFibers[`${iso}-gouter`] || 0;
+          const gouterManualResolved = resolveManualSlotMacros(
+            { calories: manualCalories, proteins: manualProteins, fibers: manualFibers },
+            savedSnapshots,
+            iso,
+            key,
+            "gouter",
+          );
+          const gouterManualCal = gouterManualResolved.cal;
+          const gouterManualPro = gouterManualResolved.prot;
+          const gouterManualFiber = gouterManualResolved.fiber;
           const effectiveGouterManualCal = hasGouterMeals ? 0 : gouterManualCal;
           const effectiveGouterManualPro = hasGouterMeals ? 0 : gouterManualPro;
           const effectiveGouterManualFiber = hasGouterMeals ? 0 : gouterManualFiber;
@@ -2013,15 +2020,16 @@ export function WeeklyPlanning({
                   // Sans carte repas : total = inputs manuels + extras (+ boisson).
                   // Avec cartes : total = cartes + extras (+ boisson) — les inputs sont masqués.
                   const hasSlotMeals = slotMeals.length > 0;
-                  const slotManualCal = hasSlotMeals
-                    ? 0
-                    : (pickPlanningSlotValue(manualCalories, iso, key, time) ?? 0);
-                  const slotManualPro = hasSlotMeals
-                    ? 0
-                    : (pickPlanningSlotValue(manualProteins, iso, key, time) ?? 0);
-                  const slotManualFiber = hasSlotMeals
-                    ? 0
-                    : (pickPlanningSlotValue(manualFibers, iso, key, time) ?? 0);
+                  const slotManual = resolveManualSlotMacros(
+                    { calories: manualCalories, proteins: manualProteins, fibers: manualFibers },
+                    savedSnapshots,
+                    iso,
+                    key,
+                    time,
+                  );
+                  const slotManualCal = hasSlotMeals ? 0 : slotManual.cal;
+                  const slotManualPro = hasSlotMeals ? 0 : slotManual.prot;
+                  const slotManualFiber = hasSlotMeals ? 0 : slotManual.fiber;
                   const slotCals = slotCalsMeals + slotManualCal + slotAssigned.cal + (slotDrink ? DRINK_CALORIES : 0);
                   const slotPro = slotProMeals + slotManualPro + slotAssigned.pro;
                   const slotFiber = slotFiberMeals + slotManualFiber + slotAssigned.fiber;
@@ -2038,9 +2046,9 @@ export function WeeklyPlanning({
                       slotCalories={slotCals}
                       slotProteins={slotPro}
                       slotFibers={slotFiber}
-                      manualCalories={manualCalories[`${iso}-${time}`] || 0}
-                      manualProteins={manualProteins[`${iso}-${time}`] || 0}
-                      manualFibers={manualFibers[`${iso}-${time}`] || 0}
+                      manualCalories={slotManual.cal}
+                      manualProteins={slotManual.prot}
+                      manualFibers={slotManual.fiber}
                       slotAssignedIds={slotAssignedIds}
                       foodItems={foodItems}
                       dessertById={singleIngredientDessertById}
@@ -2082,12 +2090,23 @@ export function WeeklyPlanning({
                         setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
                       }}
                       onSaveSnapshot={() => {
-                        const snapKey = `manual-${iso}-${time}`;
-                        const cal = manualCalories[`${iso}-${time}`] || 0;
-                        const prot = manualProteins[`${iso}-${time}`] || 0;
-                        const fiber = manualFibers[`${iso}-${time}`] || 0;
+                        const snapKeyIso = `manual-${iso}-${time}`;
+                        const snapKeyDay = `manual-${key}-${time}`;
+                        const resolved = resolveManualSlotMacros(
+                          { calories: manualCalories, proteins: manualProteins, fibers: manualFibers },
+                          savedSnapshots,
+                          iso,
+                          key,
+                          time,
+                        );
+                        const cal = resolved.cal;
+                        const prot = resolved.prot;
+                        const fiber = resolved.fiber;
                         const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
-                        const updated = { ...cleaned, [snapKey]: { cal, prot, fiber, savedAt: Date.now() } };
+                        // Double écriture ISO + jour : le prune post-reset conserve la clé jour
+                        // pour réinjecter les macros sur la nouvelle date ISO du même weekday.
+                        const entry = { cal, prot, fiber, savedAt: Date.now() };
+                        const updated = { ...cleaned, [snapKeyIso]: entry, [snapKeyDay]: entry };
                         const entries: { key: string; value: unknown }[] = [
                           { key: 'planning_saved_snapshots', value: updated },
                         ];
@@ -2108,7 +2127,7 @@ export function WeeklyPlanning({
                             nxtFiber[kKeySlot] = fiber;
                             entries.push({ key: 'next_week_manual_fibers', value: nxtFiber });
                           }
-                          if (drinkChecks[`${iso}-${time}`]) {
+                          if (drinkChecks[`${iso}-${time}`] || drinkChecks[`${key}-${time}`]) {
                             const nxtDrk = { ...nextDrinkChecks };
                             nxtDrk[kKeySlot] = true;
                             entries.push({ key: 'next_week_drink_checks', value: nxtDrk });
@@ -2116,8 +2135,8 @@ export function WeeklyPlanning({
                         }
                         if (entries.length === 1) setPreference.mutate(entries[0]);
                         else setPreferencesBatch.mutate(entries);
-                        setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
-                        setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
+                        setFlashedKeys(prev => ({ ...prev, [snapKeyIso]: true }));
+                        setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKeyIso]: false })), 1200);
                       }}
                       onClearSnapshot={() => {
                         const updated = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
@@ -2218,6 +2237,7 @@ export function WeeklyPlanning({
                   setCustomExtraFiber={setCustomExtraFiber}
                   hideDayCalorieTotals={hideDayCalorieTotals}
                   remainingDayCalories={getRemainingDayCalories(DAILY_GOAL, dayCalories)}
+                  dayCaloriesGoalMet={isDayCaloriesGoalMet(dayCalories, DAILY_GOAL_LOW, DAILY_GOAL)}
                 />
               </div>
               )}

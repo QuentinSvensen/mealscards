@@ -123,6 +123,8 @@ export interface PlanningExtraColumnProps {
   hideDayCalorieTotals: boolean;
   /** Calories restantes du jour (objectif max − total planifié). */
   remainingDayCalories: number;
+  /** True si le badge kcal du jour est vert (objectif atteint) — bloque l’ajout d’extras. */
+  dayCaloriesGoalMet: boolean;
 }
 
 /**
@@ -192,6 +194,7 @@ export function PlanningExtraColumn({
   setCustomExtraFiber,
   hideDayCalorieTotals,
   remainingDayCalories,
+  dayCaloriesGoalMet,
 }: PlanningExtraColumnProps) {
 const extraDropKey = `extra-${iso}`;
                   const isExtraDragOver = dragOverSlot === extraDropKey;
@@ -300,7 +303,14 @@ const extraDropKey = `extra-${iso}`;
                       className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center"
                     />
                     <div className="flex items-center gap-1 mt-1">
-                      <Popover open={openExtrasDay === (iso || key)} onOpenChange={(open) => {
+                      <Popover
+                        open={!dayCaloriesGoalMet && openExtrasDay === (iso || key)}
+                        onOpenChange={(open) => {
+                        // Objectif kcal atteint (badge vert) : popover catalogue non ouvrable.
+                        if (dayCaloriesGoalMet) {
+                          setOpenExtrasDay(null);
+                          return;
+                        }
                         setOpenExtrasDay(open ? (iso || key) : null);
                         if (open) {
                           setCustomExtraName('');
@@ -311,8 +321,14 @@ const extraDropKey = `extra-${iso}`;
                       }}>
                         <PopoverTrigger asChild>
                           <button
-                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
-                            title="Ajouter un Extra"
+                            type="button"
+                            disabled={dayCaloriesGoalMet}
+                            className={`h-5 w-5 flex items-center justify-center rounded-full transition-all ${
+                              dayCaloriesGoalMet
+                                ? "opacity-40 cursor-not-allowed"
+                                : "hover:scale-110 active:scale-95"
+                            } ${hasDisplayableExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
+                            title={dayCaloriesGoalMet ? "Objectif calories atteint" : "Ajouter un Extra"}
                           >
                             <Plus className="h-3 w-3" />
                           </button>

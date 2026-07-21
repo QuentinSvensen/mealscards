@@ -23,6 +23,7 @@ import {
   getCalorieRangeTotalColorClass,
   getRemainingDayCalories,
   hasCalorieGoalRangeMin,
+  isDayCaloriesGoalMet,
 } from "@/domain/planning/calorieGoalRange";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
@@ -304,6 +305,12 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
 
             // Même formule que le bandeau « reste » : objectif max − total jour (extras inclus).
             const remainingNextCal = getRemainingDayCalories(NEXT_DAILY_GOAL, dayTotal);
+            // Badge kcal vert → bloquer l’ouverture du catalogue extras (+).
+            const nextDayCaloriesGoalMet = isDayCaloriesGoalMet(
+              dayTotal,
+              NEXT_DAILY_GOAL_LOW,
+              NEXT_DAILY_GOAL,
+            );
 
             const nextAssignedExtraIds = getAssignedExtraIdsForDay(nextExtraSlotAssignments, iso, key);
             const nextUnassignedExtraIds = effExtraSelMerged.filter(
@@ -802,7 +809,14 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                         }}
                         placeholder="fib" className="w-full h-5 text-[11px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
                       <div className="flex items-center gap-1 mt-1">
-                        <Popover open={openExtrasDay === `next-${iso}`} onOpenChange={(open) => {
+                        <Popover
+                          open={!nextDayCaloriesGoalMet && openExtrasDay === `next-${iso}`}
+                          onOpenChange={(open) => {
+                          // Objectif kcal atteint (badge vert) : popover catalogue non ouvrable.
+                          if (nextDayCaloriesGoalMet) {
+                            setOpenExtrasDay(null);
+                            return;
+                          }
                           setOpenExtrasDay(open ? `next-${iso}` : null);
                           if (open) {
                             setCustomExtraName('');
@@ -812,7 +826,16 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                           }
                         }}>
                           <PopoverTrigger asChild>
-                            <button className={`h-5 w-5 flex items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 ${hasDisplayableNextWeekExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`} title="Ajouter un Extra">
+                            <button
+                              type="button"
+                              disabled={nextDayCaloriesGoalMet}
+                              className={`h-5 w-5 flex items-center justify-center rounded-full transition-all ${
+                                nextDayCaloriesGoalMet
+                                  ? "opacity-40 cursor-not-allowed"
+                                  : "hover:scale-110 active:scale-95"
+                              } ${hasDisplayableNextWeekExtraSelections ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20'}`}
+                              title={nextDayCaloriesGoalMet ? "Objectif calories atteint" : "Ajouter un Extra"}
+                            >
                               <Plus className="h-3 w-3" />
                             </button>
                           </PopoverTrigger>

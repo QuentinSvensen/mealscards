@@ -7,6 +7,7 @@ import {
   getRemainingDayCalories,
   hasCalorieGoalRangeMin,
   hasExplicitCalorieGoalMin,
+  isDayCaloriesGoalMet,
   normalizeCalorieGoalRange,
   resolveAvailableCalorieThreshold,
   resolveCalorieGoalRangeForColoring,
@@ -120,6 +121,38 @@ describe("getCalorieRangeTotalColorClass", () => {
     expect(getCalorieRangeTotalColorClass(16799, 0, 2300, 7)).toBe("text-red-400");
     expect(getCalorieRangeTotalColorClass(16800, 0, 2300, 7)).toBe("text-black");
     expect(getCalorieRangeTotalColorClass(15000, 0, 2300, 7)).toBeNull();
+  });
+});
+
+describe("isDayCaloriesGoalMet", () => {
+  it("est vrai uniquement quand le badge serait vert (dans la fourchette)", () => {
+    expect(isDayCaloriesGoalMet(2250, 0, 2300)).toBe(true);
+    expect(isDayCaloriesGoalMet(2200, null, 2300)).toBe(true);
+    expect(isDayCaloriesGoalMet(2300, 2000, 2300)).toBe(true);
+    expect(isDayCaloriesGoalMet(2132, 2000, 2300)).toBe(true);
+  });
+
+  it("est faux sous le min, au-dessus du max (rouge/noir), ou sans fourchette utile", () => {
+    expect(isDayCaloriesGoalMet(2199, 0, 2300)).toBe(false);
+    expect(isDayCaloriesGoalMet(2334, 0, 2300)).toBe(false);
+    expect(isDayCaloriesGoalMet(2400, 0, 2300)).toBe(false);
+    expect(isDayCaloriesGoalMet(1900, 2000, 2300)).toBe(false);
+    expect(isDayCaloriesGoalMet(1000, null, 50)).toBe(false);
+  });
+
+  it("reste aligné sur getCalorieRangeTotalColorClass", () => {
+    const samples: Array<[number, number | null, number]> = [
+      [2250, 0, 2300],
+      [2334, 0, 2300],
+      [2400, 0, 2300],
+      [2132, 2000, 2300],
+      [1900, 2000, 2300],
+    ];
+    for (const [total, low, high] of samples) {
+      expect(isDayCaloriesGoalMet(total, low, high)).toBe(
+        getCalorieRangeTotalColorClass(total, low, high) === "text-emerald-500",
+      );
+    }
   });
 });
 

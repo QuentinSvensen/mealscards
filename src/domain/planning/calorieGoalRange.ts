@@ -116,6 +116,19 @@ export function getCalorieRangeTotalColorClass(
 }
 
 /**
+ * Indique si le total kcal du jour est affiché en vert (objectif atteint / dans la fourchette).
+ * Réutilise la même règle que `getCalorieRangeTotalColorClass` (badge Planning).
+ */
+export function isDayCaloriesGoalMet(
+  total: number,
+  low: number | null | undefined,
+  high: number | null | undefined,
+  dayScale = 1,
+): boolean {
+  return getCalorieRangeTotalColorClass(total, low, high, dayScale) === "text-emerald-500";
+}
+
+/**
  * Calcule les calories restantes du jour jusqu'à la borne haute d'objectif.
  * Formule : max(0, objectifMax − calories déjà planifiées/consommées).
  * Sert au bandeau Planning (« reste … ») et au filtre catalogue Extras.

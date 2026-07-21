@@ -276,6 +276,51 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     ],
   );
 
+  // Même overlay 💾 pour la semaine courante : totaux jour / seuil alignés sur les inputs post-reset.
+  const currentWeekOverlay = useMemo(
+    () =>
+      overlayDirectSnapshotsOntoNextWeekPrefs(
+        {
+          breakfastSelections,
+          breakfastManualCalories,
+          breakfastManualProteins,
+          manualCalories,
+          manualProteins,
+          manualFibers,
+          extraCalories,
+          extraProteins,
+          extraFibers,
+          extraSelections,
+        },
+        savedSnapshots,
+        buildWeekDates(0),
+      ),
+    [
+      breakfastSelections,
+      breakfastManualCalories,
+      breakfastManualProteins,
+      manualCalories,
+      manualProteins,
+      manualFibers,
+      extraCalories,
+      extraProteins,
+      extraFibers,
+      extraSelections,
+      savedSnapshots,
+    ],
+  );
+
+  const liveManualCalories = currentWeekOverlay.manualCalories;
+  const liveManualProteins = currentWeekOverlay.manualProteins;
+  const liveManualFibers = currentWeekOverlay.manualFibers;
+  const liveExtraCalories = currentWeekOverlay.extraCalories;
+  const liveExtraProteins = currentWeekOverlay.extraProteins;
+  const liveExtraFibers = currentWeekOverlay.extraFibers;
+  const liveExtraSelections = currentWeekOverlay.extraSelections;
+  const liveBreakfastSelections = currentWeekOverlay.breakfastSelections;
+  const liveBreakfastManualCalories = currentWeekOverlay.breakfastManualCalories;
+  const liveBreakfastManualProteins = currentWeekOverlay.breakfastManualProteins;
+
   const nextBreakfastSelections = nextWeekOverlay.breakfastSelections;
   const nextManualCalories = nextWeekOverlay.manualCalories;
   const nextManualProteins = nextWeekOverlay.manualProteins;
@@ -298,14 +343,14 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
         foodItems,
         dessertFoodItemIds,
         ingredientMacroLibrary,
-        extraSelections,
+        liveExtraSelections,
         extraSlotAssignments,
         dessertExtraStockSnapshots,
       ),
     [
       dessertExtraStockSnapshots,
       dessertFoodItemIds,
-      extraSelections,
+      liveExtraSelections,
       extraSlotAssignments,
       foodItems,
       ingredientMacroLibrary,
@@ -339,15 +384,15 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       allMeals,
       petitDejMeals,
       foodItems,
-      breakfastSelections,
-      manualCalories,
-      extraCalories,
-      extraSelections,
+      breakfastSelections: liveBreakfastSelections,
+      manualCalories: liveManualCalories,
+      extraCalories: liveExtraCalories,
+      extraSelections: liveExtraSelections,
       extraSlotAssignments,
       dessertFoodItemIds,
       dessertExtraStockSnapshots,
       ingredientMacroLibrary,
-      breakfastManualCalories,
+      breakfastManualCalories: liveBreakfastManualCalories,
       drinkChecks,
       calOverrides,
       isAvailable,
@@ -357,15 +402,15 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
       allMeals,
       petitDejMeals,
       foodItems,
-      breakfastSelections,
-      manualCalories,
-      extraCalories,
-      extraSelections,
+      liveBreakfastSelections,
+      liveManualCalories,
+      liveExtraCalories,
+      liveExtraSelections,
       extraSlotAssignments,
       dessertFoodItemIds,
       dessertExtraStockSnapshots,
       ingredientMacroLibrary,
-      breakfastManualCalories,
+      liveBreakfastManualCalories,
       drinkChecks,
       calOverrides,
       isAvailable,
@@ -438,7 +483,7 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
     const bfMap =
       isoDate && isIsoInNextPlanningWeek(isoDate)
         ? nextBreakfastSelections
-        : breakfastSelections;
+        : liveBreakfastSelections;
     const selId = pickPlanningDayValue(bfMap, isoDate, dayKey);
     if (!selId) return null;
 
@@ -471,11 +516,11 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
    */
   const getDayProtein = (dayKey: string, isoDate?: string): number => {
     const useNext = !!(isoDate && isIsoInNextPlanningWeek(isoDate));
-    const bfMap = useNext ? nextBreakfastSelections : breakfastSelections;
-    const manualProMap = useNext ? nextManualProteins : manualProteins;
-    const bfManualProMap = useNext ? nextBreakfastManualProteins : breakfastManualProteins;
-    const extraProMap = useNext ? nextExtraProteins : extraProteins;
-    const extraSelMap = useNext ? nextExtraSelections : extraSelections;
+    const bfMap = useNext ? nextBreakfastSelections : liveBreakfastSelections;
+    const manualProMap = useNext ? nextManualProteins : liveManualProteins;
+    const bfManualProMap = useNext ? nextBreakfastManualProteins : liveBreakfastManualProteins;
+    const extraProMap = useNext ? nextExtraProteins : liveExtraProteins;
+    const extraSelMap = useNext ? nextExtraSelections : liveExtraSelections;
     const extraAssignMap = useNext ? nextExtraSlotAssignments : extraSlotAssignments;
     const dessertCatalog = useNext ? nextDessertCatalogById : dessertCatalogById;
 
@@ -535,11 +580,11 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
    */
   const getDayFiber = (dayKey: string, isoDate?: string): number => {
     const useNext = !!(isoDate && isIsoInNextPlanningWeek(isoDate));
-    const bfMap = useNext ? nextBreakfastSelections : breakfastSelections;
-    const manualFiberMap = useNext ? nextManualFibers : manualFibers;
+    const bfMap = useNext ? nextBreakfastSelections : liveBreakfastSelections;
+    const manualFiberMap = useNext ? nextManualFibers : liveManualFibers;
     const bfManualFiberMap = useNext ? {} : breakfastManualFibers;
-    const extraFiberMap = useNext ? nextExtraFibers : extraFibers;
-    const extraSelMap = useNext ? nextExtraSelections : extraSelections;
+    const extraFiberMap = useNext ? nextExtraFibers : liveExtraFibers;
+    const extraSelMap = useNext ? nextExtraSelections : liveExtraSelections;
     const extraAssignMap = useNext ? nextExtraSlotAssignments : extraSlotAssignments;
     const dessertCatalog = useNext ? nextDessertCatalogById : dessertCatalogById;
 
