@@ -23,17 +23,14 @@ import { StructuredIngredientInline } from "@/components/StructuredIngredientInl
 import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { usePreferences } from "@/hooks/usePreferences";
+import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { fr } from "date-fns/locale";
 
-const DAY_LABELS_FULL: Record<string, string> = {
-  lundi: 'Lundi', mardi: 'Mardi', mercredi: 'Mercredi', jeudi: 'Jeudi',
-  vendredi: 'Vendredi', samedi: 'Samedi', dimanche: 'Dimanche',
-};
+import { DAY_LABELS } from "@/lib/planningWeekUtils";
 
 const TIME_LABELS: Record<string, string> = {
   matin: 'Petit déj', midi: 'Midi', gouter: 'Goûter', soir: 'Soir',
@@ -132,8 +129,7 @@ export function PossibleList({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
   const [hidePastPlannedCards, setHidePastPlannedCards] = useState(true);
-  const { getPreference } = usePreferences();
-  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
+  const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   // Indexer les articles alimentaires pour une recherche en O(1) dans analyzeMealIngredients
   const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
@@ -379,7 +375,7 @@ export function PossibleList({
                 )}
                 {popupPm.day_of_week && popupPm.meal_time && (
                   <p className="text-xs text-white/50 mt-3">
-                    {DAY_LABELS_FULL[popupPm.day_of_week]} — {TIME_LABELS[popupPm.meal_time]}
+                    {DAY_LABELS[popupPm.day_of_week]} — {TIME_LABELS[popupPm.meal_time]}
                   </p>
                 )}
               </div>

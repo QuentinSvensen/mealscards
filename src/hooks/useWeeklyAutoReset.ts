@@ -22,6 +22,7 @@ import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/servi
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates } from "@/lib/planningWeekUtils";
 import { pruneStaleIsoSnapshotsForTargetWeek } from "@/domain/planning/weekdaySnapshotUtils";
+import { resolveCurrentUserId } from "@/lib/authUserId";
 
 export interface UseWeeklyAutoResetOptions {
   unlocked: boolean;
@@ -89,7 +90,7 @@ export function useWeeklyAutoReset({
       if (autoSundayResetInFlightRef.current) return;
       autoSundayResetInFlightRef.current = true;
       try {
-        const userId = (await supabase.auth.getUser()).data.user?.id;
+        const userId = await resolveCurrentUserId().catch(() => null);
         if (!userId) return;
 
         const { data: freshResetPref } = await supabase

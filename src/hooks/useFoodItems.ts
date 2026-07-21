@@ -8,30 +8,10 @@ import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { suppressStockRealtime } from "@/lib/stockRealtimeGate";
+import type { FoodItem, FoodType, StorageType } from "@/types/food";
 
-export type StorageType = "frigo" | "sec" | "surgele" | "extras" | "test" | "toujours";
-export type FoodType = "feculent" | "viande" | null;
-
-export interface FoodItem {
-  id: string;
-  name: string;
-  grams: string | null;
-  calories: string | null;
-  protein: string | null;
-  fiber: string | null;
-  expiration_date: string | null;
-  counter_start_date: string | null;
-  sort_order: number;
-  created_at: string;
-  is_meal: boolean;
-  is_infinite: boolean;
-  is_dry: boolean;
-  is_indivisible: boolean;
-  no_counter: boolean;
-  storage_type: StorageType;
-  quantity: number | null;
-  food_type: FoodType;
-}
+export type { FoodItem, FoodType, StorageType } from "@/types/food";
 
 /** Affiche un toast d'erreur pour les mutations sur les aliments. */
 const onMutationError = (error: Error) => {
@@ -56,16 +36,6 @@ function isGhostFoodItem(d: {
   if (Number.isNaN(numericGrams)) return false;
   if (numericGrams <= 0 && (q === null || q === undefined || q <= 0)) return true;
   return false;
-}
-
-/** Suspend brièvement le realtime stock pour éviter qu'un refetch stale annule un patch local. */
-function suppressStockRealtimeBriefly() {
-  try {
-    (window as unknown as { __suppressStockRealtimeUntil?: number }).__suppressStockRealtimeUntil =
-      Date.now() + 6000;
-  } catch {
-    // no-op
-  }
 }
 
 /** Normalise une ligne food_items vers le type FoodItem côté client. */
@@ -180,7 +150,7 @@ export function useFoodItems(options?: { enabled?: boolean }) {
   /** Met à jour une fiche aliment (optimistic + row serveur authoritative). */
   const updateItem = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<FoodItem> & { id: string }) => {
-      suppressStockRealtimeBriefly();
+      suppressStockRealtime();
       const { data, error } = await supabase
         .from("food_items")
         .update(updates as never)
@@ -191,7 +161,7 @@ export function useFoodItems(options?: { enabled?: boolean }) {
       return mapFoodItemRow(data as Record<string, unknown>);
     },
     onMutate: async ({ id, ...updates }) => {
-      suppressStockRealtimeBriefly();
+      suppressStockRealtime();
       await qc.cancelQueries({ queryKey: ["food_items"] });
       const previous = qc.getQueryData<FoodItem[]>(["food_items"]);
       qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
@@ -209,7 +179,7 @@ export function useFoodItems(options?: { enabled?: boolean }) {
       onMutationError(error);
     },
     onSuccess: (updated) => {
-      suppressStockRealtimeBriefly();
+      suppressStockRealtime();
       qc.setQueryData<FoodItem[]>(["food_items"], (old) => {
         if (!Array.isArray(old)) return old;
         return old.map((item) => (item.id === updated.id ? updated : item));

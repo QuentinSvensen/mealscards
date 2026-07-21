@@ -1,4 +1,4 @@
-import type { PossibleMeal } from "@/hooks/useMeals";
+import type { PossibleMeal } from "@/types/meals";
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 

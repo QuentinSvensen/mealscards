@@ -1,6 +1,6 @@
 import { format, subDays } from "date-fns";
-import type { Meal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { Meal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import type { PlanningWeekDayInfo } from "@/lib/planningWeekUtils";

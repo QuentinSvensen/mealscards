@@ -17,44 +17,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { computeIngredientCalories, getTargetDate } from "@/lib/ingredientUtils";
 import { getDisplayedPMCalories } from "@/lib/stockUtils";
 import { toast } from "@/hooks/use-toast";
-import { computePlannedCounterDate } from "@/hooks/useMealTransfers";
+import { computePlannedCounterDate } from "@/lib/counters/plannedCounterDate";
 import { comparePossiblePlanningOrder } from "@/domain/planning/possiblePlanningSort";
 import { parseISO } from "date-fns";
+import type { Meal, MealCategory, PossibleMeal, PlanningDaySlot, PlanningMealTime } from "@/types/meals";
 
-export type MealCategory = 'petit_dejeuner' | 'entree' | 'plat' | 'dessert' | 'bonus';
-
-export interface Meal {
-  id: string;
-  name: string;
-  category: string;
-  calories: string | null;
-  protein: string | null;
-  fiber: string | null;
-  grams: string | null;
-  ingredients: string | null;
-  sort_order: number;
-  created_at: string;
-  is_available: boolean;
-  is_favorite: boolean;
-  oven_temp: string | null;
-  oven_minutes: string | null;
-  /** Consignes de préparation (visibles dans la pop-up double-clic). */
-  description?: string | null;
-}
-
-export interface PossibleMeal {
-  id: string;
-  meal_id: string;
-  quantity: number;
-  expiration_date: string | null;
-  day_of_week: string | null;
-  meal_time: string | null;
-  counter_start_date: string | null;
-  sort_order: number;
-  created_at: string;
-  meals: Meal;
-  ingredients_override: string | null;
-}
+export type { Meal, MealCategory, PossibleMeal, PlanningDaySlot, PlanningMealTime } from "@/types/meals";
 
 export const DAYS = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'] as const;
 /** Créneaux repas du planning (ordre logique : midi → goûter → soir). */
@@ -63,8 +31,6 @@ export const TIMES = ['midi', 'gouter', 'soir'] as const;
 export const MAIN_GRID_TIMES = ['midi', 'soir'] as const;
 /** Tous les créneaux d'une journée, petit-déj inclus (matin → midi → goûter → soir). */
 export const PLANNING_DAY_SLOTS = ['matin', 'midi', 'gouter', 'soir'] as const;
-export type PlanningMealTime = (typeof TIMES)[number];
-export type PlanningDaySlot = (typeof PLANNING_DAY_SLOTS)[number];
 
 const DAY_INDEX: Record<string, number> = {};
 DAYS.forEach((d, i) => { DAY_INDEX[d] = i; });

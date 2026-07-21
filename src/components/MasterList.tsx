@@ -17,7 +17,7 @@ import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
-import { buildStockMap, getMissingIngredients, analyzeMealIngredients, formatExpirationLabel } from "@/lib/stockUtils";
+import { buildStockMap, buildFoodItemIndex, getMissingIngredients, analyzeMealIngredients, formatExpirationLabel } from "@/lib/stockUtils";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
 import { isToday } from "date-fns";
 
@@ -52,7 +52,10 @@ interface MasterListProps {
 export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onReorder, ingredientMacroAutofillSources }: MasterListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const stockMap = buildStockMap(foodItems);
+  /** Map de stock mémoïsée pour éviter une nouvelle Map à chaque rendu (casse le memo MealCard). */
+  const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
+  /** Index aliments mémoïsé pour accélérer analyzeMealIngredients. */
+  const foodItemIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
   const ingredientSuggestions = useMemo(
     () => foodItems.map((item) => item.name).filter(Boolean),
     [foodItems],
@@ -116,12 +119,14 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
           {filteredMeals.length === 0 && <p className="text-muted-foreground text-sm text-center py-6 italic">{searchQuery ? "Aucun résultat" : "Aucun repas"}</p>}
           {filteredMeals.map((meal, index) => {
             const missingIngs = getMissingIngredients(meal, stockMap);
-            const analysis = analyzeMealIngredients(meal, foodItems);
+            const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
             const expLabel = formatExpirationLabel(analysis.earliestExpiration);
             const expIsTodayM = isToday(analysis.earliestExpiration);
 
             return (
               <MealCard key={meal.id} meal={meal} stockMap={stockMap}
+                foodItems={foodItems}
+                foodItemIndex={foodItemIndex}
                 ingredientSuggestions={ingredientSuggestions}
                 ingredientMacroSources={ingredientMacroAutofillSources}
                 onMoveToPossible={() => onMoveToPossible(meal.id)}

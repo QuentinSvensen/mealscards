@@ -1,5 +1,6 @@
-import { PLANNING_DAY_SLOTS, TIMES, type Meal, type PossibleMeal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import { PLANNING_DAY_SLOTS, TIMES } from "@/hooks/useMeals";
+import type { Meal, PossibleMeal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import {
@@ -24,6 +25,7 @@ import {
   asStringRecord,
 } from "./jsonCoerce";
 import { DESSERT_FOOD_PREF_KEY } from "@/lib/foodDessertUtils";
+import { parsePositiveMacroOverride } from "@/domain/planning/macroParsers";
 
 const DRINK_CALORIES = 150;
 
@@ -48,16 +50,8 @@ export interface PlanningDayCalorieState {
 }
 
 /** Extrait un nombre de kcal depuis une chaîne potentiellement bruitée. */
-function parseCalories(cal: string | null | undefined): number {
-  if (!cal) return 0;
-  const n = parseFloat(cal.replace(",", ".").replace(/[^0-9.]/g, ""));
-  return Number.isNaN(n) ? 0 : n;
-}
-
-/** Convertit une surcharge manuelle en nombre utile, ou l'ignore si elle vaut 0/vide. */
 function parsePositiveOverride(value: string | null | undefined): number | null {
-  const parsed = parseCalories(value);
-  return parsed > 0 ? parsed : null;
+  return parsePositiveMacroOverride(value);
 }
 
 /** Calories affichées d'une carte planning (même logique que le hook live). */

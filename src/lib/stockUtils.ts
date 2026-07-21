@@ -17,6 +17,7 @@ export * from "./stock/foodItemState";
 export * from "./stock/mealAnalysis";
 export * from "./stock/counterBadge";
 export * from "./stock/possibleFrozenCounters";
+export * from "./stock/freezePossibleBadge";
 export * from "./stock/missingIngredients";
 export * from "./stock/ingredientMealIndex";
 export * from "./stock/displayedMacros";

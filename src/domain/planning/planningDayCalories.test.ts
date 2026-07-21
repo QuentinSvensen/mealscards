@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Meal, PossibleMeal } from "@/hooks/useMeals";
+import type { Meal, PossibleMeal } from "@/types/meals";
 import { resolveAvailableCalorieThreshold } from "./calorieGoalRange";
 import { overlayDirectSnapshotsOntoNextWeekPrefs } from "./overlayDirectSnapshotsOntoNextWeekPrefs";
 import { computePlanningDayTotalCalories } from "./planningDayCalories";

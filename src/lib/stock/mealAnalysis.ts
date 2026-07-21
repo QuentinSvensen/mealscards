@@ -1,5 +1,5 @@
-import type { FoodItem } from "@/hooks/useFoodItems";
-import type { Meal } from "@/hooks/useMeals";
+import type { FoodItem } from "@/types/food";
+import type { Meal } from "@/types/meals";
 import {
   normalizeKey, parseIngredientGroups, parseQty, computeCounterDays,
 } from "@/lib/ingredientUtils";

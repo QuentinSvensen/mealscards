@@ -56,6 +56,7 @@ export interface PlanningExtraColumnProps {
   extraSelections: Record<string, string[]>;
   extraSlotAssignments: Record<string, string[]>;
   setPreference: { mutate: (args: { key: string; value: unknown }) => void };
+  setPreferencesBatch: { mutate: (entries: { key: string; value: unknown }[]) => void };
   getPreference: <T>(key: string, fallback: T) => T;
   openExtrasDay: string | null;
   setOpenExtrasDay: React.Dispatch<React.SetStateAction<string | null>>;
@@ -141,6 +142,7 @@ export function PlanningExtraColumn({
   extraSelections,
   extraSlotAssignments,
   setPreference,
+  setPreferencesBatch,
   getPreference,
   openExtrasDay,
   setOpenExtrasDay,
@@ -938,7 +940,9 @@ const extraDropKey = `extra-${iso}`;
                           const fiber = (iso && extraFibers[iso]) || 0;
                           const itemIds = currentIds;
                           const updated = { ...savedSnapshots, [snapKey]: { cal, prot, fiber, savedAt: Date.now(), itemIds } };
-                          setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
+                          const entries: { key: string; value: unknown }[] = [
+                            { key: 'planning_saved_snapshots', value: updated },
+                          ];
 
                           // Synchronisation unidirectionnelle vers la semaine prochaine (Actuelle -> Suivante)
                           // Propager via la clé "jour" (lundi/mardi/...) pour que la semaine suivante,
@@ -946,7 +950,7 @@ const extraDropKey = `extra-${iso}`;
                           if (weekOffset === 0) {
                             const nxtSel = { ...nextExtraSelections };
                             nxtSel[key] = [...itemIds];
-                            setPreference.mutate({ key: 'next_week_extra_selections', value: nxtSel });
+                            entries.push({ key: 'next_week_extra_selections', value: nxtSel });
 
                             const nxtCal = { ...nextExtraCalories };
                             if (cal > 0) {
@@ -954,7 +958,7 @@ const extraDropKey = `extra-${iso}`;
                             } else {
                               delete nxtCal[key];
                             }
-                            setPreference.mutate({ key: 'next_week_extra_calories', value: nxtCal });
+                            entries.push({ key: 'next_week_extra_calories', value: nxtCal });
 
                             const nxtPro = { ...nextExtraProteins };
                             if (prot > 0) {
@@ -962,7 +966,7 @@ const extraDropKey = `extra-${iso}`;
                             } else {
                               delete nxtPro[key];
                             }
-                            setPreference.mutate({ key: 'next_week_extra_proteins', value: nxtPro });
+                            entries.push({ key: 'next_week_extra_proteins', value: nxtPro });
 
                             const nxtFiber = { ...nextExtraFibers };
                             if (fiber > 0) {
@@ -970,8 +974,10 @@ const extraDropKey = `extra-${iso}`;
                             } else {
                               delete nxtFiber[key];
                             }
-                            setPreference.mutate({ key: 'next_week_extra_fibers', value: nxtFiber });
+                            entries.push({ key: 'next_week_extra_fibers', value: nxtFiber });
                           }
+                          if (entries.length === 1) setPreference.mutate(entries[0]);
+                          else setPreferencesBatch.mutate(entries);
 
                           setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
                           setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
@@ -979,9 +985,6 @@ const extraDropKey = `extra-${iso}`;
                         onDoubleClick={() => {
                           const snapKey = `extra-${iso}`;
                           const updated = clearExtraSnapshotsForWeekday(savedSnapshots, iso, key, JS_DAY_TO_KEY);
-                          setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
-
-                          // Semaine suivante : état vide explicite (évite le repli sur d’anciens snapshots extra-YYYY-MM-DD).
                           if (weekOffset === 0) {
                             const cleared = clearNextWeekExtraStateForDay(
                               nextExtraSelections,
@@ -991,16 +994,21 @@ const extraDropKey = `extra-${iso}`;
                               iso,
                               key,
                             );
-                            setPreference.mutate({ key: 'next_week_extra_selections', value: cleared.selections });
-                            setPreference.mutate({ key: 'next_week_extra_calories', value: cleared.calories });
-                            setPreference.mutate({ key: 'next_week_extra_proteins', value: cleared.proteins });
-                            setPreference.mutate({ key: 'next_week_extra_fibers', value: cleared.fibers });
                             const clearedAssignments = { ...nextExtraSlotAssignments };
                             for (const s of EXTRA_DAY_SLOTS) {
                               delete clearedAssignments[`${iso}-${s}`];
                               delete clearedAssignments[`${key}-${s}`];
                             }
-                            setPreference.mutate({ key: 'next_week_extra_slot_assignments', value: clearedAssignments });
+                            setPreferencesBatch.mutate([
+                              { key: 'planning_saved_snapshots', value: updated },
+                              { key: 'next_week_extra_selections', value: cleared.selections },
+                              { key: 'next_week_extra_calories', value: cleared.calories },
+                              { key: 'next_week_extra_proteins', value: cleared.proteins },
+                              { key: 'next_week_extra_fibers', value: cleared.fibers },
+                              { key: 'next_week_extra_slot_assignments', value: clearedAssignments },
+                            ]);
+                          } else {
+                            setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
                           }
                         }}
                         className={`h-5 w-5 text-[9px] rounded font-semibold shrink-0 transition-colors flex items-center justify-center ${flashedKeys[`extra-${iso}`]

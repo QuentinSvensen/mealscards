@@ -30,6 +30,28 @@ export const DAY_KEY_TO_INDEX: Record<string, number> = {
   dimanche: 6,
 };
 
+/** Libellés FR capitalisés pour l’UI planning. */
+export const DAY_LABELS: Record<string, string> = {
+  lundi: "Lundi",
+  mardi: "Mardi",
+  mercredi: "Mercredi",
+  jeudi: "Jeudi",
+  vendredi: "Vendredi",
+  samedi: "Samedi",
+  dimanche: "Dimanche",
+};
+
+/** Mapping Date#getDay() (0=dimanche) → clé planning française. */
+export const JS_DAY_TO_KEY: Record<number, string> = {
+  1: "lundi",
+  2: "mardi",
+  3: "mercredi",
+  4: "jeudi",
+  5: "vendredi",
+  6: "samedi",
+  0: "dimanche",
+};
+
 /** Date calendaire pour une clé jour (lundi…dimanche) par rapport à `refDate` (début de « aujourd’hui »). */
 export function getDateForDayKey(dayKey: string, refDate: Date = new Date()): Date {
   const todayDow = refDate.getDay();

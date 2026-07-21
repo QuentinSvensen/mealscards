@@ -1,4 +1,4 @@
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import { parseQty, parsePartialQty, getFoodItemTotalGrams } from "@/lib/ingredientUtils";
 import { parseISO } from "date-fns";
 

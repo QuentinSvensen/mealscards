@@ -1,9 +1,8 @@
 import { parseISO } from "date-fns";
+import { DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
 
-/** Table de correspondance jour français → index (0=Lun) */
-export const DAY_KEY_TO_INDEX: Record<string, number> = {
-  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
-};
+/** Réexport pour compatibilité (source : planningWeekUtils). */
+export { DAY_KEY_TO_INDEX };
 
 /**
  * Aligne l'heure d'une date sur le créneau repas (matin 8h, midi 12h, goûter 16h, soir 19h).

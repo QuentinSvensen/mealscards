@@ -59,7 +59,7 @@ import { fr } from "date-fns/locale";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, computePossibleFrozenCounterDays, mergeFrozenPossibleCounterDays, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -88,7 +88,8 @@ import {
   supplementFoodDessertExtrasFromSnapshots,
 } from "@/lib/foodDessertUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
-import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
+import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX, DAY_LABELS, JS_DAY_TO_KEY } from "@/lib/planningWeekUtils";
+import { parseCalories, parseProtein, parsePositiveMacroOverride } from "@/domain/planning/macroParsers";
 import {
   computeRollingDayCalorieAverage,
   ROLLING_WINDOW_14_DAYS,
@@ -115,31 +116,8 @@ import {
   findStoredSelectionIdForDessert,
 } from "@/domain/planning/extraDisplay";
 
-const DAY_LABELS: Record<string, string> = {
-  lundi: "Lundi",
-  mardi: "Mardi",
-  mercredi: "Mercredi",
-  jeudi: "Jeudi",
-  vendredi: "Vendredi",
-  samedi: "Samedi",
-  dimanche: "Dimanche",
-};
-
-const JS_DAY_TO_KEY: Record<number, string> = {
-  1: "lundi",
-  2: "mardi",
-  3: "mercredi",
-  4: "jeudi",
-  5: "vendredi",
-  6: "samedi",
-  0: "dimanche",
-};
-
 const DEFAULT_DAILY_GOAL = 2750;
 const DEFAULT_WEEKLY_MULTIPLIER = 7;
-
-/** Clé de préférence utilisée pour mémoriser une surcharge calorique par carte (hors usage direct actuel). */
-function calOverrideKey(pmId: string) { return `planning_cal_override_${pmId}`; }
 
 /**
  * Résout la date ISO (yyyy-MM-dd) du créneau planifié.
@@ -174,27 +152,9 @@ function isExpiredOnPlannedDay(
   }
 }
 
-/** Lit les kcal affichées sur une fiche repas (chaîne potentiellement avec unités). */
-function parseCalories(cal: string | null | undefined): number {
-  if (!cal) return 0;
-  const n = parseFloat(cal.replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? 0 : n;
-}
-
-/** Lit les protéines affichées sur une fiche repas. */
-function parseProtein(prot: string | null | undefined): number {
-  if (!prot) return 0;
-  const n = parseFloat(prot.replace(",", ".").replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? 0 : n;
-}
-
 /** Convertit une surcharge planning en nombre, ou l'ignore si elle vaut 0/vide. */
 function parsePositivePlanningOverride(value: string | number | null | undefined): number | null {
-  if (value === null || value === undefined) return null;
-  const n = typeof value === "number"
-    ? value
-    : parseFloat(value.replace(",", ".").replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return parsePositiveMacroOverride(value);
 }
 
 const DAILY_PROTEIN_GOAL = 110;
@@ -237,12 +197,10 @@ export function WeeklyPlanning({
   );
 
   /**
-   * Fige (ou re-fige) le badge compteur d’une carte Possible depuis les aliments à cet instant.
-   * Re-gel one-shot quand on pose jour+créneau (ex. Croque → 1j samedi soir).
-   * Ne remplace jamais une valeur numérique figée par `null` (merge).
-   * `baseStartDate` : vraie ouverture pour recalculer même si le stock est déjà en Prog.
+   * Calcule la préférence de gel du badge Possible (sans écriture) pour un batch avec d’autres prefs.
+   * Re-gel one-shot quand on pose jour+créneau ; ne remplace jamais une valeur numérique figée par `null`.
    */
-  const freezePossibleBadgeCounter = (
+  const buildFrozenBadgePreference = (
     pmId: string,
     ingredients: string | null | undefined,
     dayKey?: string | null,
@@ -250,26 +208,30 @@ export function WeeklyPlanning({
     createdAt?: string,
     baseStartDate?: string | null,
   ) => {
-    const days = computePossibleFrozenCounterDays(
+    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
+    return buildFrozenBadgePreferenceEntry({
+      pmId,
       ingredients,
       foodItems,
-      foodMacroIndex,
-      undefined,
+      index: foodMacroIndex,
       dayKey,
       mealTime,
       createdAt,
       baseStartDate,
-    );
-    const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
-    const merged = mergeFrozenPossibleCounterDays(current[pmId], days);
-    setPreference.mutate({
-      key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
-      value: { ...current, [pmId]: merged },
+      currentMap: current,
     });
   };
 
-  /** Met à jour le planning d’une carte Possible et recalcule les compteurs aliments + gel badge. */
-  const updatePlanningWithCounters = (pmId: string, day: string | null, time: string | null) => {
+  /**
+   * Met à jour le planning d’une carte Possible et recalcule les compteurs aliments + gel badge.
+   * @param extraPrefEntries - Préférences à écrire dans le même lot que le gel badge (évite AbortError auth).
+   */
+  const updatePlanningWithCounters = (
+    pmId: string,
+    day: string | null,
+    time: string | null,
+    extraPrefEntries: { key: string; value: any }[] = [],
+  ) => {
     const pm = possibleMeals.find(p => p.id === pmId);
     let earliestCounter: string | null = null;
     if (pm?.meals) {
@@ -288,10 +250,22 @@ export function WeeklyPlanning({
       const ing = pm.ingredients_override ?? pm.meals?.ingredients;
       const fallbackDate = earliestCounter || pm.counter_start_date || null;
       // Re-gel AVANT de passer les aliments en Prog. (sinon le calcul renvoie null et efface le badge).
+      const prefEntries = [...extraPrefEntries];
       if (day?.trim() && time?.trim()) {
-        freezePossibleBadgeCounter(pmId, ing, day, time, pm.created_at, fallbackDate);
+        prefEntries.push(
+          buildFrozenBadgePreference(pmId, ing, day, time, pm.created_at, fallbackDate),
+        );
+      }
+      if (prefEntries.length === 1) {
+        setPreference.mutate(prefEntries[0]);
+      } else if (prefEntries.length > 1) {
+        setPreferencesBatch.mutate(prefEntries);
       }
       updateFoodItemCountersForPlanning(pmId, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
+    } else if (extraPrefEntries.length === 1) {
+      setPreference.mutate(extraPrefEntries[0]);
+    } else if (extraPrefEntries.length > 1) {
+      setPreferencesBatch.mutate(extraPrefEntries);
     }
   };
 
@@ -845,6 +819,7 @@ export function WeeklyPlanning({
     getDayCalories,
     getPreference,
     setPreference,
+    setPreferencesBatch,
   });
   const drinkChecks = getPreference<Record<string, boolean>>('planning_drink_checks', {});
   const planningSlotOverrides = getPreference<Record<string, { day: string; time: string }>>('planning_slot_overrides', {});
@@ -855,19 +830,21 @@ export function WeeklyPlanning({
    */
   const assignPmToPlanningSlot = (pmId: string, day: string, time: string) => {
     const updated = { ...planningSlotOverrides };
+    const extraPrefs: { key: string; value: any }[] = [];
     if (updated[pmId]) {
       delete updated[pmId];
-      setPreference.mutate({ key: "planning_slot_overrides", value: updated });
+      extraPrefs.push({ key: "planning_slot_overrides", value: updated });
     }
-    updatePlanningWithCounters(pmId, day, time);
+    updatePlanningWithCounters(pmId, day, time, extraPrefs);
   };
 
   /** Retire une carte du planning (Hors planning) et purge l’override d’affichage. */
   const clearPmPlanningSlot = (pmId: string) => {
     const updated = { ...planningSlotOverrides };
     delete updated[pmId];
-    setPreference.mutate({ key: "planning_slot_overrides", value: updated });
-    updatePlanningWithCounters(pmId, null, null);
+    updatePlanningWithCounters(pmId, null, null, [
+      { key: "planning_slot_overrides", value: updated },
+    ]);
   };
 
   const {
@@ -1731,8 +1708,10 @@ export function WeeklyPlanning({
   const handleGlobalCalBlur = (val: number) => {
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_daily_goal", value: val });
     else {
-      setPreference.mutate({ key: "planning_daily_goal", value: val });
-      setPreference.mutate({ key: "next_week_daily_goal", value: val });
+      setPreferencesBatch.mutate([
+        { key: "planning_daily_goal", value: val },
+        { key: "next_week_daily_goal", value: val },
+      ]);
     }
   };
 
@@ -1746,16 +1725,20 @@ export function WeeklyPlanning({
     const clamped = val && val > 0 ? Math.min(val, currentHigh) : 0;
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_daily_goal_low", value: clamped });
     else {
-      setPreference.mutate({ key: "planning_daily_goal_low", value: clamped });
-      setPreference.mutate({ key: "next_week_daily_goal_low", value: clamped });
+      setPreferencesBatch.mutate([
+        { key: "planning_daily_goal_low", value: clamped },
+        { key: "next_week_daily_goal_low", value: clamped },
+      ]);
     }
   };
 
   const handleGlobalProtBlur = (val: number) => {
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_protein_goal", value: val });
     else {
-      setPreference.mutate({ key: "planning_protein_goal", value: val });
-      setPreference.mutate({ key: "next_week_protein_goal", value: val });
+      setPreferencesBatch.mutate([
+        { key: "planning_protein_goal", value: val },
+        { key: "next_week_protein_goal", value: val },
+      ]);
     }
   };
 
@@ -1763,8 +1746,10 @@ export function WeeklyPlanning({
   const handleGlobalFiberBlur = (val: number) => {
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_fiber_goal", value: val });
     else {
-      setPreference.mutate({ key: "planning_fiber_goal", value: val });
-      setPreference.mutate({ key: "next_week_fiber_goal", value: val });
+      setPreferencesBatch.mutate([
+        { key: "planning_fiber_goal", value: val },
+        { key: "next_week_fiber_goal", value: val },
+      ]);
     }
   };
 
@@ -1976,8 +1961,10 @@ export function WeeklyPlanning({
                   onGoalBlur={() => {
                     const val = parseInt(goalInput);
                     if (val && val > 0) {
-                      setPreference.mutate({ key: 'planning_daily_goal', value: val });
-                      setPreference.mutate({ key: 'next_week_daily_goal', value: val });
+                      setPreferencesBatch.mutate([
+                        { key: 'planning_daily_goal', value: val },
+                        { key: 'next_week_daily_goal', value: val },
+                      ]);
                     }
                     setEditingGoal(false);
                   }}
@@ -1987,8 +1974,10 @@ export function WeeklyPlanning({
                   onProteinGoalBlur={() => {
                     const val = parseInt(proteinGoalInput);
                     if (val && val > 0) {
-                      setPreference.mutate({ key: 'planning_protein_goal', value: val });
-                      setPreference.mutate({ key: 'next_week_protein_goal', value: val });
+                      setPreferencesBatch.mutate([
+                        { key: 'planning_protein_goal', value: val },
+                        { key: 'next_week_protein_goal', value: val },
+                      ]);
                     }
                     setEditingProteinGoal(false);
                   }}
@@ -2094,47 +2083,55 @@ export function WeeklyPlanning({
                         const fiber = manualFibers[`${iso}-${time}`] || 0;
                         const cleaned = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
                         const updated = { ...cleaned, [snapKey]: { cal, prot, fiber, savedAt: Date.now() } };
-                        setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
+                        const entries: { key: string; value: unknown }[] = [
+                          { key: 'planning_saved_snapshots', value: updated },
+                        ];
                         if (weekOffset === 0) {
                           const kKeySlot = `${key}-${time}`;
                           if (cal > 0) {
                             const nxtCal = { ...nextManualCalories };
                             nxtCal[kKeySlot] = cal;
-                            setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
+                            entries.push({ key: 'next_week_manual_calories', value: nxtCal });
                           }
                           if (prot > 0) {
                             const nxtPro = { ...nextManualProteins };
                             nxtPro[kKeySlot] = prot;
-                            setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
+                            entries.push({ key: 'next_week_manual_proteins', value: nxtPro });
                           }
                           if (fiber > 0) {
                             const nxtFiber = { ...nextManualFibers };
                             nxtFiber[kKeySlot] = fiber;
-                            setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
+                            entries.push({ key: 'next_week_manual_fibers', value: nxtFiber });
                           }
                           if (drinkChecks[`${iso}-${time}`]) {
                             const nxtDrk = { ...nextDrinkChecks };
                             nxtDrk[kKeySlot] = true;
-                            setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
+                            entries.push({ key: 'next_week_drink_checks', value: nxtDrk });
                           }
                         }
+                        if (entries.length === 1) setPreference.mutate(entries[0]);
+                        else setPreferencesBatch.mutate(entries);
                         setFlashedKeys(prev => ({ ...prev, [snapKey]: true }));
                         setTimeout(() => setFlashedKeys(prev => ({ ...prev, [snapKey]: false })), 1200);
                       }}
                       onClearSnapshot={() => {
                         const updated = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
-                        setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
                         if (weekOffset === 0) {
                           const kKeySlot = `${key}-${time}`;
                           const kIsoSlot = `${iso}-${time}`;
                           const nxtCal = { ...nextManualCalories }; delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot];
-                          setPreference.mutate({ key: 'next_week_manual_calories', value: nxtCal });
                           const nxtPro = { ...nextManualProteins }; delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot];
-                          setPreference.mutate({ key: 'next_week_manual_proteins', value: nxtPro });
                           const nxtFiber = { ...nextManualFibers }; delete nxtFiber[kKeySlot]; delete nxtFiber[kIsoSlot];
-                          setPreference.mutate({ key: 'next_week_manual_fibers', value: nxtFiber });
                           const nxtDrk = { ...nextDrinkChecks }; delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot];
-                          setPreference.mutate({ key: 'next_week_drink_checks', value: nxtDrk });
+                          setPreferencesBatch.mutate([
+                            { key: 'planning_saved_snapshots', value: updated },
+                            { key: 'next_week_manual_calories', value: nxtCal },
+                            { key: 'next_week_manual_proteins', value: nxtPro },
+                            { key: 'next_week_manual_fibers', value: nxtFiber },
+                            { key: 'next_week_drink_checks', value: nxtDrk },
+                          ]);
+                        } else {
+                          setPreference.mutate({ key: 'planning_saved_snapshots', value: updated });
                         }
                       }}
                       onDeselectExtra={deselectExtraForDay}
@@ -2167,6 +2164,7 @@ export function WeeklyPlanning({
                   extraSelections={extraSelections}
                   extraSlotAssignments={extraSlotAssignments}
                   setPreference={setPreference}
+                  setPreferencesBatch={setPreferencesBatch}
                   getPreference={getPreference}
                   openExtrasDay={openExtrasDay}
                   setOpenExtrasDay={setOpenExtrasDay}

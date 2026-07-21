@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { resolveCurrentUserId, setCachedUserId } from "@/lib/authUserId";
 
 type PreferenceRow = { id: string; key: string; value: any };
 type PreferenceEntry = { key: string; value: any };
@@ -99,18 +100,14 @@ function broadcastPreferencesInvalidation() {
 /**
  * Écrit ou met à jour une préférence côté Supabase avec user_id (source partagée entre sessions).
  * Toujours un upsert sur (user_id, key) pour ne pas dépendre d’un id de cache local potentiellement périmé.
+ * @param userId - Id déjà résolu (évite un nouvel appel auth par entrée en batch).
  */
-async function upsertPreferenceValue(key: string, value: any) {
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError) throw authError;
-  if (!user) throw new Error("Non connecté — impossible d’enregistrer la préférence");
+async function upsertPreferenceValue(key: string, value: any, userId?: string) {
+  const uid = userId ?? (await resolveCurrentUserId());
 
   const { error } = await supabase.from("user_preferences").upsert(
     {
-      user_id: user.id,
+      user_id: uid,
       key,
       value,
       updated_at: new Date().toISOString(),
@@ -131,7 +128,9 @@ export function usePreferences(options?: { enabled?: boolean }) {
 
   useEffect(() => {
     if (!enabled) return;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Garde le cache auth aligné pour les écritures de préférences concurrentes.
+      setCachedUserId(session?.user?.id ?? null);
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
         qc.invalidateQueries({ queryKey: ["user_preferences"] });
       }
@@ -219,8 +218,10 @@ export function usePreferences(options?: { enabled?: boolean }) {
    */
   const setPreferencesBatch = useMutation({
     mutationFn: async (entries: PreferenceEntry[]) => {
+      // Une seule résolution auth pour tout le lot (évite la salve AbortError locks.js).
+      const userId = await resolveCurrentUserId();
       for (const { key, value } of entries) {
-        await upsertPreferenceValue(key, value);
+        await upsertPreferenceValue(key, value, userId);
       }
     },
     onMutate: async (entries) => {
@@ -237,4 +238,29 @@ export function usePreferences(options?: { enabled?: boolean }) {
   });
 
   return { preferences, getPreference, setPreference, setPreferencesBatch, isLoading };
+}
+
+/**
+ * Lit une seule clé de préférence via le cache React Query (`select`),
+ * pour éviter de s’abonner à tout le tableau `user_preferences` quand un seul champ suffit.
+ */
+export function usePreferenceValue<T>(key: string, defaultValue: T, options?: { enabled?: boolean }): T {
+  const enabled = options?.enabled ?? true;
+  const { data } = useQuery({
+    queryKey: ["user_preferences"],
+    queryFn: async () => {
+      const { data: rows, error } = await supabase
+        .from("user_preferences")
+        .select("*");
+      if (error) throw error;
+      return rows as PreferenceRow[];
+    },
+    select: (prefs) => {
+      const pref = prefs.find((p) => p.key === key);
+      return (pref ? pref.value : defaultValue) as T;
+    },
+    staleTime: 30 * 1000,
+    enabled,
+  });
+  return (data !== undefined ? data : defaultValue) as T;
 }

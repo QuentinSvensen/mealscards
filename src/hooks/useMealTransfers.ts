@@ -14,8 +14,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import type { Meal, PossibleMeal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { Meal, PossibleMeal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
 import {
   normalizeForMatch, normalizeKey, strictNameMatch,
   parseQty, formatNumeric, encodeStoredGrams,
@@ -57,6 +57,7 @@ import {
   DESSERT_FOOD_NAME_KEYS_PREF_KEY,
   patchDessertPrefsAfterStockDeletes,
 } from "@/lib/foodDessertUtils";
+import { suppressStockRealtime } from "@/lib/stockRealtimeGate";
 
 type UserPreferenceRow = { id: string; key: string; value: unknown };
 
@@ -152,11 +153,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   // elle doit ignorer son invalidation automatique pendant plusieurs secondes pour laisser la
   // réplique Supabase rattraper son retard et ne pas écraser notre cache local.
   const suppressStockRealtimeBriefly = () => {
-    try {
-      (window as any).__suppressStockRealtimeUntil = Date.now() + 6000;
-    } catch {
-      // no-op
-    }
+    suppressStockRealtime(6000);
   };
 
   /** Exécute une mutation Supabase avec gestion d'erreur centralisée */

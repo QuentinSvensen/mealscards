@@ -1,4 +1,4 @@
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import {
   normalizeKey, strictNameMatch, parseQty, getFoodItemTotalGrams,
   type ParsedIngredient,

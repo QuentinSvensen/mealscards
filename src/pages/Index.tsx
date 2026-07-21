@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { clearAvailableThresholdDayIso } from "@/lib/availableThresholdDaySession";
+import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -36,6 +37,7 @@ import { OptionalIngredientsMoveDialog } from "@/components/OptionalIngredientsM
 import { useOptionalIngredientsMoveDialog } from "@/hooks/useOptionalIngredientsMoveDialog";
 import { useProgCounterReconcile } from "@/hooks/useProgCounterReconcile";
 import { useMoveToPossible } from "@/hooks/useMoveToPossible";
+import { useIndexStockMoveHandlers } from "@/hooks/useIndexStockMoveHandlers";
 import { useStickyChromeHeight } from "@/hooks/useStickyChromeHeight";
 import { useWeeklyAutoReset } from "@/hooks/useWeeklyAutoReset";
 import { useLazyFragmentsPreload } from "@/hooks/useLazyFragmentsPreload";
@@ -50,10 +52,12 @@ import {
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
   computePossibleFrozenCounterDays,
-  mergeFrozenPossibleCounterDays,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
   type FoodItemIndex,
+  buildFrozenBadgePreferenceEntry,
+  buildClearFrozenBadgePreferenceEntry,
+  buildCopyFrozenBadgePreferenceEntry,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
 import { isCountOnlyFoodItem, isFoodItemFullySealed } from "@/lib/stockUtils";
@@ -234,7 +238,7 @@ const Index = () => {
   } = useMeals({ enabled: unlocked });
 
   const { groups: shoppingGroups, items: shoppingItems, toggleSecondaryCheck: toggleShoppingSecondaryCheck, updateItemQuantity: updateShoppingItemQuantity } = useShoppingList({ enabled: unlocked });
-  const { getPreference, setPreference, isLoading: isPreferencesLoading } = usePreferences({ enabled: unlocked });
+  const { getPreference, setPreference, setPreferencesBatch, isLoading: isPreferencesLoading } = usePreferences({ enabled: unlocked });
   const hideDayCalorieTotals = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const macroLibrary = getPreference<IngredientMacroLibraryItem[]>("ingredient_macro_library", EMPTY_MACRO_LIBRARY);
   const saveMacroLibrary = useCallback(
@@ -311,12 +315,21 @@ const Index = () => {
     };
   }, []);
 
-  // ─── Rafraîchissement automatique des données au retour sur l'app ────────────────
+  // ─── Rafraîchissement ciblé au retour sur l'app (évite un refetch massif) ────────────────
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && unlocked) {
-        // Force React Query à rafraîchir toutes les requêtes actives en arrière-plan
-        qc.invalidateQueries();
+        for (const queryKey of [
+          ["food_items"],
+          ["meals"],
+          ["possible_meals"],
+          ["user_preferences"],
+          ["shopping_groups"],
+          ["shopping_items"],
+          ["food_library"],
+        ] as const) {
+          qc.invalidateQueries({ queryKey: [...queryKey] });
+        }
       }
     };
 
@@ -376,15 +389,16 @@ const Index = () => {
     if (!unlocked || isPreferencesLoading || calorieFilterForced.current) return;
     calorieFilterForced.current = true;
 
+    const prefEntries: { key: string; value: unknown }[] = [];
     for (const cat of CATEGORIES) {
       const key = `available_use_remaining_calories_${cat.value}`;
       if (cat.value === "petit_dejeuner") {
         if (getPreference<boolean>(key, false)) {
-          setPreference.mutate({ key, value: false });
+          prefEntries.push({ key, value: false });
         }
       } else {
         if (!getPreference<boolean>(key, true)) {
-          setPreference.mutate({ key, value: true });
+          prefEntries.push({ key, value: true });
         }
       }
     }
@@ -400,8 +414,10 @@ const Index = () => {
       }
     }
     if (changed) {
-      setPreference.mutate({ key: 'meal_available_sort_modes', value: updatedSortModes });
+      prefEntries.push({ key: 'meal_available_sort_modes', value: updatedSortModes });
     }
+    if (prefEntries.length === 1) setPreference.mutate(prefEntries[0]);
+    else if (prefEntries.length > 1) setPreferencesBatch.mutate(prefEntries);
   }, [unlocked, isPreferencesLoading]);
 
   const macroLookup = useMemo(() => {
@@ -442,8 +458,7 @@ const Index = () => {
         // une version répliquée en retard et écraser notre cache, laissant l'UI (ex: badge
         // xN "Au choix") coincée sur l'ancien stock. On laisse donc la réconciliation
         // naturelle se faire au prochain refetch "actif" (remontage/focus).
-        const suppressUntil = (window as any).__suppressStockRealtimeUntil as number | undefined;
-        if (typeof suppressUntil === "number" && Date.now() < suppressUntil) return;
+        if (shouldSuppressStockRealtime()) return;
         qc.invalidateQueries({ queryKey: ["food_items"] });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, () => { qc.invalidateQueries({ queryKey: ["meals"] }); })
@@ -544,40 +559,34 @@ const Index = () => {
     foodItemsForFreeze: FoodItem[] = foodItems,
     baseStartDate?: string | null,
   ) => {
-    const days = computePossibleFrozenCounterDays(
-      ingredients,
-      foodItemsForFreeze,
-      foodItemIndex,
-      undefined,
-      dayKey,
-      mealTime,
-      createdAt,
-      baseStartDate,
-    );
     const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
-    const merged = mergeFrozenPossibleCounterDays(current[pmId], days);
-    setPreference.mutate({
-      key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
-      value: { ...current, [pmId]: merged },
-    });
+    setPreference.mutate(
+      buildFrozenBadgePreferenceEntry({
+        pmId,
+        ingredients,
+        foodItems: foodItemsForFreeze,
+        index: foodItemIndex,
+        dayKey,
+        mealTime,
+        createdAt,
+        baseStartDate,
+        currentMap: current,
+      }),
+    );
   };
 
   /** Supprime l’entrée de gel pour une carte Possible retirée. */
   const clearFrozenPossibleBadgeCounter = (pmId: string) => {
     const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
-    if (!Object.prototype.hasOwnProperty.call(current, pmId)) return;
-    const { [pmId]: _removed, ...rest } = current;
-    setPreference.mutate({ key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, value: rest });
+    const entry = buildClearFrozenBadgePreferenceEntry(pmId, current);
+    if (entry) setPreference.mutate(entry);
   };
 
   /** Copie la valeur figée d’une carte source vers une nouvelle carte (duplication). */
   const copyFrozenPossibleBadgeCounter = (sourcePmId: string, targetPmId: string) => {
     const current = getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {});
-    if (!Object.prototype.hasOwnProperty.call(current, sourcePmId)) return;
-    setPreference.mutate({
-      key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
-      value: { ...current, [targetPmId]: current[sourcePmId] },
-    });
+    const entry = buildCopyFrozenBadgePreferenceEntry(sourcePmId, targetPmId, current);
+    if (entry) setPreference.mutate(entry);
   };
 
   // Backfill one-shot : cartes Possible déjà présentes sans entrée de gel (évite la perte de badge).
@@ -752,6 +761,19 @@ const Index = () => {
       setMasterSourcePmIds,
       setCollapsedSections,
     },
+  });
+
+  const { onMoveNameMatchToPossible, onMoveFoodItemToPossible } = useIndexStockMoveHandlers({
+    qc,
+    foodItems,
+    macroLookup,
+    moveToPossible,
+    addMealToPossibleDirectly,
+    updatePossibleIngredients,
+    deductNameMatchStock,
+    attachFoodDeductionSnapshot,
+    updateSnapshots,
+    freezePossibleBadgeCounter,
   });
 
   const handleLogoClick = () => {
@@ -1206,194 +1228,10 @@ const Index = () => {
                           onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
                           onMoveToPossible={(mealId) => handleMoveToPossibleGeneral(mealId, "available")}
                           onMovePartialToPossible={(meal, ratio) => handleMovePartialToPossible(meal, ratio, cat.value)}
-                          onMoveNameMatchToPossible={async (meal, fi, ratio) => {
-                            const r = ratio ?? 1;
-                            
-                            // Calcul des macros de base (soit depuis le repas, soit depuis l'aliment)
-                            const hasCal = meal.calories && meal.calories !== "0";
-                            const hasPro = meal.protein && meal.protein !== "0" && meal.protein !== "0%";
-                            let baseCal = hasCal ? parseFloat(meal.calories!.replace(",", ".")) : 0;
-                            let basePro = hasPro ? parseFloat(meal.protein!.replace(",", ".")) : 0;
-
-                            if (!hasCal || !hasPro) {
-                              if (!hasCal && fi.calories) {
-                                const fiCal = parseFloat(fi.calories.replace(",", "."));
-                                if (fi.grams) {
-                                  const totalG = getFoodItemTotalGrams(fi);
-                                  baseCal = (fiCal * totalG) / 100;
-                                } else {
-                                  baseCal = fiCal * (fi.quantity ?? 1);
-                                }
-                              }
-                              if (!hasPro && fi.protein) {
-                                const fiPro = parseFloat(fi.protein.replace(",", "."));
-                                if (fi.grams) {
-                                  const totalG = getFoodItemTotalGrams(fi);
-                                  basePro = (fiPro * totalG) / 100;
-                                } else {
-                                  basePro = fiPro * (fi.quantity ?? 1);
-                                }
-                              }
-                            }
-
-                            // Valeurs finales à envoyer en DB
-                            const baseGStr = fi.quantity && fi.quantity > 1 && fi.grams
-                              ? `${parseQty(fi.grams) * fi.quantity}g`
-                              : (meal.grams ?? (fi.is_infinite ? "∞" : fi.grams ?? null));
-                            const finalGrams = baseGStr ? (r !== 1 && baseGStr !== "∞" ? `${Math.round(parseQty(baseGStr) * r)}g` : baseGStr) : null;
-                            const finalCal = baseCal > 0 ? String(Math.round(baseCal * r)) : meal.calories;
-                            const finalPro = basePro > 0 ? String(Math.round(basePro * r)) : meal.protein;
-
-                            if (fi.is_infinite) {
-                              const baseIng = meal.ingredients ? meal.ingredients : (parseQty(meal.grams) > 0 ? `${meal.grams} ${meal.name}` : null);
-                              const scaledIng = baseIng && r !== 1 ? scaleIngredientStringExact(baseIng, r) : null;
-                              
-                              const result = await addMealToPossibleDirectly.mutateAsync({
-                                name: meal.name, category: cat.value,
-                                calories: finalCal, protein: finalPro, grams: finalGrams,
-                                ingredients: baseIng,
-                                expiration_date: fi.expiration_date,
-                                counter_start_date: null,
-                              });
-                              if (result?.id && scaledIng) {
-                                updatePossibleIngredients.mutate({ id: result.id, ingredients_override: scaledIng });
-                              }
-                              if (result?.id) {
-                                freezePossibleBadgeCounter(
-                                  result.id,
-                                  scaledIng ?? baseIng,
-                                  null,
-                                  null,
-                                  undefined,
-                                  foodItems,
-                                );
-                              }
-                            } else {
-                              const portion = await deductNameMatchStock(meal, undefined, r);
-                              const shouldStartOnMove = fi.storage_type !== 'surgele' && !fi.no_counter;
-                              const finalCd = fi.counter_start_date || (shouldStartOnMove ? new Date().toISOString() : null);
-                              const liveAfterDeduct = qc.getQueryData<FoodItem[]>(["food_items"])?.find((x) => x.id === fi.id);
-                              const snapshot = [
-                                attachFoodDeductionSnapshot(
-                                  {
-                                    ...fi,
-                                    counter_start_date:
-                                      liveAfterDeduct?.counter_start_date ?? finalCd ?? fi.counter_start_date,
-                                  },
-                                  {
-                                    grams: portion.gramsDeducted,
-                                    quantity: portion.quantityDeducted,
-                                  },
-                                ),
-                              ];
-
-                              // Si ratio != 1 ou macros calculées, on crée un repas "indépendant" au lieu de juste lier au master
-                              if (r !== 1 || !hasCal || !hasPro) {
-                                const result = await addMealToPossibleDirectly.mutateAsync({
-                                  name: meal.name, category: cat.value,
-                                  calories: finalCal, protein: finalPro, grams: finalGrams,
-                                  ingredients: meal.ingredients || (parseQty(finalGrams) > 0 ? `${finalGrams} ${meal.name}` : null),
-                                  expiration_date: fi.expiration_date,
-                                  counter_start_date: finalCd,
-                                  oven_temp: meal.oven_temp,
-                                  oven_minutes: meal.oven_minutes,
-                                });
-                                if (result?.id) {
-                                  updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
-                                  freezePossibleBadgeCounter(
-                                    result.id,
-                                    meal.ingredients || (parseQty(finalGrams) > 0 ? `${finalGrams} ${meal.name}` : null),
-                                    null,
-                                    null,
-                                    undefined,
-                                    foodItems,
-                                  );
-                                }
-                              } else {
-                                const result = await moveToPossible.mutateAsync({ mealId: meal.id, expiration_date: fi.expiration_date, counter_start_date: finalCd });
-                                if (result?.id) {
-                                  updateSnapshots(prev => ({ ...prev, [result.id]: snapshot }));
-                                  freezePossibleBadgeCounter(
-                                    result.id,
-                                    meal.ingredients,
-                                    null,
-                                    null,
-                                    undefined,
-                                    foodItems,
-                                  );
-                                }
-                              }
-                            }
-                          }}
-                          onMoveFoodItemToPossible={async (fi) => {
-                            const perUnit = parseQty(fi.grams);
-                            let portionGrams = 0;
-                            let portionQty = 0;
-                            if (!fi.is_infinite) {
-                              if (perUnit > 0) {
-                                portionGrams =
-                                  fi.quantity && fi.quantity > 1
-                                    ? perUnit
-                                    : getFoodItemTotalGrams(fi);
-                              } else {
-                                portionQty = 1;
-                              }
-                            }
-                            const snapshot = [
-                              attachFoodDeductionSnapshot(fi, { grams: portionGrams, quantity: portionQty }),
-                            ];
-                            const shouldStart = fi.storage_type !== 'surgele' && !fi.no_counter;
-                            const movedCounterDate = fi.counter_start_date || (shouldStart ? new Date().toISOString() : null);
-                            if (!fi.is_infinite) {
-                              const currentQty = fi.quantity ?? 1;
-                              if (currentQty <= 1) { await supabase.from("food_items").delete().eq("id", fi.id); }
-                              else {
-                                // Unitaire avec compteur auto : démarrer le compteur sur le stock restant.
-                                // Paquets grammes scellés restants : pas de compteur (boîte intacte).
-                                const isCountOnly = parseQty(fi.grams) <= 0;
-                                const startOnRemaining = isCountOnly && !!movedCounterDate;
-                                await supabase.from("food_items").update({
-                                  quantity: currentQty - 1,
-                                  ...(startOnRemaining ? { counter_start_date: movedCounterDate } : {}),
-                                } as any).eq("id", fi.id);
-                              }
-                              qc.invalidateQueries({ queryKey: ["food_items"] });
-                            }
-                            const fiKey = normalizeKey(fi.name);
-                            const fiMacro = macroLookup.get(fiKey);
-                            let calories = fi.calories || fiMacro?.cal || null;
-                            let protein = fi.protein || fiMacro?.pro || null;
-                            let fiber = fi.fiber || fiMacro?.fiber || null;
-
-                            if (fi.grams) {
-                              // Un déplacement depuis "Au choix" consomme une seule portion, pas tout le stock disponible.
-                              const movedGrams = portionGrams > 0 ? portionGrams : perUnit;
-                              if (movedGrams > 0) {
-                                if (calories) calories = String(Math.round(parseFloat(calories.replace(',', '.')) * movedGrams / 100));
-                                if (protein) protein = String(Math.round(parseFloat(protein.replace(',', '.')) * movedGrams / 100));
-                                if (fiber) fiber = String(Math.round(parseFloat(fiber.replace(',', '.')) * movedGrams / 100));
-                              }
-                            }
-
-                            const pmResult = await addMealToPossibleDirectly.mutateAsync({
-                              name: fi.name, category: cat.value,
-                              calories, protein, fiber, grams: fi.grams,
-                              expiration_date: fi.expiration_date,
-                              counter_start_date: movedCounterDate
-                            });
-                            if (pmResult?.id) {
-                              updateSnapshots(prev => ({ ...prev, [pmResult.id]: snapshot }));
-                              // Gel à partir de l’état aliment avant consommation (snapshot / fi).
-                              freezePossibleBadgeCounter(
-                                pmResult.id,
-                                fi.grams ? `${fi.grams} ${fi.name}` : `1 ${fi.name}`,
-                                null,
-                                null,
-                                undefined,
-                                [{ ...fi, counter_start_date: movedCounterDate }],
-                              );
-                            }
-                          }}
+                          onMoveNameMatchToPossible={(meal, fi, ratio) =>
+                            onMoveNameMatchToPossible(cat.value, meal, fi, ratio)
+                          }
+                          onMoveFoodItemToPossible={(fi) => onMoveFoodItemToPossible(cat.value, fi)}
                           onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
                           onRename={(id, name) => renameMeal.mutate({ id, name })}
                           onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}

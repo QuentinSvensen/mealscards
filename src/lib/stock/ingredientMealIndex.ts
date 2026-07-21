@@ -1,4 +1,4 @@
-import type { Meal } from "@/hooks/useMeals";
+import type { Meal } from "@/types/meals";
 import { normalizeKey, parseIngredientGroups } from "@/lib/ingredientUtils";
 
 

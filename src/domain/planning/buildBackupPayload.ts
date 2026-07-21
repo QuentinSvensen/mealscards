@@ -1,4 +1,4 @@
-import type { PossibleMeal } from "@/hooks/useMeals";
+import type { PossibleMeal } from "@/types/meals";
 import type { PossibleMealBackupCard, PossibleMealsFullBackup, PlanningPrefMap } from "./types";
 import {
   asBoolRecord,

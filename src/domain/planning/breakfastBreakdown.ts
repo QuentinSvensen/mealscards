@@ -1,5 +1,5 @@
-import type { Meal, PossibleMeal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { Meal, PossibleMeal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
 import { getCardDisplayCalories, getCardDisplayProtein } from "@/hooks/useCalorieBalance";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";

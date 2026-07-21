@@ -69,6 +69,7 @@ import {
 import { getCalorieRangeTotalColorClass } from "@/domain/planning/calorieGoalRange";
 import {
   buildUnifiedAvailableItems,
+  buildNameMatchItems,
   splitIsMealByExpiration,
   type AvailableFullItem,
   type AvailableNameMatch,
@@ -580,31 +581,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return false;
   };
 
-  const nameMatches: NameMatch[] = [];
-  const nameMatchedFiIds = new Set<string>();
-
-  for (const meal of meals) {
-    if (availableMealIds.has(meal.id) || partialMealIds.has(meal.id)) continue;
-    if (meal.ingredients?.trim()) continue;
-    for (const fi of foodItems) {
-      if (strictNameMatch(meal.name, fi.name)) {
-        const mealGrams = parseQty(meal.grams);
-        const stockGrams = fi.is_infinite ? Infinity : getFoodItemTotalGrams(fi);
-        if (!fi.is_infinite && stockGrams <= 0) continue;
-        let portions: number | null = null;
-        if (!fi.is_infinite && mealGrams > 0) {
-          portions = Math.floor(stockGrams / mealGrams);
-          if (portions < 1) continue;
-        } else if (!fi.is_infinite) {
-          portions = fi.quantity ?? 1;
-          if (portions < 1) continue;
-        }
-        nameMatches.push({ meal, fi, portionsAvailable: fi.is_infinite ? null : portions });
-        nameMatchedFiIds.add(fi.id);
-        break;
-      }
-    }
-  }
+  const { nameMatches, nameMatchedFiIds } = buildNameMatchItems(
+    meals,
+    foodItems,
+    availableMealIds,
+    partialMealIds,
+  );
 
   // 3. Articles alimentaires de type 'is_meal'
   const isMealItems = showMealItemsInAvailable ? foodItems.filter((fi) => {

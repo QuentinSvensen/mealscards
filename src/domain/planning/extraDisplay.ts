@@ -2,8 +2,8 @@
  * Helpers purs d'affichage / résolution des extras et desserts du planning.
  * Sans effet de bord : les callers persistent via setPreference / mutations stock.
  */
-import type { Meal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { Meal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import { normalizeKey, parseIngredientGroups, formatNumeric, strictNameMatch } from "@/lib/ingredientUtils";
 import {

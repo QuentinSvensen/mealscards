@@ -1,4 +1,4 @@
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import { computeCounterDays } from "@/lib/ingredientUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";

@@ -1,4 +1,4 @@
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import { getAdaptedCounterDays } from "@/lib/ingredientUtils";
 import type { FoodItemIndex } from "./foodItemIndex";
 import { getRecipeMaxActiveFoodCounterDays } from "./counterBadge";

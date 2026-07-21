@@ -1,4 +1,4 @@
-import type { Meal } from "@/hooks/useMeals";
+import type { Meal } from "@/types/meals";
 import { parseIngredientGroups, type ParsedIngredient } from "@/lib/ingredientUtils";
 
 import { findStockKey, type StockInfo } from "./stockMap";

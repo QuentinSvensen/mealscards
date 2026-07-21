@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { FoodItem } from "@/hooks/useFoodItems";
-import type { Meal } from "@/hooks/useMeals";
+import type { FoodItem } from "@/types/food";
+import type { Meal } from "@/types/meals";
 import {
   appendNextWeekExtraSelection,
   buildCustomExtraSelectionId,

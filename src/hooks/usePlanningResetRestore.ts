@@ -7,6 +7,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import type { PossibleMeal } from "@/hooks/useMeals";
+import { resolveCurrentUserId } from "@/lib/authUserId";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
 import {
@@ -36,6 +37,7 @@ export interface UsePlanningResetRestoreOptions {
   getDayCalories: (iso: string, key: string) => number;
   getPreference: <T>(key: string, fallback: T) => T;
   setPreference: { mutate: (args: { key: string; value: unknown }) => void };
+  setPreferencesBatch: { mutate: (entries: { key: string; value: unknown }[]) => void };
 }
 
 /**
@@ -50,6 +52,7 @@ export function usePlanningResetRestore({
   getDayCalories,
   getPreference,
   setPreference,
+  setPreferencesBatch,
 }: UsePlanningResetRestoreOptions) {
   const manualResetLockRef = useRef(false);
   const [manualResetBusy, setManualResetBusy] = useState(false);
@@ -82,8 +85,10 @@ export function usePlanningResetRestore({
   /** Restaure les cartes Possible (et prefs associées) depuis `possible_meals_backup`. */
   const handleRestoreBackup = useCallback(async () => {
     if (restoreLockRef.current) return;
-    const userId = (await supabase.auth.getUser()).data.user?.id;
-    if (!userId) {
+    let userId: string;
+    try {
+      userId = await resolveCurrentUserId();
+    } catch {
       toast({ title: "Non connecté", description: "Utilisateur non connecté.", variant: "destructive" });
       return;
     }
@@ -133,36 +138,38 @@ export function usePlanningResetRestore({
       }
 
       if (isNewFormat) {
-        if (raw.manualCalories) setPreference.mutate({ key: "planning_manual_calories", value: raw.manualCalories });
-        if (raw.manualProteins) setPreference.mutate({ key: "planning_manual_proteins", value: raw.manualProteins });
-        if (raw.manualFibers) setPreference.mutate({ key: "planning_manual_fibers", value: raw.manualFibers });
-        if (raw.extraCalories) setPreference.mutate({ key: "planning_extra_calories", value: raw.extraCalories });
-        if (raw.extraProteins) setPreference.mutate({ key: "planning_extra_proteins", value: raw.extraProteins });
-        if (raw.extraFibers) setPreference.mutate({ key: "planning_extra_fibers", value: raw.extraFibers });
-        if (raw.extraSelections) setPreference.mutate({ key: "planning_extra_selections", value: raw.extraSelections });
-        if (raw.extraSlotAssignments) setPreference.mutate({ key: "planning_extra_slot_assignments", value: raw.extraSlotAssignments });
-        if (raw.breakfastManualCalories) setPreference.mutate({ key: "planning_breakfast_manual_calories", value: raw.breakfastManualCalories });
-        if (raw.breakfastManualProteins) setPreference.mutate({ key: "planning_breakfast_manual_proteins", value: raw.breakfastManualProteins });
-        if (raw.breakfastSelections) setPreference.mutate({ key: "planning_breakfast", value: raw.breakfastSelections });
-        if (raw.drinkChecks) setPreference.mutate({ key: "planning_drink_checks", value: raw.drinkChecks });
-        if (raw.calOverrides) setPreference.mutate({ key: "planning_cal_overrides", value: raw.calOverrides });
-        if (raw.proOverrides) setPreference.mutate({ key: "planning_pro_overrides", value: raw.proOverrides });
+        const prefEntries: { key: string; value: unknown }[] = [];
+        if (raw.manualCalories) prefEntries.push({ key: "planning_manual_calories", value: raw.manualCalories });
+        if (raw.manualProteins) prefEntries.push({ key: "planning_manual_proteins", value: raw.manualProteins });
+        if (raw.manualFibers) prefEntries.push({ key: "planning_manual_fibers", value: raw.manualFibers });
+        if (raw.extraCalories) prefEntries.push({ key: "planning_extra_calories", value: raw.extraCalories });
+        if (raw.extraProteins) prefEntries.push({ key: "planning_extra_proteins", value: raw.extraProteins });
+        if (raw.extraFibers) prefEntries.push({ key: "planning_extra_fibers", value: raw.extraFibers });
+        if (raw.extraSelections) prefEntries.push({ key: "planning_extra_selections", value: raw.extraSelections });
+        if (raw.extraSlotAssignments) prefEntries.push({ key: "planning_extra_slot_assignments", value: raw.extraSlotAssignments });
+        if (raw.breakfastManualCalories) prefEntries.push({ key: "planning_breakfast_manual_calories", value: raw.breakfastManualCalories });
+        if (raw.breakfastManualProteins) prefEntries.push({ key: "planning_breakfast_manual_proteins", value: raw.breakfastManualProteins });
+        if (raw.breakfastSelections) prefEntries.push({ key: "planning_breakfast", value: raw.breakfastSelections });
+        if (raw.drinkChecks) prefEntries.push({ key: "planning_drink_checks", value: raw.drinkChecks });
+        if (raw.calOverrides) prefEntries.push({ key: "planning_cal_overrides", value: raw.calOverrides });
+        if (raw.proOverrides) prefEntries.push({ key: "planning_pro_overrides", value: raw.proOverrides });
         if (raw.daily_goal) {
-          setPreference.mutate({ key: "planning_daily_goal", value: raw.daily_goal });
-          setPreference.mutate({ key: "next_week_daily_goal", value: raw.daily_goal });
+          prefEntries.push({ key: "planning_daily_goal", value: raw.daily_goal });
+          prefEntries.push({ key: "next_week_daily_goal", value: raw.daily_goal });
         }
         if (raw.daily_goal_low != null) {
-          setPreference.mutate({ key: "planning_daily_goal_low", value: raw.daily_goal_low });
-          setPreference.mutate({ key: "next_week_daily_goal_low", value: raw.daily_goal_low });
+          prefEntries.push({ key: "planning_daily_goal_low", value: raw.daily_goal_low });
+          prefEntries.push({ key: "next_week_daily_goal_low", value: raw.daily_goal_low });
         }
         if (raw.protein_goal) {
-          setPreference.mutate({ key: "planning_protein_goal", value: raw.protein_goal });
-          setPreference.mutate({ key: "next_week_protein_goal", value: raw.protein_goal });
+          prefEntries.push({ key: "planning_protein_goal", value: raw.protein_goal });
+          prefEntries.push({ key: "next_week_protein_goal", value: raw.protein_goal });
         }
         if (raw.fiber_goal) {
-          setPreference.mutate({ key: "planning_fiber_goal", value: raw.fiber_goal });
-          setPreference.mutate({ key: "next_week_fiber_goal", value: raw.fiber_goal });
+          prefEntries.push({ key: "planning_fiber_goal", value: raw.fiber_goal });
+          prefEntries.push({ key: "next_week_fiber_goal", value: raw.fiber_goal });
         }
+        if (prefEntries.length > 0) setPreferencesBatch.mutate(prefEntries);
       }
 
       await qc.invalidateQueries({ queryKey: ["possible_meals"] });
@@ -175,7 +182,7 @@ export function usePlanningResetRestore({
       restoreLockRef.current = false;
       setRestoreBusy(false);
     }
-  }, [qc, setPreference]);
+  }, [qc, setPreference, setPreferencesBatch]);
 
   /** Reset manuel : backup, purge des cartes, réapplication de l'état 💾. */
   const handleManualReset = useCallback(async () => {
@@ -184,8 +191,10 @@ export function usePlanningResetRestore({
     manualResetLockRef.current = true;
     setManualResetBusy(true);
     try {
-      const userId = (await supabase.auth.getUser()).data.user?.id;
-      if (!userId) {
+      let userId: string;
+      try {
+        userId = await resolveCurrentUserId();
+      } catch {
         toast({ title: "Non connecté", description: "Session invalide.", variant: "destructive" });
         return;
       }

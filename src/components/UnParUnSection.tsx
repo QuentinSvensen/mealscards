@@ -15,7 +15,7 @@ import { useState, useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, Drumstick, Wheat, ArrowUpDown, CalendarDays, Timer, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { usePreferences } from "@/hooks/usePreferences";
+import { usePreferences, usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
@@ -43,7 +43,7 @@ interface UnParUnSectionProps {
 export function UnParUnSection({ category, foodItems, allMeals, collapsed, onToggleCollapse, onMoveToPossible, sortMode, onToggleSort, ingredientMacroAutofillSources }: UnParUnSectionProps) {
   const stockMap = buildStockMap(foodItems);
   const { getPreference, setPreference } = usePreferences();
-  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
+  const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const [consumeDialogItem, setConsumeDialogItem] = useState<FoodItem | null>(null);
   const [consumeQty, setConsumeQty] = useState("");
   const [consumeGrams, setConsumeGrams] = useState("");

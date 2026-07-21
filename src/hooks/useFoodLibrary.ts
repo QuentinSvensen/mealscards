@@ -13,6 +13,7 @@ import { useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { FoodType, StorageType } from "@/hooks/useFoodItems";
+import { resolveCurrentUserId } from "@/lib/authUserId";
 
 export interface FoodLibraryEntry {
   id: string;
@@ -62,7 +63,7 @@ export function useFoodLibrary() {
         fiber: d.fiber ?? null,
       })) as FoodLibraryEntry[];
     },
-    staleTime: 0, // Désactivé temporairement pour le debug
+    staleTime: 30 * 60 * 1000, // Cache long (catalogue quasi-statique)
     retry: 2,
   });
 
@@ -115,14 +116,13 @@ export function useFoodLibrary() {
       protein?: string | null;
       fiber?: string | null;
     }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Utilisateur non connecté");
+      const userId = await resolveCurrentUserId();
 
       const { error } = await (supabase as any)
         .from("food_library")
         .upsert(
           {
-            user_id: user.id,
+            user_id: userId,
             name,
             food_type,
             is_meal,

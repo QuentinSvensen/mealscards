@@ -12,11 +12,15 @@
  * Utilisé par : MealCard, PossibleMealCard, MealPlanGenerator, Index, stockUtils
  */
 
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import { colorFromName } from "./foodColors";
 export { colorFromName };
 
 import { differenceInDays, differenceInCalendarDays, parseISO, startOfDay, addDays } from "date-fns";
+import { DAY_KEY_TO_INDEX } from "@/lib/planningWeekUtils";
+
+/** Réexport pour compatibilité (source : planningWeekUtils). */
+export { DAY_KEY_TO_INDEX };
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 1 : Dates et compteurs d'ouverture
@@ -29,11 +33,6 @@ export function isExpiredDate(dateIso: string | null | undefined): boolean {
   const today = startOfDay(new Date());
   return d.getTime() < today.getTime();
 }
-
-/** Table de correspondance jour français → index (0=Lundi, 6=Dimanche) */
-export const DAY_KEY_TO_INDEX: Record<string, number> = {
-  lundi: 0, mardi: 1, mercredi: 2, jeudi: 3, vendredi: 4, samedi: 5, dimanche: 6,
-};
 
 /**
  * Formate une date ISO stockée (UTC) pour l’affichage debug en heure de Paris (fuseau français).

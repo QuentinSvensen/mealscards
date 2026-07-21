@@ -7,9 +7,15 @@
  *
  * Pas de React ici — uniquement calcul déterministe pour useMemo côté composant.
  */
-import type { Meal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
-import { normalizeForMatch, computeCounterDays } from "@/lib/ingredientUtils";
+import type { Meal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
+import {
+  normalizeForMatch,
+  computeCounterDays,
+  parseQty,
+  getFoodItemTotalGrams,
+  strictNameMatch,
+} from "@/lib/ingredientUtils";
 import {
   analyzeMealIngredients,
   compareExpirationWithCounter,
@@ -118,6 +124,50 @@ export function splitIsMealByExpiration(items: FoodItem[]): IsMealBuckets {
     withoutDate: items.filter((fi) => !fi.expiration_date),
     withDate: items.filter((fi) => !!fi.expiration_date),
   };
+}
+
+export type BuildNameMatchItemsResult = {
+  nameMatches: AvailableNameMatch[];
+  nameMatchedFiIds: Set<string>;
+};
+
+/**
+ * Construit les correspondances repas sans ingrédients ↔ aliment en stock (name-match).
+ * Exclut les repas déjà listés en disponible / partiel.
+ */
+export function buildNameMatchItems(
+  meals: Meal[],
+  foodItems: FoodItem[],
+  availableMealIds: Set<string>,
+  partialMealIds: Set<string>,
+): BuildNameMatchItemsResult {
+  const nameMatches: AvailableNameMatch[] = [];
+  const nameMatchedFiIds = new Set<string>();
+
+  for (const meal of meals) {
+    if (availableMealIds.has(meal.id) || partialMealIds.has(meal.id)) continue;
+    if (meal.ingredients?.trim()) continue;
+    for (const fi of foodItems) {
+      if (strictNameMatch(meal.name, fi.name)) {
+        const mealGrams = parseQty(meal.grams);
+        const stockGrams = fi.is_infinite ? Infinity : getFoodItemTotalGrams(fi);
+        if (!fi.is_infinite && stockGrams <= 0) continue;
+        let portions: number | null = null;
+        if (!fi.is_infinite && mealGrams > 0) {
+          portions = Math.floor(stockGrams / mealGrams);
+          if (portions < 1) continue;
+        } else if (!fi.is_infinite) {
+          portions = fi.quantity ?? 1;
+          if (portions < 1) continue;
+        }
+        nameMatches.push({ meal, fi, portionsAvailable: fi.is_infinite ? null : portions });
+        nameMatchedFiIds.add(fi.id);
+        break;
+      }
+    }
+  }
+
+  return { nameMatches, nameMatchedFiIds };
 }
 
 /**

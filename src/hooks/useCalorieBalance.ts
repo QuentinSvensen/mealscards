@@ -41,47 +41,18 @@ import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import {
   buildWeekDates,
   DAY_KEY_TO_INDEX,
+  JS_DAY_TO_KEY,
   isIsoInNextPlanningWeek,
   resolvePlanningGoalForIso,
 } from "@/lib/planningWeekUtils";
-
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
+import { parseCalories, parseProtein, parseFiber, parsePositiveMacroOverride } from "@/domain/planning/macroParsers";
 
 const DEFAULT_DAILY_GOAL = 2750;
 
-const JS_DAY_TO_KEY: Record<number, string> = {
-  1: "lundi",
-  2: "mardi",
-  3: "mercredi",
-  4: "jeudi",
-  5: "vendredi",
-  6: "samedi",
-  0: "dimanche",
-};
-
-/** Extrait un nombre de kcal depuis une chaîne potentiellement bruitée (symboles, virgules). */
-function parseCalories(cal: string | null | undefined): number {
-  if (!cal) return 0;
-  const n = parseFloat(cal.replace(",", ".").replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? 0 : n;
-}
-
-/** Extrait les grammes de protéines depuis une chaîne affichée ou saisie. */
-function parseProtein(prot: string | null | undefined): number {
-  if (!prot) return 0;
-  const n = parseFloat(prot.replace(",", ".").replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? 0 : n;
-}
-
-/** Extrait les grammes de fibres depuis une chaîne affichée ou saisie. */
-function parseFiber(fiber: string | null | undefined): number {
-  return parseProtein(fiber);
-}
-
 /** Convertit une surcharge manuelle en nombre utile, ou l'ignore si elle vaut 0/vide. */
 function parsePositiveOverride(value: string | null | undefined): number | null {
-  const parsed = parseCalories(value);
-  return parsed > 0 ? parsed : null;
+  return parsePositiveMacroOverride(value);
 }
 
 /**

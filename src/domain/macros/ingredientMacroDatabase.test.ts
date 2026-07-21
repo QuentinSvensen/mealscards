@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Meal, PossibleMeal } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { Meal, PossibleMeal } from "@/types/meals";
+import type { FoodItem } from "@/types/food";
 import {
   applyIngredientMacroToText,
   buildIngredientMacroUpdatePlan,

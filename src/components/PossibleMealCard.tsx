@@ -48,7 +48,7 @@ import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { usePreferences } from "@/hooks/usePreferences";
+import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { fr } from "date-fns/locale";
@@ -233,8 +233,7 @@ export function PossibleMealCard({
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
   const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
-  const { getPreference } = usePreferences();
-  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
+  const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const foodMacroIndex = useMemo(
     () => (foodItems?.length ? buildFoodItemIndex(foodItems) : undefined),

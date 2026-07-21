@@ -4,7 +4,7 @@ import { mergeSnapshotsIntoLivePrefMap } from "./mergePlanningSnapshots";
 import { resolvePostResetGoals } from "./postResetGoals";
 import { filterPossibleMealsToDeleteForWeeklyClear, getPossibleMealIdsToDeleteOnManualReset } from "./mealsToClear";
 import { buildFullBackupPayload, serializePossibleMealsForBackup } from "./buildBackupPayload";
-import type { PossibleMeal } from "@/hooks/useMeals";
+import type { PossibleMeal } from "@/types/meals";
 import type { PlanningPrefMap } from "./types";
 
 const baseMeal = {

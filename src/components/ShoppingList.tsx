@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useShoppingList, type ShoppingItem } from "@/hooks/useShoppingList";
-import { usePreferences } from "@/hooks/usePreferences";
+import { usePreferences, usePreferenceValue } from "@/hooks/usePreferences";
 import { toast } from "@/hooks/use-toast";
 import { normalizeForMatch, normalizeKey, smartFoodContains } from "@/lib/ingredientUtils";
 import { useFoodItems } from "@/hooks/useFoodItems";
@@ -121,7 +121,7 @@ export const ShoppingList = forwardRef<HTMLDivElement>(function ShoppingList(_pr
   const { getPreference, setPreference } = usePreferences();
 
   const { items: foodItems } = useFoodItems();
-  const showGreenChecks = getPreference<boolean>('shopping_show_green_checks', true);
+  const showGreenChecks = usePreferenceValue<boolean>('shopping_show_green_checks', true);
 
   // Palette de couleurs pour les groupes ambigus appariés
   const ambiguousColors = [

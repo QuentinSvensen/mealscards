@@ -67,7 +67,7 @@ function flattenFlavors(brands: EnergyDrinkBrand[]) {
 }
 
 export function useEnergyDrinks() {
-  const { getPreference, setPreference, isLoading } = usePreferences();
+  const { getPreference, setPreference, setPreferencesBatch, isLoading } = usePreferences();
   const seedAppliedRef = useRef(false);
   const imagesAppliedRef = useRef(false);
   const cropResetRef = useRef(false);
@@ -91,10 +91,12 @@ export function useEnergyDrinks() {
     if (appliedVersion >= ENERGY_DRINKS_SEED_VERSION) return;
 
     seedAppliedRef.current = true;
-    setPreference.mutate({ key: PREF_BRANDS, value: ENERGY_DRINKS_SEED_BRANDS });
-    setPreference.mutate({ key: PREF_REVIEWS, value: ENERGY_DRINKS_SEED_REVIEWS });
-    setPreference.mutate({ key: PREF_SEED_VERSION, value: ENERGY_DRINKS_SEED_VERSION });
-  }, [isLoading, getPreference, setPreference]);
+    setPreferencesBatch.mutate([
+      { key: PREF_BRANDS, value: ENERGY_DRINKS_SEED_BRANDS },
+      { key: PREF_REVIEWS, value: ENERGY_DRINKS_SEED_REVIEWS },
+      { key: PREF_SEED_VERSION, value: ENERGY_DRINKS_SEED_VERSION },
+    ]);
+  }, [isLoading, getPreference, setPreferencesBatch]);
 
   /** Complète les images manquantes sans écraser celles modifiées par l'utilisateur. */
   useEffect(() => {
@@ -110,10 +112,14 @@ export function useEnergyDrinks() {
 
     imagesAppliedRef.current = true;
     if (changed) {
-      setPreference.mutate({ key: PREF_BRANDS, value: withImages });
+      setPreferencesBatch.mutate([
+        { key: PREF_BRANDS, value: withImages },
+        { key: PREF_IMAGES_VERSION, value: ENERGY_DRINKS_IMAGES_VERSION },
+      ]);
+    } else {
+      setPreference.mutate({ key: PREF_IMAGES_VERSION, value: ENERGY_DRINKS_IMAGES_VERSION });
     }
-    setPreference.mutate({ key: PREF_IMAGES_VERSION, value: ENERGY_DRINKS_IMAGES_VERSION });
-  }, [isLoading, getPreference, setPreference]);
+  }, [isLoading, getPreference, setPreference, setPreferencesBatch]);
 
   /** Efface les rognages obsolètes pour relancer l'auto-rognage centré. */
   useEffect(() => {
@@ -132,9 +138,11 @@ export function useEnergyDrinks() {
     }));
 
     cropResetRef.current = true;
-    setPreference.mutate({ key: PREF_BRANDS, value: withoutCrops });
-    setPreference.mutate({ key: PREF_CROP_VERSION, value: ENERGY_DRINKS_CROP_VERSION });
-  }, [isLoading, getPreference, setPreference]);
+    setPreferencesBatch.mutate([
+      { key: PREF_BRANDS, value: withoutCrops },
+      { key: PREF_CROP_VERSION, value: ENERGY_DRINKS_CROP_VERSION },
+    ]);
+  }, [isLoading, getPreference, setPreferencesBatch]);
 
   /** Importe les URLs externes en copies locales (data URL) tout en conservant les rognages. */
   useEffect(() => {
@@ -366,10 +374,12 @@ export function useEnergyDrinks() {
       if (!brand) return;
       const nextReviews = { ...reviews };
       for (const f of brand.flavors) delete nextReviews[f.id];
-      setPreference.mutate({ key: PREF_BRANDS, value: brands.filter((b) => b.id !== brandId) });
-      setPreference.mutate({ key: PREF_REVIEWS, value: nextReviews });
+      setPreferencesBatch.mutate([
+        { key: PREF_BRANDS, value: brands.filter((b) => b.id !== brandId) },
+        { key: PREF_REVIEWS, value: nextReviews },
+      ]);
     },
-    [brands, reviews, setPreference],
+    [brands, reviews, setPreferencesBatch],
   );
 
   /** Supprime un goût d'une marque. */
@@ -377,17 +387,19 @@ export function useEnergyDrinks() {
     (brandId: string, flavorId: string) => {
       const nextReviews = { ...reviews };
       delete nextReviews[flavorId];
-      setPreference.mutate({
-        key: PREF_BRANDS,
-        value: brands.map((b) =>
-          b.id === brandId
-            ? { ...b, flavors: b.flavors.filter((f) => f.id !== flavorId) }
-            : b,
-        ),
-      });
-      setPreference.mutate({ key: PREF_REVIEWS, value: nextReviews });
+      setPreferencesBatch.mutate([
+        {
+          key: PREF_BRANDS,
+          value: brands.map((b) =>
+            b.id === brandId
+              ? { ...b, flavors: b.flavors.filter((f) => f.id !== flavorId) }
+              : b,
+          ),
+        },
+        { key: PREF_REVIEWS, value: nextReviews },
+      ]);
     },
-    [brands, reviews, setPreference],
+    [brands, reviews, setPreferencesBatch],
   );
 
   /** Met à jour les propriétés d'un goût (image, sans calories, etc.). */

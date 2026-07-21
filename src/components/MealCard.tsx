@@ -17,7 +17,7 @@ import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Th
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
-import { usePreferences } from "@/hooks/usePreferences";
+import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -77,6 +77,18 @@ interface MealCardProps {
 
 // Utilitaires d'analyse d'ingrédients importés de @/lib/ingredientUtils
 
+/**
+ * Compare deux Sets de chaînes par taille et appartenance (évite les faux égaux sur .size seul).
+ */
+function sameStringSet(a?: Set<string>, b?: Set<string>) {
+  if (a === b) return true;
+  if (!a || !b || a.size !== b.size) return false;
+  for (const value of a) {
+    if (!b.has(value)) return false;
+  }
+  return true;
+}
+
 export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(function MealCard({
   meal, onMoveToPossible, onRename, onDelete, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams,
   onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onDragStart,
@@ -93,8 +105,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [detailPopupOpen, setDetailPopupOpen] = useState(false);
-  const { getPreference } = usePreferences();
-  const hideCalorieDisplay = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
+  const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const handleSave = () => {
     const val = editValue.trim();
@@ -409,6 +420,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     prevProps.meal.is_favorite === nextProps.meal.is_favorite &&
     prevProps.isHighlighted === nextProps.isHighlighted &&
     prevProps.hideDelete === nextProps.hideDelete &&
+    prevProps.hideCounter === nextProps.hideCounter &&
+    prevProps.earliestCounterDate === nextProps.earliestCounterDate &&
     prevProps.ingredientSuggestions === nextProps.ingredientSuggestions &&
     prevProps.ingredientMacroSources === nextProps.ingredientMacroSources &&
     prevProps.expirationLabel === nextProps.expirationLabel &&
@@ -416,8 +429,11 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     prevProps.expirationIsToday === nextProps.expirationIsToday &&
     prevProps.expiringIngredientName === nextProps.expiringIngredientName &&
     prevProps.maxIngredientCounter === nextProps.maxIngredientCounter &&
-    (prevProps.expiredIngredientNames?.size ?? 0) === (nextProps.expiredIngredientNames?.size ?? 0) &&
-    (prevProps.expiringSoonIngredientNames?.size ?? 0) === (nextProps.expiringSoonIngredientNames?.size ?? 0) &&
-    (prevProps.missingIngredientNames?.size ?? 0) === (nextProps.missingIngredientNames?.size ?? 0) &&
-    (prevProps.counterIngredientNames?.size ?? 0) === (nextProps.counterIngredientNames?.size ?? 0);
+    prevProps.stockMap === nextProps.stockMap &&
+    prevProps.foodItems === nextProps.foodItems &&
+    prevProps.foodItemIndex === nextProps.foodItemIndex &&
+    sameStringSet(prevProps.expiredIngredientNames, nextProps.expiredIngredientNames) &&
+    sameStringSet(prevProps.expiringSoonIngredientNames, nextProps.expiringSoonIngredientNames) &&
+    sameStringSet(prevProps.missingIngredientNames, nextProps.missingIngredientNames) &&
+    sameStringSet(prevProps.counterIngredientNames, nextProps.counterIngredientNames);
 });

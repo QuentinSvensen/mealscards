@@ -1,7 +1,7 @@
 import { format } from "date-fns";
-import type { Meal } from "@/hooks/useMeals";
+import type { Meal } from "@/types/meals";
 import { TIMES } from "@/hooks/useMeals";
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import { getCardDisplayCalories } from "@/hooks/useCalorieBalance";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";

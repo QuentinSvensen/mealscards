@@ -1,4 +1,4 @@
-import type { FoodItem } from "@/hooks/useFoodItems";
+import type { FoodItem } from "@/types/food";
 import { normalizeKey, strictNameMatch } from "@/lib/ingredientUtils";
 
 export type FoodItemIndex = Map<string, FoodItem[]>;

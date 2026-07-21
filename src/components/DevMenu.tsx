@@ -22,6 +22,7 @@ import {
   buildClientPrefsBackupPayload,
   parseClientPrefsBackupPayload,
 } from "@/domain/planning/clientPrefsBackup";
+import { resolveCurrentUserId } from "@/lib/authUserId";
 
 function validateMealName(name: string): string | null {
   const trimmed = name.trim();
@@ -86,8 +87,10 @@ export function DevMenu({ onClose, getMealsByCategory, shoppingGroups, shoppingI
           toast({ title: "❌ JSON invalide", description: "Backup préférences non reconnu.", variant: "destructive" });
           return;
         }
-        const userId = (await supabase.auth.getUser()).data.user?.id;
-        if (!userId) {
+        let userId: string;
+        try {
+          userId = await resolveCurrentUserId();
+        } catch {
           toast({ title: "Non connecté", variant: "destructive" });
           return;
         }
