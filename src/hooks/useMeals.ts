@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { computeIngredientCalories, getTargetDate } from "@/lib/ingredientUtils";
 import { getDisplayedPMCalories } from "@/lib/stockUtils";
+import { collectLinkedMealIdsByName } from "@/lib/mealDescription";
 import { toast } from "@/hooks/use-toast";
 import { computePlannedCounterDate } from "@/lib/counters/plannedCounterDate";
 import { comparePossiblePlanningOrder } from "@/domain/planning/possiblePlanningSort";
@@ -259,13 +260,36 @@ export function useMeals(options?: { enabled?: boolean }) {
     ...withMealOptimistic('oven_minutes'),
   });
 
-  /** Met à jour les consignes de préparation d'un repas. */
+  /**
+   * Met à jour les consignes de préparation d’un repas et de toutes les fiches
+   * homonymes (copie Possible multipliée ↔ Tous / Au choix).
+   */
   const updateDescription = useMutation({
     mutationFn: async ({ id, description }: { id: string; description: string | null }) => {
-      const { error } = await supabase.from("meals").update({ description } as any).eq("id", id);
+      const cached = qc.getQueryData<Meal[]>(["meals"]) ?? [];
+      const ids = collectLinkedMealIdsByName(cached, id);
+      const { error } = await supabase
+        .from("meals")
+        .update({ description } as any)
+        .in("id", ids);
       if (error) throw error;
     },
-    ...withMealOptimistic('description'),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["meals"] });
+      await qc.cancelQueries({ queryKey: ["possible_meals"] });
+      const prevMeals = qc.getQueryData<Meal[]>(["meals"]);
+      const prevPM = qc.getQueryData<PossibleMeal[]>(["possible_meals"]);
+      for (const mealId of collectLinkedMealIdsByName(prevMeals, vars.id)) {
+        optimisticMealUpdate(mealId, { description: vars.description });
+      }
+      return { prevMeals, prevPM };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prevMeals) qc.setQueryData(["meals"], ctx.prevMeals);
+      if (ctx?.prevPM) qc.setQueryData(["possible_meals"], ctx.prevPM);
+      onMutationError(_err);
+    },
+    onSettled: invalidateAll,
   });
 
   const toggleFavorite = useMutation({

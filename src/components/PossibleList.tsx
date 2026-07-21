@@ -56,6 +56,7 @@ const MemoizedPossibleMealCard = React.memo(
       prevProps.stockMap === nextProps.stockMap &&
       prevProps.foodItems === nextProps.foodItems &&
       prevProps.ingredientMacroSources === nextProps.ingredientMacroSources &&
+      prevProps.mealsCatalog === nextProps.mealsCatalog &&
       prevProps.onReturnWithoutDeductionLabel === nextProps.onReturnWithoutDeductionLabel &&
       !!prevProps.onReturnToMaster === !!nextProps.onReturnToMaster &&
       !!prevProps.onReturnWithoutDeduction === !!nextProps.onReturnWithoutDeduction &&
@@ -223,6 +224,7 @@ export function PossibleList({
               )}
               <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
                 ingredientMacroSources={ingredientMacroAutofillSources}
+                mealsCatalog={mealsCatalog}
                 frozenCounterDays={readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id)}
                 expiredIngredientNames={expiredIngs}
                 expiringSoonIngredientNames={soonIngs}

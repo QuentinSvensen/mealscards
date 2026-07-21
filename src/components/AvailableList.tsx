@@ -66,6 +66,12 @@ import {
   setAvailableThresholdDayIso,
   subscribeAvailableThresholdDay,
 } from "@/lib/availableThresholdDaySession";
+import {
+  availableFullRemainingPrefKey,
+  availableSeuilMaxPrefKey,
+  isAvailableSeuilMaxDefaultOn,
+  shouldAutoEnableFullRemainingWithSeuilMax,
+} from "@/lib/availableSeuilMaxPrefs";
 import { getCalorieRangeTotalColorClass } from "@/domain/planning/calorieGoalRange";
 import {
   buildUnifiedAvailableItems,
@@ -294,8 +300,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const dessertFoodItemIds = getAvailPref<string[]>(DESSERT_FOOD_PREF_KEY, []);
   const dessertFoodItemIdSet = new Set(dessertFoodItemIds);
   const storedOrder = getAvailPref<string[]>(`available_order_${category.value}`, []);
-  const useRemainingCalories = getAvailPref<boolean>(`available_use_remaining_calories_${category.value}`, category.value !== "petit_dejeuner");
-  const showOnlyFullRemainingRecipes = getAvailPref<boolean>(`available_full_remaining_recipes_${category.value}`, false);
+  const useRemainingCalories = getAvailPref<boolean>(
+    availableSeuilMaxPrefKey(category.value),
+    isAvailableSeuilMaxDefaultOn(category.value),
+  );
+  const showOnlyFullRemainingRecipes = getAvailPref<boolean>(
+    availableFullRemainingPrefKey(category.value),
+    false,
+  );
   const [avDragIndex, setAvDragIndex] = useState<number | null>(null);
   const [customRatios, setCustomRatios] = useState<Record<string, number>>({});
   const [editingRatioId, setEditingRatioId] = useState<string | null>(null);
@@ -1756,9 +1768,14 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               id={`filter-calories-${category.value}`}
               checked={useRemainingCalories}
               onCheckedChange={(checked) => {
-                setAvailPref.mutate({ key: `available_use_remaining_calories_${category.value}`, value: !!checked });
-                setAvailPref.mutate({ key: `available_full_remaining_recipes_${category.value}`, value: false });
-                if (!checked) {
+                const on = !!checked;
+                setAvailPref.mutate({ key: availableSeuilMaxPrefKey(category.value), value: on });
+                // Plat au choix : activer « 100 % » dès que le seuil max s’allume ; sinon désactiver.
+                setAvailPref.mutate({
+                  key: availableFullRemainingPrefKey(category.value),
+                  value: on && shouldAutoEnableFullRemainingWithSeuilMax(category.value),
+                });
+                if (!on) {
                   setCustomRatios({});
                   setTempCalorieOverride(null);
                 }
@@ -1849,7 +1866,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                   id={`filter-full-recipes-${category.value}`}
                   checked={showOnlyFullRemainingRecipes}
                   onCheckedChange={(checked) => {
-                    setAvailPref.mutate({ key: `available_full_remaining_recipes_${category.value}`, value: !!checked });
+                    setAvailPref.mutate({ key: availableFullRemainingPrefKey(category.value), value: !!checked });
                     if (checked) setCustomRatios({});
                   }}
                 />

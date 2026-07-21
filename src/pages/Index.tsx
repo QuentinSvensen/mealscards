@@ -9,6 +9,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { clearAvailableThresholdDayIso } from "@/lib/availableThresholdDaySession";
+import {
+  availableFullRemainingPrefKey,
+  availableSeuilMaxPrefKey,
+  isAvailableSeuilMaxDefaultOn,
+  shouldAutoEnableFullRemainingWithSeuilMax,
+} from "@/lib/availableSeuilMaxPrefs";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -384,22 +390,30 @@ const Index = () => {
     return () => clearInterval(interval);
   }, [unlocked]);
 
-  // Forcer le filtre "calories restantes" à ON à chaque session pour la plupart des catégories (sauf petit déjeuner comme demandé)
+  // Forcer le filtre « seuil max » (calories restantes) à ON pour Entrée / Plat / Dessert / Bonus.
+  // Petit déjeuner reste OFF. Réappliqué à chaque session une fois les prefs chargées.
   const calorieFilterForced = useRef(false);
   useEffect(() => {
-    if (!unlocked || isPreferencesLoading || calorieFilterForced.current) return;
+    if (!unlocked) {
+      calorieFilterForced.current = false;
+      return;
+    }
+    if (isPreferencesLoading || calorieFilterForced.current) return;
     calorieFilterForced.current = true;
 
     const prefEntries: { key: string; value: unknown }[] = [];
     for (const cat of CATEGORIES) {
-      const key = `available_use_remaining_calories_${cat.value}`;
-      if (cat.value === "petit_dejeuner") {
-        if (getPreference<boolean>(key, false)) {
-          prefEntries.push({ key, value: false });
-        }
-      } else {
-        if (!getPreference<boolean>(key, true)) {
-          prefEntries.push({ key, value: true });
+      const key = availableSeuilMaxPrefKey(cat.value);
+      const wantOn = isAvailableSeuilMaxDefaultOn(cat.value);
+      const current = getPreference<boolean>(key, wantOn);
+      if (current !== wantOn) {
+        prefEntries.push({ key, value: wantOn });
+      }
+      // Plat au choix : si seuil max actif (ou forcé ON), activer aussi « 100 % ».
+      if (wantOn && shouldAutoEnableFullRemainingWithSeuilMax(cat.value)) {
+        const fullKey = availableFullRemainingPrefKey(cat.value);
+        if (!getPreference<boolean>(fullKey, false)) {
+          prefEntries.push({ key: fullKey, value: true });
         }
       }
     }
@@ -419,7 +433,7 @@ const Index = () => {
     }
     if (prefEntries.length === 1) setPreference.mutate(prefEntries[0]);
     else if (prefEntries.length > 1) setPreferencesBatch.mutate(prefEntries);
-  }, [unlocked, isPreferencesLoading]);
+  }, [unlocked, isPreferencesLoading, getPreference, setPreference, setPreferencesBatch]);
 
   const macroLookup = useMemo(() => {
     const map = new Map<string, { cal: string; pro: string }>();

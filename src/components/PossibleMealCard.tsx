@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { PossibleMeal } from "@/hooks/useMeals";
+import type { Meal } from "@/types/meals";
+import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { DAYS } from "@/hooks/useMeals";
 import { format, parseISO } from "date-fns";
 
@@ -74,7 +76,7 @@ interface PossibleMealCardProps {
   onUpdatePossibleIngredients?: (newIngredients: string | null) => void;
   onUpdateOvenTemp?: (temp: string | null) => void;
   onUpdateOvenMinutes?: (minutes: string | null) => void;
-  /** Met à jour les consignes sur le repas maître (Tous). */
+  /** Met à jour les consignes (synchronisées avec les fiches Tous / Au choix du même nom). */
   onUpdateDescription?: (description: string | null) => void;
   /** Renomme le repas (uniquement cartes créées directement dans Possible). */
   onRename?: (name: string) => void;
@@ -95,6 +97,8 @@ interface PossibleMealCardProps {
   /** Fiches aliments (garde-manger) : complète les protéines quand les lignes n’ont que des kcal ou pas de [pro]. */
   foodItems?: FoodItem[];
   ingredientMacroSources?: IngredientMacroAutofillSources;
+  /** Catalogue Tous / Au choix pour préremplir la description si la copie Possible en est dépourvue. */
+  mealsCatalog?: Meal[];
 }
 
 const DAY_LABELS: Record<string, string> = {
@@ -221,7 +225,7 @@ export function PossibleMealCard({
   onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onRename,
   onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
-  realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources
+  realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources, mealsCatalog,
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
@@ -233,6 +237,10 @@ export function PossibleMealCard({
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
   const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  /** Contrôle du menu ⋮ : fermé avant d’ouvrir le Dialog description (évite le blocage Radix pointer-events). */
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** Ouvre la description seulement après que le menu ⋮ ait fini de se fermer (évite aria-hidden + focus). */
+  const [pendingDescriptionOpen, setPendingDescriptionOpen] = useState(false);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const foodMacroIndex = useMemo(
@@ -486,17 +494,45 @@ export function PossibleMealCard({
     setEditingIngredients(true);
   };
 
-  /** Ouvre l'éditeur de consignes (repas maître / Tous). */
+  /**
+   * Prépare l’ouverture de l’éditeur de consignes : ferme d’abord le menu ⋮.
+   * Le Dialog ne s’ouvre qu’après `onMenuOpenChange(false)` pour éviter
+   * l’avertissement aria-hidden (focus encore dans le menu caché).
+   */
   const openDescriptionEditor = () => {
-    setDescriptionDraft(meal?.description || "");
-    setDescriptionEditorOpen(true);
+    setDescriptionDraft(resolveMealDescriptionForDisplay(meal, mealsCatalog) || "");
+    setPendingDescriptionOpen(true);
+    setMenuOpen(false);
   };
 
-  /** Enregistre les consignes sur le repas maître puis ferme l'éditeur. */
+  /**
+   * Gère l’ouverture/fermeture du menu ⋮ ; ouvre le Dialog description
+   * uniquement une fois le menu réellement fermé.
+   */
+  const onMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (open || !pendingDescriptionOpen) return;
+    setPendingDescriptionOpen(false);
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+      document.body.style.removeProperty("pointer-events");
+      setDescriptionEditorOpen(true);
+    });
+  };
+
+  /** Enregistre les consignes sur le repas lié à la carte Possible puis ferme l'éditeur. */
   const saveDescription = () => {
     const val = descriptionDraft.trim();
     onUpdateDescription?.(val || null);
+    closeDescriptionEditor();
+  };
+
+  /** Ferme l’éditeur de description et nettoie un éventuel pointer-events résiduel sur le body. */
+  const closeDescriptionEditor = () => {
     setDescriptionEditorOpen(false);
+    setPendingDescriptionOpen(false);
+    document.body.style.removeProperty("pointer-events");
   };
 
   // Persiste les ingrédients validés depuis l'éditeur (lignes passées = état le plus récent).
@@ -862,7 +898,7 @@ export function PossibleMealCard({
             <Copy className="h-3 w-3" />
           </Button>
 
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange} modal={false}>
             <DropdownMenuTrigger asChild>
               <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
                 <MoreVertical className="h-3.5 w-3.5" />
@@ -926,7 +962,7 @@ export function PossibleMealCard({
                 </DropdownMenuItem>
               )}
               {onUpdateDescription && (
-                <DropdownMenuItem onClick={openDescriptionEditor}>
+                <DropdownMenuItem onSelect={() => openDescriptionEditor()}>
                   <FileText className="mr-2 h-4 w-4" /> Description
                 </DropdownMenuItem>
               )}
@@ -960,22 +996,31 @@ export function PossibleMealCard({
       )}
     </div>
 
-    {/* Éditeur des consignes — met à jour le repas maître (Tous) */}
-    <Dialog open={descriptionEditorOpen} onOpenChange={setDescriptionEditorOpen}>
+    {/* Éditeur des consignes — met à jour le repas lié à la carte Possible */}
+    <Dialog
+      open={descriptionEditorOpen}
+      onOpenChange={(open) => {
+        if (open) setDescriptionEditorOpen(true);
+        else closeDescriptionEditor();
+      }}
+    >
       <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Description — {meal.name}</DialogTitle>
         </DialogHeader>
         <textarea
           autoFocus
+          lang="fr"
+          spellCheck={false}
           value={descriptionDraft}
           onChange={(e) => setDescriptionDraft(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
           placeholder="Consignes de préparation…"
           rows={6}
           className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px]"
         />
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={() => setDescriptionEditorOpen(false)}>Annuler</Button>
+          <Button type="button" variant="outline" onClick={closeDescriptionEditor}>Annuler</Button>
           <Button type="button" onClick={saveDescription}>Enregistrer</Button>
         </DialogFooter>
       </DialogContent>

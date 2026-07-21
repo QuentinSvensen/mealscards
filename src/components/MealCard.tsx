@@ -105,6 +105,10 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [detailPopupOpen, setDetailPopupOpen] = useState(false);
+  /** Contrôle du menu ⋮ : fermé avant d’ouvrir le Dialog description (évite le blocage Radix). */
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** Ouvre la description seulement après fermeture réelle du menu (évite aria-hidden + focus). */
+  const [pendingDescriptionOpen, setPendingDescriptionOpen] = useState(false);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const handleSave = () => {
@@ -119,17 +123,43 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     setEditing(null);
   };
 
-  /** Ouvre l'éditeur de consignes de préparation. */
+  /**
+   * Prépare l’ouverture de l’éditeur : ferme d’abord le menu ⋮.
+   * Le Dialog s’ouvre après `onMenuOpenChange(false)` pour éviter aria-hidden + focus.
+   */
   const openDescriptionEditor = () => {
     setDescriptionDraft(meal.description || "");
-    setDescriptionEditorOpen(true);
+    setPendingDescriptionOpen(true);
+    setMenuOpen(false);
+  };
+
+  /**
+   * Gère l’ouverture/fermeture du menu ⋮ et lance le Dialog description une fois fermé.
+   */
+  const onMenuOpenChange = (open: boolean) => {
+    setMenuOpen(open);
+    if (open || !pendingDescriptionOpen) return;
+    setPendingDescriptionOpen(false);
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+      document.body.style.removeProperty("pointer-events");
+      setDescriptionEditorOpen(true);
+    });
   };
 
   /** Enregistre les consignes puis ferme l'éditeur. */
   const saveDescription = () => {
     const val = descriptionDraft.trim();
     onUpdateDescription?.(val || null);
+    closeDescriptionEditor();
+  };
+
+  /** Ferme l’éditeur de description et nettoie un éventuel pointer-events résiduel. */
+  const closeDescriptionEditor = () => {
     setDescriptionEditorOpen(false);
+    setPendingDescriptionOpen(false);
+    document.body.style.removeProperty("pointer-events");
   };
 
   const openIngredients = () => {
@@ -278,7 +308,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
               <Button size="icon" variant="ghost" onClick={onMoveToPossible} className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20" data-testid="meal-move-to-possible-btn">
                 <ArrowRight className="h-4 w-4" />
               </Button>
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange} modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-white/80 hover:text-white hover:bg-white/20">
                     <MoreVertical className="h-4 w-4" />
@@ -318,7 +348,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                     </DropdownMenuItem>
                   )}
                   {onUpdateDescription && (
-                    <DropdownMenuItem onClick={openDescriptionEditor}>
+                    <DropdownMenuItem onSelect={() => openDescriptionEditor()}>
                       <FileText className="mr-2 h-4 w-4" /> Description
                     </DropdownMenuItem>
                   )}
@@ -364,21 +394,30 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     </div>
 
     {/* Éditeur des consignes de préparation */}
-    <Dialog open={descriptionEditorOpen} onOpenChange={setDescriptionEditorOpen}>
+    <Dialog
+      open={descriptionEditorOpen}
+      onOpenChange={(open) => {
+        if (open) setDescriptionEditorOpen(true);
+        else closeDescriptionEditor();
+      }}
+    >
       <DialogContent aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>Description — {meal.name}</DialogTitle>
         </DialogHeader>
         <textarea
           autoFocus
+          lang="fr"
+          spellCheck={false}
           value={descriptionDraft}
           onChange={(e) => setDescriptionDraft(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
           placeholder="Consignes de préparation…"
           rows={6}
           className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px]"
         />
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" onClick={() => setDescriptionEditorOpen(false)}>Annuler</Button>
+          <Button type="button" variant="outline" onClick={closeDescriptionEditor}>Annuler</Button>
           <Button type="button" onClick={saveDescription}>Enregistrer</Button>
         </DialogFooter>
       </DialogContent>
