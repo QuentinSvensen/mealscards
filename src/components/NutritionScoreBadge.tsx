@@ -1,13 +1,30 @@
 interface NutritionScoreBadgeProps {
   score: number | null | undefined;
+  /**
+   * Score brut non plafonné (ex. 110). Si > 100, affiché au survol ;
+   * le badge continue d’afficher `score` plafonné (100).
+   */
+  rawScore?: number | null;
   /** Tons lisibles sur fond clair (ex. onglet Macro) ; défaut = fond sombre des cartes repas. */
   onLight?: boolean;
 }
 
 /**
+ * Construit le texte du tooltip de la note nutritionnelle.
+ * Affiche toujours « Note nutritionnelle : X/100 » (X = score brut si > 100, sinon score affiché).
+ */
+export function formatNutritionScoreTooltip(
+  score: number,
+  rawScore?: number | null,
+): string {
+  const displayed = rawScore != null && rawScore > 100 ? rawScore : score;
+  return `Note nutritionnelle : ${displayed}/100`;
+}
+
+/**
  * Affiche la note nutritionnelle (/100) à côté du nom d'une recette ou d'un ingrédient Macro.
  */
-export function NutritionScoreBadge({ score, onLight = false }: NutritionScoreBadgeProps) {
+export function NutritionScoreBadge({ score, rawScore = null, onLight = false }: NutritionScoreBadgeProps) {
   if (score == null) return null;
 
   const tone = onLight
@@ -33,7 +50,7 @@ export function NutritionScoreBadge({ score, onLight = false }: NutritionScoreBa
   return (
     <span
       className={`text-[10px] font-black px-1.5 py-0.5 rounded-full shrink-0 tabular-nums border ${tone}`}
-      title={`Note nutritionnelle : ${score}/100`}
+      title={formatNutritionScoreTooltip(score, rawScore)}
     >
       {score}
     </span>

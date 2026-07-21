@@ -234,6 +234,19 @@ describe("ingredientMacroDatabase", () => {
     });
   });
 
+  it("garde la base 100g si les recettes utilisent des grammes malgré une quantité en stock", () => {
+    const meals = [makeMeal("1", "Sandwich", "30g Fuet{137} [8], 50g Pain")];
+    const foodItems = [makeFoodItem("food1", "Fuet", "456", "27", "frigo", "170", 2, "0")];
+
+    const entries = collectIngredientMacroEntries(meals, [], [], foodItems);
+
+    expect(entries.find((entry) => entry.displayName === "Fuet")).toMatchObject({
+      basisLabel: "100g",
+      recipeCount: 1,
+      foodCount: 1,
+    });
+  });
+
   it("prépare la suppression d'une ligne en vidant les macros dans les recettes et aliments standards", () => {
     const meals = [makeMeal("1", "Poulet riz", "100g Filet de poulet{106} [23], 50g Riz")];
     const possibleMeals = [makePossible("pm1", meals[0], "50g Filet de poulet{106} [23]")];

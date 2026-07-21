@@ -49,6 +49,10 @@ type MacroAccumulator = IngredientMacroEntry & {
   recipeIds: Set<string>;
   overrideIds: Set<string>;
   foodIds: Set<string>;
+  /** Au moins une ligne recette/possible utilise des grammes pour cet ingrédient. */
+  recipeHasGramBasis: boolean;
+  /** Au moins une ligne recette/possible utilise une quantité unitaire. */
+  recipeHasQuantityBasis: boolean;
 };
 
 // Met en forme le nom affiché d'un ingrédient pour que chaque entrée commence par une majuscule.
@@ -181,6 +185,8 @@ function createMacroAccumulator(key: string, displayName: string): MacroAccumula
     recipeIds: new Set<string>(),
     overrideIds: new Set<string>(),
     foodIds: new Set<string>(),
+    recipeHasGramBasis: false,
+    recipeHasQuantityBasis: false,
   };
 }
 
@@ -233,6 +239,8 @@ function mergeMacroValue(
     entry.hasConflictingFiber = false;
   }
 
+  if (basisLabel === "100g") entry.recipeHasGramBasis = true;
+  if (basisLabel === "Quantité") entry.recipeHasQuantityBasis = true;
   if (basisLabel) entry.basisLabel = basisLabel;
 }
 
@@ -329,28 +337,37 @@ export function collectIngredientMacroEntries(
     entries.set(key, entry);
   }
 
-  // La fiche Aliment prime toujours sur la base affichée (quantité vs 100 g).
+  // Base affichée : les recettes en grammes prime sur la quantité de stock Aliments
+  // (ex. Fuet stocké en unités mais toujours utilisé en « 50g Fuet » dans les recettes).
   for (const foodItem of foodItems) {
     if (!foodItem.name?.trim()) continue;
     const key = normalizeKey(foodItem.name);
     if (!key) continue;
-    const basisLabel = getFoodItemBasisLabel(foodItem);
-    if (!basisLabel) continue;
     const entry = entries.get(key);
     if (!entry) continue;
-    entry.basisLabel = basisLabel;
     entry.foodIds.add(foodItem.id);
+    if (!entry.recipeHasGramBasis && !entry.recipeHasQuantityBasis) {
+      const basisLabel = getFoodItemBasisLabel(foodItem);
+      if (basisLabel) entry.basisLabel = basisLabel;
+    }
     entries.set(key, entry);
   }
 
   return [...entries.values()]
-    .map(({ recipeIds, overrideIds, foodIds, ...entry }) => ({
-      ...entry,
-      recipeCount: recipeIds.size,
-      overrideCount: overrideIds.size,
-      foodCount: foodIds.size,
-      recipeNames: entry.recipeNames.sort((a, b) => a.localeCompare(b, "fr")),
-    }))
+    .map(({ recipeIds, overrideIds, foodIds, recipeHasGramBasis, recipeHasQuantityBasis, ...entry }) => {
+      // Résolution finale : grammes recettes > quantité recettes > fiche Aliments / défaut.
+      let basisLabel = entry.basisLabel;
+      if (recipeHasGramBasis) basisLabel = "100g";
+      else if (recipeHasQuantityBasis) basisLabel = "Quantité";
+      return {
+        ...entry,
+        basisLabel,
+        recipeCount: recipeIds.size,
+        overrideCount: overrideIds.size,
+        foodCount: foodIds.size,
+        recipeNames: entry.recipeNames.sort((a, b) => a.localeCompare(b, "fr")),
+      };
+    })
     .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
 }
 

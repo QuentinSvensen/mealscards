@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Drumstick, Flame, Hash, Plus, Search, Save, Trash2, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { toast } from "@/hooks/use-toast";
@@ -19,14 +27,25 @@ import {
 import { normalizeForMatch, normalizeKey } from "@/lib/ingredientUtils";
 import { parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
-import { getIngredientMacroNutritionScore } from "@/lib/nutritionScore";
+import {
+  getIngredientMacroNutritionScore,
+  getIngredientMacroNutritionScoreRaw,
+} from "@/lib/nutritionScore";
 import {
   cycleFoodType,
   listFoodItemsMatchingIngredientKey,
   resolveIngredientFoodType,
 } from "@/lib/foodTypeUtils";
 import { useFoodLibrary } from "@/hooks/useFoodLibrary";
+import { usePreferences } from "@/hooks/usePreferences";
 import type { FoodType } from "@/types/food";
+
+/**
+ * Clé de préférence : map clé-ingrédient → grammes d'une unité.
+ * Sert **uniquement** au calcul de la note nutritionnelle dans Macro
+ * (jamais aux recettes, ni au stock Aliments).
+ */
+export const INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY = "ingredient_macro_unit_grams";
 
 /** Modes de tri de la liste Macro. */
 export type MacroSortMode = "name" | "note" | "calories" | "protein";
@@ -52,6 +71,60 @@ interface DraftMacro {
   calories: string;
   protein: string;
   fiber: string;
+}
+
+/** Parse la saisie « grammes par unité » (accepte virgule) ; null si vide ou invalide. */
+export function parseUnitGramsInput(raw: string): number | null {
+  const trimmed = raw.trim().replace(",", ".");
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+/**
+ * Libellé du badge Base affiché : reste « Quantité » / « 100g ».
+ * Les grammes/unité pour la note ne sont PAS montrés ici (évite de croire
+ * que l'aliment se compte ou se stocke en grammes).
+ */
+export function formatMacroBasisBadgeLabel(
+  basisLabel: string | null | undefined,
+  _unitGrams?: number | null | undefined,
+): string {
+  return basisLabel?.trim() || "-";
+}
+
+/**
+ * Tooltip du badge Quantité : invite à saisir le poids d'une unité (pour la note).
+ */
+export function formatUnitGramsNoteTooltip(
+  _displayName: string,
+  unitGrams: number | null | undefined,
+): string {
+  if (unitGrams != null && unitGrams > 0) {
+    const rounded = Number.isInteger(unitGrams) ? String(unitGrams) : String(Math.round(unitGrams * 10) / 10);
+    return `Poids d'une unité : ${rounded} g`;
+  }
+  return "Indiquer le poids d'une unité";
+}
+
+/**
+ * Met à jour (ou retire) les grammes/unité utilisés **seulement** pour la note Macro.
+ * grams null ou ≤ 0 → suppression de la clé. N'écrit jamais food_items / recettes.
+ */
+export function upsertIngredientMacroUnitGrams(
+  map: Record<string, number>,
+  ingredientKey: string,
+  grams: number | null,
+): Record<string, number> {
+  if (!ingredientKey) return map;
+  const next = { ...map };
+  if (grams == null || !(grams > 0)) {
+    delete next[ingredientKey];
+  } else {
+    next[ingredientKey] = grams;
+  }
+  return next;
 }
 
 // Renvoie les valeurs actuellement visibles, en tenant compte des edits non sauvegardés.
@@ -93,6 +166,7 @@ export function cycleMacroSortMode(mode: MacroSortMode): MacroSortMode {
 /**
  * Compare deux lignes Macro selon le mode (nom, note nutritionnelle, calories, protéines).
  * Les valeurs manquantes (note/kcal/prot null) sont poussées en fin de liste.
+ * Pour la note en base Quantité, utilise les grammes/unité pour normaliser au 100 g.
  */
 export function compareMacroIngredientEntries(
   a: IngredientMacroEntry,
@@ -100,6 +174,7 @@ export function compareMacroIngredientEntries(
   drafts: Record<string, DraftMacro>,
   mode: MacroSortMode,
   ascending: boolean,
+  unitGramsByKey: Record<string, number> = {},
 ): number {
   const dir = ascending ? 1 : -1;
   const draftA = getDraftValue(a, drafts);
@@ -109,8 +184,15 @@ export function compareMacroIngredientEntries(
   if (mode === "name") return dir * byName();
 
   if (mode === "note") {
-    const scoreA = getIngredientMacroNutritionScore(draftA.calories, draftA.protein, draftA.fiber);
-    const scoreB = getIngredientMacroNutritionScore(draftB.calories, draftB.protein, draftB.fiber);
+    // Tri sur le score brut non plafonné pour départager les notes affichées à 100
+    const scoreA = getIngredientMacroNutritionScoreRaw(draftA.calories, draftA.protein, draftA.fiber, {
+      basisLabel: a.basisLabel,
+      unitGrams: unitGramsByKey[a.key],
+    });
+    const scoreB = getIngredientMacroNutritionScoreRaw(draftB.calories, draftB.protein, draftB.fiber, {
+      basisLabel: b.basisLabel,
+      unitGrams: unitGramsByKey[b.key],
+    });
     if (scoreA == null && scoreB == null) return byName();
     if (scoreA == null) return 1;
     if (scoreB == null) return -1;
@@ -145,6 +227,8 @@ export function MacroIngredients({
   onUpdateFoodItemMacro,
 }: MacroIngredientsProps) {
   const { library: foodLibrary, upsertEntry } = useFoodLibrary();
+  const { getPreference, setPreference } = usePreferences();
+  const unitGramsByKey = getPreference<Record<string, number>>(INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY, {});
   const [searchQuery, setSearchQuery] = useState("");
   const [foodTypeFilter, setFoodTypeFilter] = useState<MacroFoodTypeFilter>("all");
   const [sortMode, setSortMode] = useState<MacroSortMode>("name");
@@ -156,6 +240,8 @@ export function MacroIngredients({
   const [newIngredientFiber, setNewIngredientFiber] = useState("");
   const [manuallyDeletedKeys, setManuallyDeletedKeys] = useState<Set<string>>(() => new Set());
   const pendingAutoPersistSignature = useRef<string | null>(null);
+  const [unitGramsDialogEntry, setUnitGramsDialogEntry] = useState<IngredientMacroEntry | null>(null);
+  const [unitGramsDraft, setUnitGramsDraft] = useState("");
 
   const entries = useMemo(
     () => collectIngredientMacroEntries(meals, possibleMeals, macroLibrary, foodItems),
@@ -173,9 +259,11 @@ export function MacroIngredients({
         (entry) => resolveIngredientFoodType(entry.key, foodItems, foodLibrary) === foodTypeFilter,
       );
     }
-    filtered.sort((a, b) => compareMacroIngredientEntries(a, b, drafts, sortMode, sortAscending));
+    filtered.sort((a, b) =>
+      compareMacroIngredientEntries(a, b, drafts, sortMode, sortAscending, unitGramsByKey),
+    );
     return filtered;
-  }, [entries, searchQuery, foodTypeFilter, foodItems, foodLibrary, drafts, sortMode, sortAscending]);
+  }, [entries, searchQuery, foodTypeFilter, foodItems, foodLibrary, drafts, sortMode, sortAscending, unitGramsByKey]);
 
   const sortLabel =
     sortMode === "name" ? "Nom" : sortMode === "note" ? "Note" : sortMode === "calories" ? "Calories" : "Protéines";
@@ -329,10 +417,69 @@ export function MacroIngredients({
     setManuallyDeletedKeys((current) => new Set(current).add(entry.key));
     onSaveMacroLibrary(removeIngredientMacroLibraryItem(macroLibrary, entry.key));
 
+    if (unitGramsByKey[entry.key] != null) {
+      setPreference.mutate({
+        key: INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY,
+        value: upsertIngredientMacroUnitGrams(unitGramsByKey, entry.key, null),
+      });
+    }
+
     toast({
       title: "Ligne supprimée",
       description: `${entry.displayName} retiré du référentiel macros.`,
     });
+  };
+
+  /** Ouvre le dialog du poids unitaire (pour la note uniquement). */
+  const openUnitGramsDialog = (entry: IngredientMacroEntry) => {
+    if (entry.basisLabel !== "Quantité") return;
+    const existing = unitGramsByKey[entry.key];
+    setUnitGramsDraft(existing != null && existing > 0 ? String(existing) : "");
+    setUnitGramsDialogEntry(entry);
+  };
+
+  /** Ferme le dialog poids-pour-la-note sans enregistrer. */
+  const closeUnitGramsDialog = () => {
+    setUnitGramsDialogEntry(null);
+    setUnitGramsDraft("");
+  };
+
+  /** Enregistre le poids unitaire pour la note Macro seulement (pas de stock / recettes). */
+  const saveUnitGramsDialog = () => {
+    if (!unitGramsDialogEntry) return;
+    const trimmed = unitGramsDraft.trim();
+    if (!trimmed) {
+      setPreference.mutate({
+        key: INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY,
+        value: upsertIngredientMacroUnitGrams(unitGramsByKey, unitGramsDialogEntry.key, null),
+      });
+      toast({
+        title: "Poids note retiré",
+        description: `Plus utilisé pour la note de ${unitGramsDialogEntry.displayName} (recettes et stock inchangés).`,
+      });
+      closeUnitGramsDialog();
+      return;
+    }
+
+    const grams = parseUnitGramsInput(unitGramsDraft);
+    if (grams == null) {
+      toast({
+        title: "Valeur invalide",
+        description: "Indique un nombre de grammes strictement positif (ex. 80).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPreference.mutate({
+      key: INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY,
+      value: upsertIngredientMacroUnitGrams(unitGramsByKey, unitGramsDialogEntry.key, grams),
+    });
+    toast({
+      title: "Poids pour la note",
+      description: `1 ${unitGramsDialogEntry.displayName} = ${grams} g — uniquement pour la note (pas les recettes ni le stock).`,
+    });
+    closeUnitGramsDialog();
   };
 
   return (
@@ -475,6 +622,11 @@ export function MacroIngredients({
               const hasConflict = entry.hasConflictingCalories || entry.hasConflictingProtein || entry.hasConflictingFiber;
               const hasMissingMacro = !draft.calories.trim() || !draft.protein.trim() || !draft.fiber.trim();
               const foodType = resolveIngredientFoodType(entry.key, foodItems, foodLibrary);
+              const unitGrams = unitGramsByKey[entry.key];
+              const scoreOptions = {
+                basisLabel: entry.basisLabel,
+                unitGrams,
+              };
 
               return (
                 <div key={entry.key} className="grid grid-cols-[180px_88px_52px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
@@ -482,7 +634,8 @@ export function MacroIngredients({
                     <div className="flex items-center gap-1.5 min-w-0">
                       <p className={`truncate text-xs sm:text-sm font-semibold ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
                       <NutritionScoreBadge
-                        score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber)}
+                        score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber, scoreOptions)}
+                        rawScore={getIngredientMacroNutritionScoreRaw(draft.calories, draft.protein, draft.fiber, scoreOptions)}
                         onLight
                       />
                     </div>
@@ -496,9 +649,24 @@ export function MacroIngredients({
                     )}
                   </div>
 
-                  <span className="mx-auto max-w-[80px] truncate rounded-full bg-muted px-2 py-1 text-center text-[10px] font-semibold text-muted-foreground sm:max-w-[120px]">
-                    {entry.basisLabel || "-"}
-                  </span>
+                  {entry.basisLabel === "Quantité" ? (
+                    <button
+                      type="button"
+                      onClick={() => openUnitGramsDialog(entry)}
+                      className={`mx-auto max-w-[80px] truncate rounded-full px-2 py-1 text-center text-[10px] font-semibold sm:max-w-[120px] border transition-colors ${
+                        unitGrams != null && unitGrams > 0
+                          ? "bg-primary/10 text-primary border-primary/30 hover:bg-primary/15"
+                          : "bg-muted text-red-400 border-transparent hover:bg-muted/80 hover:border-border"
+                      }`}
+                      title={formatUnitGramsNoteTooltip(entry.displayName, unitGrams)}
+                    >
+                      {formatMacroBasisBadgeLabel(entry.basisLabel, unitGrams)}
+                    </button>
+                  ) : (
+                    <span className="mx-auto max-w-[80px] truncate rounded-full bg-muted px-2 py-1 text-center text-[10px] font-semibold text-muted-foreground sm:max-w-[120px]">
+                      {formatMacroBasisBadgeLabel(entry.basisLabel, unitGrams)}
+                    </span>
+                  )}
 
                   <div className="flex justify-center">
                     <button
@@ -581,6 +749,41 @@ export function MacroIngredients({
           </div>
         )}
       </div>
+
+      <Dialog
+        open={unitGramsDialogEntry != null}
+        onOpenChange={(open) => {
+          if (!open) closeUnitGramsDialog();
+        }}
+      >
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Poids pour la note</DialogTitle>
+            <DialogDescription>
+              {unitGramsDialogEntry
+                ? `Combien pèse 1 ${unitGramsDialogEntry.displayName} ? Sert uniquement à ajuster la note nutritionnelle — n'affecte ni les recettes ni le stock Aliments.`
+                : "Poids d'une unité pour la note uniquement."}
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={unitGramsDraft}
+            onChange={(event) => setUnitGramsDraft(event.target.value)}
+            onKeyDown={(event) => event.key === "Enter" && saveUnitGramsDialog()}
+            inputMode="decimal"
+            placeholder="ex. 80"
+            className="rounded-xl text-center"
+            autoFocus
+          />
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="ghost" onClick={closeUnitGramsDialog} className="rounded-xl">
+              Annuler
+            </Button>
+            <Button type="button" onClick={saveUnitGramsDialog} className="rounded-xl">
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -21,10 +21,11 @@ type MealMacrosSource = {
 };
 
 /**
- * Calcule la note nutritionnelle v7 (0-100) à partir des macros affichées.
- * Compare la densité protéique à 100 g/1000 kcal et ajoute un bonus fibres (max +15).
+ * Calcule la note nutritionnelle v7 brute (non plafonnée) à partir des macros.
+ * Densité protéique non bornée à 1 ; bonus fibres inchangé (max +15) ; pas de plafond final à 100.
+ * Sert au tri Macro pour départager les items qui affichent tous 100.
  */
-export function computeNutritionScoreV7(
+export function computeNutritionScoreV7Raw(
   calories: number | null | undefined,
   protein: number | null | undefined,
   fiber: number | null | undefined,
@@ -33,10 +34,24 @@ export function computeNutritionScoreV7(
 
   const proteinDensity = (protein / calories) * 1000;
   const fiberValue = fiber ?? 0;
-  const densityScore = Math.min(1, proteinDensity / 100);
+  const densityScore = proteinDensity / 100;
   const fiberBonus = Math.min(15, (fiberValue / calories) * 1000);
 
-  return Math.min(100, Math.round(densityScore * 100 + fiberBonus));
+  return Math.round(densityScore * 100 + fiberBonus);
+}
+
+/**
+ * Calcule la note nutritionnelle v7 (0-100) à partir des macros affichées.
+ * Compare la densité protéique à 100 g/1000 kcal et ajoute un bonus fibres (max +15).
+ */
+export function computeNutritionScoreV7(
+  calories: number | null | undefined,
+  protein: number | null | undefined,
+  fiber: number | null | undefined,
+): number | null {
+  const raw = computeNutritionScoreV7Raw(calories, protein, fiber);
+  if (raw == null) return null;
+  return Math.min(100, raw);
 }
 
 /**
@@ -62,20 +77,87 @@ export function getMealNutritionScore(
   return computeNutritionScoreV7(calories, protein, fiber);
 }
 
+/** Options pour la note d'un ingrédient Macro (base Quantité + poids pour la note seulement). */
+export type IngredientMacroScoreOptions = {
+  /** Base affichée (« Quantité » / « 100g ») — la normalisation ne s'applique qu'à Quantité. */
+  basisLabel?: string | null;
+  /**
+   * Poids d'une unité en grammes, utilisé **uniquement** pour ramener les macros au 100 g
+   * dans le calcul de note. N'impacte ni recettes ni stock.
+   */
+  unitGrams?: number | null;
+};
+
+/**
+ * Convertit des macros exprimées par unité en équivalent pour 100 g (calcul de note uniquement).
+ * Formule : valeur_100g = valeur_unité / grammes_unité × 100.
+ * Retourne null si le poids d'unité est invalide (≤ 0 ou manquant).
+ */
+export function normalizeUnitMacrosToPer100g(
+  calories: number | null | undefined,
+  protein: number | null | undefined,
+  fiber: number | null | undefined,
+  gramsPerUnit: number | null | undefined,
+): { calories: number | null; protein: number | null; fiber: number | null } | null {
+  if (gramsPerUnit == null || !(gramsPerUnit > 0)) return null;
+  const factor = 100 / gramsPerUnit;
+  return {
+    calories: calories == null ? null : calories * factor,
+    protein: protein == null ? null : protein * factor,
+    fiber: fiber == null ? null : fiber * factor,
+  };
+}
+
+/**
+ * Résout les macros numériques à utiliser pour la note : si base Quantité et grammes/unité connus,
+ * renvoie l'équivalent pour 100 g ; sinon les macros brutes (par unité ou déjà au 100 g).
+ */
+export function resolveIngredientMacrosForNutritionScore(
+  calories: string | null | undefined,
+  protein: string | null | undefined,
+  fiber: string | null | undefined,
+  options?: IngredientMacroScoreOptions,
+): { calories: number | null; protein: number | null; fiber: number | null } {
+  const cal = parseMacroDisplay(calories);
+  const pro = parseMacroDisplay(protein);
+  const fib = parseMacroDisplay(fiber);
+
+  if (options?.basisLabel === "Quantité") {
+    const normalized = normalizeUnitMacrosToPer100g(cal, pro, fib, options.unitGrams);
+    if (normalized) return normalized;
+  }
+
+  return { calories: cal, protein: pro, fiber: fib };
+}
+
 /**
  * Retourne la note nutritionnelle v7 d'un ingrédient à partir de ses macros (kcal / prot. / fib.).
  * Même formule que les recettes ; utile dans l'onglet Macro pour afficher la pastille numérique.
+ * En base Quantité avec grammes/unité, calcule sur macros ramenées au 100 g.
  */
 export function getIngredientMacroNutritionScore(
   calories: string | null | undefined,
   protein: string | null | undefined,
   fiber: string | null | undefined,
+  options?: IngredientMacroScoreOptions,
 ): number | null {
-  return computeNutritionScoreV7(
-    parseMacroDisplay(calories),
-    parseMacroDisplay(protein),
-    parseMacroDisplay(fiber),
-  );
+  const macros = resolveIngredientMacrosForNutritionScore(calories, protein, fiber, options);
+  return computeNutritionScoreV7(macros.calories, macros.protein, macros.fiber);
+}
+
+/**
+ * Retourne la note v7 brute (non plafonnée) d'un ingrédient pour le tri Macro.
+ * L'affichage badge reste via getIngredientMacroNutritionScore (0–100).
+ * En base Quantité avec grammes/unité, calcule sur macros ramenées au 100 g.
+ */
+export function getIngredientMacroNutritionScoreRaw(
+  calories: string | null | undefined,
+  protein: string | null | undefined,
+  fiber: string | null | undefined,
+  options?: IngredientMacroScoreOptions,
+): number | null {
+  const macros = resolveIngredientMacrosForNutritionScore(calories, protein, fiber, options);
+  return computeNutritionScoreV7Raw(macros.calories, macros.protein, macros.fiber);
 }
 
 /**
