@@ -77,6 +77,87 @@ export function getUnassignedExtraSelectionIds(
   return ids.filter((id) => !assignedSet.has(id));
 }
 
+/**
+ * Résout le nom affichable d'un id d'extra (custom, dessert catalogue ou aliment extras).
+ * Sert l'encadré EXTRA sous « Masquer calories » pour lister les extras non déplacés.
+ */
+export function resolveExtraSelectionDisplayName(
+  selectionId: string,
+  foodItems: FoodItem[],
+  dessertCatalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): string | null {
+  const custom = parseCustomExtraId(selectionId);
+  if (custom?.name) return custom.name.trim() || null;
+
+  const catalogId = resolveDessertCatalogId(
+    selectionId,
+    dessertCatalog,
+    dessertById,
+    dessertExtraStockSnapshots,
+  );
+  if (catalogId) {
+    const dessertName =
+      dessertById.get(catalogId)?.name
+      ?? dessertCatalog.find((entry) => entry.id === catalogId)?.name;
+    if (dessertName?.trim()) return dessertName.trim();
+  }
+
+  const fi = foodItems.find((f) => f.id === selectionId);
+  if (fi?.name?.trim()) return fi.name.trim();
+  return null;
+}
+
+/**
+ * Liste id + nom des extras encore dans Extra (non déplacés), noms uniques dans l'ordre.
+ * Sert les pastilles déplaçables sous Plus/Save de l'encadré Extra.
+ */
+export function listUnassignedExtraDisplayEntries(
+  unassignedIds: string[],
+  foodItems: FoodItem[],
+  dessertCatalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): Array<{ id: string; name: string }> {
+  const entries: Array<{ id: string; name: string }> = [];
+  const seen = new Set<string>();
+  for (const id of unassignedIds) {
+    const name = resolveExtraSelectionDisplayName(
+      id,
+      foodItems,
+      dessertCatalog,
+      dessertById,
+      dessertExtraStockSnapshots,
+    );
+    if (!name) continue;
+    const key = normalizeExtraDisplayName(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ id, name });
+  }
+  return entries;
+}
+
+/**
+ * Liste les noms uniques des extras encore dans Extra (non déplacés vers un créneau).
+ */
+export function listUnassignedExtraDisplayNames(
+  unassignedIds: string[],
+  foodItems: FoodItem[],
+  dessertCatalog: Array<{ id: string; name: string }>,
+  dessertById: Map<string, { name: string }>,
+  dessertExtraStockSnapshots: Record<string, Record<string, FoodItem[][]>> = {},
+): string[] {
+  return listUnassignedExtraDisplayEntries(
+    unassignedIds,
+    foodItems,
+    dessertCatalog,
+    dessertById,
+    dessertExtraStockSnapshots,
+  ).map((entry) => entry.name);
+}
+
 /** Normalise un nom d'extra pour comparer recettes et aliments dessert. */
 export function normalizeExtraDisplayName(name: string): string {
   return name.trim().toLowerCase();

@@ -19,6 +19,9 @@ import {
   resolveExtraColumnInputDisplayValue,
   resolveExtraColumnManualFromInput,
   resolveExtraFoodRemainingCount,
+  resolveExtraSelectionDisplayName,
+  listUnassignedExtraDisplayEntries,
+  listUnassignedExtraDisplayNames,
 } from "./extraDisplay";
 
 describe("extraDisplay", () => {
@@ -126,6 +129,50 @@ describe("extraDisplay", () => {
     expect(resolveExtraColumnManualFromInput(190, 150, false)).toBe(40);
     expect(resolveExtraColumnManualFromInput(40, 150, true)).toBe(40);
     expect(resolveExtraColumnManualFromInput(0, 150, true)).toBe(0);
+  });
+
+  it("résout le nom affichable d'un extra (custom, aliment, dessert)", () => {
+    const fi = {
+      id: "fi-1",
+      name: "Petit coeurs",
+      storage_type: "extras",
+    } as FoodItem;
+    const catalog = [{ id: "d1", name: "Yaourt" }];
+    const byId = new Map([["d1", { name: "Yaourt" }]]);
+    expect(resolveExtraSelectionDisplayName("custom::Collation::100::5", [], catalog, byId)).toBe("Collation");
+    expect(resolveExtraSelectionDisplayName("fi-1", [fi], catalog, byId)).toBe("Petit coeurs");
+    expect(resolveExtraSelectionDisplayName("d1", [], catalog, byId)).toBe("Yaourt");
+    expect(resolveExtraSelectionDisplayName("unknown", [], catalog, byId)).toBeNull();
+  });
+
+  it("liste les noms uniques des extras non déplacés dans l'ordre", () => {
+    const fi = {
+      id: "fi-1",
+      name: "Petit coeurs",
+      storage_type: "extras",
+    } as FoodItem;
+    const catalog = [{ id: "d1", name: "Yaourt" }];
+    const byId = new Map([["d1", { name: "Yaourt" }]]);
+    expect(
+      listUnassignedExtraDisplayNames(
+        ["fi-1", "custom::Collation::100::5", "fi-1", "d1"],
+        [fi],
+        catalog,
+        byId,
+      ),
+    ).toEqual(["Petit coeurs", "Collation", "Yaourt"]);
+    expect(
+      listUnassignedExtraDisplayEntries(
+        ["fi-1", "custom::Collation::100::5", "fi-1", "d1"],
+        [fi],
+        catalog,
+        byId,
+      ),
+    ).toEqual([
+      { id: "fi-1", name: "Petit coeurs" },
+      { id: "custom::Collation::100::5", name: "Collation" },
+      { id: "d1", name: "Yaourt" },
+    ]);
   });
 
   it("lit les sélections extras avec priorité ISO puis clé jour", () => {

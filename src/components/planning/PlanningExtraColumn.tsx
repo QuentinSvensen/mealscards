@@ -23,6 +23,7 @@ import {
   countDisplayableExtraSelections,
   formatExtraQuantitySubtitle,
   formatExtraRemainingCountLabel,
+  listUnassignedExtraDisplayEntries,
   resolveExtraColumnInputDisplayValue,
   resolveExtraColumnManualFromInput,
   resolveExtraFoodRemainingCount,
@@ -196,6 +197,14 @@ const extraDropKey = `extra-${iso}`;
                   const isExtraDragOver = dragOverSlot === extraDropKey;
                   const unassignedExtraIds = getUnassignedExtraSelectionIds(extraSelections, extraSlotAssignments, iso, key);
                   const unassignedExtraMacros = sumDayExtras(unassignedExtraIds);
+                  // Pastilles déplaçables des extras encore dans Extra (pas déplacés vers un créneau).
+                  const unassignedExtraEntries = listUnassignedExtraDisplayEntries(
+                    unassignedExtraIds,
+                    foodItems,
+                    allSingleIngredientDessertExtras,
+                    singleIngredientDessertById,
+                    dessertExtraStockSnapshots,
+                  );
                   const hasDisplayableExtraSelections = countDisplayableExtraSelections(
                     extraSelections[iso] || extraSelections[key] || [],
                     foodItems,
@@ -1023,6 +1032,33 @@ const extraDropKey = `extra-${iso}`;
                         })()}
                       >💾</button>
                     </div>
+                    {unassignedExtraEntries.length > 0 && (
+                      <div
+                        className="mt-1 w-full flex flex-col items-stretch gap-1 min-w-0"
+                        title="Glisser vers un créneau pour déplacer l'extra"
+                      >
+                        {unassignedExtraEntries.map(({ id, name }) => (
+                          <span
+                            key={id}
+                            draggable
+                            onDragStart={(e) => {
+                              setDraggedSelectedExtraId(id);
+                              setDraggedSelectedExtraOrigin({ iso, key });
+                              e.dataTransfer.effectAllowed = "move";
+                              e.dataTransfer.setData("text/plain", id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedSelectedExtraId(null);
+                              setDraggedSelectedExtraOrigin(null);
+                            }}
+                            title={`${name} — glisser vers matin, midi, soir ou goûter`}
+                            className="max-w-full truncate px-1 py-0.5 rounded-full text-[7px] sm:text-[8px] leading-tight font-semibold text-center text-orange-600 bg-orange-500/15 border border-orange-500/25 cursor-grab active:cursor-grabbing"
+                          >
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                   );

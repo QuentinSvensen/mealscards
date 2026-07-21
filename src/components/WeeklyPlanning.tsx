@@ -1551,6 +1551,7 @@ export function WeeklyPlanning({
         pm={pm}
         meal={displayMeal}
         expired={expired}
+        fromMaster={masterSourcePmIds.has(pm.id)}
         expiredIngredientNames={expiredIngs}
         expiringSoonIngredientNames={soonIngs}
         counterDays={counterDays}

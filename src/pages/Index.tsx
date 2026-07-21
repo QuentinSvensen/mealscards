@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Dice5, ArrowUpDown, CalendarDays, ShoppingCart, CalendarRange, UtensilsCrossed, Loader2, ChevronDown, ChevronRight, ShieldAlert, Apple, Infinity as InfinityIcon, Star, List, Flame, Search, Drumstick, Wheat, Timer } from "lucide-react";
 import { DevMenu } from "@/components/DevMenu";
@@ -19,6 +19,7 @@ import {
   appendPossibleOnlyMealId,
   POSSIBLE_ONLY_MEAL_IDS_PREF_KEY,
 } from "@/lib/possibleOnlyMeals";
+import { MASTER_SOURCE_PM_IDS_PREF_KEY } from "@/lib/masterSourcePossibleMeals";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -670,9 +671,31 @@ const Index = () => {
     }
   }, [unlocked, foodItems, possibleMeals, foodItemIndex, getPreference, setPreference]);
 
-  const [masterSourcePmIds, setMasterSourcePmIds] = useState<Set<string>>(new Set());
+  const [masterSourcePmIds, setMasterSourcePmIdsState] = useState<Set<string>>(new Set());
   const [unParUnSourcePmIds, setUnParUnSourcePmIds] = useState<Set<string>>(new Set());
+  const masterSourceHydratedRef = useRef(false);
 
+  // Restaure les cartes « issus de Tous » depuis les prefs (contour jaune après rechargement).
+  useEffect(() => {
+    if (!unlocked || isPreferencesLoading || masterSourceHydratedRef.current) return;
+    masterSourceHydratedRef.current = true;
+    setMasterSourcePmIdsState(new Set(getPreference<string[]>(MASTER_SOURCE_PM_IDS_PREF_KEY, [])));
+  }, [unlocked, isPreferencesLoading, getPreference]);
+
+  /** Met à jour le Set des cartes issues de Tous et persiste la liste en préférences. */
+  const setMasterSourcePmIds = useCallback(
+    (updater: SetStateAction<Set<string>>) => {
+      setMasterSourcePmIdsState((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        setPreference.mutate({
+          key: MASTER_SOURCE_PM_IDS_PREF_KEY,
+          value: Array.from(next),
+        });
+        return next;
+      });
+    },
+    [setPreference],
+  );
   const wasMorningMealFoodItem = useCallback(
     (fi: FoodItem) => getPreference<string[]>(MORNING_MEAL_PREF_KEY, []).includes(fi.id),
     [getPreference],

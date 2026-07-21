@@ -99,6 +99,8 @@ interface PossibleMealCardProps {
   ingredientMacroSources?: IngredientMacroAutofillSources;
   /** Catalogue Tous / Au choix pour préremplir la description si la copie Possible en est dépourvue. */
   mealsCatalog?: Meal[];
+  /** Carte issue de « Tous » : contour jaune pour la distinguer. */
+  fromMaster?: boolean;
 }
 
 const DAY_LABELS: Record<string, string> = {
@@ -226,6 +228,7 @@ export function PossibleMealCard({
   onDragStart, onDragOver,
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
   realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources, mealsCatalog,
+  fromMaster = false,
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
@@ -678,8 +681,9 @@ export function PossibleMealCard({
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
         onDoubleClick?.();
       }}
-      className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
+      className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : fromMaster ? 'ring-2 ring-yellow-400' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
       style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
+      title={fromMaster ? "Issu de Tous" : undefined}
     >
       {/* Badge multiplicateur — épinglé en haut à droite absolu */}
       {displayMultiplier !== null && !editing && !editingIngredients && (

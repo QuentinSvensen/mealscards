@@ -88,6 +88,8 @@ export interface PlanningMiniCardProps {
   expiringSoonIngredientNames?: Set<string>;
   onDoubleClick?: () => void;
   stockMap?: Map<string, StockInfo>;
+  /** Carte issue de « Tous » : contour jaune pour la distinguer. */
+  fromMaster?: boolean;
 }
 
 /**
@@ -123,6 +125,7 @@ export function PlanningMiniCard({
   expiringSoonIngredientNames,
   onDoubleClick,
   stockMap,
+  fromMaster = false,
 }: PlanningMiniCardProps) {
   const [editingCal, setEditingCal] = useState(false);
   const [calValue, setCalValue] = useState("");
@@ -229,11 +232,17 @@ export function PlanningMiniCard({
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
       onDoubleClick={onDoubleClick}
-      title={isTouchDevice ? "Maintenir pour déplacer" : undefined}
+      title={
+        fromMaster
+          ? "Issu de Tous"
+          : isTouchDevice
+            ? "Maintenir pour déplacer"
+            : undefined
+      }
       className={`${compact ? "w-fit max-w-full" : "w-full"} min-w-0 overflow-hidden rounded-xl text-white select-none
         ${touchDragActive ? "cursor-grabbing" : "cursor-grab active:cursor-grabbing"}
         transition-transform hover:scale-[1.01]
-        ${slotDragOver === pm.id ? "ring-2 ring-white/60" : ""}
+        ${slotDragOver === pm.id ? "ring-2 ring-white/60" : fromMaster ? "ring-2 ring-yellow-400" : ""}
         ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
       `}
       style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
