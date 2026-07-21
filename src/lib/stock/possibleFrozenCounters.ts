@@ -1,5 +1,10 @@
 import type { FoodItem } from "@/types/food";
-import { getAdaptedCounterDays } from "@/lib/ingredientUtils";
+import {
+  getAdaptedCounterDays,
+  formatPlannedCounterOpenFr,
+  getTargetDate,
+} from "@/lib/ingredientUtils";
+import { parseISO } from "date-fns";
 import type { FoodItemIndex } from "./foodItemIndex";
 import { getRecipeMaxActiveFoodCounterDays } from "./counterBadge";
 
@@ -62,10 +67,39 @@ export function readFrozenPossibleCounterDays(
 
 /**
  * Infobulle du badge compteur figé sur une carte Possible (`undefined` si pas de badge).
+ * Si une date de début est fournie, l’ajoute (même format que les fiches Aliments).
  */
-export function formatFrozenPossibleCounterTooltip(days: number | null | undefined): string | undefined {
+export function formatFrozenPossibleCounterTooltip(
+  days: number | null | undefined,
+  counterStartIso?: string | null,
+): string | undefined {
   if (days === null || days === undefined) return undefined;
-  return `${days}j (figé)`;
+  const base = `${days}j (figé)`;
+  const iso = counterStartIso?.trim();
+  if (!iso) return base;
+  try {
+    const when = formatPlannedCounterOpenFr(iso);
+    return `${base} · Démarré : ${when}`;
+  } catch {
+    return base;
+  }
+}
+
+/**
+ * Indique si la date de début du compteur coïncide avec le créneau planifié (±1 min).
+ * Sert à détecter « cette carte ouvre le lot à son Midi/Soir » (badge attendu = absent).
+ */
+export function isCounterStartAlignedWithMealSlot(
+  startIso: string | null | undefined,
+  dayKey?: string | null,
+  mealTime?: string | null,
+  fixedNow?: Date,
+): boolean {
+  if (!startIso?.trim() || !dayKey?.trim()) return false;
+  const start = parseISO(startIso);
+  if (Number.isNaN(start.getTime())) return false;
+  const target = getTargetDate(dayKey, fixedNow ?? new Date(), null, mealTime);
+  return Math.abs(target.getTime() - start.getTime()) <= 60_000;
 }
 
 /**
@@ -81,5 +115,37 @@ export function mergeFrozenPossibleCounterDays(
 ): number | null {
   if (computed === null && typeof existing === "number") return existing;
   return computed;
+}
+
+export type ResolveFrozenPossibleCounterOptions = {
+  baseStartDate?: string | null;
+  dayKey?: string | null;
+  mealTime?: string | null;
+  fixedNow?: Date;
+};
+
+/**
+ * Résout la valeur figée après un calcul de gel.
+ * Comme `mergeFrozenPossibleCounterDays`, sauf si `null` vient d’une ouverture alignée
+ * sur le créneau de la carte : dans ce cas on écrase un ancien nombre (efface un Xj fantôme).
+ */
+export function resolveFrozenPossibleCounterDays(
+  existing: number | null | undefined,
+  computed: number | null,
+  options?: ResolveFrozenPossibleCounterOptions,
+): number | null {
+  if (
+    computed === null &&
+    typeof existing === "number" &&
+    isCounterStartAlignedWithMealSlot(
+      options?.baseStartDate,
+      options?.dayKey,
+      options?.mealTime,
+      options?.fixedNow,
+    )
+  ) {
+    return null;
+  }
+  return mergeFrozenPossibleCounterDays(existing, computed);
 }
 

@@ -309,7 +309,10 @@ export function PossibleList({
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
             const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
-            const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
+            const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
+              frozenCounterDays,
+              analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? popupPm.counter_start_date,
+            );
 
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
 

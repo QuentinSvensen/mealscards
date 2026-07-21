@@ -1512,7 +1512,10 @@ export function WeeklyPlanning({
     // Badge = valeur figée (prefs) uniquement — plus de calcul live Aliments.
     const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
     const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
-    const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
+    const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
+      frozenCounterDays,
+      analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date,
+    );
     const counterUrgent = counterDays !== null && counterDays >= 3;
 
     const expiredIngs = analysis.expiredIngredientNames;
@@ -2458,7 +2461,10 @@ export function WeeklyPlanning({
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
             const displayFiber = popupFiber != null && popupFiber > 0 ? String(Math.round(popupFiber)) : null;
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
-            const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
+            const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
+              frozenCounterDays,
+              analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? popupPm.counter_start_date,
+            );
             const plannedDayIso = resolvePlannedDayIso(popupPm.day_of_week, weekDates);
             const expired = isExpiredOnPlannedDay(popupPm.expiration_date, plannedDayIso);
             return (

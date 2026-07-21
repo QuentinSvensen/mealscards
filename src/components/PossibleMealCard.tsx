@@ -384,7 +384,10 @@ export function PossibleMealCard({
   if (!meal) return null;
 
   const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
-  const counterBadgeTitle = formatFrozenPossibleCounterTooltip(frozenCounterDays);
+  const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
+    frozenCounterDays,
+    realtimeCounterStartDate ?? pm.counter_start_date,
+  );
 
   // Arrêter le clignotement si le jour du repas est passé !
   let isPast = false;

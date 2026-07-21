@@ -2,7 +2,7 @@ import type { FoodItem } from "@/types/food";
 import type { FoodItemIndex } from "./foodItemIndex";
 import {
   computePossibleFrozenCounterDays,
-  mergeFrozenPossibleCounterDays,
+  resolveFrozenPossibleCounterDays,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
 } from "./possibleFrozenCounters";
@@ -48,7 +48,11 @@ export function buildFrozenBadgePreferenceEntry(
     createdAt,
     baseStartDate,
   );
-  const merged = mergeFrozenPossibleCounterDays(currentMap[pmId], days);
+  const merged = resolveFrozenPossibleCounterDays(currentMap[pmId], days, {
+    baseStartDate,
+    dayKey,
+    mealTime,
+  });
   return {
     key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
     value: { ...currentMap, [pmId]: merged },

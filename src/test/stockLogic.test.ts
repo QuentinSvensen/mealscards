@@ -21,6 +21,8 @@ import {
   readFrozenPossibleCounterDays,
   formatFrozenPossibleCounterTooltip,
   mergeFrozenPossibleCounterDays,
+  resolveFrozenPossibleCounterDays,
+  isCounterStartAlignedWithMealSlot,
   hasActiveFoodItemCounter,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
@@ -935,6 +937,9 @@ describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
     expect(readFrozenPossibleCounterDays(map, "pm-missing")).toBeUndefined();
     expect(formatFrozenPossibleCounterTooltip(2)).toBe("2j (figé)");
     expect(formatFrozenPossibleCounterTooltip(null)).toBeUndefined();
+    expect(formatFrozenPossibleCounterTooltip(1, "2026-07-23T10:00:00.000Z")).toMatch(
+      /^1j \(figé\) · Démarré : /,
+    );
   });
 });
 
@@ -958,6 +963,47 @@ describe("mergeFrozenPossibleCounterDays (re-gel sans effacer)", () => {
   it("null + null → null", () => {
     expect(mergeFrozenPossibleCounterDays(null, null)).toBeNull();
     expect(mergeFrozenPossibleCounterDays(undefined, null)).toBeNull();
+  });
+});
+
+describe("resolveFrozenPossibleCounterDays (efface Xj fantôme si ouverture = créneau)", () => {
+  const fixedNow = new Date("2026-07-21T15:00:00.000+02:00");
+  const thursdayMidi = "2026-07-23T12:00:00.000+02:00";
+  const fridaySoir = "2026-07-17T19:00:00.000+02:00";
+
+  it("détecte l’alignement ouverture ↔ créneau Midi", () => {
+    expect(
+      isCounterStartAlignedWithMealSlot(thursdayMidi, "2026-07-23", "midi", fixedNow),
+    ).toBe(true);
+    expect(
+      isCounterStartAlignedWithMealSlot(thursdayMidi, "2026-07-23", "soir", fixedNow),
+    ).toBe(false);
+  });
+
+  it("Gauffrette + Tenders : Prog. = créneau efface un 1j stale", () => {
+    expect(
+      resolveFrozenPossibleCounterDays(1, null, {
+        baseStartDate: thursdayMidi,
+        dayKey: "2026-07-23",
+        mealTime: "midi",
+        fixedNow,
+      }),
+    ).toBeNull();
+  });
+
+  it("ven. ouvert → sam. Prog. : conserve le 1j (ouverture ≠ créneau)", () => {
+    expect(
+      resolveFrozenPossibleCounterDays(1, null, {
+        baseStartDate: fridaySoir,
+        dayKey: "2026-07-18",
+        mealTime: "soir",
+        fixedNow: new Date("2026-07-17T20:00:00.000+02:00"),
+      }),
+    ).toBe(1);
+  });
+
+  it("sans options d’alignement : même protection que merge", () => {
+    expect(resolveFrozenPossibleCounterDays(1, null)).toBe(1);
   });
 });
 

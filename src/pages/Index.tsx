@@ -52,6 +52,7 @@ import {
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
   computePossibleFrozenCounterDays,
+  resolveFrozenPossibleCounterDays,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
   type FoodItemIndex,
@@ -590,6 +591,7 @@ const Index = () => {
   };
 
   // Backfill one-shot : cartes Possible déjà présentes sans entrée de gel (évite la perte de badge).
+  // Guérit aussi un Xj fantôme quand l’ouverture carte = créneau (ex. Prog. jeu. Midi + 1j stale).
   const freezeBackfillDoneRef = useRef(false);
   useEffect(() => {
     if (freezeBackfillDoneRef.current) return;
@@ -598,19 +600,51 @@ const Index = () => {
     let next: PossibleFrozenCounterDaysMap = current;
     let changed = false;
     for (const pm of possibleMeals) {
-      if (Object.prototype.hasOwnProperty.call(next, pm.id)) continue;
       const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-      const days = computePossibleFrozenCounterDays(
-        ing,
-        foodItems,
-        foodItemIndex,
-        undefined,
-        pm.day_of_week,
-        pm.meal_time,
-        pm.created_at,
-      );
-      next = { ...next, [pm.id]: days };
-      changed = true;
+      if (!Object.prototype.hasOwnProperty.call(next, pm.id)) {
+        const days = computePossibleFrozenCounterDays(
+          ing,
+          foodItems,
+          foodItemIndex,
+          undefined,
+          pm.day_of_week,
+          pm.meal_time,
+          pm.created_at,
+        );
+        next = { ...next, [pm.id]: days };
+        changed = true;
+        continue;
+      }
+      const existing = next[pm.id];
+      if (
+        typeof existing === "number" &&
+        pm.day_of_week?.trim() &&
+        pm.meal_time?.trim() &&
+        pm.counter_start_date?.trim()
+      ) {
+        const healed = resolveFrozenPossibleCounterDays(
+          existing,
+          computePossibleFrozenCounterDays(
+            ing,
+            foodItems,
+            foodItemIndex,
+            undefined,
+            pm.day_of_week,
+            pm.meal_time,
+            pm.created_at,
+            pm.counter_start_date,
+          ),
+          {
+            baseStartDate: pm.counter_start_date,
+            dayKey: pm.day_of_week,
+            mealTime: pm.meal_time,
+          },
+        );
+        if (healed !== existing) {
+          next = { ...next, [pm.id]: healed };
+          changed = true;
+        }
+      }
     }
     freezeBackfillDoneRef.current = true;
     if (changed) {
