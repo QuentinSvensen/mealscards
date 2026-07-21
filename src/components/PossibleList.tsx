@@ -7,7 +7,7 @@
  * Chaque carte est enveloppée dans MemoizedPossibleMealCard pour la performance.
  * Un séparateur "Aujourd'hui" s'affiche quand un repas est planifié pour aujourd'hui.
  *
- * Le popup de détails (double-clic) affiche les macros, ingrédients, cuisson, compteur.
+ * Le popup de détails (double-clic) affiche macros, description, ingrédients, cuisson, compteur.
  *
  * Popup détails : mêmes ingrédients structurés que partout ailleurs (StructuredIngredientInline).
  */
@@ -17,8 +17,9 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
-import type { PossibleMeal } from "@/hooks/useMeals";
+import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import { computeIngredientCalories, computeIngredientProtein, computeIngredientFiber, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -110,6 +111,8 @@ interface PossibleListProps {
   deductionSnapshots?: Record<string, FoodItem[]>;
   /** Jours de compteur figés par id de carte Possible (prefs). */
   frozenCounterDaysByPmId?: PossibleFrozenCounterDaysMap;
+  /** Catalogue des repas (Master / Au choix) pour retomber sur la description homonyme si absente. */
+  mealsCatalog?: Meal[];
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
@@ -123,6 +126,7 @@ export function PossibleList({
   ingredientMacroAutofillSources,
   onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals, deductionSnapshots = {},
   frozenCounterDaysByPmId = {},
+  mealsCatalog = [],
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
@@ -315,6 +319,7 @@ export function PossibleList({
             );
 
             const expired = popupPm.expiration_date && new Date(popupPm.expiration_date) < new Date();
+            const popupDescription = resolveMealDescriptionForDisplay(meal, mealsCatalog);
 
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients?.trim() ? meal.ingredients : displayIngredients, meal.name) }}>
@@ -368,12 +373,12 @@ export function PossibleList({
                     <Thermometer className="h-3.5 w-3.5" /> {meal.oven_temp && `${meal.oven_temp}°C`}{meal.oven_temp && meal.oven_minutes && ' · '}{meal.oven_minutes && `${meal.oven_minutes} min`}
                   </p>
                 )}
-                {meal.description?.trim() && (
+                {popupDescription?.trim() && (
                   <div className="bg-black/20 rounded-xl p-3 mt-2">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide flex items-center gap-1">
                       <FileText className="h-3.5 w-3.5" /> Préparation
                     </p>
-                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{popupDescription}</p>
                   </div>
                 )}
                 {popupPm.day_of_week && popupPm.meal_time && (

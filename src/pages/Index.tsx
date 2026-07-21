@@ -1290,6 +1290,7 @@ const Index = () => {
                           category={cat}
                           items={getSortedPossible(cat.value)}
                           allPossibleMeals={possibleMeals}
+                          mealsCatalog={meals}
                           deductionSnapshots={effectiveDeductionSnapshots}
                           frozenCounterDaysByPmId={frozenCounterDaysByPmId}
                           sortMode={sortModes[cat.value] || "manual"}

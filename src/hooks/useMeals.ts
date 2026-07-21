@@ -153,7 +153,7 @@ export function useMeals(options?: { enabled?: boolean }) {
   });
 
   const addMealToPossibleDirectly = useMutation({
-    mutationFn: async ({ name, category, calories, protein, fiber, grams, ingredients, expiration_date, possible_quantity, counter_start_date, oven_temp, oven_minutes }: { name: string; category: string; calories?: string | null; protein?: string | null; fiber?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null; oven_temp?: string | null; oven_minutes?: string | null }) => {
+    mutationFn: async ({ name, category, calories, protein, fiber, grams, ingredients, expiration_date, possible_quantity, counter_start_date, oven_temp, oven_minutes, description }: { name: string; category: string; calories?: string | null; protein?: string | null; fiber?: string | null; grams?: string | null; ingredients?: string | null; expiration_date?: string | null; possible_quantity?: number; counter_start_date?: string | null; oven_temp?: string | null; oven_minutes?: string | null; description?: string | null }) => {
       const { data: mealData, error: mealError } = await supabase
         .from("meals")
         .insert({
@@ -168,6 +168,7 @@ export function useMeals(options?: { enabled?: boolean }) {
           ...(ingredients !== undefined ? { ingredients } : {}),
           ...(oven_temp !== undefined ? { oven_temp } : {}),
           ...(oven_minutes !== undefined ? { oven_minutes } : {}),
+          ...(description !== undefined ? { description } : {}),
         })
         .select()
         .single();

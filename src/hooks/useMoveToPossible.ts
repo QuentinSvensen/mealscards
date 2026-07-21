@@ -52,8 +52,9 @@ export type MoveToPossibleMutations = {
       ingredients?: string | null;
       expiration_date?: string | null;
       counter_start_date?: string | null;
-      oven_temp?: number | null;
-      oven_minutes?: number | null;
+      oven_temp?: string | null;
+      oven_minutes?: string | null;
+      description?: string | null;
       possible_quantity?: number;
     }) => Promise<{ id: string } | null | undefined>;
   };
@@ -367,6 +368,7 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
       counter_start_date: finalCounterDate,
       oven_temp: meal.oven_temp,
       oven_minutes: meal.oven_minutes,
+      description: meal.description ?? null,
       ...(integerMultiple ? { possible_quantity: integerMultiple } : {}),
     });
 

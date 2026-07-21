@@ -52,6 +52,7 @@ import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Thermometer, Wheat, FileText } from "lucide-react";
 import { normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays, startOfDay } from "date-fns";
@@ -2467,6 +2468,7 @@ export function WeeklyPlanning({
             );
             const plannedDayIso = resolvePlannedDayIso(popupPm.day_of_week, weekDates);
             const expired = isExpiredOnPlannedDay(popupPm.expiration_date, plannedDayIso);
+            const popupDescription = resolveMealDescriptionForDisplay(meal, meals);
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">{getCategoryEmoji(meal.category)} {meal.name}</h3>
@@ -2520,12 +2522,12 @@ export function WeeklyPlanning({
                 {(meal.oven_temp || meal.oven_minutes) && (
                   <p className="text-sm text-white/80 mt-2 flex items-center gap-1"><Thermometer className="h-3.5 w-3.5" /> {meal.oven_temp && `${meal.oven_temp}°C`}{meal.oven_temp && meal.oven_minutes && ' · '}{meal.oven_minutes && `${meal.oven_minutes} min`}</p>
                 )}
-                {meal.description?.trim() && (
+                {popupDescription?.trim() && (
                   <div className="bg-black/20 rounded-xl p-3 mt-2">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide flex items-center gap-1">
                       <FileText className="h-3.5 w-3.5" /> Préparation
                     </p>
-                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{popupDescription}</p>
                   </div>
                 )}
                 {popupPm.day_of_week && popupPm.meal_time && (
@@ -2549,6 +2551,7 @@ export function WeeklyPlanning({
             const displayPro = getMealPro(meal);
             const fiberNum = getMealFiber(meal, undefined, undefined, undefined, foodItems, foodMacroIndex);
             const displayFiber = fiberNum != null && fiberNum > 0 ? String(Math.round(fiberNum)) : null;
+            const popupDescription = resolveMealDescriptionForDisplay(meal, meals);
             return (
               <div className="rounded-2xl p-5 text-white" style={{ backgroundColor: getMealColor(meal.ingredients, meal.name) }}>
                 <h3 className="text-lg font-bold mb-2">🥐 {meal.name}</h3>
@@ -2592,12 +2595,12 @@ export function WeeklyPlanning({
                 {(meal.oven_temp || meal.oven_minutes) && (
                   <p className="text-sm text-white/80 mt-2 flex items-center gap-1"><Thermometer className="h-3.5 w-3.5" /> {meal.oven_temp && `${meal.oven_temp}°C`}{meal.oven_temp && meal.oven_minutes && ' · '}{meal.oven_minutes && `${meal.oven_minutes} min`}</p>
                 )}
-                {meal.description?.trim() && (
+                {popupDescription?.trim() && (
                   <div className="bg-black/20 rounded-xl p-3 mt-2">
                     <p className="text-xs font-semibold text-white/60 mb-1 uppercase tracking-wide flex items-center gap-1">
                       <FileText className="h-3.5 w-3.5" /> Préparation
                     </p>
-                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{meal.description}</p>
+                    <p className="text-sm text-white/90 whitespace-pre-wrap leading-relaxed">{popupDescription}</p>
                   </div>
                 )}
                 <p className="text-xs text-white/50 mt-3">

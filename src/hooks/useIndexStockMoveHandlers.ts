@@ -37,8 +37,9 @@ export type IndexStockMoveHandlerDeps = {
       ingredients?: string | null;
       expiration_date?: string | null;
       counter_start_date?: string | null;
-      oven_temp?: number | null;
-      oven_minutes?: number | null;
+      oven_temp?: string | null;
+      oven_minutes?: string | null;
+      description?: string | null;
     }) => Promise<{ id: string } | null | undefined>;
   };
   updatePossibleIngredients: {
@@ -135,6 +136,9 @@ export function useIndexStockMoveHandlers(deps: IndexStockMoveHandlerDeps) {
           ingredients: baseIng,
           expiration_date: fi.expiration_date,
           counter_start_date: null,
+          oven_temp: meal.oven_temp,
+          oven_minutes: meal.oven_minutes,
+          description: meal.description ?? null,
         });
         if (result?.id && scaledIng) {
           updatePossibleIngredients.mutate({ id: result.id, ingredients_override: scaledIng });
@@ -178,6 +182,7 @@ export function useIndexStockMoveHandlers(deps: IndexStockMoveHandlerDeps) {
             counter_start_date: finalCd,
             oven_temp: meal.oven_temp,
             oven_minutes: meal.oven_minutes,
+            description: meal.description ?? null,
           });
           if (result?.id) {
             updateSnapshots((prev) => ({ ...prev, [result.id]: snapshot }));
