@@ -11,7 +11,8 @@ export function formatExpirationLabel(dateStr: string | null): string | null {
 
 /**
  * Compare deux items pour le tri par expiration+compteur.
- * Groupes de priorité : 0=compteur actif, 1=sans date ni compteur, 2=avec date
+ * Groupes : 0 = compteur actif, 1 = avec date (péremption proche d’abord),
+ * 2 = sans date (en fin, comme le tri Aliments / foodSortUtils).
  */
 export function compareExpirationWithCounter(
   aDate: string | null, bDate: string | null,
@@ -20,8 +21,8 @@ export function compareExpirationWithCounter(
   const aEffective = aCounter !== null && aCounter > 0;
   const bEffective = bCounter !== null && bCounter > 0;
 
-  const aGroup = aEffective ? 0 : (!aDate && (aCounter === null || aCounter === 0) ? 1 : 2);
-  const bGroup = bEffective ? 0 : (!bDate && (bCounter === null || bCounter === 0) ? 1 : 2);
+  const aGroup = aEffective ? 0 : (aDate ? 1 : 2);
+  const bGroup = bEffective ? 0 : (bDate ? 1 : 2);
 
   if (aGroup !== bGroup) return aGroup - bGroup;
   if (aGroup === 0) {
@@ -31,7 +32,7 @@ export function compareExpirationWithCounter(
     if (bDate) return 1;
     return 0;
   }
-  if (aGroup === 2) return aDate!.localeCompare(bDate!);
+  if (aGroup === 1) return aDate!.localeCompare(bDate!);
   return 0;
 }
 

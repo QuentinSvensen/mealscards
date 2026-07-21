@@ -49,6 +49,7 @@ import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodN
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { useMeals } from "@/hooks/useMeals";
 import { useFoodLibrary, type FoodLibraryEntry } from "@/hooks/useFoodLibrary";
+import { lookupFoodTypeMemory } from "@/lib/foodTypeUtils";
 import { BarcodeScanner } from "./BarcodeScanner";
 import MaxMealGenerator from "@/components/MaxMealGenerator";
 import {
@@ -742,7 +743,7 @@ export function FoodItems() {
   const { items, isLoading: itemsLoading, addItem, updateItem, deleteItem, duplicateItem, reorderItems } = useFoodItems();
   const { meals = [], possibleMeals = [] } = useMeals();
   const { reconcileMissedProgCounters } = useMealTransfers(items);
-  const { searchLibrary, upsertEntry, deleteEntry } = useFoodLibrary();
+  const { library: foodTypeLibrary, searchLibrary, upsertEntry, deleteEntry } = useFoodLibrary();
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const {
     foodSortModes, sortDirections, toggleFoodSort, toggleSortDirection, resetFoodSortToManual
@@ -908,18 +909,20 @@ export function FoodItems() {
     setPreference.mutate({ key: FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, value: next });
   }, [getPreference, setPreference]);
 
-  // Mise à jour des suggestions à chaque frappe
+  // Mise à jour des suggestions à chaque frappe ; pré-sélectionne le type mémorisé si le nom matche.
   const handleNameChange = useCallback((value: string) => {
     setNewName(value);
     if (value.trim().length >= 1) {
       const results = searchLibrary(value.trim());
       setSuggestions(results);
       setShowSuggestions(results.length > 0);
+      const memorizedType = lookupFoodTypeMemory(value, foodTypeLibrary);
+      if (memorizedType !== undefined) setNewFoodType(memorizedType);
     } else {
       setSuggestions([]);
       setShowSuggestions(false);
     }
-  }, [searchLibrary]);
+  }, [foodTypeLibrary, searchLibrary]);
 
   // Auto-fill au clic sur une suggestion
   const handleSelectSuggestion = useCallback((entry: FoodLibraryEntry) => {

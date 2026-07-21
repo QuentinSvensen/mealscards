@@ -63,6 +63,22 @@ export function getMealNutritionScore(
 }
 
 /**
+ * Retourne la note nutritionnelle v7 d'un ingrédient à partir de ses macros (kcal / prot. / fib.).
+ * Même formule que les recettes ; utile dans l'onglet Macro pour afficher la pastille numérique.
+ */
+export function getIngredientMacroNutritionScore(
+  calories: string | null | undefined,
+  protein: string | null | undefined,
+  fiber: string | null | undefined,
+): number | null {
+  return computeNutritionScoreV7(
+    parseMacroDisplay(calories),
+    parseMacroDisplay(protein),
+    parseMacroDisplay(fiber),
+  );
+}
+
+/**
  * Retourne la note v7 d'une carte Possible (override + ratio) pour Plat et Petit déj uniquement.
  */
 export function getPossibleMealNutritionScore(

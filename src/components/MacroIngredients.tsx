@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Drumstick, Flame, Plus, Search, Save, Trash2, Wheat } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Drumstick, Flame, Hash, Plus, Search, Save, Trash2, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
@@ -16,7 +16,23 @@ import {
   type IngredientMacroEntry,
   type IngredientMacroLibraryItem,
 } from "@/domain/macros/ingredientMacroDatabase";
-import { normalizeForMatch } from "@/lib/ingredientUtils";
+import { normalizeForMatch, normalizeKey } from "@/lib/ingredientUtils";
+import { parseMacroDisplay } from "@/lib/stockUtils";
+import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { getIngredientMacroNutritionScore } from "@/lib/nutritionScore";
+import {
+  cycleFoodType,
+  listFoodItemsMatchingIngredientKey,
+  resolveIngredientFoodType,
+} from "@/lib/foodTypeUtils";
+import { useFoodLibrary } from "@/hooks/useFoodLibrary";
+import type { FoodType } from "@/types/food";
+
+/** Modes de tri de la liste Macro. */
+export type MacroSortMode = "name" | "note" | "calories" | "protein";
+
+/** Filtre viande / féculent de la liste Macro (`all` = aucun filtre). */
+export type MacroFoodTypeFilter = "all" | "viande" | "feculent";
 
 interface MacroIngredientsProps {
   meals: Meal[];
@@ -26,7 +42,10 @@ interface MacroIngredientsProps {
   onSaveMacroLibrary: (library: IngredientMacroLibraryItem[]) => void;
   onUpdateMealIngredients: (id: string, ingredients: string) => void;
   onUpdatePossibleIngredients: (id: string, ingredients_override: string | null) => void;
-  onUpdateFoodItemMacro: (id: string, updates: { calories: string | null; protein: string | null; fiber: string | null }) => void;
+  onUpdateFoodItemMacro: (
+    id: string,
+    updates: { calories?: string | null; protein?: string | null; fiber?: string | null; food_type?: FoodType },
+  ) => void;
 }
 
 interface DraftMacro {
@@ -56,6 +75,64 @@ function getMacroLibrarySignature(library: IngredientMacroLibraryItem[]): string
   );
 }
 
+/** Passe au filtre type suivant : Tous → Viande → Féculent → Tous. */
+export function cycleMacroFoodTypeFilter(filter: MacroFoodTypeFilter): MacroFoodTypeFilter {
+  if (filter === "all") return "viande";
+  if (filter === "viande") return "feculent";
+  return "all";
+}
+
+/** Passe au mode de tri suivant : Nom → Note → Calories → Protéines → Nom. */
+export function cycleMacroSortMode(mode: MacroSortMode): MacroSortMode {
+  if (mode === "name") return "note";
+  if (mode === "note") return "calories";
+  if (mode === "calories") return "protein";
+  return "name";
+}
+
+/**
+ * Compare deux lignes Macro selon le mode (nom, note nutritionnelle, calories, protéines).
+ * Les valeurs manquantes (note/kcal/prot null) sont poussées en fin de liste.
+ */
+export function compareMacroIngredientEntries(
+  a: IngredientMacroEntry,
+  b: IngredientMacroEntry,
+  drafts: Record<string, DraftMacro>,
+  mode: MacroSortMode,
+  ascending: boolean,
+): number {
+  const dir = ascending ? 1 : -1;
+  const draftA = getDraftValue(a, drafts);
+  const draftB = getDraftValue(b, drafts);
+  const byName = () => a.displayName.localeCompare(b.displayName, "fr", { sensitivity: "base" });
+
+  if (mode === "name") return dir * byName();
+
+  if (mode === "note") {
+    const scoreA = getIngredientMacroNutritionScore(draftA.calories, draftA.protein, draftA.fiber);
+    const scoreB = getIngredientMacroNutritionScore(draftB.calories, draftB.protein, draftB.fiber);
+    if (scoreA == null && scoreB == null) return byName();
+    if (scoreA == null) return 1;
+    if (scoreB == null) return -1;
+    if (scoreA !== scoreB) return dir * (scoreA - scoreB);
+    return byName();
+  }
+
+  /** Compare deux macros numériques (kcal ou prot) avec nulls en fin. */
+  const compareNumericMacro = (rawA: string, rawB: string): number => {
+    const valA = parseMacroDisplay(rawA);
+    const valB = parseMacroDisplay(rawB);
+    if (valA == null && valB == null) return byName();
+    if (valA == null) return 1;
+    if (valB == null) return -1;
+    if (valA !== valB) return dir * (valA - valB);
+    return byName();
+  };
+
+  if (mode === "protein") return compareNumericMacro(draftA.protein, draftB.protein);
+  return compareNumericMacro(draftA.calories, draftB.calories);
+}
+
 // Affiche le référentiel central des macros d'ingrédients et propage chaque modification aux recettes.
 export function MacroIngredients({
   meals,
@@ -67,7 +144,11 @@ export function MacroIngredients({
   onUpdatePossibleIngredients,
   onUpdateFoodItemMacro,
 }: MacroIngredientsProps) {
+  const { library: foodLibrary, upsertEntry } = useFoodLibrary();
   const [searchQuery, setSearchQuery] = useState("");
+  const [foodTypeFilter, setFoodTypeFilter] = useState<MacroFoodTypeFilter>("all");
+  const [sortMode, setSortMode] = useState<MacroSortMode>("name");
+  const [sortAscending, setSortAscending] = useState(true);
   const [drafts, setDrafts] = useState<Record<string, DraftMacro>>({});
   const [newIngredientName, setNewIngredientName] = useState("");
   const [newIngredientCalories, setNewIngredientCalories] = useState("");
@@ -81,14 +162,39 @@ export function MacroIngredients({
     [meals, possibleMeals, macroLibrary, foodItems],
   );
 
-  // Filtre la liste sans accent ni casse (ex. « pate » → « Pâte… ») ; l'affichage des noms reste inchangé.
+  // Filtre (recherche + type) puis trie la liste, en tenant compte des brouillons non sauvegardés.
   const filteredEntries = useMemo(() => {
     const query = normalizeForMatch(searchQuery);
-    if (!query) return entries;
-    return entries.filter((entry) =>
-      normalizeForMatch(entry.displayName).includes(query),
-    );
-  }, [entries, searchQuery]);
+    let filtered = query
+      ? entries.filter((entry) => normalizeForMatch(entry.displayName).includes(query))
+      : [...entries];
+    if (foodTypeFilter !== "all") {
+      filtered = filtered.filter(
+        (entry) => resolveIngredientFoodType(entry.key, foodItems, foodLibrary) === foodTypeFilter,
+      );
+    }
+    filtered.sort((a, b) => compareMacroIngredientEntries(a, b, drafts, sortMode, sortAscending));
+    return filtered;
+  }, [entries, searchQuery, foodTypeFilter, foodItems, foodLibrary, drafts, sortMode, sortAscending]);
+
+  const sortLabel =
+    sortMode === "name" ? "Nom" : sortMode === "note" ? "Note" : sortMode === "calories" ? "Calories" : "Protéines";
+  const SortIcon =
+    sortMode === "name" ? ArrowUpDown : sortMode === "note" ? Hash : sortMode === "calories" ? Flame : Drumstick;
+  const showSortDirection = sortMode === "note" || sortMode === "calories" || sortMode === "protein";
+  const foodTypeFilterLabel =
+    foodTypeFilter === "viande" ? "Via" : foodTypeFilter === "feculent" ? "Féc" : "Type";
+
+  /** Alterne le filtre type Macro (Tous → Viande → Féculent). */
+  const toggleFoodTypeFilter = () => {
+    setFoodTypeFilter((current) => cycleMacroFoodTypeFilter(current));
+  };
+
+  /** Alterne le mode de tri Macro (Nom → Note → Calories → Protéines). */
+  const toggleSortMode = () => {
+    setSortMode((current) => cycleMacroSortMode(current));
+    setSortAscending(true);
+  };
 
   useEffect(() => {
     const nextLibrary = persistMissingIngredientMacroEntries(macroLibrary, entries, manuallyDeletedKeys);
@@ -177,6 +283,30 @@ export function MacroIngredients({
     });
   };
 
+  /**
+   * Change le type viande/féculent d'une ligne Macro : met à jour les aliments matchés
+   * et mémorise le choix dans food_library pour la prochaine création Aliments.
+   */
+  const setEntryFoodType = (entry: IngredientMacroEntry, next: FoodType) => {
+    const matching = listFoodItemsMatchingIngredientKey(entry.key, foodItems);
+    for (const foodItem of matching) {
+      if (foodItem.food_type === next) continue;
+      onUpdateFoodItemMacro(foodItem.id, { food_type: next });
+    }
+
+    const existingLibrary = foodLibrary.find((item) => normalizeKey(item.name || "") === entry.key);
+    upsertEntry.mutate({
+      name: existingLibrary?.name ?? entry.displayName,
+      food_type: next,
+      is_meal: existingLibrary?.is_meal ?? false,
+      no_counter: existingLibrary?.no_counter ?? false,
+      storage_type: existingLibrary?.storage_type ?? "frigo",
+      calories: existingLibrary?.calories ?? null,
+      protein: existingLibrary?.protein ?? null,
+      fiber: existingLibrary?.fiber ?? null,
+    });
+  };
+
   // Supprime une ligne du référentiel et efface ses macros dans recettes, possibles et aliments.
   const deleteEntry = (entry: IngredientMacroEntry) => {
     const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, "", "", "");
@@ -220,14 +350,66 @@ export function MacroIngredients({
           </div>
         </div>
 
-        <div className="relative mt-3">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Rechercher un ingrédient..."
-            className="rounded-xl pl-9 text-sm"
-          />
+        <div className="relative mt-3 flex items-center gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Rechercher un ingrédient..."
+              className="rounded-xl pl-9 text-sm"
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={toggleFoodTypeFilter}
+            className={`h-9 shrink-0 gap-1 rounded-xl border px-2 text-[10px] ${
+              foodTypeFilter === "feculent"
+                ? "border-amber-400/50 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                : foodTypeFilter === "viande"
+                  ? "border-red-400/50 bg-red-500/15 text-red-700 dark:text-red-300"
+                  : "border-border/40"
+            }`}
+            title={
+              foodTypeFilter === "all"
+                ? "Filtrer : tous les types"
+                : foodTypeFilter === "viande"
+                  ? "Filtre Viande (cliquer : Féculent)"
+                  : "Filtre Féculent (cliquer : Tous)"
+            }
+          >
+            {foodTypeFilter === "viande" ? (
+              <Drumstick className="h-3.5 w-3.5" />
+            ) : (
+              <Wheat className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden sm:inline">{foodTypeFilterLabel}</span>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={toggleSortMode}
+            className="h-9 shrink-0 gap-1 rounded-xl border border-border/40 px-2 text-[10px]"
+            title="Changer le tri"
+          >
+            <SortIcon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{sortLabel}</span>
+          </Button>
+          {showSortDirection && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setSortAscending((current) => !current)}
+              className="h-9 w-9 shrink-0 rounded-xl border border-border/40 p-0"
+              title={sortAscending ? "Croissant" : "Décroissant"}
+            >
+              {sortAscending ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+            </Button>
+          )}
         </div>
 
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_90px_auto]">
@@ -270,9 +452,10 @@ export function MacroIngredients({
       </div>
 
       <div className="mx-auto w-fit max-w-full overflow-x-auto rounded-2xl border bg-card shadow-sm">
-        <div className="grid grid-cols-[180px_88px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_96px_80px_56px] gap-0 border-b bg-muted/70 px-2 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[180px_88px_52px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_80px_56px] gap-0 border-b bg-muted/70 px-2 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <span>Ingrédient</span>
           <span className="text-center">Base</span>
+          <span className="text-center">Type</span>
           <span className="flex items-center justify-center gap-1"><Flame className="h-3 w-3 text-orange-500" />Kcal</span>
           <span className="flex items-center justify-center gap-1"><Drumstick className="h-3 w-3 text-blue-500" />Prot.</span>
           <span className="flex items-center justify-center gap-1"><Wheat className="h-3 w-3 text-emerald-500" />Fib.</span>
@@ -291,11 +474,18 @@ export function MacroIngredients({
               const changed = hasDraftChanged(entry, drafts);
               const hasConflict = entry.hasConflictingCalories || entry.hasConflictingProtein || entry.hasConflictingFiber;
               const hasMissingMacro = !draft.calories.trim() || !draft.protein.trim() || !draft.fiber.trim();
+              const foodType = resolveIngredientFoodType(entry.key, foodItems, foodLibrary);
 
               return (
-                <div key={entry.key} className="grid grid-cols-[180px_88px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_96px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
+                <div key={entry.key} className="grid grid-cols-[180px_88px_52px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
                   <div className="min-w-0 pr-2">
-                    <p className={`truncate text-xs sm:text-sm font-semibold ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className={`truncate text-xs sm:text-sm font-semibold ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
+                      <NutritionScoreBadge
+                        score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber)}
+                        onLight
+                      />
+                    </div>
                     <p className="truncate text-[10px] text-muted-foreground">
                       {entry.recipeCount} recette(s){entry.foodCount ? ` · ${entry.foodCount} aliment(s)` : ""}{entry.overrideCount ? ` · ${entry.overrideCount} possible(s)` : ""}
                     </p>
@@ -309,6 +499,30 @@ export function MacroIngredients({
                   <span className="mx-auto max-w-[80px] truncate rounded-full bg-muted px-2 py-1 text-center text-[10px] font-semibold text-muted-foreground sm:max-w-[120px]">
                     {entry.basisLabel || "-"}
                   </span>
+
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setEntryFoodType(entry, cycleFoodType(foodType))}
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 border transition-all ${
+                        foodType === "feculent"
+                          ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-400/50 font-bold"
+                          : foodType === "viande"
+                            ? "bg-red-500/20 text-red-700 dark:text-red-300 border-red-400/50 font-bold"
+                            : "bg-muted text-muted-foreground border-border"
+                      }`}
+                      title={
+                        foodType === "feculent"
+                          ? "Féculent (cliquer: Viande)"
+                          : foodType === "viande"
+                            ? "Viande (cliquer: Aucun)"
+                            : "Aucun type (cliquer: Féculent)"
+                      }
+                    >
+                      {foodType === "viande" ? <Drumstick className="h-2.5 w-2.5" /> : <Wheat className="h-2.5 w-2.5" />}
+                      {foodType === "feculent" ? "Féc" : foodType === "viande" ? "Via" : ""}
+                    </button>
+                  </div>
 
                   <Input
                     value={draft.calories}

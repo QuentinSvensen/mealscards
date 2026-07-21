@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { computeNutritionScoreV7, getMealNutritionScore } from "@/lib/nutritionScore";
+import {
+  computeNutritionScoreV7,
+  getIngredientMacroNutritionScore,
+  getMealNutritionScore,
+} from "@/lib/nutritionScore";
 
 describe("computeNutritionScoreV7", () => {
   it("retourne 100 pour une densité protéique parfaite sans fibres", () => {
@@ -38,5 +42,17 @@ describe("getMealNutritionScore", () => {
         fiber: "7",
       }),
     ).toBe(100);
+  });
+});
+
+describe("getIngredientMacroNutritionScore", () => {
+  it("calcule la même note v7 depuis les chaînes macros d'un ingrédient", () => {
+    expect(getIngredientMacroNutritionScore("500", "50", "0")).toBe(100);
+    expect(getIngredientMacroNutritionScore("869 kcal", "71", "1")).toBe(83);
+  });
+
+  it("retourne null si calories ou protéines manquent", () => {
+    expect(getIngredientMacroNutritionScore("", "40", "5")).toBeNull();
+    expect(getIngredientMacroNutritionScore("500", "", "5")).toBeNull();
   });
 });
