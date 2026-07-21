@@ -13,7 +13,7 @@
  * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Copy, MoreVertical, Trash2, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
@@ -219,7 +219,7 @@ function buildPossibleEditorLines(
 /** Carte d’un repas « possible » : dates, macros, édition, drag & drop (voir en-tête de module). */
 export function PossibleMealCard({
   pm, stockMap, onRemove, onReturnWithoutDeduction, onReturnWithoutDeductionLabel,
-  onReturnToMaster, onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
+  onReturnToMaster, onDelete: _onDelete, onDuplicate, onUpdateExpiration, onUpdatePlanning,
   onUpdateCounter, onUpdateCalories, onUpdateProtein, onUpdateFiber, onUpdateGrams, onUpdateQuantity,
   onUpdateIngredients, onUpdatePossibleIngredients, 
   onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onRename,
@@ -935,22 +935,6 @@ export function PossibleMealCard({
               <DropdownMenuItem onClick={() => { setEditValue(""); setEditing("ratio"); }}>
                 <Percent className="mr-2 h-4 w-4" /> Pourcentage / Multiple
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setEditValue(meal.calories || ""); setEditing("calories"); }}>
-                <Flame className="mr-2 h-4 w-4" /> Calories
-              </DropdownMenuItem>
-              {onUpdateProtein && (
-                <DropdownMenuItem onClick={() => { setEditValue(meal.protein || ""); setEditing("protein"); }}>
-                  <span className="mr-2 text-sm">🍗</span> Protéines
-                </DropdownMenuItem>
-              )}
-              {onUpdateFiber && (
-                <DropdownMenuItem onClick={() => { setEditValue(meal.fiber || ""); setEditing("fiber"); }}>
-                  <span className="mr-2 text-sm">🌾</span> Fibres
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
-                <Weight className="mr-2 h-4 w-4" /> Grammes
-              </DropdownMenuItem>
               {onUpdateOvenTemp && (
                 <DropdownMenuItem onClick={() => { setEditValue(meal.oven_temp || ""); setEditing("oven_temp"); }}>
                   <Thermometer className="mr-2 h-4 w-4" /> Température (°C)
@@ -968,12 +952,6 @@ export function PossibleMealCard({
               )}
               <DropdownMenuItem onClick={openIngredients}>
                 <List className="mr-2 h-4 w-4" /> Ingrédients
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onUpdateCounter(pm.counter_start_date ? null : new Date().toISOString())}>
-                <Timer className="mr-2 h-4 w-4" /> {pm.counter_start_date ? (new Date(pm.counter_start_date) > new Date() ? 'Prog.' : 'Arrêter compteur') : 'Démarrer compteur'}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                <Trash2 className="mr-2 h-4 w-4" /> Supprimer
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

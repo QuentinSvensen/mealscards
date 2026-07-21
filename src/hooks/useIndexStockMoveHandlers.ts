@@ -40,7 +40,7 @@ export type IndexStockMoveHandlerDeps = {
       oven_temp?: string | null;
       oven_minutes?: string | null;
       description?: string | null;
-    }) => Promise<{ id: string } | null | undefined>;
+    }) => Promise<{ id: string; meal_id?: string } | null | undefined>;
   };
   updatePossibleIngredients: {
     mutate: (args: { id: string; ingredients_override: string | null }) => void;

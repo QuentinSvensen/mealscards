@@ -15,6 +15,10 @@ import {
   isAvailableSeuilMaxDefaultOn,
   shouldAutoEnableFullRemainingWithSeuilMax,
 } from "@/lib/availableSeuilMaxPrefs";
+import {
+  appendPossibleOnlyMealId,
+  POSSIBLE_ONLY_MEAL_IDS_PREF_KEY,
+} from "@/lib/possibleOnlyMeals";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -859,6 +863,13 @@ const Index = () => {
           if (data?.id) {
             freezePossibleBadgeCounter(data.id, null, null, null, undefined, foodItems);
           }
+          if (data?.meal_id) {
+            const current = getPreference<string[]>(POSSIBLE_ONLY_MEAL_IDS_PREF_KEY, []);
+            setPreference.mutate({
+              key: POSSIBLE_ONLY_MEAL_IDS_PREF_KEY,
+              value: appendPossibleOnlyMealId(current, data.meal_id),
+            });
+          }
           setNewName(""); setDialogOpen(false); toast({ title: "Repas ajouté aux possibles 🎉" });
         }
       });
@@ -1305,6 +1316,7 @@ const Index = () => {
                           items={getSortedPossible(cat.value)}
                           allPossibleMeals={possibleMeals}
                           mealsCatalog={meals}
+                          possibleOnlyMealIds={getPreference<string[]>(POSSIBLE_ONLY_MEAL_IDS_PREF_KEY, [])}
                           deductionSnapshots={effectiveDeductionSnapshots}
                           frozenCounterDaysByPmId={frozenCounterDaysByPmId}
                           sortMode={sortModes[cat.value] || "manual"}

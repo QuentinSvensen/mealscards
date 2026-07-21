@@ -20,6 +20,7 @@ import { PossibleMealCard } from "@/components/PossibleMealCard";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import { computeIngredientCalories, computeIngredientProtein, computeIngredientFiber, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
+import { isPossibleOnlyCreatedMeal } from "@/lib/possibleOnlyMeals";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
@@ -94,7 +95,7 @@ interface PossibleListProps {
   onUpdateOvenTemp?: (id: string, temp: string | null) => void;
   onUpdateOvenMinutes?: (id: string, minutes: string | null) => void;
   onUpdateDescription?: (id: string, description: string | null) => void;
-  /** Renomme un repas créé uniquement dans Possible (`is_available: false`). */
+  /** Renomme un repas créé via « Possibles uniquement ». */
   onRename?: (id: string, name: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onSplitQuantity?: (id: string, ratio: number, baseIngredients: string | null) => void;
@@ -114,6 +115,8 @@ interface PossibleListProps {
   frozenCounterDaysByPmId?: PossibleFrozenCounterDaysMap;
   /** Catalogue des repas (Master / Au choix) pour retomber sur la description homonyme si absente. */
   mealsCatalog?: Meal[];
+  /** Ids des repas créés via « Possibles uniquement » (seuls à pouvoir être renommés). */
+  possibleOnlyMealIds?: string[];
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
@@ -128,6 +131,7 @@ export function PossibleList({
   onAddDirectly, masterSourcePmIds, unParUnSourcePmIds, allPossibleMeals, deductionSnapshots = {},
   frozenCounterDaysByPmId = {},
   mealsCatalog = [],
+  possibleOnlyMealIds = [],
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
@@ -257,7 +261,7 @@ export function PossibleList({
                 onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
                 onUpdateDescription={onUpdateDescription ? (d) => onUpdateDescription(pm.meals.id, d) : undefined}
                 onRename={
-                  onRename && meal.is_available === false
+                  onRename && isPossibleOnlyCreatedMeal(meal.id, possibleOnlyMealIds)
                     ? (name) => onRename(meal.id, name)
                     : undefined
                 }

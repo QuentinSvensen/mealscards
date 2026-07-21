@@ -190,7 +190,7 @@ export function useMeals(options?: { enabled?: boolean }) {
         .select()
         .single();
       if (error) throw error;
-      return insertedPm as { id: string };
+      return { id: insertedPm.id as string, meal_id: mealData.id as string };
     },
     onSuccess: invalidateAll,
     onError: onMutationError,

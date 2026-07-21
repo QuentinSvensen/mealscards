@@ -56,7 +56,7 @@ export type MoveToPossibleMutations = {
       oven_minutes?: string | null;
       description?: string | null;
       possible_quantity?: number;
-    }) => Promise<{ id: string } | null | undefined>;
+    }) => Promise<{ id: string; meal_id?: string } | null | undefined>;
   };
   updatePlanning: {
     mutate: (args: { id: string; day_of_week: string | null; meal_time: string | null }) => void;
