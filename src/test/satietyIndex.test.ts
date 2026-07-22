@@ -4,6 +4,8 @@ import {
   estimateHoltSatietyIndex,
   getIngredientSatietyIndex,
   HOLT_ISO_CALORIE_PORTION_KCAL,
+  resolveFoodItemSatietyOptions,
+  resolveFoodItemRecordSatietyOptions,
 } from "@/lib/satietyIndex";
 
 describe("computeHoltPortionGrams", () => {
@@ -76,5 +78,38 @@ describe("getIngredientSatietyIndex", () => {
     expect(
       getIngredientSatietyIndex("80", "8", "1", { basisLabel: "Quantité", foodType: "feculent" }),
     ).toBeNull();
+  });
+});
+
+describe("resolveFoodItemSatietyOptions", () => {
+  it("choisit Quantité quand quantité et grammes/unité sont renseignés", () => {
+    expect(resolveFoodItemSatietyOptions("3", "500", "feculent")).toEqual({
+      basisLabel: "Quantité",
+      unitGrams: 500,
+      foodType: "feculent",
+    });
+  });
+
+  it("retombe sur 100 g sans quantité ou sans grammes", () => {
+    expect(resolveFoodItemSatietyOptions("", "500", "viande")).toEqual({
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    expect(resolveFoodItemSatietyOptions("2", "", null)).toEqual({
+      basisLabel: "100g",
+      foodType: null,
+    });
+  });
+});
+
+describe("resolveFoodItemRecordSatietyOptions", () => {
+  it("réutilise la même logique qu'un formulaire Aliments", () => {
+    const fromForm = resolveFoodItemSatietyOptions("1", "40", "feculent");
+    const fromRecord = resolveFoodItemRecordSatietyOptions({
+      quantity: 1,
+      grams: "40",
+      food_type: "feculent",
+    });
+    expect(fromRecord).toEqual(fromForm);
   });
 });

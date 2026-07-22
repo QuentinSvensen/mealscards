@@ -13,7 +13,7 @@
  * parseStoredGrams() / encodeStoredGramsFR() : gère le format "unité|reste"
  *   pour les aliments entamés (ex: "500|120" = 500g par unité, 120g restants)
  */
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { z } from "zod";
 import { Plus, Copy, Trash2, Timer, Flame, Weight, Calendar, ArrowUpDown, CalendarDays, Infinity as InfinityIcon, UtensilsCrossed, Refrigerator, Package, Snowflake, Hash, ChevronDown, ChevronRight, Minus, Search, Wheat, Drumstick, Lock, Scan, Cake } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ import {
   splitSortedExtrasByDivider,
 } from "@/lib/extrasDividerUtils";
 import { ExtrasMovableDivider } from "@/components/planning/ExtrasMovableDivider";
-import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams } from "@/lib/stockUtils";
+import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams, parseMacroDisplay } from "@/lib/stockUtils";
 import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
 import { useFoodItems, type StorageType, type FoodType, type FoodItem } from "@/hooks/useFoodItems";
 import { useProgCounterReconcile } from "@/hooks/useProgCounterReconcile";
@@ -56,6 +56,12 @@ import {
   upsertFoodItemMacroLibraryItem,
   type IngredientMacroLibraryItem,
 } from "@/domain/macros/ingredientMacroDatabase";
+import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
+import {
+  getIngredientSatietyIndex,
+  resolveFoodItemRecordSatietyOptions,
+  resolveFoodItemSatietyOptions,
+} from "@/lib/satietyIndex";
 
 export { colorFromName };
 
@@ -180,6 +186,18 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
   const showCalories = isManualFoodMacroVisible(item, "calories", manualMacroFields);
   const showProtein = isManualFoodMacroVisible(item, "protein", manualMacroFields);
   const showFiber = isManualFoodMacroVisible(item, "fiber", manualMacroFields);
+
+  const foodSatietyIndex = useMemo(
+    () =>
+      getIngredientSatietyIndex(
+        item.calories,
+        item.protein,
+        item.fiber,
+        resolveFoodItemRecordSatietyOptions(item),
+      ),
+    [item.calories, item.protein, item.fiber, item.quantity, item.grams, item.food_type],
+  );
+  const showSatiety = foodSatietyIndex != null && (showCalories || showProtein || showFiber);
 
   // Indique si la prochaine version simulée de l'aliment est entièrement scellée
   // (aucune unité entamée). Utilisé pour arrêter automatiquement les compteurs.
@@ -485,6 +503,16 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
             <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/70 bg-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-emerald-500/40 shrink-0 font-semibold">
               🌾 {Math.round(parseFloat(item.fiber!.replace(',', '.')) || 0)}
             </button>
+          ) : null}
+
+          {showSatiety ? (
+            <span className="shrink-0" title="Indice de satiété Holt (240 kcal)">
+              <SatietyIndexBadge
+                index={foodSatietyIndex}
+                caloriesPer100g={parseMacroDisplay(item.calories)}
+                compact
+              />
+            </span>
           ) : null}
 
           {/* Bascule Indivisible */}
@@ -822,6 +850,29 @@ export function FoodItems() {
   const [pendingMealMode, setPendingMealMode] = useState<"off" | "repas" | "matin" | "dessert">("off");
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const newFoodSatiety = useMemo(
+    () =>
+      getIngredientSatietyIndex(
+        newCalories,
+        newProtein,
+        newFiber,
+        resolveFoodItemSatietyOptions(newQuantity, newGrams, newFoodType),
+      ),
+    [newCalories, newProtein, newFiber, newQuantity, newGrams, newFoodType],
+  );
+
+  const pendingFoodSatiety = useMemo(
+    () =>
+      getIngredientSatietyIndex(
+        pendingCalories,
+        pendingProtein,
+        pendingFiber,
+        resolveFoodItemSatietyOptions(pendingQuantity, pendingGrams, pendingFoodType),
+      ),
+    [pendingCalories, pendingProtein, pendingFiber, pendingQuantity, pendingGrams, pendingFoodType],
+  );
+
   const testItemIds = getPreference<string[]>("food_test_ids", []);
   const extrasDividerAfterId = getPreference<string | null>(FOOD_EXTRAS_DIVIDER_PREF_KEY, null);
 
@@ -1518,6 +1569,13 @@ export function FoodItems() {
           }}
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
+        <div className="flex items-center justify-center shrink-0" title="Indice de satiété Holt (240 kcal)">
+          <SatietyIndexBadge
+            index={newFoodSatiety}
+            caloriesPer100g={parseMacroDisplay(newCalories)}
+            compact
+          />
+        </div>
         <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>
           <PopoverTrigger asChild>
             <button className={`h-8 min-w-[120px] border rounded-xl text-sm px-2 flex items-center gap-1 transition-colors ${newExpiration ? 'bg-muted text-foreground border-border font-medium' : 'bg-muted/50 text-muted-foreground border-border'
@@ -1606,6 +1664,21 @@ export function FoodItems() {
               {pendingQuantity && pendingGrams && ' • '}
               {pendingGrams && `Grammes : ${pendingGrams}`}
             </p>
+          )}
+          {(pendingCalories || pendingProtein || pendingFiber) && (
+            <div className="flex flex-wrap items-center gap-2 mb-3 text-xs text-muted-foreground">
+              {pendingCalories && <span>Kcal : {pendingCalories}</span>}
+              {pendingProtein && <span>Prot. : {pendingProtein}</span>}
+              {pendingFiber && <span>Fib. : {pendingFiber}</span>}
+              {pendingFoodType && (
+                <span>{pendingFoodType === "viande" ? "Via" : "Féc"}</span>
+              )}
+              <SatietyIndexBadge
+                index={pendingFoodSatiety}
+                caloriesPer100g={parseMacroDisplay(pendingCalories)}
+                compact
+              />
+            </div>
           )}
           {suggestedStorageType && (
             <div className="text-xs text-muted-foreground mb-3 flex items-center gap-1">

@@ -27,11 +27,12 @@ import {
 import { normalizeForMatch, normalizeKey } from "@/lib/ingredientUtils";
 import { parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
 import {
   getIngredientMacroNutritionScore,
   getIngredientMacroNutritionScoreRaw,
 } from "@/lib/nutritionScore";
-import { formatSatietyIndexTooltip, getIngredientSatietyIndex } from "@/lib/satietyIndex";
+import { getIngredientSatietyIndex } from "@/lib/satietyIndex";
 import {
   cycleFoodType,
   listFoodItemsMatchingIngredientKey,
@@ -285,6 +286,17 @@ export function MacroIngredients({
   const showSortDirection = sortMode === "note" || sortMode === "calories" || sortMode === "protein";
   const foodTypeFilterLabel =
     foodTypeFilter === "viande" ? "Via" : foodTypeFilter === "feculent" ? "Féc" : "Type";
+
+  const newIngredientSatiety = useMemo(
+    () =>
+      getIngredientSatietyIndex(
+        newIngredientCalories,
+        newIngredientProtein,
+        newIngredientFiber,
+        { basisLabel: "100g" },
+      ),
+    [newIngredientCalories, newIngredientProtein, newIngredientFiber],
+  );
 
   /** Alterne le filtre type Macro (Tous → Viande → Féculent). */
   const toggleFoodTypeFilter = () => {
@@ -572,7 +584,7 @@ export function MacroIngredients({
           )}
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_90px_auto]">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_90px_52px_auto]">
           <Input
             value={newIngredientName}
             onChange={(event) => setNewIngredientName(event.target.value)}
@@ -604,6 +616,13 @@ export function MacroIngredients({
             placeholder="Fib."
             className="rounded-xl text-center text-sm"
           />
+          <div className="flex items-center justify-center" title="Indice Holt pour 240 kcal">
+            <SatietyIndexBadge
+              index={newIngredientSatiety}
+              caloriesPer100g={parseMacroDisplay(newIngredientCalories)}
+              compact
+            />
+          </div>
           <Button onClick={addIngredient} className="rounded-xl gap-1 text-xs">
             <Plus className="h-3.5 w-3.5" />
             Ajouter
@@ -742,26 +761,15 @@ export function MacroIngredients({
                   />
 
                   <div className="flex justify-center">
-                    <span
-                      className={`inline-flex h-8 min-w-[2rem] items-center justify-center rounded-lg px-1 text-xs font-semibold tabular-nums ${
-                        satietyIndex == null
-                          ? "text-muted-foreground"
-                          : satietyIndex >= 150
-                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                            : satietyIndex >= 100
-                              ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                              : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                      }`}
-                      title={
-                        satietyIndex != null
-                          ? formatSatietyIndexTooltip(satietyIndex, parseMacroDisplay(draft.calories))
-                          : entry.basisLabel === "Quantité" && !(unitGrams != null && unitGrams > 0)
-                            ? "Indiquer le poids d'une unité pour calculer la satiété au 100 g"
-                            : "Satiété : renseigne kcal, prot. et fib."
+                    <SatietyIndexBadge
+                      index={satietyIndex}
+                      caloriesPer100g={parseMacroDisplay(draft.calories)}
+                      missingTitle={
+                        entry.basisLabel === "Quantité" && !(unitGrams != null && unitGrams > 0)
+                          ? "Indiquer le poids d'une unité pour calculer la satiété au 100 g"
+                          : "Satiété : renseigne kcal, prot. et fib."
                       }
-                    >
-                      {satietyIndex ?? "—"}
-                    </span>
+                    />
                   </div>
 
                   <div className="flex justify-center">

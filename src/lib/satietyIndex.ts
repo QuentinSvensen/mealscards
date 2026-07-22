@@ -1,5 +1,6 @@
 import { parseMacroDisplay } from "@/lib/stockUtils";
 import type { FoodType } from "@/types/food";
+import { parseQty } from "@/lib/ingredientUtils";
 import {
   hasIngredientMacrosPer100gBasis,
   normalizeUnitMacrosToPer100g,
@@ -170,4 +171,39 @@ export function formatSatietyIndexTooltip(
       ? ` Pour 240 kcal (méthode Holt) ≈ ${grams} g.`
       : "";
   return `Indice de satiété Holt estimé : ${index} (pain blanc = 100 pour 240 kcal).${portionHint} Valeurs de l'étude pour aliments non listés : approximation.`;
+}
+
+/**
+ * Déduit la base Macro (100 g ou Quantité) depuis le formulaire Aliments (quantité + grammes/unité).
+ */
+export function resolveFoodItemSatietyOptions(
+  quantity: string | null | undefined,
+  grams: string | null | undefined,
+  foodType: FoodType = null,
+): IngredientSatietyOptions {
+  const qty = quantity?.trim() ? parseInt(quantity.trim(), 10) : NaN;
+  const unitGrams = parseQty(grams);
+  if (Number.isFinite(qty) && qty > 0 && unitGrams > 0) {
+    return { basisLabel: "Quantité", unitGrams, foodType };
+  }
+  return { basisLabel: "100g", foodType };
+}
+
+/**
+ * Options satiété pour une fiche Aliment déjà enregistrée (même logique que le référentiel Macro).
+ */
+export function resolveFoodItemRecordSatietyOptions(item: {
+  quantity?: number | null;
+  grams?: string | null;
+  food_type?: FoodType;
+}): IngredientSatietyOptions {
+  const unitGrams = parseQty(item.grams);
+  if (item.quantity != null && item.quantity > 0 && unitGrams > 0) {
+    return {
+      basisLabel: "Quantité",
+      unitGrams,
+      foodType: item.food_type ?? null,
+    };
+  }
+  return { basisLabel: "100g", foodType: item.food_type ?? null };
 }
