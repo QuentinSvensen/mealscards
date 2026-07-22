@@ -243,6 +243,7 @@ export function MacroIngredients({
   const [newIngredientCalories, setNewIngredientCalories] = useState("");
   const [newIngredientProtein, setNewIngredientProtein] = useState("");
   const [newIngredientFiber, setNewIngredientFiber] = useState("");
+  const [newIngredientFoodType, setNewIngredientFoodType] = useState<FoodType>(null);
   const [manuallyDeletedKeys, setManuallyDeletedKeys] = useState<Set<string>>(() => new Set());
   const pendingAutoPersistSignature = useRef<string | null>(null);
   const [unitGramsDialogEntry, setUnitGramsDialogEntry] = useState<IngredientMacroEntry | null>(null);
@@ -287,7 +288,10 @@ export function MacroIngredients({
   const foodTypeFilterLabel =
     foodTypeFilter === "viande" ? "Via" : foodTypeFilter === "feculent" ? "Féc" : "Type";
 
-  const newIngredientScoreOptions = { basisLabel: "100g" as const };
+  const newIngredientScoreOptions = useMemo(
+    () => ({ basisLabel: "100g" as const, foodType: newIngredientFoodType }),
+    [newIngredientFoodType],
+  );
 
   const newIngredientSatiety = useMemo(
     () =>
@@ -297,7 +301,7 @@ export function MacroIngredients({
         newIngredientFiber,
         newIngredientScoreOptions,
       ),
-    [newIngredientCalories, newIngredientProtein, newIngredientFiber],
+    [newIngredientCalories, newIngredientProtein, newIngredientFiber, newIngredientScoreOptions],
   );
 
   const newIngredientNutritionScore = useMemo(
@@ -308,7 +312,7 @@ export function MacroIngredients({
         newIngredientFiber,
         newIngredientScoreOptions,
       ),
-    [newIngredientCalories, newIngredientProtein, newIngredientFiber],
+    [newIngredientCalories, newIngredientProtein, newIngredientFiber, newIngredientScoreOptions],
   );
 
   const newIngredientNutritionScoreRaw = useMemo(
@@ -319,7 +323,7 @@ export function MacroIngredients({
         newIngredientFiber,
         newIngredientScoreOptions,
       ),
-    [newIngredientCalories, newIngredientProtein, newIngredientFiber],
+    [newIngredientCalories, newIngredientProtein, newIngredientFiber, newIngredientScoreOptions],
   );
 
   /** Alterne le filtre type Macro (Tous → Viande → Féculent). */
@@ -371,10 +375,25 @@ export function MacroIngredients({
     }
 
     onSaveMacroLibrary(upsertIngredientMacroLibraryItem(macroLibrary, item));
+
+    // Mémorise Via/Féc pour la note Macro et la prochaine création Aliments.
+    const existingLibrary = foodLibrary.find((entry) => normalizeKey(entry.name || "") === item.key);
+    upsertEntry.mutate({
+      name: existingLibrary?.name ?? item.displayName,
+      food_type: newIngredientFoodType,
+      is_meal: existingLibrary?.is_meal ?? false,
+      no_counter: existingLibrary?.no_counter ?? false,
+      storage_type: existingLibrary?.storage_type ?? "frigo",
+      calories: item.calories || existingLibrary?.calories || null,
+      protein: item.protein || existingLibrary?.protein || null,
+      fiber: item.fiber || existingLibrary?.fiber || null,
+    });
+
     setNewIngredientName("");
     setNewIngredientCalories("");
     setNewIngredientProtein("");
     setNewIngredientFiber("");
+    setNewIngredientFoodType(null);
     setSearchQuery(item.displayName);
     toast({ title: "Ingrédient ajouté", description: `${item.displayName} est maintenant dans le référentiel macros.` });
   };
@@ -641,6 +660,36 @@ export function MacroIngredients({
             className="rounded-xl text-center text-sm"
           />
           <div className="flex items-center justify-center gap-1.5">
+            <button
+              type="button"
+              onClick={() =>
+                setNewIngredientFoodType((prev) => (prev === "feculent" ? null : "feculent"))
+              }
+              className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
+                newIngredientFoodType === "feculent"
+                  ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-400/50 font-bold"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}
+              title="Marquer comme féculent (note Macro adaptée)"
+            >
+              <Wheat className="h-3 w-3" />
+              Féc
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setNewIngredientFoodType((prev) => (prev === "viande" ? null : "viande"))
+              }
+              className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
+                newIngredientFoodType === "viande"
+                  ? "bg-red-500/20 text-red-700 dark:text-red-300 border-red-400/50 font-bold"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}
+              title="Marquer comme viande (note Macro adaptée)"
+            >
+              <Drumstick className="h-3 w-3" />
+              Via
+            </button>
             <NutritionScoreBadge
               score={newIngredientNutritionScore}
               rawScore={newIngredientNutritionScoreRaw}

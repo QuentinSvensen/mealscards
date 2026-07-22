@@ -1614,6 +1614,32 @@ export function FoodItems() {
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
         <div className="flex items-center justify-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setNewFoodType((prev) => (prev === "feculent" ? null : "feculent"))}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
+              newFoodType === "feculent"
+                ? "bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold"
+                : "bg-muted text-muted-foreground border-border"
+            }`}
+            title="Marquer comme féculent (note Macro adaptée)"
+          >
+            <Wheat className="h-3 w-3" />
+            Féc
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewFoodType((prev) => (prev === "viande" ? null : "viande"))}
+            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${
+              newFoodType === "viande"
+                ? "bg-red-500/20 text-red-300 border-red-400/50 font-bold"
+                : "bg-muted text-muted-foreground border-border"
+            }`}
+            title="Marquer comme viande (note Macro adaptée)"
+          >
+            <Drumstick className="h-3 w-3" />
+            Via
+          </button>
           <NutritionScoreBadge
             score={newFoodNutritionScore}
             rawScore={newFoodNutritionScoreRaw}
@@ -1687,20 +1713,6 @@ export function FoodItems() {
             title={newIsIndivisible ? "Indivisible activé" : "Marquer comme indivisible"}
           >
             <Lock className="h-3 w-3" />Indiv.
-          </button>
-          <button
-            onClick={() => setNewFoodType(prev => prev === 'feculent' ? null : 'feculent')}
-            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newFoodType === 'feculent' ? 'bg-amber-500/20 text-amber-300 border-amber-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
-              }`}
-          >
-            <Wheat className="h-3 w-3" />Féc
-          </button>
-          <button
-            onClick={() => setNewFoodType(prev => prev === 'viande' ? null : 'viande')}
-            className={`text-[10px] px-2 py-1 rounded-full flex items-center gap-0.5 border transition-all ${newFoodType === 'viande' ? 'bg-red-500/20 text-red-300 border-red-400/50 font-bold' : 'bg-muted text-muted-foreground border-border'
-              }`}
-          >
-            <Drumstick className="h-3 w-3" />Via
           </button>
         </div>
       </div>
