@@ -287,13 +287,37 @@ export function MacroIngredients({
   const foodTypeFilterLabel =
     foodTypeFilter === "viande" ? "Via" : foodTypeFilter === "feculent" ? "Féc" : "Type";
 
+  const newIngredientScoreOptions = { basisLabel: "100g" as const };
+
   const newIngredientSatiety = useMemo(
     () =>
       getIngredientSatietyIndex(
         newIngredientCalories,
         newIngredientProtein,
         newIngredientFiber,
-        { basisLabel: "100g" },
+        newIngredientScoreOptions,
+      ),
+    [newIngredientCalories, newIngredientProtein, newIngredientFiber],
+  );
+
+  const newIngredientNutritionScore = useMemo(
+    () =>
+      getIngredientMacroNutritionScore(
+        newIngredientCalories,
+        newIngredientProtein,
+        newIngredientFiber,
+        newIngredientScoreOptions,
+      ),
+    [newIngredientCalories, newIngredientProtein, newIngredientFiber],
+  );
+
+  const newIngredientNutritionScoreRaw = useMemo(
+    () =>
+      getIngredientMacroNutritionScoreRaw(
+        newIngredientCalories,
+        newIngredientProtein,
+        newIngredientFiber,
+        newIngredientScoreOptions,
       ),
     [newIngredientCalories, newIngredientProtein, newIngredientFiber],
   );
@@ -584,7 +608,7 @@ export function MacroIngredients({
           )}
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_90px_52px_auto]">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(180px,1fr)_90px_90px_90px_auto_auto]">
           <Input
             value={newIngredientName}
             onChange={(event) => setNewIngredientName(event.target.value)}
@@ -616,12 +640,19 @@ export function MacroIngredients({
             placeholder="Fib."
             className="rounded-xl text-center text-sm"
           />
-          <div className="flex items-center justify-center" title="Indice Holt pour 240 kcal">
-            <SatietyIndexBadge
-              index={newIngredientSatiety}
-              caloriesPer100g={parseMacroDisplay(newIngredientCalories)}
-              compact
+          <div className="flex items-center justify-center gap-1.5">
+            <NutritionScoreBadge
+              score={newIngredientNutritionScore}
+              rawScore={newIngredientNutritionScoreRaw}
+              onLight
             />
+            <span title="Indice Holt pour 240 kcal">
+              <SatietyIndexBadge
+                index={newIngredientSatiety}
+                caloriesPer100g={parseMacroDisplay(newIngredientCalories)}
+                compact
+              />
+            </span>
           </div>
           <Button onClick={addIngredient} className="rounded-xl gap-1 text-xs">
             <Plus className="h-3.5 w-3.5" />

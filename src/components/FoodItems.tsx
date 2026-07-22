@@ -56,7 +56,12 @@ import {
   upsertFoodItemMacroLibraryItem,
   type IngredientMacroLibraryItem,
 } from "@/domain/macros/ingredientMacroDatabase";
+import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
+import {
+  getIngredientMacroNutritionScore,
+  getIngredientMacroNutritionScoreRaw,
+} from "@/lib/nutritionScore";
 import {
   getIngredientSatietyIndex,
   resolveFoodItemRecordSatietyOptions,
@@ -851,15 +856,32 @@ export function FoodItems() {
   const [pendingExpiration, setPendingExpiration] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const newFoodScoreOptions = useMemo(
+    () => resolveFoodItemSatietyOptions(newQuantity, newGrams, newFoodType),
+    [newQuantity, newGrams, newFoodType],
+  );
+
   const newFoodSatiety = useMemo(
     () =>
-      getIngredientSatietyIndex(
-        newCalories,
-        newProtein,
-        newFiber,
-        resolveFoodItemSatietyOptions(newQuantity, newGrams, newFoodType),
-      ),
-    [newCalories, newProtein, newFiber, newQuantity, newGrams, newFoodType],
+      getIngredientSatietyIndex(newCalories, newProtein, newFiber, newFoodScoreOptions),
+    [newCalories, newProtein, newFiber, newFoodScoreOptions],
+  );
+
+  const newFoodNutritionScore = useMemo(
+    () =>
+      getIngredientMacroNutritionScore(newCalories, newProtein, newFiber, newFoodScoreOptions),
+    [newCalories, newProtein, newFiber, newFoodScoreOptions],
+  );
+
+  const newFoodNutritionScoreRaw = useMemo(
+    () =>
+      getIngredientMacroNutritionScoreRaw(newCalories, newProtein, newFiber, newFoodScoreOptions),
+    [newCalories, newProtein, newFiber, newFoodScoreOptions],
+  );
+
+  const pendingFoodScoreOptions = useMemo(
+    () => resolveFoodItemSatietyOptions(pendingQuantity, pendingGrams, pendingFoodType),
+    [pendingQuantity, pendingGrams, pendingFoodType],
   );
 
   const pendingFoodSatiety = useMemo(
@@ -868,9 +890,31 @@ export function FoodItems() {
         pendingCalories,
         pendingProtein,
         pendingFiber,
-        resolveFoodItemSatietyOptions(pendingQuantity, pendingGrams, pendingFoodType),
+        pendingFoodScoreOptions,
       ),
-    [pendingCalories, pendingProtein, pendingFiber, pendingQuantity, pendingGrams, pendingFoodType],
+    [pendingCalories, pendingProtein, pendingFiber, pendingFoodScoreOptions],
+  );
+
+  const pendingFoodNutritionScore = useMemo(
+    () =>
+      getIngredientMacroNutritionScore(
+        pendingCalories,
+        pendingProtein,
+        pendingFiber,
+        pendingFoodScoreOptions,
+      ),
+    [pendingCalories, pendingProtein, pendingFiber, pendingFoodScoreOptions],
+  );
+
+  const pendingFoodNutritionScoreRaw = useMemo(
+    () =>
+      getIngredientMacroNutritionScoreRaw(
+        pendingCalories,
+        pendingProtein,
+        pendingFiber,
+        pendingFoodScoreOptions,
+      ),
+    [pendingCalories, pendingProtein, pendingFiber, pendingFoodScoreOptions],
   );
 
   const testItemIds = getPreference<string[]>("food_test_ids", []);
@@ -1569,12 +1613,19 @@ export function FoodItems() {
           }}
           className="w-16 rounded-xl h-8 text-sm text-center"
         />
-        <div className="flex items-center justify-center shrink-0" title="Indice de satiété Holt (240 kcal)">
-          <SatietyIndexBadge
-            index={newFoodSatiety}
-            caloriesPer100g={parseMacroDisplay(newCalories)}
-            compact
+        <div className="flex items-center justify-center gap-1.5 shrink-0">
+          <NutritionScoreBadge
+            score={newFoodNutritionScore}
+            rawScore={newFoodNutritionScoreRaw}
+            onLight
           />
+          <span title="Indice de satiété Holt (240 kcal)">
+            <SatietyIndexBadge
+              index={newFoodSatiety}
+              caloriesPer100g={parseMacroDisplay(newCalories)}
+              compact
+            />
+          </span>
         </div>
         <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>
           <PopoverTrigger asChild>
@@ -1673,6 +1724,11 @@ export function FoodItems() {
               {pendingFoodType && (
                 <span>{pendingFoodType === "viande" ? "Via" : "Féc"}</span>
               )}
+              <NutritionScoreBadge
+                score={pendingFoodNutritionScore}
+                rawScore={pendingFoodNutritionScoreRaw}
+                onLight
+              />
               <SatietyIndexBadge
                 index={pendingFoodSatiety}
                 caloriesPer100g={parseMacroDisplay(pendingCalories)}
