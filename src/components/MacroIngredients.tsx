@@ -175,6 +175,7 @@ export function compareMacroIngredientEntries(
   mode: MacroSortMode,
   ascending: boolean,
   unitGramsByKey: Record<string, number> = {},
+  foodTypeByKey: Record<string, FoodType | undefined> = {},
 ): number {
   const dir = ascending ? 1 : -1;
   const draftA = getDraftValue(a, drafts);
@@ -188,10 +189,12 @@ export function compareMacroIngredientEntries(
     const scoreA = getIngredientMacroNutritionScoreRaw(draftA.calories, draftA.protein, draftA.fiber, {
       basisLabel: a.basisLabel,
       unitGrams: unitGramsByKey[a.key],
+      foodType: foodTypeByKey[a.key] ?? null,
     });
     const scoreB = getIngredientMacroNutritionScoreRaw(draftB.calories, draftB.protein, draftB.fiber, {
       basisLabel: b.basisLabel,
       unitGrams: unitGramsByKey[b.key],
+      foodType: foodTypeByKey[b.key] ?? null,
     });
     if (scoreA == null && scoreB == null) return byName();
     if (scoreA == null) return 1;
@@ -248,6 +251,15 @@ export function MacroIngredients({
     [meals, possibleMeals, macroLibrary, foodItems],
   );
 
+  // Map clé → type viande/féculent pour le tri et la note (aligné sur la colonne Type).
+  const foodTypeByKey = useMemo(() => {
+    const map: Record<string, FoodType> = {};
+    for (const entry of entries) {
+      map[entry.key] = resolveIngredientFoodType(entry.key, foodItems, foodLibrary);
+    }
+    return map;
+  }, [entries, foodItems, foodLibrary]);
+
   // Filtre (recherche + type) puis trie la liste, en tenant compte des brouillons non sauvegardés.
   const filteredEntries = useMemo(() => {
     const query = normalizeForMatch(searchQuery);
@@ -256,14 +268,14 @@ export function MacroIngredients({
       : [...entries];
     if (foodTypeFilter !== "all") {
       filtered = filtered.filter(
-        (entry) => resolveIngredientFoodType(entry.key, foodItems, foodLibrary) === foodTypeFilter,
+        (entry) => foodTypeByKey[entry.key] === foodTypeFilter,
       );
     }
     filtered.sort((a, b) =>
-      compareMacroIngredientEntries(a, b, drafts, sortMode, sortAscending, unitGramsByKey),
+      compareMacroIngredientEntries(a, b, drafts, sortMode, sortAscending, unitGramsByKey, foodTypeByKey),
     );
     return filtered;
-  }, [entries, searchQuery, foodTypeFilter, foodItems, foodLibrary, drafts, sortMode, sortAscending, unitGramsByKey]);
+  }, [entries, searchQuery, foodTypeFilter, foodTypeByKey, drafts, sortMode, sortAscending, unitGramsByKey]);
 
   const sortLabel =
     sortMode === "name" ? "Nom" : sortMode === "note" ? "Note" : sortMode === "calories" ? "Calories" : "Protéines";
@@ -621,11 +633,12 @@ export function MacroIngredients({
               const changed = hasDraftChanged(entry, drafts);
               const hasConflict = entry.hasConflictingCalories || entry.hasConflictingProtein || entry.hasConflictingFiber;
               const hasMissingMacro = !draft.calories.trim() || !draft.protein.trim() || !draft.fiber.trim();
-              const foodType = resolveIngredientFoodType(entry.key, foodItems, foodLibrary);
+              const foodType = foodTypeByKey[entry.key] ?? null;
               const unitGrams = unitGramsByKey[entry.key];
               const scoreOptions = {
                 basisLabel: entry.basisLabel,
                 unitGrams,
+                foodType: foodTypeByKey[entry.key] ?? null,
               };
 
               return (

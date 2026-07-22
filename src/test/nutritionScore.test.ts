@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   computeNutritionScoreV7,
   computeNutritionScoreV7Raw,
+  computeIngredientCaloricDensityAdjustment,
+  computeViandeIngredientNutritionScoreRaw,
+  computeFeculentIngredientNutritionScoreRaw,
   getIngredientMacroNutritionScore,
   getIngredientMacroNutritionScoreRaw,
   getMealNutritionScore,
@@ -144,7 +147,7 @@ describe("note Macro Quantité avec grammes/unité", () => {
   });
 
   it("calcule la note sur macros converties au 100 g", () => {
-    // 40 kcal / 4 g prot / 40 g → 100 kcal / 10 g prot pour 100 g → densité 100 → note 100
+    // 40 kcal / 4 g prot / 40 g → 100 kcal / 10 g prot pour 100 g → densité 100 → note 100 + bonus densité
     expect(
       getIngredientMacroNutritionScore("40", "4", "0", {
         basisLabel: "Quantité",
@@ -156,26 +159,122 @@ describe("note Macro Quantité avec grammes/unité", () => {
         basisLabel: "Quantité",
         unitGrams: 40,
       }),
-    ).toBe(100);
+    ).toBe(106);
 
-    // Même ratios sans normalisation → même note (densité invariante à l'échelle)
+    // Sans base 100 g connue → pas de bonus densité (ratios seuls)
     expect(getIngredientMacroNutritionScore("40", "4", "0")).toBe(100);
   });
 
   it("applique aussi le bonus fibres après normalisation", () => {
     // 40 kcal / 4 prot / 2 fib / 40 g → 100 / 10 / 5 pour 100 g
-    // densité 100 + bonus fibres min(15, 50) = 15 → raw 115, affichage 100
+    // densité 100 + bonus fibres 15 + bonus kcal/100g +6 → raw 121, affichage 100
     expect(
       getIngredientMacroNutritionScoreRaw("40", "4", "2", {
         basisLabel: "Quantité",
         unitGrams: 40,
       }),
-    ).toBe(115);
+    ).toBe(121);
     expect(
       getIngredientMacroNutritionScore("40", "4", "2", {
         basisLabel: "Quantité",
         unitGrams: 40,
       }),
     ).toBe(100);
+  });
+
+  it("favorise les féculents peu caloriques au 100 g (pomme de terre vs pain burger)", () => {
+    const potato = getIngredientMacroNutritionScore("82", "2", "2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    const burgerBun = getIngredientMacroNutritionScore("199", "5", "3.34", {
+      basisLabel: "Quantité",
+      unitGrams: 55,
+      foodType: "feculent",
+    });
+    expect(potato).toBe(75);
+    expect(burgerBun).toBe(35);
+    expect(potato).toBeGreaterThan(burgerBun!);
+  });
+});
+
+describe("note Macro par type viande / féculent", () => {
+  it("viande : favorise volume, densité protéique et protéines au 100 g", () => {
+    expect(computeViandeIngredientNutritionScoreRaw(105, 24, 105)).toBe(97);
+    expect(computeViandeIngredientNutritionScoreRaw(280, 18, 280)).toBe(44);
+    expect(
+      getIngredientMacroNutritionScore("105", "24", "0", {
+        basisLabel: "100g",
+        foodType: "viande",
+      }),
+    ).toBe(97);
+  });
+
+  it("viande : le jaune d'œuf léger dépasse le poisson pané grâce au volume", () => {
+    const jaune = getIngredientMacroNutritionScore("55", "2.7", "0", {
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    const poisson = getIngredientMacroNutritionScore("209", "14", "1.3", {
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    expect(jaune).toBe(65);
+    expect(poisson).toBe(56);
+    expect(jaune).toBeGreaterThan(poisson!);
+  });
+
+  it("viande : jaune d'œuf très calorique au 100 g reste sous une viande maigre", () => {
+    const jauneReel = getIngredientMacroNutritionScore("322", "16", "0", {
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    const dinde = getIngredientMacroNutritionScore("105", "24", "0", {
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    expect(jauneReel).toBe(30);
+    expect(dinde).toBe(97);
+    expect(dinde).toBeGreaterThan(jauneReel!);
+  });
+
+  it("féculent : favorise fibres et faible densité énergétique (volume)", () => {
+    expect(computeFeculentIngredientNutritionScoreRaw(82, 2, 82)).toBe(75);
+    expect(computeFeculentIngredientNutritionScoreRaw(248, 3, 248)).toBe(39);
+    expect(
+      getIngredientMacroNutritionScore("248", "8", "3", {
+        basisLabel: "100g",
+        foodType: "feculent",
+      }),
+    ).toBe(39);
+  });
+
+  it("féculent : moins de kcal au 100 g = meilleure note (grenaille Picard vs Patatoes Lidl)", () => {
+    const picard = getIngredientMacroNutritionScore("122", "2.6", "2.4", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    const lidl = getIngredientMacroNutritionScore("131", "2.1", "2.2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    expect(picard).toBe(68);
+    expect(lidl).toBe(67);
+    expect(picard).toBeGreaterThan(lidl!);
+  });
+
+  it("sans type : conserve la formule générique v7 + densité", () => {
+    expect(
+      getIngredientMacroNutritionScore("82", "2", "2", { basisLabel: "100g" }),
+    ).toBe(49);
+  });
+});
+
+describe("computeIngredientCaloricDensityAdjustment", () => {
+  it("bonus pour faible densité, malus pour forte densité", () => {
+    expect(computeIngredientCaloricDensityAdjustment(82)).toBe(10);
+    expect(computeIngredientCaloricDensityAdjustment(130)).toBe(0);
+    expect(computeIngredientCaloricDensityAdjustment(248)).toBe(-17);
+    expect(computeIngredientCaloricDensityAdjustment(362)).toBe(-33);
   });
 });
