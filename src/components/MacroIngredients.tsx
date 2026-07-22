@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Drumstick, Flame, Hash, Plus, Search, Save, Trash2, Wheat } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Drumstick, Flame, Hash, Plus, Scale, Search, Save, Trash2, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -31,6 +31,7 @@ import {
   getIngredientMacroNutritionScore,
   getIngredientMacroNutritionScoreRaw,
 } from "@/lib/nutritionScore";
+import { formatSatietyIndexTooltip, getIngredientSatietyIndex } from "@/lib/satietyIndex";
 import {
   cycleFoodType,
   listFoodItemsMatchingIngredientKey,
@@ -611,13 +612,14 @@ export function MacroIngredients({
       </div>
 
       <div className="mx-auto w-fit max-w-full overflow-x-auto rounded-2xl border bg-card shadow-sm">
-        <div className="grid grid-cols-[180px_88px_52px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_80px_56px] gap-0 border-b bg-muted/70 px-2 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[180px_88px_52px_72px_72px_72px_52px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_64px_80px_56px] gap-0 border-b bg-muted/70 px-2 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <span>Ingrédient</span>
           <span className="text-center">Base</span>
           <span className="text-center">Type</span>
           <span className="flex items-center justify-center gap-1"><Flame className="h-3 w-3 text-orange-500" />Kcal</span>
           <span className="flex items-center justify-center gap-1"><Drumstick className="h-3 w-3 text-blue-500" />Prot.</span>
           <span className="flex items-center justify-center gap-1"><Wheat className="h-3 w-3 text-emerald-500" />Fib.</span>
+          <span className="flex items-center justify-center gap-1" title="Indice Holt estimé pour 240 kcal (pas pour 100 g)"><Scale className="h-3 w-3 text-violet-500" />Sat.</span>
           <span className="text-center">Save</span>
           <span className="text-center">Suppr.</span>
         </div>
@@ -641,8 +643,15 @@ export function MacroIngredients({
                 foodType: foodTypeByKey[entry.key] ?? null,
               };
 
+              const satietyIndex = getIngredientSatietyIndex(
+                draft.calories,
+                draft.protein,
+                draft.fiber,
+                scoreOptions,
+              );
+
               return (
-                <div key={entry.key} className="grid grid-cols-[180px_88px_52px_72px_72px_72px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_80px_56px] items-center gap-0 px-2 py-2">
+                <div key={entry.key} className="grid grid-cols-[180px_88px_52px_72px_72px_72px_52px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_64px_80px_56px] items-center gap-0 px-2 py-2">
                   <div className="min-w-0 pr-2">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <p className={`truncate text-xs sm:text-sm font-semibold ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
@@ -731,6 +740,29 @@ export function MacroIngredients({
                     className="mx-auto h-8 w-16 sm:w-20 rounded-lg text-center text-xs placeholder:text-red-500 placeholder:opacity-100"
                     placeholder="0"
                   />
+
+                  <div className="flex justify-center">
+                    <span
+                      className={`inline-flex h-8 min-w-[2rem] items-center justify-center rounded-lg px-1 text-xs font-semibold tabular-nums ${
+                        satietyIndex == null
+                          ? "text-muted-foreground"
+                          : satietyIndex >= 150
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : satietyIndex >= 100
+                              ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                              : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                      }`}
+                      title={
+                        satietyIndex != null
+                          ? formatSatietyIndexTooltip(satietyIndex, parseMacroDisplay(draft.calories))
+                          : entry.basisLabel === "Quantité" && !(unitGrams != null && unitGrams > 0)
+                            ? "Indiquer le poids d'une unité pour calculer la satiété au 100 g"
+                            : "Satiété : renseigne kcal, prot. et fib."
+                      }
+                    >
+                      {satietyIndex ?? "—"}
+                    </span>
+                  </div>
 
                   <div className="flex justify-center">
                     <Button
