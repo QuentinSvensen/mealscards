@@ -23,8 +23,6 @@ import type { EnergyDrinkImageCrop } from "@/lib/energyDrinkImageCrop";
 import { energyDrinkFlavorsConflict, slugifyEnergyDrinkId } from "@/lib/energyDrinkUtils";
 import {
   type EnergyDrinkImageBlobs,
-  ENERGY_DRINK_IMAGE_IMPORT_BATCH_SIZE,
-  energyDrinkBrandImageKey,
   storeEnergyDrinkImageDataUrl,
   importEnergyDrinkImageToBlobs,
   isExternalEnergyDrinkImageUrl,
@@ -76,13 +74,10 @@ export function useEnergyDrinks() {
   const imagesAppliedRef = useRef(false);
   const cropResetRef = useRef(false);
   const autoCropInFlightRef = useRef<Set<string>>(new Set());
-  const imageImportInFlightRef = useRef<Set<string>>(new Set());
   const blobsMigratedRef = useRef(false);
 
   const [imageBlobs, setImageBlobs] = useState<EnergyDrinkImageBlobs>({});
   const [blobsReady, setBlobsReady] = useState(false);
-  const imageBlobsRef = useRef<EnergyDrinkImageBlobs>({});
-  imageBlobsRef.current = imageBlobs;
 
   const brands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, ENERGY_DRINKS_SEED_BRANDS);
   const reviews = getPreference<EnergyDrinksReviewsMap>(PREF_REVIEWS, ENERGY_DRINKS_SEED_REVIEWS);
@@ -193,85 +188,8 @@ export function useEnergyDrinks() {
     ]);
   }, [isLoading, getPreference, setPreferencesBatch]);
 
-  /** Importe les URLs externes en copies locales (data URL) tout en conservant les rognages. */
-  useEffect(() => {
-    if (isLoading || !blobsReady) return;
-
-    type PendingImport = {
-      storageKey: string;
-      sourceUrl: string;
-      brandId?: string;
-      flavorId?: string;
-    };
-
-    const pending: PendingImport[] = [];
-    for (const brand of brands) {
-      if (brand.imageUrl && isExternalEnergyDrinkImageUrl(brand.imageUrl)) {
-        pending.push({
-          storageKey: energyDrinkBrandImageKey(brand.id),
-          sourceUrl: brand.imageUrl,
-          brandId: brand.id,
-        });
-      }
-      for (const flavor of brand.flavors) {
-        if (flavor.imageUrl && isExternalEnergyDrinkImageUrl(flavor.imageUrl)) {
-          pending.push({
-            storageKey: flavor.id,
-            sourceUrl: flavor.imageUrl,
-            brandId: brand.id,
-            flavorId: flavor.id,
-          });
-        }
-      }
-    }
-
-    const batch = pending
-      .filter((item) => !imageImportInFlightRef.current.has(item.storageKey))
-      .slice(0, ENERGY_DRINK_IMAGE_IMPORT_BATCH_SIZE);
-
-    if (batch.length === 0) return;
-
-    let cancelled = false;
-
-    (async () => {
-      let nextBlobs = { ...imageBlobsRef.current };
-      const localRefs = new Map<string, string>();
-
-      for (const item of batch) {
-        if (cancelled) break;
-        imageImportInFlightRef.current.add(item.storageKey);
-        const imported = await importEnergyDrinkImageToBlobs(nextBlobs, item.storageKey, item.sourceUrl);
-        imageImportInFlightRef.current.delete(item.storageKey);
-        if (!imported) continue;
-        nextBlobs = imported.blobs;
-        localRefs.set(item.storageKey, imported.localRef);
-      }
-
-      if (cancelled || localRefs.size === 0) return;
-
-      const currentBrands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, ENERGY_DRINKS_SEED_BRANDS);
-      await persistImageBlobs(nextBlobs);
-      setPreference.mutate({
-        key: PREF_BRANDS,
-        value: currentBrands.map((brand) => {
-          const brandKey = energyDrinkBrandImageKey(brand.id);
-          const brandLocalRef = localRefs.get(brandKey);
-          return {
-            ...brand,
-            imageUrl: brandLocalRef ?? brand.imageUrl,
-            flavors: brand.flavors.map((flavor) => {
-              const flavorLocalRef = localRefs.get(flavor.id);
-              return flavorLocalRef ? { ...flavor, imageUrl: flavorLocalRef } : flavor;
-            }),
-          };
-        }),
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [brands, blobsReady, isLoading, getPreference, setPreference, persistImageBlobs]);
+  // Pas d'import auto des URLs externes (Carrefour etc.) : CORS bloque le fetch et spam la console.
+  // Les images s'affichent toujours via leur URL ; une copie locale n'est créée qu'au coller/upload manuel.
 
   /** Applique un rognage auto (sans bandes blanches/grises) sur les images non réglées à la main. */
   useEffect(() => {

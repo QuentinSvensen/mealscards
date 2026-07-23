@@ -83,7 +83,9 @@ function imageElementToDataUrl(img: HTMLImageElement): string | null {
   }
 }
 
-/** Télécharge une image distante et la convertit en data URL (copie non rognée). */
+/** Télécharge une image distante et la convertit en data URL (copie non rognée).
+ * Échoue silencieusement si CORS bloque (ex. Carrefour) — l'affichage via balise img reste possible.
+ */
 export async function fetchEnergyDrinkImageAsDataUrl(
   sourceUrl: string,
 ): Promise<string | null> {
@@ -98,9 +100,10 @@ export async function fetchEnergyDrinkImageAsDataUrl(
       if (blob.size > 0) return blobToDataUrl(blob);
     }
   } catch {
-    // Repli canvas ci-dessous si fetch bloqué (CORS).
+    // CORS / réseau : pas de copie locale possible depuis le navigateur.
   }
 
+  // Repli canvas uniquement si l'image est CORS-friendly (sinon canvas « tainted » → null).
   try {
     const img = await loadImageElement(trimmed);
     return imageElementToDataUrl(img);
