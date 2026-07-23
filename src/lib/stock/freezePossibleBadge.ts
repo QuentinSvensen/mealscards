@@ -3,6 +3,7 @@ import type { FoodItemIndex } from "./foodItemIndex";
 import {
   computePossibleFrozenCounterDays,
   resolveFrozenPossibleCounterDays,
+  isLotProgOpeningAtMealSlot,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
 } from "./possibleFrozenCounters";
@@ -48,10 +49,14 @@ export function buildFrozenBadgePreferenceEntry(
     createdAt,
     baseStartDate,
   );
+  const lotProgAtSlot = isLotProgOpeningAtMealSlot(
+    ingredients, foodItems, dayKey, mealTime, index,
+  );
   const merged = resolveFrozenPossibleCounterDays(currentMap[pmId], days, {
     baseStartDate,
     dayKey,
     mealTime,
+    lotProgOpensAtThisSlot: lotProgAtSlot,
   });
   return {
     key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,

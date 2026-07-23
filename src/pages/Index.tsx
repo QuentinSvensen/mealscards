@@ -65,15 +65,17 @@ import {
   findEarliestFutureCounterDate,
   computePossibleFrozenCounterDays,
   resolveFrozenPossibleCounterDays,
+  isLotProgOpeningAtMealSlot,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
   type FoodItemIndex,
   buildFrozenBadgePreferenceEntry,
   buildClearFrozenBadgePreferenceEntry,
   buildCopyFrozenBadgePreferenceEntry,
+  isCountOnlyFoodItem,
+  isFoodItemFullySealed,
 } from "@/lib/stockUtils";
 import { useMealTransfers, computePlannedCounterDate } from "@/hooks/useMealTransfers";
-import { isCountOnlyFoodItem, isFoodItemFullySealed } from "@/lib/stockUtils";
 import {
   attachPortionDeduction,
   mergeDeductionSnapshotMaps,
@@ -613,9 +615,15 @@ const Index = () => {
       if (
         typeof existing === "number" &&
         pm.day_of_week?.trim() &&
-        pm.meal_time?.trim() &&
-        pm.counter_start_date?.trim()
+        pm.meal_time?.trim()
       ) {
+        const lotProgAtSlot = isLotProgOpeningAtMealSlot(
+          ing,
+          foodItems,
+          pm.day_of_week,
+          pm.meal_time,
+          foodItemIndex,
+        );
         const healed = resolveFrozenPossibleCounterDays(
           existing,
           computePossibleFrozenCounterDays(
@@ -632,6 +640,7 @@ const Index = () => {
             baseStartDate: pm.counter_start_date,
             dayKey: pm.day_of_week,
             mealTime: pm.meal_time,
+            lotProgOpensAtThisSlot: lotProgAtSlot,
           },
         );
         if (healed !== existing) {
@@ -1507,16 +1516,13 @@ const Index = () => {
                                   (best, iso) => (!best || new Date(iso).getTime() < new Date(best).getTime() ? iso : best),
                                   undefined,
                                 );
-                              // Ne pas écraser une ouverture RÉELLE (carte, snapshot de déduction ou stock) par le
-                              // créneau planifié « prog. ». Les snapshots conservent l'état AVANT consommation
-                              // (ex. Crème liquide ouverte depuis 3j). On exclut l'artefact « ouvert à la création ».
-                              const cardCounterIso = pm.counter_start_date?.trim();
-                              const createdMs = pm.created_at ? new Date(pm.created_at).getTime() : NaN;
+                              // Ne pas écraser une ouverture RÉELLE (snapshot de déduction ou stock actif)
+                              // par le créneau planifié « prog. ». On n’utilise plus la seule
+                              // `counter_start_date` carte (souvent périmée) sans corroboration stock.
                               const snapshotPastOpening = ing
                                 ? findEarliestActiveCounterDate(ing, effectiveDeductionSnapshots[id] ?? [], foodItemIndex)
                                 : undefined;
                               const realPastOpening = [
-                                cardCounterIso,
                                 snapshotPastOpening,
                                 activeStockFallback,
                                 nextAnalysis?.earliestActiveCounterDate ?? undefined,
@@ -1524,15 +1530,7 @@ const Index = () => {
                                 .filter((iso): iso is string => {
                                   if (!iso?.trim()) return false;
                                   const ms = new Date(iso).getTime();
-                                  if (!Number.isFinite(ms) || ms > Date.now()) return false;
-                                  if (
-                                    iso === cardCounterIso &&
-                                    Number.isFinite(createdMs) &&
-                                    Math.abs(ms - createdMs) < 60_000
-                                  ) {
-                                    return false;
-                                  }
-                                  return true;
+                                  return Number.isFinite(ms) && ms <= Date.now();
                                 })
                                 .reduce<string | undefined>(
                                   (best, iso) =>

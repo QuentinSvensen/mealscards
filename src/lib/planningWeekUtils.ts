@@ -115,6 +115,28 @@ export function isIsoInCurrentPlanningWeek(iso: string, ref: Date = new Date()):
 }
 
 /**
+ * Convertit un jour de planning (ISO `yyyy-MM-dd` ou clé `lundi`…`dimanche`) en date ISO calendaire.
+ * Les clés nommées sont résolues dans la semaine de `ref` (comme le sélecteur de jour).
+ */
+export function resolvePlanningDayToIso(day: string, ref: Date = new Date()): string | null {
+  const trimmed = day?.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (!(trimmed.toLowerCase() in DAY_KEY_TO_INDEX)) return null;
+  return format(getDateForDayKey(trimmed, ref), "yyyy-MM-dd");
+}
+
+/**
+ * Indique si un jour de planning est strictement antérieur au jour calendaire de `ref`.
+ * Sert à masquer les cartes « d’avant aujourd’hui » quand la case Possible est cochée.
+ */
+export function isPlanningDayStrictlyBeforeToday(day: string, ref: Date = new Date()): boolean {
+  const iso = resolvePlanningDayToIso(day, ref);
+  if (!iso) return false;
+  return iso < format(ref, "yyyy-MM-dd");
+}
+
+/**
  * Résout un objectif planning (calories, protéines, etc.) selon la date ISO :
  * semaine suivante → valeur « next », sinon valeur de la semaine courante.
  */

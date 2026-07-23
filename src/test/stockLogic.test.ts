@@ -886,26 +886,48 @@ describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
     expect(computePossibleFrozenCounterDays("2 Blanc de dinde", foodItems, undefined, fixedNow)).toBeNull();
   });
 
-  it("stock déjà Prog. sur le créneau + baseStartDate passée → 1j (récupération après Soir)", () => {
-    // ven. 17 19h = vraie ouverture ; sam. 18 19h = Prog. déjà posé sur le stock
+  it("stock déjà Prog. sur le créneau + baseStartDate passée → null (plus de Xj fantôme)", () => {
+    // ven. 17 19h = ancienne ouverture carte ; sam. 18 19h = Prog. déjà posé sur le stock (= créneau)
+    // → cette carte ouvre le lot en Prog. : pas de badge Xj (évite Sandwich 7j + Blanc Prog.).
     const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
     const fridayOpen = "2026-07-17T19:00:00.000+02:00";
     const saturdayProg = "2026-07-18T19:00:00.000+02:00";
     const foodItems = [
       makeFoodItem({ name: "Blanc de dinde", quantity: 2, grams: null, counter_start_date: saturdayProg }),
     ];
-    // Sans base : Prog. = créneau → null
     expect(
       computePossibleFrozenCounterDays(
         "2 Blanc de dinde", foodItems, undefined, fixedNow, "2026-07-18", "soir", undefined,
       ),
     ).toBeNull();
-    // Avec base = ouverture réelle ven. → 1j jusqu’à sam. soir
     expect(
       computePossibleFrozenCounterDays(
         "2 Blanc de dinde", foodItems, undefined, fixedNow, "2026-07-18", "soir", undefined, fridayOpen,
       ),
-    ).toBe(1);
+    ).toBeNull();
+  });
+
+  it("Prog. sur le créneau efface un 7j figé (Sandwich fantôme)", () => {
+    const fixedNow = new Date("2026-07-17T20:00:00.000+02:00");
+    const saturdayProg = "2026-07-18T19:00:00.000+02:00";
+    expect(
+      resolveFrozenPossibleCounterDays(7, null, {
+        baseStartDate: "2026-07-11T12:00:00.000+02:00",
+        dayKey: "2026-07-18",
+        mealTime: "soir",
+        fixedNow,
+        lotProgOpensAtThisSlot: true,
+      }),
+    ).toBeNull();
+    // Sans le flag, un baseStartDate non aligné conserve encore le nombre (merge historique)
+    expect(
+      resolveFrozenPossibleCounterDays(7, null, {
+        baseStartDate: "2026-07-11T12:00:00.000+02:00",
+        dayKey: "2026-07-18",
+        mealTime: "soir",
+        fixedNow,
+      }),
+    ).toBe(7);
   });
 
   it("Prog. lundi + repas mardi (autre recette) → 1j sur la carte la plus tardive", () => {
@@ -991,7 +1013,7 @@ describe("resolveFrozenPossibleCounterDays (efface Xj fantôme si ouverture = cr
     ).toBeNull();
   });
 
-  it("ven. ouvert → sam. Prog. : conserve le 1j (ouverture ≠ créneau)", () => {
+  it("ven. ouvert → sam. Prog. : conserve le 1j si pas de flag lotProg (merge historique)", () => {
     expect(
       resolveFrozenPossibleCounterDays(1, null, {
         baseStartDate: fridaySoir,
@@ -1000,6 +1022,18 @@ describe("resolveFrozenPossibleCounterDays (efface Xj fantôme si ouverture = cr
         fixedNow: new Date("2026-07-17T20:00:00.000+02:00"),
       }),
     ).toBe(1);
+  });
+
+  it("ven. → sam. avec lot Prog. sur le créneau : efface le 1j (cohérent avec badge Prog. aliment)", () => {
+    expect(
+      resolveFrozenPossibleCounterDays(1, null, {
+        baseStartDate: fridaySoir,
+        dayKey: "2026-07-18",
+        mealTime: "soir",
+        fixedNow: new Date("2026-07-17T20:00:00.000+02:00"),
+        lotProgOpensAtThisSlot: true,
+      }),
+    ).toBeNull();
   });
 
   it("sans options d’alignement : même protection que merge", () => {

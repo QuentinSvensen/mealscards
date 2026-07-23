@@ -6,6 +6,8 @@ import {
   resolveDefaultThresholdDayIso,
   isIsoInNextPlanningWeek,
   isIsoInCurrentPlanningWeek,
+  isPlanningDayStrictlyBeforeToday,
+  resolvePlanningDayToIso,
   resolvePlanningGoalForIso,
   DAY_KEY_TO_INDEX,
 } from "./planningWeekUtils";
@@ -91,6 +93,31 @@ describe("isIsoInCurrentPlanningWeek", () => {
     expect(isIsoInCurrentPlanningWeek("2026-07-19", now)).toBe(false);
     expect(isIsoInCurrentPlanningWeek("2026-07-27", now)).toBe(false);
     expect(isIsoInCurrentPlanningWeek("2026-08-02", now)).toBe(false);
+  });
+});
+
+describe("isPlanningDayStrictlyBeforeToday", () => {
+  it("masque les jours ISO strictement avant aujourd’hui", () => {
+    const now = new Date("2026-07-23T12:00:00");
+    expect(isPlanningDayStrictlyBeforeToday("2026-07-22", now)).toBe(true);
+    expect(isPlanningDayStrictlyBeforeToday("2026-07-23", now)).toBe(false);
+    expect(isPlanningDayStrictlyBeforeToday("2026-07-27", now)).toBe(false);
+    expect(isPlanningDayStrictlyBeforeToday("2026-06-29", now)).toBe(true);
+  });
+
+  it("résout aussi les clés nommées (lundi de la semaine de ref)", () => {
+    const now = new Date("2026-07-23T12:00:00"); // jeudi
+    expect(isPlanningDayStrictlyBeforeToday("lundi", now)).toBe(true); // 20/07
+    expect(isPlanningDayStrictlyBeforeToday("jeudi", now)).toBe(false);
+    expect(isPlanningDayStrictlyBeforeToday("vendredi", now)).toBe(false);
+  });
+});
+
+describe("resolvePlanningDayToIso", () => {
+  it("conserve une ISO et résout une clé nommée", () => {
+    const now = new Date("2026-07-23T12:00:00");
+    expect(resolvePlanningDayToIso("2026-07-20", now)).toBe("2026-07-20");
+    expect(resolvePlanningDayToIso("lundi", now)).toBe("2026-07-20");
   });
 });
 

@@ -22,17 +22,22 @@ import { computeIngredientCalories, computeIngredientProtein, computeIngredientF
 import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { isPossibleOnlyCreatedMeal } from "@/lib/possibleOnlyMeals";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, isLotProgOpeningAtMealSlot, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { format, parseISO, differenceInCalendarDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
-import { DAY_LABELS, isIsoInCurrentPlanningWeek } from "@/lib/planningWeekUtils";
+import {
+  DAY_LABELS,
+  isIsoInCurrentPlanningWeek,
+  isPlanningDayStrictlyBeforeToday,
+  resolvePlanningDayToIso,
+} from "@/lib/planningWeekUtils";
 
 const TIME_LABELS: Record<string, string> = {
   matin: 'Petit déj', midi: 'Midi', gouter: 'Goûter', soir: 'Soir',
@@ -138,8 +143,11 @@ export function PossibleList({
   const badgeSiblings = allPossibleMeals ?? items;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
-  /** Cochée = toutes les cartes ; décochée = semaine en cours uniquement. */
-  const [showAllPlannedCards, setShowAllPlannedCards] = useState(false);
+  /**
+   * Cochée = semaine courante + jours futurs (masque les jours de planning strictement avant aujourd’hui).
+   * Décochée = semaine calendaire en cours uniquement.
+   */
+  const [showBeyondCurrentWeek, setShowBeyondCurrentWeek] = useState(true);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   // Indexer les articles alimentaires pour une recherche en O(1) dans analyzeMealIngredients
@@ -160,28 +168,32 @@ export function PossibleList({
   const visibleItemsWithAnalysis = useMemo(() => {
     const now = new Date();
     return displayItemsWithAnalysis.filter(({ pm }) => {
-      // Cochée : toutes les cartes.
-      if (showAllPlannedCards) return true;
-      // Décochée : uniquement la semaine courante ; sans day_of_week → on garde visible.
+      // Sans jour de planning → toujours visible.
       if (!pm.day_of_week) return true;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(pm.day_of_week)) return true;
-      return isIsoInCurrentPlanningWeek(pm.day_of_week, now);
+      // Cochée : aujourd’hui + futurs (y compris hors semaine), jamais les jours strictement passés.
+      if (showBeyondCurrentWeek) {
+        return !isPlanningDayStrictlyBeforeToday(pm.day_of_week, now);
+      }
+      // Décochée : uniquement la semaine calendaire courante (lundi → dimanche).
+      const dayIso = resolvePlanningDayToIso(pm.day_of_week, now);
+      if (!dayIso) return true;
+      return isIsoInCurrentPlanningWeek(dayIso, now);
     });
-  }, [displayItemsWithAnalysis, showAllPlannedCards]);
+  }, [displayItemsWithAnalysis, showBeyondCurrentWeek]);
 
   return (
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={visibleItemsWithAnalysis.length} onExternalDrop={onExternalDrop}
       headerActions={<>
         <label
           className="inline-flex items-center justify-center mr-1 cursor-pointer"
-          title="Décochée : semaine en cours uniquement. Cochée : aussi hors semaine."
+          title="Décochée : semaine en cours uniquement. Cochée : aussi les semaines suivantes, sans les jours avant aujourd’hui."
         >
           <input
             type="checkbox"
-            checked={showAllPlannedCards}
-            onChange={(e) => setShowAllPlannedCards(e.target.checked)}
+            checked={showBeyondCurrentWeek}
+            onChange={(e) => setShowBeyondCurrentWeek(e.target.checked)}
             className="h-4 w-4 rounded border-border/70 bg-background accent-foreground"
-            aria-label="Afficher aussi les plats planifiés hors de la semaine en cours"
+            aria-label="Afficher aussi les plats hors semaine en cours (sans les jours déjà passés)"
           />
         </label>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
@@ -215,6 +227,22 @@ export function PossibleList({
                   analysis.earliestActiveCounterDate,
                 );
 
+          // Masque un Xj figé fantôme : stock uniquement Prog. sur le créneau de cette carte.
+          const rawFrozenDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
+          const frozenCounterDays =
+            typeof rawFrozenDays === "number" &&
+            pm.day_of_week?.trim() &&
+            pm.meal_time?.trim() &&
+            isLotProgOpeningAtMealSlot(
+              cardIngredients,
+              foodItems,
+              pm.day_of_week,
+              pm.meal_time,
+              foodItemIndex,
+            )
+              ? null
+              : rawFrozenDays;
+
           const isTodayPM = pm.day_of_week === todayISO;
           const isPrevToday = index > 0 && visibleItemsWithAnalysis[index - 1].pm.day_of_week === todayISO;
           const isNextToday = index < visibleItemsWithAnalysis.length - 1 && visibleItemsWithAnalysis[index + 1].pm.day_of_week === todayISO;
@@ -237,7 +265,7 @@ export function PossibleList({
                 ingredientMacroSources={ingredientMacroAutofillSources}
                 mealsCatalog={mealsCatalog}
                 fromMaster={masterSourcePmIds.has(pm.id)}
-                frozenCounterDays={readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id)}
+                frozenCounterDays={frozenCounterDays}
                 expiredIngredientNames={expiredIngs}
                 expiringSoonIngredientNames={soonIngs}
                 onRemove={() => onRemove(pm.id)}
@@ -325,7 +353,21 @@ export function PossibleList({
               ?? computeIngredientFiber(displayIngredients);
             const displayFiber = popupFiber != null && Number(popupFiber) > 0 ? String(Math.round(Number(popupFiber))) : null;
             const analysis = analyzeMealIngredients({ ingredients: displayIngredients } as any, foodItems, foodItemIndex);
-            const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
+            const frozenCounterDaysRaw = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
+            const popupIngredients = popupPm.ingredients_override ?? meal.ingredients;
+            const frozenCounterDays =
+              typeof frozenCounterDaysRaw === "number" &&
+              popupPm.day_of_week?.trim() &&
+              popupPm.meal_time?.trim() &&
+              isLotProgOpeningAtMealSlot(
+                popupIngredients,
+                foodItems,
+                popupPm.day_of_week,
+                popupPm.meal_time,
+                foodItemIndex,
+              )
+                ? null
+                : frozenCounterDaysRaw;
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
             const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
               frozenCounterDays,
