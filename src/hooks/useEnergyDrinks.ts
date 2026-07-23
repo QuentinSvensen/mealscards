@@ -191,7 +191,9 @@ export function useEnergyDrinks() {
   // Pas d'import auto des URLs externes (Carrefour etc.) : CORS bloque le fetch et spam la console.
   // Les images s'affichent toujours via leur URL ; une copie locale n'est créée qu'au coller/upload manuel.
 
-  /** Applique un rognage auto (sans bandes blanches/grises) sur les images non réglées à la main. */
+  /** Applique un rognage auto (sans bandes blanches/grises) sur les images non réglées à la main.
+   * Uniquement pour images locales / data URL — les URLs Carrefour etc. bloquent CORS.
+   */
   useEffect(() => {
     if (isLoading || !blobsReady) return;
 
@@ -200,6 +202,7 @@ export function useEnergyDrinks() {
         brand.flavors.filter(
           (flavor) =>
             flavor.imageUrl &&
+            !isExternalEnergyDrinkImageUrl(flavor.imageUrl) &&
             !flavor.imageCropManual &&
             (!flavor.imageCrop || isLooseAutoCrop(flavor.imageCrop)) &&
             !autoCropInFlightRef.current.has(flavor.id),
