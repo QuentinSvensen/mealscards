@@ -107,6 +107,14 @@ export function isIsoInNextPlanningWeek(iso: string, ref: Date = new Date()): bo
 }
 
 /**
+ * Indique si une date ISO appartient à la semaine calendaire courante (lundi → dimanche).
+ * Sert à filtrer les cartes Possible quand la case « hors semaine » est décochée.
+ */
+export function isIsoInCurrentPlanningWeek(iso: string, ref: Date = new Date()): boolean {
+  return buildWeekDates(0, ref).some((d) => d.iso === iso);
+}
+
+/**
  * Résout un objectif planning (calories, protéines, etc.) selon la date ISO :
  * semaine suivante → valeur « next », sinon valeur de la semaine courante.
  */

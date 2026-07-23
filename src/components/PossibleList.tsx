@@ -32,7 +32,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { fr } from "date-fns/locale";
 
-import { DAY_LABELS } from "@/lib/planningWeekUtils";
+import { DAY_LABELS, isIsoInCurrentPlanningWeek } from "@/lib/planningWeekUtils";
 
 const TIME_LABELS: Record<string, string> = {
   matin: 'Petit déj', midi: 'Midi', gouter: 'Goûter', soir: 'Soir',
@@ -138,7 +138,8 @@ export function PossibleList({
   const badgeSiblings = allPossibleMeals ?? items;
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
-  const [hidePastPlannedCards, setHidePastPlannedCards] = useState(true);
+  /** Cochée = toutes les cartes ; décochée = semaine en cours uniquement. */
+  const [showAllPlannedCards, setShowAllPlannedCards] = useState(false);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   // Indexer les articles alimentaires pour une recherche en O(1) dans analyzeMealIngredients
@@ -157,25 +158,30 @@ export function PossibleList({
   }, [items, foodItems, foodItemIndex]);
   const todayISO = format(new Date(), 'yyyy-MM-dd');
   const visibleItemsWithAnalysis = useMemo(() => {
-    if (!hidePastPlannedCards) return displayItemsWithAnalysis;
+    const now = new Date();
     return displayItemsWithAnalysis.filter(({ pm }) => {
+      // Cochée : toutes les cartes.
+      if (showAllPlannedCards) return true;
+      // Décochée : uniquement la semaine courante ; sans day_of_week → on garde visible.
       if (!pm.day_of_week) return true;
-      // Les dates de planning au format ISO strict avant aujourd'hui sont masquées.
       if (!/^\d{4}-\d{2}-\d{2}$/.test(pm.day_of_week)) return true;
-      return pm.day_of_week >= todayISO;
+      return isIsoInCurrentPlanningWeek(pm.day_of_week, now);
     });
-  }, [displayItemsWithAnalysis, hidePastPlannedCards, todayISO]);
+  }, [displayItemsWithAnalysis, showAllPlannedCards]);
 
   return (
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={visibleItemsWithAnalysis.length} onExternalDrop={onExternalDrop}
       headerActions={<>
-        <label className="inline-flex items-center justify-center mr-1 cursor-pointer" title="Masquer les cartes planifiées avant aujourd'hui">
+        <label
+          className="inline-flex items-center justify-center mr-1 cursor-pointer"
+          title="Décochée : semaine en cours uniquement. Cochée : aussi hors semaine."
+        >
           <input
             type="checkbox"
-            checked={hidePastPlannedCards}
-            onChange={(e) => setHidePastPlannedCards(e.target.checked)}
+            checked={showAllPlannedCards}
+            onChange={(e) => setShowAllPlannedCards(e.target.checked)}
             className="h-4 w-4 rounded border-border/70 bg-background accent-foreground"
-            aria-label="Masquer les cartes planifiées avant aujourd'hui"
+            aria-label="Afficher aussi les plats planifiés hors de la semaine en cours"
           />
         </label>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>

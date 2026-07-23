@@ -5,6 +5,7 @@ import {
   getDateForDayKey,
   resolveDefaultThresholdDayIso,
   isIsoInNextPlanningWeek,
+  isIsoInCurrentPlanningWeek,
   resolvePlanningGoalForIso,
   DAY_KEY_TO_INDEX,
 } from "./planningWeekUtils";
@@ -74,6 +75,22 @@ describe("isIsoInNextPlanningWeek", () => {
     expect(isIsoInNextPlanningWeek("2026-07-20", ref)).toBe(true);
     expect(isIsoInNextPlanningWeek("2026-07-19", ref)).toBe(false);
     expect(isIsoInNextPlanningWeek("2026-07-13", ref)).toBe(false);
+  });
+});
+
+describe("isIsoInCurrentPlanningWeek", () => {
+  it("accepte lun→dim de la semaine du 23/07/2026", () => {
+    const now = new Date("2026-07-23T12:00:00");
+    expect(isIsoInCurrentPlanningWeek("2026-07-20", now)).toBe(true);
+    expect(isIsoInCurrentPlanningWeek("2026-07-23", now)).toBe(true);
+    expect(isIsoInCurrentPlanningWeek("2026-07-26", now)).toBe(true);
+  });
+
+  it("refuse les dates hors semaine courante", () => {
+    const now = new Date("2026-07-23T12:00:00");
+    expect(isIsoInCurrentPlanningWeek("2026-07-19", now)).toBe(false);
+    expect(isIsoInCurrentPlanningWeek("2026-07-27", now)).toBe(false);
+    expect(isIsoInCurrentPlanningWeek("2026-08-02", now)).toBe(false);
   });
 });
 
