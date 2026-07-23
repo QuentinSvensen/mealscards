@@ -21,6 +21,7 @@ import {
 } from "@/lib/possibleOnlyMeals";
 import { MASTER_SOURCE_PM_IDS_PREF_KEY } from "@/lib/masterSourcePossibleMeals";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
+import { debounceInvalidateQueries } from "@/lib/queryInvalidationDebounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -327,32 +328,8 @@ const Index = () => {
     };
   }, []);
 
-  // ─── Rafraîchissement ciblé au retour sur l'app (évite un refetch massif) ────────────────
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && unlocked) {
-        for (const queryKey of [
-          ["food_items"],
-          ["meals"],
-          ["possible_meals"],
-          ["user_preferences"],
-          ["shopping_groups"],
-          ["shopping_items"],
-          ["food_library"],
-        ] as const) {
-          qc.invalidateQueries({ queryKey: [...queryKey] });
-        }
-      }
-    };
-
-    window.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleVisibilityChange);
-    
-    return () => {
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleVisibilityChange);
-    };
-  }, [qc, unlocked]);
+  // ─── Pas de refetch massif au focus/visibility (gros driver d'egress Free Plan) ───
+  // Le cache React Query + PersistQueryClient suffisent ; sync multi-appareils via Realtime debouncé.
 
   useEffect(() => {
     const TAB_KEY = 'mealcards_open_tabs';
@@ -384,6 +361,7 @@ const Index = () => {
 
   useEffect(() => {
     if (!unlocked) return;
+    // Stats admin : un seul fetch à l'ouverture (plus de polling /60s → Edge Functions egress).
     const fetchBlockedCount = async () => {
       try {
         const { data } = await supabase.functions.invoke("verify-pin", { body: { admin_stats: true } });
@@ -391,8 +369,6 @@ const Index = () => {
       } catch {/* ignore */ }
     };
     fetchBlockedCount();
-    const interval = setInterval(fetchBlockedCount, 60_000);
-    return () => clearInterval(interval);
   }, [unlocked]);
 
   // Forcer le filtre « seuil max » (calories restantes) à ON pour Entrée / Plat / Dessert / Bonus.
@@ -472,24 +448,23 @@ const Index = () => {
     const channel = supabase
       .channel('global-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'food_items' }, () => {
-        // Les updates locaux (déduction, édition, restauration...) appliquent déjà un
-        // optimistic update précis sur le cache via setQueryData. Un invalidateQueries
-        // automatique en provenance du realtime déclenche un refetch qui peut renvoyer
-        // une version répliquée en retard et écraser notre cache, laissant l'UI (ex: badge
-        // xN "Au choix") coincée sur l'ancien stock. On laisse donc la réconciliation
-        // naturelle se faire au prochain refetch "actif" (remontage/focus).
+        // Les updates locaux appliquent déjà un optimistic update. On debounce le refetch
+        // Realtime pour éviter une salve de select(*) (egress Free Plan).
         if (shouldSuppressStockRealtime()) return;
-        qc.invalidateQueries({ queryKey: ["food_items"] });
+        debounceInvalidateQueries(qc, ["food_items"], 5000);
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, () => { qc.invalidateQueries({ queryKey: ["meals"] }); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'possible_meals' }, () => { qc.invalidateQueries({ queryKey: ["possible_meals"] }); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, () => {
+        debounceInvalidateQueries(qc, ["meals"], 5000);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'possible_meals' }, () => {
+        debounceInvalidateQueries(qc, ["possible_meals"], 5000);
+      })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR') {
           console.warn('Sync temps réel : La connexion a échoué. Assurez-vous que le Realtime est activé dans votre tableau de bord Supabase.');
         }
       });
     return () => {
-      // Supprimer le canal en toute sécurité pour éviter les avertissements "closed before established" pendant le HMR
       if (channel) {
         supabase.removeChannel(channel).catch(() => { /* silent */ });
       }

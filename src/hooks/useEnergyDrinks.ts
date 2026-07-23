@@ -4,7 +4,7 @@
  * Marques (energy_drinks_brands_v3) contenant des goûts ; pour chaque goût :
  * testé + note sur 10 (energy_drinks_reviews_v2). Seed initial via energy_drinks_seed_version.
  */
-import { useMemo, useCallback, useEffect, useRef } from "react";
+import { useMemo, useCallback, useEffect, useRef, useState } from "react";
 import { usePreferences } from "@/hooks/usePreferences";
 import {
   ENERGY_DRINKS_SEED_BRANDS,
@@ -32,6 +32,10 @@ import {
   parseLocalEnergyDrinkImageKey,
   resolveEnergyDrinkImageUrl,
 } from "@/lib/energyDrinkImageStorage";
+import {
+  loadEnergyDrinkImageBlobsLocal,
+  saveEnergyDrinkImageBlobsLocal,
+} from "@/lib/energyDrinkImageLocalStore";
 
 export type {
   EnergyDrinkBrand,
@@ -73,10 +77,55 @@ export function useEnergyDrinks() {
   const cropResetRef = useRef(false);
   const autoCropInFlightRef = useRef<Set<string>>(new Set());
   const imageImportInFlightRef = useRef<Set<string>>(new Set());
+  const blobsMigratedRef = useRef(false);
+
+  const [imageBlobs, setImageBlobs] = useState<EnergyDrinkImageBlobs>({});
+  const [blobsReady, setBlobsReady] = useState(false);
+  const imageBlobsRef = useRef<EnergyDrinkImageBlobs>({});
+  imageBlobsRef.current = imageBlobs;
 
   const brands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, ENERGY_DRINKS_SEED_BRANDS);
   const reviews = getPreference<EnergyDrinksReviewsMap>(PREF_REVIEWS, ENERGY_DRINKS_SEED_REVIEWS);
-  const imageBlobs = getPreference<EnergyDrinkImageBlobs>(PREF_IMAGE_BLOBS, {});
+
+  /**
+   * Persiste les blobs d’images en IndexedDB uniquement (jamais dans user_preferences).
+   */
+  const persistImageBlobs = useCallback(async (next: EnergyDrinkImageBlobs) => {
+    setImageBlobs(next);
+    await saveEnergyDrinkImageBlobsLocal(next);
+  }, []);
+
+  /**
+   * Charge IndexedDB, migre l’ancienne clé prefs Supabase si besoin, puis purge le serveur.
+   */
+  useEffect(() => {
+    if (isLoading || blobsMigratedRef.current) return;
+    let cancelled = false;
+
+    (async () => {
+      let local = await loadEnergyDrinkImageBlobsLocal();
+      const remote = getPreference<EnergyDrinkImageBlobs>(PREF_IMAGE_BLOBS, {});
+      const remoteEntries = Object.entries(remote).filter(
+        ([, value]) => typeof value === "string" && value.length > 0,
+      );
+
+      if (remoteEntries.length > 0) {
+        local = { ...Object.fromEntries(remoteEntries), ...local };
+        await saveEnergyDrinkImageBlobsLocal(local);
+        // Vide la clé Supabase pour couper l’egress (payloads multi-Mo).
+        setPreference.mutate({ key: PREF_IMAGE_BLOBS, value: {} });
+      }
+
+      if (cancelled) return;
+      blobsMigratedRef.current = true;
+      setImageBlobs(local);
+      setBlobsReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading, getPreference, setPreference]);
 
   /** Résout une référence d'image (locale ou URL) vers une URL affichable. */
   const resolveImageUrl = useCallback(
@@ -146,7 +195,7 @@ export function useEnergyDrinks() {
 
   /** Importe les URLs externes en copies locales (data URL) tout en conservant les rognages. */
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !blobsReady) return;
 
     type PendingImport = {
       storageKey: string;
@@ -185,7 +234,7 @@ export function useEnergyDrinks() {
     let cancelled = false;
 
     (async () => {
-      let nextBlobs = { ...getPreference<EnergyDrinkImageBlobs>(PREF_IMAGE_BLOBS, {}) };
+      let nextBlobs = { ...imageBlobsRef.current };
       const localRefs = new Map<string, string>();
 
       for (const item of batch) {
@@ -201,7 +250,7 @@ export function useEnergyDrinks() {
       if (cancelled || localRefs.size === 0) return;
 
       const currentBrands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, ENERGY_DRINKS_SEED_BRANDS);
-      setPreference.mutate({ key: PREF_IMAGE_BLOBS, value: nextBlobs });
+      await persistImageBlobs(nextBlobs);
       setPreference.mutate({
         key: PREF_BRANDS,
         value: currentBrands.map((brand) => {
@@ -222,11 +271,11 @@ export function useEnergyDrinks() {
     return () => {
       cancelled = true;
     };
-  }, [brands, isLoading, getPreference, setPreference]);
+  }, [brands, blobsReady, isLoading, getPreference, setPreference, persistImageBlobs]);
 
   /** Applique un rognage auto (sans bandes blanches/grises) sur les images non réglées à la main. */
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !blobsReady) return;
 
     const pending = brands
       .flatMap((brand) =>
@@ -275,7 +324,7 @@ export function useEnergyDrinks() {
     return () => {
       cancelled = true;
     };
-  }, [brands, imageBlobs, isLoading, getPreference, setPreference]);
+  }, [brands, blobsReady, imageBlobs, isLoading, getPreference, setPreference]);
 
   const orderedBrands = useMemo(
     () => brands.map((b) => ({ ...b, flavors: [...b.flavors] })),
@@ -508,7 +557,7 @@ export function useEnergyDrinks() {
       if (Object.keys(patch).length === 0) return true;
 
       if (blobsChanged) {
-        setPreference.mutate({ key: PREF_IMAGE_BLOBS, value: nextBlobs });
+        await persistImageBlobs(nextBlobs);
       }
 
       setPreference.mutate({
@@ -524,7 +573,7 @@ export function useEnergyDrinks() {
       });
       return true;
     },
-    [brands, imageBlobs, setPreference],
+    [brands, imageBlobs, setPreference, persistImageBlobs],
   );
 
   /** Met à jour le nom ou l'image d'une marque. */

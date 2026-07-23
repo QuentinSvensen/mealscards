@@ -8,8 +8,8 @@
  * getPreference(key, default) : lit une préférence avec valeur par défaut
  * setPreference.mutate({ key, value }) : écrit ou met à jour une préférence
  *
- * Source de vérité = Supabase (pas localStorage seul). Le cache React Query /
- * PersistQueryClient n’est qu’un accélérateur ; chaque session recharge depuis le serveur.
+ * Source de vérité = Supabase. Le cache React Query / PersistQueryClient
+ * accélère l’UI ; on évite les refetch agressifs (focus / token) pour limiter l’egress.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useCallback } from "react";
@@ -20,8 +20,11 @@ import { resolveCurrentUserId, setCachedUserId } from "@/lib/authUserId";
 type PreferenceRow = { id: string; key: string; value: any };
 type PreferenceEntry = { key: string; value: any };
 
-/** Canal BroadcastChannel pour invalider les prefs entre onglets du même navigateur. */
+/** Canal BroadcastChannel pour synchroniser les prefs entre onglets sans refetch serveur. */
 const PREFS_SYNC_CHANNEL = "mealcards-user-preferences-sync";
+
+/** Cache prefs : 10 min — réduit fortement les re-téléchargements de user_preferences. */
+const PREFERENCES_STALE_TIME_MS = 10 * 60 * 1000;
 
 /** Horodatage du dernier toast d'erreur préférences pour éviter le spam. */
 let lastPreferenceErrorToastAt = 0;
@@ -85,15 +88,15 @@ function applyOptimisticPreferenceEntries(
 }
 
 /**
- * Notifie les autres onglets qu’il faut recharger les préférences depuis le serveur.
+ * Diffuse un patch de préférences aux autres onglets (sans forcer un select(*) serveur).
  */
-function broadcastPreferencesInvalidation() {
+function broadcastPreferencePatch(entries: PreferenceEntry[]) {
   try {
     const channel = new BroadcastChannel(PREFS_SYNC_CHANNEL);
-    channel.postMessage({ type: "invalidate", at: Date.now() });
+    channel.postMessage({ type: "patch", entries, at: Date.now() });
     channel.close();
   } catch {
-    // BroadcastChannel indisponible (contexte privé / navigateur ancien) : ignore.
+    // BroadcastChannel indisponible : ignore.
   }
 }
 
@@ -121,17 +124,13 @@ async function upsertPreferenceValue(key: string, value: any, userId?: string) {
 export function usePreferences(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
   const qc = useQueryClient();
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["user_preferences"] });
-    broadcastPreferencesInvalidation();
-  };
 
   useEffect(() => {
     if (!enabled) return;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Garde le cache auth aligné pour les écritures de préférences concurrentes.
       setCachedUserId(session?.user?.id ?? null);
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+      // TOKEN_REFRESHED / INITIAL_SESSION ne doivent pas re-télécharger toute la table prefs.
+      if (event === "SIGNED_IN") {
         qc.invalidateQueries({ queryKey: ["user_preferences"] });
       }
     });
@@ -139,34 +138,26 @@ export function usePreferences(options?: { enabled?: boolean }) {
   }, [qc, enabled]);
 
   /**
-   * Écoute les autres onglets + retour au premier plan pour resynchroniser depuis Supabase.
+   * Synchronise les autres onglets via patch local (pas de refetch focus / visibility).
    */
   useEffect(() => {
     if (!enabled) return;
 
-    const refreshFromServer = () => {
-      qc.invalidateQueries({ queryKey: ["user_preferences"] });
-    };
-
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel(PREFS_SYNC_CHANNEL);
-      channel.onmessage = () => refreshFromServer();
+      channel.onmessage = (event) => {
+        const data = event.data as { type?: string; entries?: PreferenceEntry[] } | null;
+        if (data?.type === "patch" && Array.isArray(data.entries)) {
+          applyOptimisticPreferenceEntries(qc, data.entries);
+        }
+      };
     } catch {
       channel = null;
     }
 
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") refreshFromServer();
-    };
-
-    window.addEventListener("online", refreshFromServer);
-    document.addEventListener("visibilitychange", onVisibility);
-
     return () => {
       channel?.close();
-      window.removeEventListener("online", refreshFromServer);
-      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [qc, enabled]);
 
@@ -175,7 +166,7 @@ export function usePreferences(options?: { enabled?: boolean }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("user_preferences")
-        .select("*");
+        .select("id, key, value");
       if (error) throw error;
       return data as PreferenceRow[];
     },
@@ -184,10 +175,9 @@ export function usePreferences(options?: { enabled?: boolean }) {
       return failureCount < 3;
     },
     retryDelay: 500,
-    // Cache court : accélère l’UI mais une nouvelle session / focus recharge depuis le serveur.
-    staleTime: 30 * 1000,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    staleTime: PREFERENCES_STALE_TIME_MS,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     enabled,
   });
 
@@ -210,7 +200,10 @@ export function usePreferences(options?: { enabled?: boolean }) {
       if (context?.previous) qc.setQueryData(["user_preferences"], context.previous);
       reportPreferenceError(error);
     },
-    onSettled: invalidate,
+    onSuccess: (_data, vars) => {
+      // Cache déjà à jour via onMutate — pas d’invalidate (évite select(*) après chaque write).
+      broadcastPreferencePatch([vars]);
+    },
   });
 
   /**
@@ -218,7 +211,6 @@ export function usePreferences(options?: { enabled?: boolean }) {
    */
   const setPreferencesBatch = useMutation({
     mutationFn: async (entries: PreferenceEntry[]) => {
-      // Une seule résolution auth pour tout le lot (évite la salve AbortError locks.js).
       const userId = await resolveCurrentUserId();
       for (const { key, value } of entries) {
         await upsertPreferenceValue(key, value, userId);
@@ -234,7 +226,9 @@ export function usePreferences(options?: { enabled?: boolean }) {
       if (context?.previous) qc.setQueryData(["user_preferences"], context.previous);
       reportPreferenceError(error);
     },
-    onSettled: invalidate,
+    onSuccess: (_data, entries) => {
+      broadcastPreferencePatch(entries);
+    },
   });
 
   return { preferences, getPreference, setPreference, setPreferencesBatch, isLoading };
@@ -251,7 +245,7 @@ export function usePreferenceValue<T>(key: string, defaultValue: T, options?: { 
     queryFn: async () => {
       const { data: rows, error } = await supabase
         .from("user_preferences")
-        .select("*");
+        .select("id, key, value");
       if (error) throw error;
       return rows as PreferenceRow[];
     },
@@ -259,7 +253,9 @@ export function usePreferenceValue<T>(key: string, defaultValue: T, options?: { 
       const pref = prefs.find((p) => p.key === key);
       return (pref ? pref.value : defaultValue) as T;
     },
-    staleTime: 30 * 1000,
+    staleTime: PREFERENCES_STALE_TIME_MS,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
     enabled,
   });
   return (data !== undefined ? data : defaultValue) as T;

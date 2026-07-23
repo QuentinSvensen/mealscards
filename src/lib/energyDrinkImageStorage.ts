@@ -1,6 +1,6 @@
 /**
- * Stockage local des images de boissons énergisantes (data URL en préférences).
- * Les références `local:…` remplacent les URLs externes une fois importées.
+ * Stockage local des images de boissons énergisantes (data URL).
+ * Les blobs restent en IndexedDB ; les références `local:…` sont stockées dans les marques.
  */
 
 export type EnergyDrinkImageBlobs = Record<string, string>;

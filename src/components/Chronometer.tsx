@@ -41,7 +41,7 @@ export function Chronometer({ open, onOpenChange }: { open: boolean; onOpenChang
       if (error) throw error;
       return (data?.value as unknown as ChronoState) ?? DEFAULT_STATE;
     },
-    refetchInterval: open ? 1000 : false,
+    refetchInterval: false,
     enabled: open,
     retry: 2,
   });
