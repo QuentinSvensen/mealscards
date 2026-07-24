@@ -14,7 +14,11 @@ import {
 } from "./foodItemState";
 import { counterableIngredientKeysFromRecipe } from "./mealAnalysis";
 
-function recipeHasMatchingFoodItemsInStock(
+/**
+ * Indique si au moins un ingrédient de la recette correspond encore à une fiche Aliments en stock.
+ * Sert à distinguer « stock encore là mais non comptable » (∞ / no_counter) de « stock entièrement consommé ».
+ */
+export function recipeHasMatchingFoodItemsInStock(
   ingredients: string | null | undefined,
   foodItems: FoodItem[],
   index?: FoodItemIndex,

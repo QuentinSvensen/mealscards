@@ -23,6 +23,9 @@ import {
   mergeFrozenPossibleCounterDays,
   resolveFrozenPossibleCounterDays,
   isCounterStartAlignedWithMealSlot,
+  shouldSuppressFrozenPossibleCounterBadge,
+  hasNoFoodCounterEvidenceWhileStockRemains,
+  buildFrozenBadgePreferenceEntry,
   hasActiveFoodItemCounter,
   recipeHasFiniteCounterableIngredients,
   type StockInfo,
@@ -947,6 +950,66 @@ describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
         "soir",
       ),
     ).toBe(1);
+  });
+
+  it("Cookie ∞ : replanif ven.→dim. + baseStartDate carte → null (pas de 2j fantôme)", () => {
+    // Aujourd’hui = ven. 24 ; carte déplacée sur dim. 26 Matin ; counter_start_date carte = ven. matin.
+    // Aucun aliment n’a de compteur → le décalage de replanif ne doit PAS inventer un badge 2j.
+    const fixedNow = new Date("2026-07-24T10:00:00.000+02:00");
+    const fridayMorning = "2026-07-24T08:00:00.000+02:00";
+    const cookieIngredients =
+      "30g Beurre, 5g Stévia, 1 Œuf, 40g Farine, 20g Whey, 1g Sel, 2g Levure, 20g Chocolat, 15g Pâte à tartiner";
+    const foodItems = [
+      makeFoodItem({ name: "Beurre", is_infinite: true, grams: "250" }),
+      makeFoodItem({ name: "Stévia", is_infinite: true, grams: "100" }),
+      makeFoodItem({ name: "Œuf", is_infinite: true, quantity: 12, grams: null }),
+      makeFoodItem({ name: "Farine", is_infinite: true, grams: "1000" }),
+      makeFoodItem({ name: "Whey", is_infinite: true, grams: "1000" }),
+      makeFoodItem({ name: "Sel", is_infinite: true, grams: "500" }),
+      makeFoodItem({ name: "Levure", is_infinite: true, grams: "50" }),
+      makeFoodItem({ name: "Chocolat", is_infinite: true, grams: "200" }),
+      makeFoodItem({ name: "Pâte à tartiner", is_infinite: true, grams: "400" }),
+    ];
+    expect(
+      computePossibleFrozenCounterDays(
+        cookieIngredients,
+        foodItems,
+        undefined,
+        fixedNow,
+        "2026-07-26",
+        "matin",
+        undefined,
+        fridayMorning,
+      ),
+    ).toBeNull();
+    // Un 2j déjà figé doit être effacé au re-gel (stock présent, aucun compteur).
+    expect(
+      resolveFrozenPossibleCounterDays(2, null, {
+        baseStartDate: fridayMorning,
+        dayKey: "2026-07-26",
+        mealTime: "matin",
+        fixedNow,
+        noFoodCounterEvidence: hasNoFoodCounterEvidenceWhileStockRemains(
+          cookieIngredients, foodItems, undefined, fixedNow,
+        ),
+      }),
+    ).toBeNull();
+    expect(
+      shouldSuppressFrozenPossibleCounterBadge(
+        cookieIngredients, foodItems, "2026-07-26", "matin", undefined, fixedNow,
+      ),
+    ).toBe(true);
+    // buildFrozenBadgePreferenceEntry applique le même effacement sur la map prefs.
+    const entry = buildFrozenBadgePreferenceEntry({
+      pmId: "pm-cookie",
+      ingredients: cookieIngredients,
+      foodItems,
+      dayKey: "2026-07-26",
+      mealTime: "matin",
+      baseStartDate: fridayMorning,
+      currentMap: { "pm-cookie": 2 },
+    });
+    expect(entry.value["pm-cookie"]).toBeNull();
   });
 
   it("lit / écrit la map prefs : clé absente vs null figé", () => {

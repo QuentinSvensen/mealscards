@@ -7,6 +7,7 @@ import {
   isIsoInNextPlanningWeek,
   isIsoInCurrentPlanningWeek,
   isPlanningDayStrictlyBeforeToday,
+  isPossibleMealVisibleForPlanningDay,
   resolvePlanningDayToIso,
   resolvePlanningGoalForIso,
   DAY_KEY_TO_INDEX,
@@ -110,6 +111,33 @@ describe("isPlanningDayStrictlyBeforeToday", () => {
     expect(isPlanningDayStrictlyBeforeToday("lundi", now)).toBe(true); // 20/07
     expect(isPlanningDayStrictlyBeforeToday("jeudi", now)).toBe(false);
     expect(isPlanningDayStrictlyBeforeToday("vendredi", now)).toBe(false);
+  });
+});
+
+describe("isPossibleMealVisibleForPlanningDay", () => {
+  const now = new Date("2026-07-24T12:00:00"); // vendredi 24 juillet 2026
+
+  it("sans jour / date invalide → toujours visible", () => {
+    expect(isPossibleMealVisibleForPlanningDay(null, false, now)).toBe(true);
+    expect(isPossibleMealVisibleForPlanningDay(undefined, true, now)).toBe(true);
+    expect(isPossibleMealVisibleForPlanningDay("", false, now)).toBe(true);
+    expect(isPossibleMealVisibleForPlanningDay("jour-invalide", true, now)).toBe(true);
+  });
+
+  it("décochée : ≥ lundi de la semaine courante (garde lun–jeu si on est vendredi)", () => {
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-19", false, now)).toBe(false); // dimanche avant
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-20", false, now)).toBe(true); // lundi semaine courante
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-23", false, now)).toBe(true); // jeudi
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-24", false, now)).toBe(true);
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-27", false, now)).toBe(true); // semaine suivante
+    expect(isPossibleMealVisibleForPlanningDay("2026-08-03", false, now)).toBe(true);
+  });
+
+  it("cochée : ≥ aujourd’hui (masque strictement avant aujourd’hui)", () => {
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-20", true, now)).toBe(false); // lundi
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-23", true, now)).toBe(false); // jeudi
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-24", true, now)).toBe(true); // aujourd’hui
+    expect(isPossibleMealVisibleForPlanningDay("2026-07-27", true, now)).toBe(true);
   });
 });
 

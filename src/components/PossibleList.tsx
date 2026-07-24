@@ -22,7 +22,7 @@ import { computeIngredientCalories, computeIngredientProtein, computeIngredientF
 import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { isPossibleOnlyCreatedMeal } from "@/lib/possibleOnlyMeals";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, isLotProgOpeningAtMealSlot, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, shouldSuppressFrozenPossibleCounterBadge, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { usePreferenceValue } from "@/hooks/usePreferences";
@@ -34,9 +34,7 @@ import { fr } from "date-fns/locale";
 
 import {
   DAY_LABELS,
-  isIsoInCurrentPlanningWeek,
-  isPlanningDayStrictlyBeforeToday,
-  resolvePlanningDayToIso,
+  isPossibleMealVisibleForPlanningDay,
 } from "@/lib/planningWeekUtils";
 
 const TIME_LABELS: Record<string, string> = {
@@ -144,10 +142,11 @@ export function PossibleList({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
   /**
-   * Cochée = semaine courante + jours futurs (masque les jours de planning strictement avant aujourd’hui).
-   * Décochée = semaine calendaire en cours uniquement.
+   * Décochée = à partir du lundi de la semaine courante (lun→… + semaines futures).
+   * Cochée = à partir d’aujourd’hui (masque les jours de planning strictement avant aujourd’hui).
+   * Défaut cochée : mode « à partir d’aujourd’hui ».
    */
-  const [showBeyondCurrentWeek, setShowBeyondCurrentWeek] = useState(true);
+  const [showFromToday, setShowFromToday] = useState(true);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   // Indexer les articles alimentaires pour une recherche en O(1) dans analyzeMealIngredients
@@ -167,33 +166,24 @@ export function PossibleList({
   const todayISO = format(new Date(), 'yyyy-MM-dd');
   const visibleItemsWithAnalysis = useMemo(() => {
     const now = new Date();
-    return displayItemsWithAnalysis.filter(({ pm }) => {
-      // Sans jour de planning → toujours visible.
-      if (!pm.day_of_week) return true;
-      // Cochée : aujourd’hui + futurs (y compris hors semaine), jamais les jours strictement passés.
-      if (showBeyondCurrentWeek) {
-        return !isPlanningDayStrictlyBeforeToday(pm.day_of_week, now);
-      }
-      // Décochée : uniquement la semaine calendaire courante (lundi → dimanche).
-      const dayIso = resolvePlanningDayToIso(pm.day_of_week, now);
-      if (!dayIso) return true;
-      return isIsoInCurrentPlanningWeek(dayIso, now);
-    });
-  }, [displayItemsWithAnalysis, showBeyondCurrentWeek]);
+    return displayItemsWithAnalysis.filter(({ pm }) =>
+      isPossibleMealVisibleForPlanningDay(pm.day_of_week, showFromToday, now),
+    );
+  }, [displayItemsWithAnalysis, showFromToday]);
 
   return (
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={visibleItemsWithAnalysis.length} onExternalDrop={onExternalDrop}
       headerActions={<>
         <label
           className="inline-flex items-center justify-center mr-1 cursor-pointer"
-          title="Décochée : semaine en cours uniquement. Cochée : aussi les semaines suivantes, sans les jours avant aujourd’hui."
+          title="Décochée : à partir du lundi de la semaine courante. Cochée : à partir d’aujourd’hui."
         >
           <input
             type="checkbox"
-            checked={showBeyondCurrentWeek}
-            onChange={(e) => setShowBeyondCurrentWeek(e.target.checked)}
+            checked={showFromToday}
+            onChange={(e) => setShowFromToday(e.target.checked)}
             className="h-4 w-4 rounded border-border/70 bg-background accent-foreground"
-            aria-label="Afficher aussi les plats hors semaine en cours (sans les jours déjà passés)"
+            aria-label="N’afficher que les plats à partir d’aujourd’hui (décochée : dès le lundi de la semaine)"
           />
         </label>
         <Button size="sm" variant="ghost" onClick={onAddDirectly} className="h-6 w-6 p-0" title="Ajouter"><Plus className="h-3 w-3" /></Button>
@@ -227,13 +217,12 @@ export function PossibleList({
                   analysis.earliestActiveCounterDate,
                 );
 
-          // Masque un Xj figé fantôme : stock uniquement Prog. sur le créneau de cette carte.
+          // Masque un Xj figé fantôme : Prog. seul sur ce créneau, ou stock sans aucun compteur
+          // (ex. Cookie replanif ven.→dim. avec counter_start_date carte = 2j).
           const rawFrozenDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
           const frozenCounterDays =
             typeof rawFrozenDays === "number" &&
-            pm.day_of_week?.trim() &&
-            pm.meal_time?.trim() &&
-            isLotProgOpeningAtMealSlot(
+            shouldSuppressFrozenPossibleCounterBadge(
               cardIngredients,
               foodItems,
               pm.day_of_week,
@@ -357,9 +346,7 @@ export function PossibleList({
             const popupIngredients = popupPm.ingredients_override ?? meal.ingredients;
             const frozenCounterDays =
               typeof frozenCounterDaysRaw === "number" &&
-              popupPm.day_of_week?.trim() &&
-              popupPm.meal_time?.trim() &&
-              isLotProgOpeningAtMealSlot(
+              shouldSuppressFrozenPossibleCounterBadge(
                 popupIngredients,
                 foodItems,
                 popupPm.day_of_week,

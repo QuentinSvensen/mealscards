@@ -108,7 +108,6 @@ export function isIsoInNextPlanningWeek(iso: string, ref: Date = new Date()): bo
 
 /**
  * Indique si une date ISO appartient à la semaine calendaire courante (lundi → dimanche).
- * Sert à filtrer les cartes Possible quand la case « hors semaine » est décochée.
  */
 export function isIsoInCurrentPlanningWeek(iso: string, ref: Date = new Date()): boolean {
   return buildWeekDates(0, ref).some((d) => d.iso === iso);
@@ -128,12 +127,41 @@ export function resolvePlanningDayToIso(day: string, ref: Date = new Date()): st
 
 /**
  * Indique si un jour de planning est strictement antérieur au jour calendaire de `ref`.
- * Sert à masquer les cartes « d’avant aujourd’hui » quand la case Possible est cochée.
+ * Utile pour comparer une carte Possible à « aujourd’hui » (mode case cochée).
  */
 export function isPlanningDayStrictlyBeforeToday(day: string, ref: Date = new Date()): boolean {
   const iso = resolvePlanningDayToIso(day, ref);
   if (!iso) return false;
   return iso < format(ref, "yyyy-MM-dd");
+}
+
+/**
+ * Renvoie le seuil ISO (yyyy-MM-dd) sous lequel une carte Possible est masquée.
+ * Case cochée (`fromToday=true`) → aujourd’hui ; décochée → lundi de la semaine courante.
+ */
+export function getPossibleListVisibilityThresholdIso(
+  fromToday: boolean,
+  ref: Date = new Date(),
+): string {
+  if (fromToday) return format(ref, "yyyy-MM-dd");
+  return format(startOfWeek(ref, { weekStartsOn: 1 }), "yyyy-MM-dd");
+}
+
+/**
+ * Décide si une carte Possible reste visible selon son jour de planning et la case filtre.
+ * Décochée (`fromToday=false`) : jours ≥ lundi de la semaine courante (masque seulement avant ce lundi).
+ * Cochée (`fromToday=true`) : jours ≥ aujourd’hui (masque les jours strictement avant aujourd’hui).
+ * Sans jour / date invalide → toujours visible.
+ */
+export function isPossibleMealVisibleForPlanningDay(
+  day: string | null | undefined,
+  fromToday: boolean,
+  ref: Date = new Date(),
+): boolean {
+  if (!day) return true;
+  const iso = resolvePlanningDayToIso(day, ref);
+  if (!iso) return true;
+  return iso >= getPossibleListVisibilityThresholdIso(fromToday, ref);
 }
 
 /**

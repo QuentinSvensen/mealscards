@@ -66,6 +66,7 @@ import {
   computePossibleFrozenCounterDays,
   resolveFrozenPossibleCounterDays,
   isLotProgOpeningAtMealSlot,
+  hasNoFoodCounterEvidenceWhileStockRemains,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
   type FoodItemIndex,
@@ -641,6 +642,9 @@ const Index = () => {
             dayKey: pm.day_of_week,
             mealTime: pm.meal_time,
             lotProgOpensAtThisSlot: lotProgAtSlot,
+            noFoodCounterEvidence: hasNoFoodCounterEvidenceWhileStockRemains(
+              ing, foodItems, foodItemIndex,
+            ),
           },
         );
         if (healed !== existing) {
@@ -1461,6 +1465,9 @@ const Index = () => {
                               const activeStockFallback = ing
                                 ? findEarliestActiveCounterDate(ing, foodItems, foodItemIndex)
                                 : undefined;
+                              // Pas de repli sur `pm.counter_start_date` : une date carte orpheline
+                              // (créneau ven. après replanif dim.) fabriquait un Xj fantôme sans aliment compteur.
+                              // resolveCounterStartForPossibleBadge renvoie déjà le fallback carte si stock vidé.
                               const nextResolvedCounter =
                                 !isOccupied && pm.meals
                                   ? resolveCounterStartForPossibleBadge(
@@ -1472,7 +1479,7 @@ const Index = () => {
                                       foodItemIndex,
                                       undefined,
                                       nextAnalysis?.earliestActiveCounterDate,
-                                    ) ?? activeStockFallback ?? nextAnalysis?.earliestActiveCounterDate ?? nextAnalysis?.earliestCounterDate ?? pm.counter_start_date ?? null
+                                    ) ?? activeStockFallback ?? nextAnalysis?.earliestActiveCounterDate ?? nextAnalysis?.earliestCounterDate ?? null
                                   : null;
                               // Créneau réellement complet : les deux champs doivent être choisis explicitement
                               // (ne pas inférer « midi » dès le jour seul — cela effaçait le compteur trop tôt).
@@ -1541,6 +1548,9 @@ const Index = () => {
                               //  - si le lot s'ouvre plus tôt via une autre carte → figer sur CETTE ouverture (Xj),
                               //  - sinon cette carte ouvre le lot → figer sur son propre créneau (0j masqué).
                               // Hors créneau futur : résolution standard (préserve une ouverture réelle passée).
+                              const noFoodCounterEvidence = hasNoFoodCounterEvidenceWhileStockRemains(
+                                ing, foodItems, foodItemIndex,
+                              );
                               const frozenCounter =
                                 plannedSlotIsFuture && activeIsArtifact && !realPastOpening
                                   ? (earlierOpeningForFreeze ?? plannedSlotIso)
@@ -1551,9 +1561,11 @@ const Index = () => {
                                 nextResolvedCounter ??
                                 pm.counter_start_date ??
                                 undefined;
+                              // Recette sans aucun compteur aliment → ne pas persister une date carte
+                              // (sinon replanif ven.→dim. réécrit un créneau orphelin).
                               const counterForMutate =
                                 hasFullPlanningSlot && !isOccupied
-                                  ? frozenCounter
+                                  ? (noFoodCounterEvidence ? null : frozenCounter)
                                   : preservedCounter;
                               updatePlanning.mutate({
                                 id,
@@ -1562,8 +1574,11 @@ const Index = () => {
                                 counter_start_date: counterForMutate,
                               });
                               if (hasFullPlanningSlot) {
-                                const fallbackDate =
-                                  frozenCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null;
+                                // Sans compteur aliment (actif/Prog.), ne pas réinjecter pm.counter_start_date
+                                // (créneau ven. après replanif dim. → 2j fantôme).
+                                const fallbackDate = noFoodCounterEvidence
+                                  ? (activeStockFallback ?? counter ?? null)
+                                  : (frozenCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null);
                                 // Re-gel AVANT de passer les aliments en Prog. : sinon hasActiveFoodItemCounter
                                 // devient false et le calcul renvoie null (badge écrasé / disparu).
                                 // `fallbackDate` = vraie ouverture (ex. ven. 19h) pour retrouver 1j même si

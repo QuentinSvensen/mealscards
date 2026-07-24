@@ -60,7 +60,7 @@ import { fr } from "date-fns/locale";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { useSortModes } from "@/hooks/useSortModes";
 import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, shouldSuppressFrozenPossibleCounterBadge, hasNoFoodCounterEvidenceWhileStockRemains, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -199,7 +199,7 @@ export function WeeklyPlanning({
 
   /**
    * Calcule la préférence de gel du badge Possible (sans écriture) pour un batch avec d’autres prefs.
-   * Re-gel one-shot quand on pose jour+créneau ; ne remplace jamais une valeur numérique figée par `null`.
+   * Re-gel one-shot quand on pose jour+créneau ; efface un Xj fantôme si aucun aliment n’a de compteur.
    */
   const buildFrozenBadgePreference = (
     pmId: string,
@@ -249,7 +249,13 @@ export function WeeklyPlanning({
     });
     if (pm) {
       const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-      const fallbackDate = earliestCounter || pm.counter_start_date || null;
+      // Ne pas hériter du counter_start_date carte si aucun aliment n’ouvre de compteur
+      // (évite un Xj = décalage de replanif, ex. Cookie ven.→dim.).
+      const fallbackDate = hasNoFoodCounterEvidenceWhileStockRemains(
+        ing, foodItems, foodMacroIndex,
+      )
+        ? (earliestCounter || null)
+        : (earliestCounter || pm.counter_start_date || null);
       // Re-gel AVANT de passer les aliments en Prog. (sinon le calcul renvoie null et efface le badge).
       const prefEntries = [...extraPrefEntries];
       if (day?.trim() && time?.trim()) {
@@ -1510,8 +1516,19 @@ export function WeeklyPlanning({
     const mealForAnalysis = { ...meal, ingredients: displayIngredients };
     const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
 
-    // Badge = valeur figée (prefs) uniquement — plus de calcul live Aliments.
-    const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
+    // Badge = valeur figée (prefs) ; masquer fantôme sans compteur aliment / Prog. seul sur créneau.
+    const rawFrozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
+    const frozenCounterDays =
+      typeof rawFrozenCounterDays === "number" &&
+      shouldSuppressFrozenPossibleCounterBadge(
+        displayIngredients,
+        foodItems,
+        pm.day_of_week,
+        pm.meal_time,
+        foodMacroIndex,
+      )
+        ? null
+        : rawFrozenCounterDays;
     const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
     const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
       frozenCounterDays,
@@ -2467,8 +2484,19 @@ export function WeeklyPlanning({
             const popupDisplayIngredients = ingredientsForPossibleCardDisplay(displayIngredients);
             const mealForAnalysis = { ...meal, ingredients: displayIngredients };
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
-            // Badge = valeur figée (prefs) uniquement.
-            const frozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
+            // Badge = valeur figée (prefs) ; masquer fantôme sans compteur aliment.
+            const rawFrozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
+            const frozenCounterDays =
+              typeof rawFrozenCounterDays === "number" &&
+              shouldSuppressFrozenPossibleCounterBadge(
+                displayIngredients,
+                foodItems,
+                popupPm.day_of_week,
+                popupPm.meal_time,
+                foodMacroIndex,
+              )
+                ? null
+                : rawFrozenCounterDays;
             const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
             const popupCal =
               parsePositivePlanningOverride(popupCalOverride) ??

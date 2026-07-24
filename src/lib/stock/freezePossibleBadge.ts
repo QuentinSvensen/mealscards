@@ -4,6 +4,7 @@ import {
   computePossibleFrozenCounterDays,
   resolveFrozenPossibleCounterDays,
   isLotProgOpeningAtMealSlot,
+  hasNoFoodCounterEvidenceWhileStockRemains,
   POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
   type PossibleFrozenCounterDaysMap,
 } from "./possibleFrozenCounters";
@@ -52,11 +53,16 @@ export function buildFrozenBadgePreferenceEntry(
   const lotProgAtSlot = isLotProgOpeningAtMealSlot(
     ingredients, foodItems, dayKey, mealTime, index,
   );
+  // Stock présent sans aucun compteur → effacer un Xj fantôme (ex. Cookie replanif ven.→dim.).
+  const noFoodCounterEvidence = hasNoFoodCounterEvidenceWhileStockRemains(
+    ingredients, foodItems, index,
+  );
   const merged = resolveFrozenPossibleCounterDays(currentMap[pmId], days, {
     baseStartDate,
     dayKey,
     mealTime,
     lotProgOpensAtThisSlot: lotProgAtSlot,
+    noFoodCounterEvidence,
   });
   return {
     key: POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY,
