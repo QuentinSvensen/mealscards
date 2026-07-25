@@ -18,8 +18,12 @@ import {
 } from "@/lib/ingredientUtils";
 import {
   analyzeMealIngredients,
+  buildStockMap,
   compareExpirationWithCounter,
+  getMealFractionalRatio,
+  getMealMultiple,
   type FoodItemIndex,
+  type StockInfo,
 } from "@/lib/stockUtils";
 
 /** Correspondance repas sans ingrédients ↔ aliment en stock. */
@@ -87,16 +91,28 @@ export type UnifiedAvail =
 
 export type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 
+/** Seuil stock du filtre UI « 100 % » : les partiels sous 90 % sont exclus. */
+export const MIN_FULL_STOCK_RATIO = 0.9;
+
+/**
+ * Filtre « 100 % » = complétude stock uniquement (pas le seuil calories).
+ * - recettes complètes (multiple ≥ 1) → OK
+ * - partiels avec ratio stock ≥ 90 % → OK
+ * - partiels < 90 % (ex. Pain de mie 66 %) → exclus
+ * - is_meal / name-match → OK (portion entière disponible)
+ */
+export function matchesFullStockRecipeFilter(u: UnifiedAvail): boolean {
+  if (u.type === "av" || u.type === "isMeal" || u.type === "nm") return true;
+  if (u.type === "partial") return (u.item.ratio ?? 0) >= MIN_FULL_STOCK_RATIO;
+  return false;
+}
+
 /** Helpers injectés depuis AvailableList (macros / budget calories). */
 export type UnifiedPipelineHelpers = {
   getAvailableSortMacroValue: (meal: Meal, field: "calories" | "protein", ratio?: number) => number;
   buildIsMealCalorieMeal: (fi: FoodItem) => Meal;
   buildNameMatchCalorieMeal: (nm: AvailableNameMatch) => Meal;
   tryFitMeal: (meal: Meal, overrideRatio: number | null, isScalable?: boolean) => { show: boolean; newRatio: number | null };
-  matchesShowOnlyFullRemainingRecipes: (
-    u: UnifiedAvail,
-    localCalculatedRatios: Record<string, number>,
-  ) => boolean;
 };
 
 export type BuildUnifiedAvailableItemsParams = {
@@ -124,6 +140,48 @@ export function splitIsMealByExpiration(items: FoodItem[]): IsMealBuckets {
     withoutDate: items.filter((fi) => !fi.expiration_date),
     withDate: items.filter((fi) => !!fi.expiration_date),
   };
+}
+
+/** Résultat du filtre stock Au choix (recettes complètes + partielles). */
+export type MealsByStockAvailability = {
+  available: AvailableFullItem[];
+  partial: AvailablePartialItem[];
+  stockMap: Map<string, StockInfo>;
+};
+
+/**
+ * Filtre les repas réalisables avec le stock (même règle que AvailableList) :
+ * - disponibles = getMealMultiple ≥ 1
+ * - partiels = getMealFractionalRatio ∈ [0.5, 1) hors déjà disponibles
+ * Pure / testable sans monter React.
+ */
+export function filterMealsByStockAvailability(
+  meals: Meal[],
+  foodItemsOrStockMap: FoodItem[] | Map<string, StockInfo>,
+): MealsByStockAvailability {
+  const stockMap =
+    foodItemsOrStockMap instanceof Map ? foodItemsOrStockMap : buildStockMap(foodItemsOrStockMap);
+
+  const available: AvailableFullItem[] = meals
+    .filter((meal) => meal.ingredients?.trim())
+    .map((meal) => {
+      const multiple = getMealMultiple(meal, stockMap);
+      return { meal, multiple };
+    })
+    .filter(
+      ({ multiple }) => multiple !== null && (multiple === Infinity || (multiple as number) > 0),
+    );
+
+  const availableIds = new Set(available.map((a) => a.meal.id));
+  const partial: AvailablePartialItem[] = meals
+    .filter((meal) => meal.ingredients?.trim() && !availableIds.has(meal.id))
+    .map((meal) => {
+      const ratio = getMealFractionalRatio(meal, stockMap);
+      return ratio === null ? null : { meal, ratio };
+    })
+    .filter(Boolean) as AvailablePartialItem[];
+
+  return { available, partial, stockMap };
 }
 
 export type BuildNameMatchItemsResult = {
@@ -225,7 +283,6 @@ export function buildUnifiedAvailableItems(params: BuildUnifiedAvailableItemsPar
     buildIsMealCalorieMeal,
     buildNameMatchCalorieMeal,
     tryFitMeal,
-    matchesShowOnlyFullRemainingRecipes,
   } = helpers;
 
   const allIsMeal =
@@ -283,11 +340,9 @@ export function buildUnifiedAvailableItems(params: BuildUnifiedAvailableItemsPar
 
   const localCalculatedRatios: Record<string, number> = {};
 
+  // Seuil calories = filtre séparé ; « 100 % » = complétude stock (AND si les deux sont actifs).
   if (useRemainingCalories) {
     items = items.filter((u) => {
-      if (showOnlyFullRemainingRecipes) {
-        return matchesShowOnlyFullRemainingRecipes(u, localCalculatedRatios);
-      }
       if (u.type === "isMeal") {
         return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
       }
@@ -328,6 +383,10 @@ export function buildUnifiedAvailableItems(params: BuildUnifiedAvailableItemsPar
       }
       return u;
     });
+  }
+
+  if (showOnlyFullRemainingRecipes) {
+    items = items.filter((u) => matchesFullStockRecipeFilter(u));
   }
 
   if (sortMode === "manual" && storedOrder.length > 0) {

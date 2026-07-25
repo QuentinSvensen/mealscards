@@ -550,7 +550,9 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
     expect(resolved).toBeTruthy();
   });
 
-  it("lot entamé : conserve un prog. futur sur la fiche malgré un ancien repas Possible", () => {
+  it("lot entamé : Prog. orphelin (sans créneau futur stock) → relance, sans hériter d'un vieux repas", () => {
+    // Sans repas Au choix futur, une date future persistée est un Prog. orphelin
+    // (ex. carte Tous) : on relance maintenant, sans retomber sur un créneau passé lointain.
     const fixedNow = new Date("2026-07-06T08:00:00.000Z");
     const oldPm = {
       ...futurePm,
@@ -567,8 +569,10 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
       counter_start_date: progNoon,
     };
     const resolved = resolveFoodItemCounterStartForDisplay(opened, [oldPm], fixedNow, 400);
-    expect(resolved).toBe(progNoon);
-    expect(new Date(resolved!).getTime()).toBeGreaterThan(fixedNow.getTime());
+    expect(resolved).toBeTruthy();
+    expect(new Date(resolved!).getTime()).toBeLessThanOrEqual(fixedNow.getTime());
+    // Ne doit pas hériter du créneau juin (trop ancien)
+    expect(resolved).not.toBe(computePlannedCounterDate("2026-06-29", "midi"));
   });
 
   it("lot entamé sans compteur persisté : utilise la date courante plutôt qu'un vieux repas", () => {
@@ -734,6 +738,63 @@ describe("resolveFoodItemCounterStartForDisplay", () => {
       4,
     );
     expect(resolved).toBe(computePlannedCounterDate("2026-07-16", "soir"));
+    expect(new Date(resolved!).getTime()).toBeGreaterThan(fixedNow.getTime());
+  });
+
+  it("Crème liquide entamée (#4 →100g) + repas Tous planifié filtré → compteur lancé (pas Prog.)", async () => {
+    // Bug : déplacement depuis Tous planifié écrasait un lot déjà ouvert en « Prog. ».
+    // Les cartes Tous sont exclues via filterStockAffectingPossibleMeals → pas de Prog.
+    const { filterStockAffectingPossibleMeals } = await import("@/lib/masterSourcePossibleMeals");
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const masterPm = {
+      ...futurePm,
+      id: "pm-master-creme",
+      day_of_week: "2026-07-18",
+      meal_time: "soir",
+      ingredients_override: "100g Crème liquide",
+      meals: { ingredients: "100g Crème liquide" },
+    } as PossibleMeal;
+    const creme: FoodItem = {
+      ...tenders,
+      id: "creme1",
+      name: "Crème liquide",
+      grams: "200|100",
+      quantity: 4,
+      // Prog. orphelin déjà écrit par l’ancienne synchro planification
+      counter_start_date: computePlannedCounterDate("2026-07-18", "soir"),
+      no_counter: false,
+    };
+    const stockAffecting = filterStockAffectingPossibleMeals(
+      [masterPm],
+      new Set(["pm-master-creme"]),
+    );
+    expect(stockAffecting).toHaveLength(0);
+    const resolved = resolveFoodItemCounterStartForDisplay(creme, stockAffecting, fixedNow);
+    expect(resolved).toBeTruthy();
+    expect(new Date(resolved!).getTime()).toBeLessThanOrEqual(fixedNow.getTime());
+  });
+
+  it("Crème liquide entamée + repas Au choix planifié → reste en Prog.", () => {
+    const fixedNow = new Date("2026-07-16T12:00:00.000Z");
+    const availablePm = {
+      ...futurePm,
+      id: "pm-avail-creme",
+      day_of_week: "2026-07-18",
+      meal_time: "soir",
+      ingredients_override: "100g Crème liquide",
+      meals: { ingredients: "100g Crème liquide" },
+    } as PossibleMeal;
+    const creme: FoodItem = {
+      ...tenders,
+      id: "creme1",
+      name: "Crème liquide",
+      grams: "200|100",
+      quantity: 4,
+      counter_start_date: "2026-07-16T11:00:00.000Z",
+      no_counter: false,
+    };
+    const resolved = resolveFoodItemCounterStartForDisplay(creme, [availablePm], fixedNow);
+    expect(resolved).toBe(computePlannedCounterDate("2026-07-18", "soir"));
     expect(new Date(resolved!).getTime()).toBeGreaterThan(fixedNow.getTime());
   });
 

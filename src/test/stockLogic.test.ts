@@ -350,28 +350,97 @@ describe("getMealFractionalRatio", () => {
     expect(getMealFractionalRatio(meal, map)).toBeNull();
   });
 
-  it("gère le ratio partiel basé sur le nombre (unités)", () => {
+  it("autorise le ratio partiel unitaire (#2 / besoin 3 ≈ 66 %) sans faux ×1", () => {
     const items = [makeFoodItem({ name: "Oeufs", quantity: 2 })];
     const meal = makeMeal({ name: "Test", ingredients: "3 Oeufs" });
     const map = buildStockMap(items);
-    const ratio = getMealFractionalRatio(meal, map);
-    expect(ratio).toBeCloseTo(2 / 3); // 0.666...
+    // Besoin 3, stock 2 → pas de recette entière, mais carte partielle 2/3
+    expect(getMealMultiple(meal, map)).toBeNull();
+    expect(getMealFractionalRatio(meal, map)).toBeCloseTo(2 / 3);
   });
 
-  it("respecte le pourcentage max avec des ingrédients mixtes unités/grammes", () => {
+  it("autorise le partiel limité par les unités même si les grammes sont OK", () => {
     const items = [
-      makeFoodItem({ name: "Oeufs", quantity: 2 }),                  // 2/4 = 0.5
-      makeFoodItem({ name: "Baguette", quantity: 1, grams: "170" }), // 170/170 = 1.0
+      makeFoodItem({ name: "Oeufs", quantity: 2 }),
+      makeFoodItem({ name: "Baguette", quantity: 1, grams: "170" }),
     ];
     const meal = makeMeal({ name: "Test", ingredients: "4 Oeufs, 170g Baguette" });
     const map = buildStockMap(items);
-    // Baguette est entièrement dispo → ratio serait 1.0 pour ce groupe
-    // Oeufs : 2/4 = 0.5
-    // getMealMultiple retournerait null (besoin de 4 oeufs, 2 dispos)
     expect(getMealMultiple(meal, map)).toBeNull();
-    // getMealFractionalRatio : min(0.5, 1.0) = 0.5
-    const ratio = getMealFractionalRatio(meal, map);
-    expect(ratio).toBeCloseTo(0.5);
+    // Œufs 2/4 = 0,5 limite ; baguette couverte à 100 %
+    expect(getMealFractionalRatio(meal, map)).toBeCloseTo(0.5);
+  });
+
+  it("autorise encore le partiel sur des fractions unitaires (ex. 0,5 œuf)", () => {
+    const map = buildStockMap([
+      makeFoodItem({ name: "Oeuf", quantity: 1 }),
+      makeFoodItem({ name: "Farine", quantity: 1, grams: "60" }),
+    ]);
+    const meal = makeMeal({ name: "Test", ingredients: "0.5 Oeuf, 100g Farine" });
+    // Farine 60/100 = 0.6 limite ; œuf 0.5 pleinement couvert par #1
+    expect(getMealFractionalRatio(meal, map)).toBeCloseTo(0.6);
+  });
+
+  it("Pain de mie #2 → partiel ≈ 66 %, pas de ×1 (OU Pains absente)", () => {
+    const items = [
+      makeFoodItem({ name: "Pain de mie", quantity: 2, grams: null }),
+      makeFoodItem({ name: "Poitrine", quantity: 6, grams: null }),
+    ];
+    const meal = makeMeal({
+      name: "Pain de mie poitrine",
+      ingredients: "3 Pain de mie | 150g Pains, 6 Poitrine",
+    });
+    const map = buildStockMap(items);
+    expect(getMealMultiple(meal, map)).toBeNull();
+    expect(getMealFractionalRatio(meal, map)).toBeCloseTo(2 / 3);
+    expect(getMissingIngredients(meal, map).has(normalizeKey("Pain de mie"))).toBe(true);
+  });
+
+  it("bloque le faux ×1 via « 150g Pains » mais garde le partiel 2/3", () => {
+    const items = [
+      makeFoodItem({ name: "Pain de mie", quantity: 2, grams: null }),
+      makeFoodItem({ name: "Pains", quantity: 1, grams: "200" }),
+      makeFoodItem({ name: "Poitrine", quantity: 6, grams: null }),
+    ];
+    const meal = makeMeal({
+      name: "Pain de mie poitrine",
+      ingredients: "3 Pain de mie | 150g Pains, 6 Poitrine",
+    });
+    const map = buildStockMap(items);
+    // Tête générique « pain » ne doit pas ouvrir un ×1 ; le partiel vient du # Pain de mie.
+    expect(getMealMultiple(meal, map)).toBeNull();
+    expect(getMealFractionalRatio(meal, map)).toBeCloseTo(2 / 3);
+    expect(getMissingIngredients(meal, map).has(normalizeKey("Pain de mie"))).toBe(true);
+  });
+
+  it("branche OU spécifique (Baguette) reste faisable malgré Pain de mie # insuffisant", () => {
+    const items = [
+      makeFoodItem({ name: "Pain de mie", quantity: 2, grams: null }),
+      makeFoodItem({ name: "Baguette", quantity: 1, grams: "200" }),
+      makeFoodItem({ name: "Poitrine", quantity: 6, grams: null }),
+    ];
+    const meal = makeMeal({
+      name: "Pain de mie poitrine",
+      ingredients: "3 Pain de mie | 150g Baguette, 6 Poitrine",
+    });
+    const map = buildStockMap(items);
+    expect(getMealMultiple(meal, map)).toBe(1);
+    expect(getMissingIngredients(meal, map).size).toBe(0);
+  });
+
+  it("OU grammes même produit ne donne pas ×1 ; partiel 2/3 via les unités", () => {
+    const items = [
+      makeFoodItem({ name: "Pain de mie", quantity: 2, grams: "80" }),
+      makeFoodItem({ name: "Poitrine", quantity: 6, grams: null }),
+    ];
+    const meal = makeMeal({
+      name: "Pain de mie poitrine",
+      ingredients: "3 Pain de mie | 150g Pain de mie, 6 Poitrine",
+    });
+    const map = buildStockMap(items);
+    // Pas de conversion #→g pour un faux ×1 ; carte partielle via 2/3 unités.
+    expect(getMealMultiple(meal, map)).toBeNull();
+    expect(getMealFractionalRatio(meal, map)).toBeCloseTo(2 / 3);
   });
 
   it("limite correctement à l'ingrédient limitant, pas à l'ingrédient abondant", () => {

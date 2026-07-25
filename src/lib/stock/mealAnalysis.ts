@@ -7,7 +7,7 @@ import { parseISO } from "date-fns";
 
 import type { FoodItemIndex } from "./foodItemIndex";
 import { lookupFoodItems } from "./foodItemIndex";
-import { buildStockMap, pickBestAlternative } from "./stockMap";
+import { buildStockMap, isAlternativeAvailableInStock, pickBestAlternative } from "./stockMap";
 import {
   isFoodItemCounterEligible,
   hasActiveFoodItemCounter,
@@ -72,6 +72,10 @@ export function analyzeMealIngredients(
     const bestAlt = pickBestAlternative(group, stockMap);
     for (const alt of group) {
       const includeCounter = !bestAlt || alt === bestAlt;
+      // Capsules rouge / bientôt : seulement les alts stock-faisables (ou toutes si aucune ne l'est).
+      // Évite le faux « 3 Pain de mie » rouge alors que la carte ×1 passait via une autre branche OU.
+      const altStockOk = isAlternativeAvailableInStock(group, alt, stockMap);
+      const includeExpirationStyle = !bestAlt || altStockOk;
       for (const item of alt) {
         for (const fi of lookupFoodItems(item.name, foodItems, index)) {
           if (skipIds?.has(fi.id)) continue;
@@ -84,9 +88,9 @@ export function analyzeMealIngredients(
             }
             const parts = fi.expiration_date.split('-');
             const expMs = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])).getTime();
-            if (expMs <= todayMs) {
+            if (includeExpirationStyle && expMs <= todayMs) {
               result.expiredIngredientNames.add(normalizeKey(item.name));
-            } else if (expMs <= soonMs) {
+            } else if (includeExpirationStyle && expMs <= soonMs) {
               if (!earliestSoonDate || fi.expiration_date < earliestSoonDate) {
                 earliestSoonDate = fi.expiration_date;
                 earliestSoonName = normalizeKey(item.name);

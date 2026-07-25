@@ -72,6 +72,7 @@ import { asNumberRecord } from "@/domain/planning/jsonCoerce";
 import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
+import { filterStockAffectingPossibleMeals } from "@/lib/masterSourcePossibleMeals";
 import { getRemainingDayCalories, isDayCaloriesGoalMet } from "@/domain/planning/calorieGoalRange";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { clearWeekdayScopedSnapshots } from "@/domain/planning/weekdaySnapshotUtils";
@@ -271,7 +272,18 @@ export function WeeklyPlanning({
       } else if (prefEntries.length > 1) {
         setPreferencesBatch.mutate(prefEntries);
       }
-      updateFoodItemCountersForPlanning(pmId, ing, day, time, fallbackDate, pm.created_at, possibleMeals);
+      // Cartes « Tous » : pas de déduction → ne pas synchroniser Prog. sur le stock.
+      if (!masterSourcePmIds.has(pmId)) {
+        updateFoodItemCountersForPlanning(
+          pmId,
+          ing,
+          day,
+          time,
+          fallbackDate,
+          pm.created_at,
+          filterStockAffectingPossibleMeals(possibleMeals, masterSourcePmIds),
+        );
+      }
     } else if (extraPrefEntries.length === 1) {
       setPreference.mutate(extraPrefEntries[0]);
     } else if (extraPrefEntries.length > 1) {

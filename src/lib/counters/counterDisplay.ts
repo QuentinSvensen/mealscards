@@ -154,11 +154,13 @@ export function resolveFoodItemCounterStartForDisplay(
     return futureProg;
   }
 
-  // Lot physiquement entamé ou unitaire prélevé : le compteur persisté prime.
+  // Lot physiquement entamé ou unitaire prélevé : le compteur persisté prime
+  // s’il est déjà lancé (passé/présent). Une date future ici est un Prog. orphelin
+  // (ex. carte « Tous » planifiée sans déduction) → on relance une ouverture réelle.
   if (physicallyOpened || countOnlyOpenedOnThisLot) {
     if (stored) {
       const storedMs = new Date(stored).getTime();
-      if (!Number.isNaN(storedMs)) return stored;
+      if (!Number.isNaN(storedMs) && storedMs <= nowMs) return stored;
     }
     const latestInferred =
       findLatestOpenDateFromPossibleMeals(fi, allPossibleMeals, now) ??

@@ -8,6 +8,7 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import { isCountOnlyFoodItem, isFoodItemFullySealed } from "@/lib/stockUtils";
 import { buildPossiblePlanningSnapshot } from "@/hooks/useMealTransfers";
 import { isFoodCounterManuallyStopped } from "@/lib/counters/manualCounterOverrides";
+import { filterStockAffectingPossibleMeals } from "@/lib/masterSourcePossibleMeals";
 
 export interface UseProgCounterReconcileOptions {
   /** Index : `unlocked` ; FoodItems : true par défaut. */
@@ -16,6 +17,8 @@ export interface UseProgCounterReconcileOptions {
   possibleMeals: PossibleMeal[];
   foodItems: FoodItem[];
   foodStockBaselines: Record<string, { quantity?: number | null; totalGrams?: number } | null | undefined>;
+  /** Ids des cartes issues de « Tous » : exclus de la synchro Prog. stock. */
+  masterSourcePmIds?: ReadonlySet<string> | readonly string[] | null;
   reconcileMissedProgCounters: (
     allPossibleMeals: PossibleMeal[],
     stockBaselines?: Record<string, { quantity?: number | null; totalGrams?: number } | null>,
@@ -32,6 +35,7 @@ export function useProgCounterReconcile({
   possibleMeals,
   foodItems,
   foodStockBaselines,
+  masterSourcePmIds,
   reconcileMissedProgCounters,
 }: UseProgCounterReconcileOptions) {
   const lastPlanningSnapshotRef = useRef<string>("");
@@ -39,6 +43,10 @@ export function useProgCounterReconcile({
 
   useEffect(() => {
     if (!enabled || isLoading) return;
+    const stockAffectingMeals = filterStockAffectingPossibleMeals(
+      possibleMeals,
+      masterSourcePmIds,
+    );
     const snapshot = buildPossiblePlanningSnapshot(possibleMeals);
     const needsCounterStart = foodItems.some((fi) => {
       if (fi.is_infinite || fi.storage_type === "surgele" || fi.no_counter) return false;
@@ -56,10 +64,18 @@ export function useProgCounterReconcile({
     if (planningChanged) lastPlanningSnapshotRef.current = snapshot;
     if (progReconcileTimerRef.current) clearTimeout(progReconcileTimerRef.current);
     progReconcileTimerRef.current = setTimeout(() => {
-      void reconcileMissedProgCounters(possibleMeals, foodStockBaselines);
+      void reconcileMissedProgCounters(stockAffectingMeals, foodStockBaselines);
     }, 150);
     return () => {
       if (progReconcileTimerRef.current) clearTimeout(progReconcileTimerRef.current);
     };
-  }, [enabled, isLoading, possibleMeals, foodItems, foodStockBaselines, reconcileMissedProgCounters]);
+  }, [
+    enabled,
+    isLoading,
+    possibleMeals,
+    foodItems,
+    foodStockBaselines,
+    masterSourcePmIds,
+    reconcileMissedProgCounters,
+  ]);
 }

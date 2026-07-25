@@ -1,7 +1,13 @@
 import type { Meal } from "@/types/meals";
 import { parseIngredientGroups, type ParsedIngredient } from "@/lib/ingredientUtils";
 
-import { findStockKey, type StockInfo } from "./stockMap";
+import {
+  findStockKey,
+  isAlternativeAvailableInStock,
+  isGenericHeadNounBypassingFailedCompoundCount,
+  isGramsAltBlockedBySiblingUnitShortfall,
+  type StockInfo,
+} from "./stockMap";
 
 /**
  * Applique une déduction (grammes et/ou unités) au stock mutable courant.
@@ -115,15 +121,35 @@ export function getMealMultiple(meal: Meal, stockMap: Map<string, StockInfo>): n
     return true;
   };
 
+  /**
+   * Construit une vue StockInfo à partir du stock mutable restant
+   * (pour réutiliser les garde-fous OU de stockMap).
+   */
+  const remainingAsStockMap = (): Map<string, StockInfo> => {
+    const view = new Map<string, StockInfo>();
+    for (const [k, v] of remaining.entries()) {
+      view.set(k, {
+        grams: v.grams,
+        count: v.count,
+        infinite: v.infinite,
+        indivisibleUnit: stockMap.get(k)?.indivisibleUnit ?? 0,
+      });
+    }
+    return view;
+  };
+
   let servings = 0;
   const MAX_SERVINGS = 1000; // garde-fou pour éviter toute boucle infinie.
   while (servings < MAX_SERVINGS) {
     const thisServingDeductions: Array<{ key: string; grams: number; count: number }> = [];
     let allGroupsSatisfied = true;
+    const stockView = remainingAsStockMap();
     for (const group of groups) {
       if (group[0]?.[0]?.optional) continue;
       let altChosen = false;
       for (const alt of group) {
+        // Garde-fous OU (même clé / tête générique) avant la réservation portion.
+        if (!isAlternativeAvailableInStock(group, alt, stockView)) continue;
         if (tryReserveAlt(alt, thisServingDeductions)) { altChosen = true; break; }
       }
       if (!altChosen) { allGroupsSatisfied = false; break; }
@@ -200,6 +226,7 @@ export function deductMealServingFromVirtualStock(
     if (group[0]?.[0]?.optional) continue;
     let altChosen = false;
     for (const alt of group) {
+      if (!isAlternativeAvailableInStock(group, alt, virtualStock)) continue;
       if (tryReserveAlt(alt, thisServingDeductions)) {
         altChosen = true;
         break;
@@ -263,6 +290,8 @@ function shouldRoundCountWhenScaling(count: number): boolean {
  * Calcule le ratio fractionnaire maximal (entre 0.5 et 1.0) pour une portion partielle.
  * Utilisé quand un repas n'est pas faisable à 100% mais qu'une portion réduite l'est.
  * Tient compte des ingrédients indivisibles pour arrondir le ratio.
+ * Les unités (#) insuffisantes pour ×1 restent éligibles au partiel via stock/besoin
+ * (ex. 2/3 ≈ 66 %) ; getMealMultiple reste null (pas de fausse recette entière).
  */
 export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockInfo>): number | null {
   if (!meal.ingredients?.trim()) return null;
@@ -277,6 +306,10 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
     let anyAltPartiallyMatched = false;
 
     for (const alt of group) {
+      // Même garde-fous OU que getMealMultiple / pickBestAlternative.
+      if (isGramsAltBlockedBySiblingUnitShortfall(group, alt, stockMap)) continue;
+      if (isGenericHeadNounBypassingFailedCompoundCount(group, alt, stockMap)) continue;
+
       let bundleRatio = Infinity;
       let allPartsHaveSomeStock = true;
 
@@ -287,9 +320,16 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
         if (stock.infinite) continue;
 
         let itemRatio = 0;
-        if (item.count > 0) { itemRatio = stock.count / item.count; }
-        else if (item.qty > 0) { itemRatio = stock.grams / item.qty; }
-        else { itemRatio = Infinity; }
+        if (item.count > 0) {
+          // Ratio unitaire stock/besoin (ex. 2 pains / 3 = 0,66).
+          // Pas de tout-ou-rien ici : le ×1 complet reste refusé par getMealMultiple.
+          // L’arrondi entier (phase 2) ramène ensuite à un # entier (ex. 2/3).
+          itemRatio = stock.count / item.count;
+        } else if (item.qty > 0) {
+          itemRatio = stock.grams / item.qty;
+        } else {
+          itemRatio = Infinity;
+        }
 
         if (itemRatio <= 0) { allPartsHaveSomeStock = false; break; }
         bundleRatio = Math.min(bundleRatio, itemRatio);
@@ -342,7 +382,9 @@ export function getMealFractionalRatio(meal: Meal, stockMap: Map<string, StockIn
         if (snapped <= 0) return null;
         minGlobalRatio = Math.min(minGlobalRatio, snapped / item.qty);
       }
-      if (item.count > 0 && item.qty === 0) {
+      if (item.count > 0 && item.qty === 0 && shouldRoundCountWhenScaling(item.count)) {
+        // Unités entières uniquement : arrondir à l'entier inférieur (ex. 3,2 → 3 œufs).
+        // Les fractions (0,5 œuf) ne sont pas snappées ici.
         const needed = item.count * minGlobalRatio;
         const snapped = Math.floor(needed + 0.01);
         if (snapped <= 0) return null;

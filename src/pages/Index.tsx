@@ -19,7 +19,10 @@ import {
   appendPossibleOnlyMealId,
   POSSIBLE_ONLY_MEAL_IDS_PREF_KEY,
 } from "@/lib/possibleOnlyMeals";
-import { MASTER_SOURCE_PM_IDS_PREF_KEY } from "@/lib/masterSourcePossibleMeals";
+import {
+  MASTER_SOURCE_PM_IDS_PREF_KEY,
+  filterStockAffectingPossibleMeals,
+} from "@/lib/masterSourcePossibleMeals";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
 import { debounceInvalidateQueries } from "@/lib/queryInvalidationDebounce";
 import { Button } from "@/components/ui/button";
@@ -272,14 +275,6 @@ const Index = () => {
     "food_item_stock_baselines",
     {},
   );
-  useProgCounterReconcile({
-    enabled: unlocked,
-    isLoading,
-    possibleMeals,
-    foodItems,
-    foodStockBaselines,
-    reconcileMissedProgCounters,
-  });
 
   useLazyFragmentsPreload(unlocked, {
     importShoppingList,
@@ -684,6 +679,17 @@ const Index = () => {
     },
     [setPreference],
   );
+
+  useProgCounterReconcile({
+    enabled: unlocked,
+    isLoading,
+    possibleMeals,
+    foodItems,
+    foodStockBaselines,
+    masterSourcePmIds,
+    reconcileMissedProgCounters,
+  });
+
   const wasMorningMealFoodItem = useCallback(
     (fi: FoodItem) => getPreference<string[]>(MORNING_MEAL_PREF_KEY, []).includes(fi.id),
     [getPreference],
@@ -1361,7 +1367,10 @@ const Index = () => {
                             setUnParUnSourcePmIds(prev => { const next = new Set(prev); next.delete(id); return next; });
 
                             if (pm) {
-                              const remainingMeals = possibleMeals.filter(p => p.id !== id);
+                              const remainingMeals = filterStockAffectingPossibleMeals(
+                                possibleMeals.filter(p => p.id !== id),
+                                masterSourcePmIds,
+                              );
                               const ing = pm.ingredients_override ?? pm.meals?.ingredients;
                               const fallbackCounter =
                                 snapshots?.[0]?.counter_start_date ?? pm.counter_start_date ?? null;
@@ -1371,16 +1380,10 @@ const Index = () => {
                             }
                           }}
                           onReturnToMaster={(id) => {
-                            const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
                             clearFrozenPossibleBadgeCounter(id);
                             removeFromPossible.mutate(id);
                             setMasterSourcePmIds(prev => { const next = new Set(prev); next.delete(id); return next; });
-
-                            if (pm) {
-                              const remainingMeals = possibleMeals.filter(p => p.id !== id);
-                              const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-                              updateFoodItemCountersForPlanning(null, ing, null, null, null, null, remainingMeals);
-                            }
+                            // Retour Tous : pas de synchro Prog. (jamais déduit).
                           }}
                           onSplitQuantity={(id, ratio, baseIng) => {
                             splitPossibleMealQuantity.mutate({ id, ratio, baseIngredients: baseIng });
@@ -1391,8 +1394,11 @@ const Index = () => {
                             clearFrozenPossibleBadgeCounter(id);
                             deletePossibleMeal.mutate(id);
 
-                            if (pm) {
-                              const remainingMeals = possibleMeals.filter(p => p.id !== id);
+                            if (pm && !masterSourcePmIds.has(id)) {
+                              const remainingMeals = filterStockAffectingPossibleMeals(
+                                possibleMeals.filter(p => p.id !== id),
+                                masterSourcePmIds,
+                              );
                               const ing = pm.ingredients_override ?? pm.meals?.ingredients;
                               updateFoodItemCountersForPlanning(null, ing, null, null, null, null, remainingMeals);
                             }
@@ -1584,7 +1590,18 @@ const Index = () => {
                                 // `fallbackDate` = vraie ouverture (ex. ven. 19h) pour retrouver 1j même si
                                 // le stock est déjà Prog. sur sam. soir (re-sélection Soir après bug).
                                 freezePossibleBadgeCounter(id, ing, day, time, pm.created_at, foodItems, fallbackDate);
-                                updateFoodItemCountersForPlanning(id, ing, day, time, fallbackDate, pm.created_at, nextPossibleMeals);
+                                // Cartes « Tous » : pas de déduction stock → ne pas basculer les aliments en Prog.
+                                if (!masterSourcePmIds.has(id)) {
+                                  updateFoodItemCountersForPlanning(
+                                    id,
+                                    ing,
+                                    day,
+                                    time,
+                                    fallbackDate,
+                                    pm.created_at,
+                                    filterStockAffectingPossibleMeals(nextPossibleMeals, masterSourcePmIds),
+                                  );
+                                }
                               }
                             }
                           }}

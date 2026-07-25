@@ -8,7 +8,8 @@
  * 4. Aliments is_meal (repas autonomes sans recette)
  *
  * Fonctionnalités avancées :
- * - Filtrage par seuil calorique restant (useRemainingCalories)
+ * - Filtrage par seuil calorique restant (useRemainingCalories) — filtre séparé
+ * - Filtre « 100 % » = complétude stock uniquement (multiple ≥ 1 / partiel ≥ 90 %)
  * - Sélecteur de jour (14 j) en mémoire JS : défaut = aujourd’hui, reset au F5 / déconnexion
  * - Tri par calories, protéines, péremption ou manuel
  * - Recherche dans les noms et ingrédients
@@ -35,9 +36,10 @@ import { getExtraPortionMacros, parseFoodMacroValue } from "@/lib/extraMacroUtil
 import { usePreferences } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
-  buildStockMap, findStockKey, getMealMultiple, getMealMultipleAtRatio, getMealFractionalRatio,
+  buildStockMap, findStockKey, getMealMultiple, getMealMultipleAtRatio,
   analyzeMealIngredients,
   getMissingIngredients,
+  getMissingQuantityForIngredient,
   buildIngredientMealIndex,
   buildFoodItemIndex,
   formatExpirationLabel, compareExpirationWithCounter, buildScaledMealForRatio,
@@ -76,12 +78,12 @@ import { getCalorieRangeTotalColorClass } from "@/domain/planning/calorieGoalRan
 import {
   buildUnifiedAvailableItems,
   buildNameMatchItems,
+  filterMealsByStockAvailability,
   splitIsMealByExpiration,
   type AvailableFullItem,
   type AvailableNameMatch,
   type AvailablePartialItem,
   type AvailableSortMode,
-  type UnifiedAvail,
 } from "@/lib/availableListPipeline";
 
 /**
@@ -210,8 +212,6 @@ const SUGGESTION_STYLE_PLAT = "font-semibold not-italic text-emerald-900 dark:te
 const SUGGESTION_STYLE_ALIMENT_INUTILISE =
   "font-semibold tabular-nums not-italic text-amber-950 dark:text-amber-300";
 
-const MIN_NEAR_FULL_REMAINING_RATIO = 0.9;
-
 /**
  * Ligne alternative « Ou ajouter » : verts plus sourds (moins « néon ») que le bloc principal,
  * tout en restant lisibles sur fond sombre.
@@ -229,24 +229,6 @@ const SUGGESTION_STYLE_PLAT_ALT =
  */
 const UNUSED_ALT_SUGGESTION_SHELL =
   "mt-1.5 rounded-lg border border-dashed border-border/50 bg-muted/35 px-2.5 py-1.5 opacity-[0.72] dark:border-border/40 dark:bg-muted/30";
-
-// Retrouve le nom saisi dans la recette pour afficher les apostrophes/accents au lieu de la clé normalisée.
-function getIngredientDisplayFromRecipe(
-  ingredients: string | null | undefined,
-  ingredientKey: string,
-): { qty: number; count: number; displayName: string } {
-  for (const line of parseIngredientsToLines(ingredients ?? null)) {
-    if (normalizeKey(line.name) !== ingredientKey) continue;
-    const qty = parseFloat(line.qty.replace(",", "."));
-    const count = parseFloat(line.count.replace(",", "."));
-    return {
-      qty: Number.isFinite(qty) ? qty : 0,
-      count: Number.isFinite(count) ? count : 0,
-      displayName: line.name || ingredientKey,
-    };
-  }
-  return { qty: 0, count: 0, displayName: ingredientKey };
-}
 
 /**
  * Dans « Pour utiliser … », met en avant les aliments inutilisés (quantité + nom) avec une couleur dédiée.
@@ -432,26 +414,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return getDisplayedProtein(resolved, undefined, undefined, isAvailableCb, foodItems, foodItemIndex) ?? 0;
   };
 
-  // 1. Repas réalisables via correspondance d'ingrédients
-  const available: AvailableFullItem[] = meals
-    .filter(meal => meal.ingredients?.trim())
-    .map((meal) => {
-      const rawMultiple = getMealMultiple(meal, stockMap);
-      if (rawMultiple === null) return { meal, multiple: null };
-      return { meal, multiple: rawMultiple };
-    })
-    .filter(({ multiple }) => multiple !== null && (multiple === Infinity || (multiple as number) > 0));
+  // 1 / 1b. Recettes complètes + partielles (filtre stock partagé / testable)
+  const { available, partial: partialAvailable } = filterMealsByStockAvailability(meals, stockMap);
   const availableMealIds = new Set(available.map(a => a.meal.id));
-
-  // 1b. Recettes partielles (50-100%)
-  const partialAvailable: AvailablePartialItem[] = meals
-    .filter(meal => meal.ingredients?.trim() && !availableMealIds.has(meal.id))
-    .map(meal => {
-      const ratio = getMealFractionalRatio(meal, stockMap);
-      if (ratio === null) return null;
-      return { meal, ratio };
-    })
-    .filter(Boolean) as AvailablePartialItem[];
   const partialMealIds = new Set(partialAvailable.map(p => p.meal.id));
 
   // 2. Correspondance par nom
@@ -541,56 +506,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        }
        return { show: false, newRatio: null };
     }
-  };
-
-  /**
-   * Filtre « 100 % » : garde uniquement les recettes entre 90% et 100%.
-   * - 100% stock → OK
-   * - 90–99% (partiel stock ou ajusté au budget calories) → OK
-   * - < 90% → masqué
-   */
-  const matchesShowOnlyFullRemainingRecipes = (
-    u: UnifiedAvail,
-    localCalculatedRatios: Record<string, number>
-  ): boolean => {
-    if (u.type === 'isMeal') {
-      return tryFitMeal(buildIsMealCalorieMeal(u.fi), 1, false).show;
-    }
-    if (u.type === 'av') {
-      const mealId = u.item.meal.id;
-      const fitFull = tryFitMeal(u.item.meal, 1, false);
-      if (fitFull.show) return true;
-
-      const fitNear = tryFitMeal(u.item.meal, 1, true);
-      const r = fitNear.newRatio ?? 0;
-      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
-        localCalculatedRatios[mealId] = r;
-        return true;
-      }
-      return false;
-    }
-    if (u.type === 'partial') {
-      // Recette partielle (stock incomplet) : ne garder que les ratios >= 90%.
-      const partialKey = `partial-${u.item.meal.id}`;
-      const baseRatio = u.item.ratio ?? 0;
-      if (baseRatio >= 1) {
-        // Sécurité : un "partial" ne devrait pas être à 100, mais s'il l'est, on le laisse passer.
-        return tryFitMeal(u.item.meal, 1, false).show;
-      }
-      if (baseRatio < MIN_NEAR_FULL_REMAINING_RATIO) return false;
-
-      const fitAtBase = tryFitMeal(u.item.meal, baseRatio, false);
-      if (fitAtBase.show) return true;
-
-      const fitNear = tryFitMeal(u.item.meal, baseRatio, true);
-      const r = fitNear.newRatio ?? 0;
-      if (fitNear.show && r >= MIN_NEAR_FULL_REMAINING_RATIO && r < 1) {
-        localCalculatedRatios[partialKey] = r;
-        return true;
-      }
-      return false;
-    }
-    return false;
   };
 
   const { nameMatches, nameMatchedFiIds } = buildNameMatchItems(
@@ -778,7 +693,6 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           buildIsMealCalorieMeal,
           buildNameMatchCalorieMeal,
           tryFitMeal,
-          matchesShowOnlyFullRemainingRecipes,
         },
       }),
     // Les helpers ferment sur stockMap / seuils / macros — deps données ci-dessous suffisent.
@@ -1270,9 +1184,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         if (alternativeCandidate) {
           const labels: string[] = [];
           for (const altMissingKey of alternativeCandidate.missingKeys) {
-            const { qty, count, displayName } = getIngredientDisplayFromRecipe(
+            const { qty, count, displayName } = getMissingQuantityForIngredient(
               alternativeCandidate.meal.ingredients,
               altMissingKey,
+              stockMap,
             );
             labels.push(qty > 0 ? `${formatNumeric(qty)}g ${displayName}` : (count > 0 ? `x${count} ${displayName}` : displayName));
           }
@@ -1300,7 +1215,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           formatUnusedRecipeAmountLabel(fi, unusedQtyInRecipe, unusedCountInRecipe);
 
         for (const missingKey of missing) {
-          const { qty, count, displayName } = getIngredientDisplayFromRecipe(meal.ingredients, missingKey);
+          // Quantité à proposer = manque (besoin − stock), pas le besoin total de la recette.
+          const { qty, count, displayName } = getMissingQuantityForIngredient(
+            meal.ingredients,
+            missingKey,
+            stockMap,
+          );
           const entry = byMissing.get(missingKey) || { missingName: displayName, qty: 0, count: 0, sources: [], countedRecipeIds: new Set<string>() };
           if (!entry.countedRecipeIds.has(meal.id)) {
             entry.qty += qty;
@@ -1370,7 +1290,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       }
       if (finiteStockKeys.size === 0) continue;
 
-      const { qty: mQty, count: mCount, displayName } = getIngredientDisplayFromRecipe(meal.ingredients, missingKey);
+      // Manque affiché = besoin recette − stock (ex. 3 − 2 → ×1), pas le besoin total.
+      const { qty: mQty, count: mCount, displayName } = getMissingQuantityForIngredient(
+        meal.ingredients,
+        missingKey,
+        stockMap,
+      );
       candidates.push({
         meal,
         missingKey,
@@ -1400,6 +1325,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       // Réserver tout le stock fini de cette recette
       for (const sk of c.finiteStockKeys) reservedStock.add(sk);
 
+      // Multi-recettes : max des manques (assez pour compléter la pire / n'importe laquelle).
       const entry = byMissing.get(c.missingKey) ?? { missingName: c.missingDisplayName, qty: 0, count: 0, recipes: [] };
       if (!entry.recipes.some(r => r.id === c.meal.id)) {
         entry.qty = Math.max(entry.qty, c.missingQty);
@@ -1860,7 +1786,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               <label
                 htmlFor={`filter-full-recipes-${category.value}`}
                 className="flex items-center gap-2 rounded-xl bg-background/40 px-2 py-1 text-[10px] font-bold text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
-                title="Afficher uniquement les recettes complètes à 100% qui rentrent dans les calories restantes"
+                title="Afficher uniquement les recettes entièrement faisables en stock (multiple ≥ 1 ou partiel ≥ 90 %). Le seuil calories reste le filtre séparé."
               >
                 <Checkbox
                   id={`filter-full-recipes-${category.value}`}

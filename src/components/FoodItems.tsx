@@ -45,6 +45,10 @@ import {
   markFoodCounterManuallyStarted,
   markFoodCounterManuallyStopped,
 } from "@/lib/counters/manualCounterOverrides";
+import {
+  MASTER_SOURCE_PM_IDS_PREF_KEY,
+  filterStockAffectingPossibleMeals,
+} from "@/lib/masterSourcePossibleMeals";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey, removeDessertFoodNameKey, shouldMarkNewFoodAsDessert, reconcileDessertFoodPreferences } from "@/lib/foodDessertUtils";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { useMeals } from "@/hooks/useMeals";
@@ -757,6 +761,12 @@ export function FoodItems() {
 
   const { getPreference, setPreference, isLoading: prefsLoading } = usePreferences();
   const isLoading = itemsLoading || prefsLoading;
+  // Cartes « Tous » : pas de déduction → exclues du calcul Prog. / badge Timer aliments.
+  const masterSourcePmIds = getPreference<string[]>(MASTER_SOURCE_PM_IDS_PREF_KEY, []);
+  const stockAffectingPossibleMeals = useMemo(
+    () => filterStockAffectingPossibleMeals(possibleMeals, masterSourcePmIds),
+    [possibleMeals, masterSourcePmIds],
+  );
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ["food_items"] });
   const morningMealFoodItemIds = getPreference<string[]>(MORNING_MEAL_PREF_KEY, []);
@@ -891,6 +901,7 @@ export function FoodItems() {
     possibleMeals,
     foodItems: items,
     foodStockBaselines,
+    masterSourcePmIds,
     reconcileMissedProgCounters,
   });
 
@@ -1204,7 +1215,7 @@ export function FoodItems() {
     return getSortedFoodItems(sectionItems, mode, asc, searchQuery, (fi) =>
       resolveFoodItemCounterStartForDisplay(
         fi,
-        possibleMeals,
+        stockAffectingPossibleMeals,
         undefined,
         resolveFoodItemBaselineTotalGrams(
           fi,
@@ -1764,7 +1775,7 @@ export function FoodItems() {
             cycleMealMode={cycleMealMode}
             removeMorningMealId={removeMorningMealId}
             removeDessertFoodId={removeDessertFoodId}
-            possibleMeals={possibleMeals}
+            possibleMeals={stockAffectingPossibleMeals}
             foodStockBaselines={foodStockBaselines}
             foodLibraryAmountMemory={foodLibraryAmountMemory}
           />
@@ -1806,7 +1817,7 @@ export function FoodItems() {
               cycleMealMode={cycleMealMode}
               removeMorningMealId={removeMorningMealId}
               removeDessertFoodId={removeDessertFoodId}
-              possibleMeals={possibleMeals}
+              possibleMeals={stockAffectingPossibleMeals}
               foodStockBaselines={foodStockBaselines}
               foodLibraryAmountMemory={foodLibraryAmountMemory}
               extrasDividerAfterId={section.type === "extras" ? extrasDividerAfterId : undefined}

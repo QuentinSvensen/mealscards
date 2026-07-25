@@ -9,8 +9,9 @@ import {
   groupParsedIngredientLinesForDisplay,
   normalizeKey,
   parseIngredientsToLines,
+  parseQty,
 } from "@/lib/ingredientUtils";
-import { findStockKey, type StockInfo } from "@/lib/stockUtils";
+import { isAlternativeAvailableInStock, type StockInfo } from "@/lib/stockUtils";
 import { cn } from "@/lib/utils";
 
 export type StructuredIngredientInlineProps = {
@@ -76,13 +77,23 @@ export function StructuredIngredientInline({
           {hasMultipleOr && <span className={outerParenCls}>( </span>}
           {group.map((alt, ai) => {
             const isBundle = alt.length > 1;
+            // Alt disponible = stock suffisant + garde-fous OU (même clé / tête générique).
+            const parsedAltForStock = alt.map((item) => ({
+              qty: parseQty(item.qty),
+              count: parseFloat(String(item.count).replace(",", ".")) || 0,
+              name: item.name,
+              optional: !!item.isOptional,
+            }));
+            const parsedGroupForStock = group.map((a) =>
+              a.map((item) => ({
+                qty: parseQty(item.qty),
+                count: parseFloat(String(item.count).replace(",", ".")) || 0,
+                name: item.name,
+                optional: !!item.isOptional,
+              })),
+            );
             const altIsAvailable =
-              !stockMap ||
-              alt.every((item) => {
-                const k = findStockKey(stockMap, item.name);
-                const s = k ? stockMap.get(k) : null;
-                return s && (s.infinite || s.grams > 0 || s.count > 0);
-              });
+              !stockMap || isAlternativeAvailableInStock(parsedGroupForStock, parsedAltForStock, stockMap);
 
             return (
               <React.Fragment key={ai}>

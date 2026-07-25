@@ -29,7 +29,7 @@ export function availableSeuilMaxPrefKey(category: string): string {
 }
 
 /**
- * Clé user_preferences du filtre « 100 % » (recettes complètes dans le seuil).
+ * Clé user_preferences du filtre « 100 % » (recettes entièrement faisables en stock).
  */
 export function availableFullRemainingPrefKey(category: string): string {
   return `available_full_remaining_recipes_${category}`;

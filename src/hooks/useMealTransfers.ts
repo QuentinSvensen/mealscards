@@ -1718,6 +1718,28 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       continue;
     }
 
+    // Guérit un Prog. orphelin : lot entamé avec date future, mais plus aucun créneau
+    // stock-impactant (ex. seule carte « Tous » planifiée, sans déduction) → relance maintenant.
+    for (const fi of liveItemsForOpen) {
+      if (!shouldStartCounter(fi)) continue;
+      if (isFoodCounterManuallyStopped(fi.id)) continue;
+      if (pendingOpens.has(fi.id)) continue;
+      const stored = fi.counter_start_date?.trim();
+      if (!stored) continue;
+      const storedMs = new Date(stored).getTime();
+      if (Number.isNaN(storedMs) || storedMs <= nowMs) continue;
+      if (findEarliestFuturePlannedSlotForFood(fi, allPossibleMeals, now)) continue;
+      const baselineQty = stockBaselines?.[fi.id]?.quantity;
+      const isOpenedGrams = !isCountOnlyFoodItem(fi) && !isFoodItemFullySealed(fi);
+      const isOpenedCount =
+        isCountOnlyFoodItem(fi) &&
+        ((baselineQty != null && baselineQty > 0 && (fi.quantity ?? 1) < baselineQty) ||
+          Boolean(stored));
+      if (isOpenedGrams || isOpenedCount) {
+        pendingOpens.set(fi.id, now.toISOString());
+      }
+    }
+
     // Retire les compteurs obsolètes (fantômes), sans casser un démarrage manuel :
     // - unitaires intacts avec prog. planifié fantôme
     // - unitaires intacts quand un homonyme a déjà une qty plus basse
