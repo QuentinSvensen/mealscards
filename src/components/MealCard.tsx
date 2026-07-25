@@ -12,7 +12,7 @@
  * - Mémorisation React.memo avec comparaison personnalisée pour la performance
  * - StructuredIngredientInline : affiche les ingrédients avec OU, optionnels, manquants
  */
-import React, { useState, forwardRef } from "react";
+import React, { useState, useRef, forwardRef } from "react";
 import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Thermometer, Timer, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,8 +107,11 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const [detailPopupOpen, setDetailPopupOpen] = useState(false);
   /** Contrôle du menu ⋮ : fermé avant d’ouvrir le Dialog description (évite le blocage Radix). */
   const [menuOpen, setMenuOpen] = useState(false);
-  /** Ouvre la description seulement après fermeture réelle du menu (évite aria-hidden + focus). */
-  const [pendingDescriptionOpen, setPendingDescriptionOpen] = useState(false);
+  /**
+   * Flag synchrone (ref) : l’état React arrive trop tard quand Radix ferme le menu
+   * dans le même tick que onSelect → le Dialog ne s’ouvrait jamais.
+   */
+  const pendingDescriptionOpenRef = useRef(false);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const handleSave = () => {
@@ -123,14 +126,26 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     setEditing(null);
   };
 
+  /** Ouvre le Dialog description après fermeture du menu ⋮ (blur + nettoyage pointer-events). */
+  const launchDescriptionEditor = () => {
+    if (!pendingDescriptionOpenRef.current) return;
+    pendingDescriptionOpenRef.current = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    document.body.style.removeProperty("pointer-events");
+    setDescriptionEditorOpen(true);
+  };
+
   /**
    * Prépare l’ouverture de l’éditeur : ferme d’abord le menu ⋮.
-   * Le Dialog s’ouvre après `onMenuOpenChange(false)` pour éviter aria-hidden + focus.
+   * Le Dialog s’ouvre via onMenuOpenChange ou le timeout de secours.
    */
   const openDescriptionEditor = () => {
     setDescriptionDraft(meal.description || "");
-    setPendingDescriptionOpen(true);
+    pendingDescriptionOpenRef.current = true;
     setMenuOpen(false);
+    // Secours si onOpenChange ne voit pas le pending (fermeture Radix déjà en cours).
+    window.setTimeout(launchDescriptionEditor, 0);
   };
 
   /**
@@ -138,14 +153,12 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
    */
   const onMenuOpenChange = (open: boolean) => {
     setMenuOpen(open);
-    if (open || !pendingDescriptionOpen) return;
-    setPendingDescriptionOpen(false);
-    window.requestAnimationFrame(() => {
-      const active = document.activeElement;
-      if (active instanceof HTMLElement) active.blur();
+    if (open) {
+      // Débloque un body coincé après un Dialog précédent (pointer-events: none).
       document.body.style.removeProperty("pointer-events");
-      setDescriptionEditorOpen(true);
-    });
+      return;
+    }
+    window.requestAnimationFrame(launchDescriptionEditor);
   };
 
   /** Enregistre les consignes puis ferme l'éditeur. */
@@ -158,7 +171,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   /** Ferme l’éditeur de description et nettoie un éventuel pointer-events résiduel. */
   const closeDescriptionEditor = () => {
     setDescriptionEditorOpen(false);
-    setPendingDescriptionOpen(false);
+    pendingDescriptionOpenRef.current = false;
     document.body.style.removeProperty("pointer-events");
   };
 

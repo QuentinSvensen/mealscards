@@ -12,7 +12,7 @@
  * detectScaleRatio() : détecte si les ingrédients ont été mis à l'échelle
  * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { ArrowLeft, Copy, MoreVertical, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -242,8 +242,11 @@ export function PossibleMealCard({
   const [descriptionDraft, setDescriptionDraft] = useState("");
   /** Contrôle du menu ⋮ : fermé avant d’ouvrir le Dialog description (évite le blocage Radix pointer-events). */
   const [menuOpen, setMenuOpen] = useState(false);
-  /** Ouvre la description seulement après que le menu ⋮ ait fini de se fermer (évite aria-hidden + focus). */
-  const [pendingDescriptionOpen, setPendingDescriptionOpen] = useState(false);
+  /**
+   * Flag synchrone (ref) : l’état React arrive trop tard quand Radix ferme le menu
+   * dans le même tick que onSelect → le Dialog ne s’ouvrait jamais.
+   */
+  const pendingDescriptionOpenRef = useRef(false);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const foodMacroIndex = useMemo(
@@ -497,15 +500,26 @@ export function PossibleMealCard({
     setEditingIngredients(true);
   };
 
+  /** Ouvre le Dialog description après fermeture du menu ⋮ (blur + nettoyage pointer-events). */
+  const launchDescriptionEditor = () => {
+    if (!pendingDescriptionOpenRef.current) return;
+    pendingDescriptionOpenRef.current = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    document.body.style.removeProperty("pointer-events");
+    setDescriptionEditorOpen(true);
+  };
+
   /**
    * Prépare l’ouverture de l’éditeur de consignes : ferme d’abord le menu ⋮.
-   * Le Dialog ne s’ouvre qu’après `onMenuOpenChange(false)` pour éviter
-   * l’avertissement aria-hidden (focus encore dans le menu caché).
+   * Le Dialog s’ouvre via onMenuOpenChange ou le timeout de secours.
    */
   const openDescriptionEditor = () => {
     setDescriptionDraft(resolveMealDescriptionForDisplay(meal, mealsCatalog) || "");
-    setPendingDescriptionOpen(true);
+    pendingDescriptionOpenRef.current = true;
     setMenuOpen(false);
+    // Secours si onOpenChange ne voit pas le pending (fermeture Radix déjà en cours).
+    window.setTimeout(launchDescriptionEditor, 0);
   };
 
   /**
@@ -514,14 +528,12 @@ export function PossibleMealCard({
    */
   const onMenuOpenChange = (open: boolean) => {
     setMenuOpen(open);
-    if (open || !pendingDescriptionOpen) return;
-    setPendingDescriptionOpen(false);
-    window.requestAnimationFrame(() => {
-      const active = document.activeElement;
-      if (active instanceof HTMLElement) active.blur();
+    if (open) {
+      // Débloque un body coincé après un Dialog précédent (pointer-events: none).
       document.body.style.removeProperty("pointer-events");
-      setDescriptionEditorOpen(true);
-    });
+      return;
+    }
+    window.requestAnimationFrame(launchDescriptionEditor);
   };
 
   /** Enregistre les consignes sur le repas lié à la carte Possible puis ferme l'éditeur. */
@@ -534,7 +546,7 @@ export function PossibleMealCard({
   /** Ferme l’éditeur de description et nettoie un éventuel pointer-events résiduel sur le body. */
   const closeDescriptionEditor = () => {
     setDescriptionEditorOpen(false);
-    setPendingDescriptionOpen(false);
+    pendingDescriptionOpenRef.current = false;
     document.body.style.removeProperty("pointer-events");
   };
 
