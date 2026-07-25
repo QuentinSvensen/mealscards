@@ -156,21 +156,13 @@ export function getIngredientSatietyIndex(
 }
 
 /**
- * Texte du tooltip pour l'indice de satiété affiché dans Macro.
+ * Texte court du tooltip pour l'indice de satiété (Macro).
  */
 export function formatSatietyIndexTooltip(
   index: number,
-  caloriesPer100g?: number | null,
+  _caloriesPer100g?: number | null,
 ): string {
-  const grams =
-    caloriesPer100g != null && caloriesPer100g > 0
-      ? Math.round(computeHoltPortionGrams(caloriesPer100g))
-      : null;
-  const portionHint =
-    grams != null
-      ? ` Pour 240 kcal (méthode Holt) ≈ ${grams} g.`
-      : "";
-  return `Indice de satiété Holt estimé : ${index} (pain blanc = 100 pour 240 kcal).${portionHint} Valeurs de l'étude pour aliments non listés : approximation.`;
+  return `Indice de satiété Holt estimé : ${index}`;
 }
 
 /**

@@ -13,7 +13,7 @@ export interface PlanningInputProps {
  * (manuel midi/soir/goûter, extras, etc.).
  */
 export function PlanningInput({
-  storageKey: _storageKey,
+  storageKey,
   currentValue,
   onSave,
   placeholder,
@@ -23,10 +23,25 @@ export function PlanningInput({
   const [tempVal, setTempVal] = useState("");
   const [editVal, setEditVal] = useState(String(currentValue || ""));
   const inputRef = useRef<HTMLInputElement>(null);
+  /** Empêche le resync props→state pendant la saisie (sinon un clear est écrasé au re-render). */
+  const focusedRef = useRef(false);
 
+  // Resync depuis la valeur résolue seulement hors édition (et hors mode +).
   useEffect(() => {
-    if (!addMode) setEditVal(String(currentValue || ""));
+    if (!addMode && !focusedRef.current) {
+      setEditVal(String(currentValue || ""));
+    }
   }, [currentValue, addMode]);
+
+  // Changement de créneau / semaine : repart d’une saisie propre liée à la nouvelle clé.
+  useEffect(() => {
+    focusedRef.current = false;
+    setAddMode(false);
+    setTempVal("");
+    setEditVal(String(currentValue || ""));
+    // currentValue lu au moment du changement de clé uniquement
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset guidé par storageKey
+  }, [storageKey]);
 
   /** Valide l'ajout relatif (+N) et quitte le mode addition. */
   const commitAdd = () => {
@@ -36,7 +51,7 @@ export function PlanningInput({
     setTempVal("");
   };
 
-  /** Enregistre la valeur absolue saisie si elle a changé. */
+  /** Enregistre la valeur absolue saisie si elle a changé (vide → 0 pour persister un clear). */
   const commitEdit = () => {
     const raw = parseInt(editVal, 10) || 0;
     if (raw === currentValue) return;
@@ -86,7 +101,13 @@ export function PlanningInput({
         type="number"
         value={editVal}
         onChange={(e) => setEditVal(e.target.value)}
-        onBlur={commitEdit}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onBlur={() => {
+          focusedRef.current = false;
+          commitEdit();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();

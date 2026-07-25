@@ -35,6 +35,7 @@ import {
   mergeExtraDaySelectionIds,
   scaleExtraDisplayMacrosByCount,
 } from "@/lib/planningExtraMacros";
+import { writeManualSlotMacroPreference } from "@/domain/planning/resolveManualSlotMacros";
 import {
   pickDayExtraSelections,
   isExtraIdAssignedForDay,
@@ -1267,31 +1268,22 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                     setPreference.mutate({ key: "next_week_drink_checks", value: updated });
                   }}
                   onSaveManualCalories={(val) => {
-                    const updated = { ...nextManualCalories };
-                    if (val > 0) updated[gouterKIso] = val;
-                    else {
-                      delete updated[gouterKIso];
-                      delete updated[gouterKKey];
-                    }
-                    setPreference.mutate({ key: "next_week_manual_calories", value: updated });
+                    setPreference.mutate({
+                      key: "next_week_manual_calories",
+                      value: writeManualSlotMacroPreference(nextManualCalories, iso, key, "gouter", val),
+                    });
                   }}
                   onSaveManualProteins={(val) => {
-                    const updated = { ...nextManualProteins };
-                    if (val > 0) updated[gouterKIso] = val;
-                    else {
-                      delete updated[gouterKIso];
-                      delete updated[gouterKKey];
-                    }
-                    setPreference.mutate({ key: "next_week_manual_proteins", value: updated });
+                    setPreference.mutate({
+                      key: "next_week_manual_proteins",
+                      value: writeManualSlotMacroPreference(nextManualProteins, iso, key, "gouter", val),
+                    });
                   }}
                   onSaveManualFibers={(val) => {
-                    const updated = { ...nextManualFibers };
-                    if (val > 0) updated[gouterKIso] = val;
-                    else {
-                      delete updated[gouterKIso];
-                      delete updated[gouterKKey];
-                    }
-                    setPreference.mutate({ key: "next_week_manual_fibers", value: updated });
+                    setPreference.mutate({
+                      key: "next_week_manual_fibers",
+                      value: writeManualSlotMacroPreference(nextManualFibers, iso, key, "gouter", val),
+                    });
                   }}
                   onDeselectExtra={deselectNextExtraForDay}
                   onDragStartExtra={(extraId, dayIso, dayKey, e) => {

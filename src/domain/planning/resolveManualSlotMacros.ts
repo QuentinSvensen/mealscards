@@ -19,7 +19,8 @@ export type ManualSlotMacros = {
  * Résout kcal / prot / fib d’un créneau manuel :
  * 1) préférences live (clé ISO puis clé jour, via pickPlanningSlotValue) ;
  * 2) sinon fallback sur le snapshot 💾 (même règle que PlanningNextWeekView).
- * Sert à afficher les inputs après reset quand le save existe encore mais les prefs sont vides.
+ * Sert à préremplir les inputs après un reset (prefs absentes) ; un 0 explicite
+ * en pref bloque ce fallback pour laisser un clear manuel vide.
  */
 export function resolveManualSlotMacros(
   prefs: ManualSlotMacroMaps,
@@ -35,4 +36,25 @@ export function resolveManualSlotMacros(
     prot: pickPlanningSlotValue(prefs.proteins, iso, dayKey, slot) ?? snap?.prot ?? 0,
     fiber: pickPlanningSlotValue(prefs.fibers, iso, dayKey, slot) ?? snap?.fiber ?? 0,
   };
+}
+
+/**
+ * Enregistre une macro manuelle de créneau (kcal / prot / fib).
+ * Écrit 0 en cas de clear au lieu de supprimer la clé, pour que
+ * resolveManualSlotMacros ne retombe pas sur le snapshot 💾 pendant l’édition.
+ */
+export function writeManualSlotMacroPreference(
+  record: Record<string, number>,
+  iso: string,
+  dayKey: string,
+  slot: string,
+  val: number,
+): Record<string, number> {
+  const updated = { ...record };
+  const isoKey = `${iso}-${slot}`;
+  const daySlotKey = `${dayKey}-${slot}`;
+  // Normalise sur la clé ISO ; retire l’ancienne clé jour pour éviter un double source.
+  delete updated[daySlotKey];
+  updated[isoKey] = Math.max(0, Math.trunc(Number(val)) || 0);
+  return updated;
 }

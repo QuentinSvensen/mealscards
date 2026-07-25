@@ -101,7 +101,10 @@ import {
   aggregateExtraSelectionMacros,
   getAssignedExtraIdsForDay,
 } from "@/lib/planningExtraMacros";
-import { resolveManualSlotMacros } from "@/domain/planning/resolveManualSlotMacros";
+import {
+  resolveManualSlotMacros,
+  writeManualSlotMacroPreference,
+} from "@/domain/planning/resolveManualSlotMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { usePlanningResetRestore } from "@/hooks/usePlanningResetRestore";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
@@ -2089,22 +2092,22 @@ export function WeeklyPlanning({
                         setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                       }}
                       onSaveManualCalories={(val) => {
-                        const updated = { ...manualCalories };
-                        if (val > 0) updated[`${iso}-${time}`] = val;
-                        else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
-                        setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                        setPreference.mutate({
+                          key: 'planning_manual_calories',
+                          value: writeManualSlotMacroPreference(manualCalories, iso, key, time, val),
+                        });
                       }}
                       onSaveManualProteins={(val) => {
-                        const updated = { ...manualProteins };
-                        if (val > 0) updated[`${iso}-${time}`] = val;
-                        else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
-                        setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                        setPreference.mutate({
+                          key: 'planning_manual_proteins',
+                          value: writeManualSlotMacroPreference(manualProteins, iso, key, time, val),
+                        });
                       }}
                       onSaveManualFibers={(val) => {
-                        const updated = { ...manualFibers };
-                        if (val > 0) updated[`${iso}-${time}`] = val;
-                        else { delete updated[`${iso}-${time}`]; delete updated[`${key}-${time}`]; }
-                        setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                        setPreference.mutate({
+                          key: 'planning_manual_fibers',
+                          value: writeManualSlotMacroPreference(manualFibers, iso, key, time, val),
+                        });
                       }}
                       onSaveSnapshot={() => {
                         const snapKeyIso = `manual-${iso}-${time}`;
@@ -2296,22 +2299,22 @@ export function WeeklyPlanning({
                     setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                   }}
                   onSaveManualCalories={(val) => {
-                    const updated = { ...manualCalories };
-                    if (val > 0) updated[`${iso}-gouter`] = val;
-                    else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                    setPreference.mutate({ key: 'planning_manual_calories', value: updated });
+                    setPreference.mutate({
+                      key: 'planning_manual_calories',
+                      value: writeManualSlotMacroPreference(manualCalories, iso, key, 'gouter', val),
+                    });
                   }}
                   onSaveManualProteins={(val) => {
-                    const updated = { ...manualProteins };
-                    if (val > 0) updated[`${iso}-gouter`] = val;
-                    else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                    setPreference.mutate({ key: 'planning_manual_proteins', value: updated });
+                    setPreference.mutate({
+                      key: 'planning_manual_proteins',
+                      value: writeManualSlotMacroPreference(manualProteins, iso, key, 'gouter', val),
+                    });
                   }}
                   onSaveManualFibers={(val) => {
-                    const updated = { ...manualFibers };
-                    if (val > 0) updated[`${iso}-gouter`] = val;
-                    else { delete updated[`${iso}-gouter`]; delete updated[`${key}-gouter`]; }
-                    setPreference.mutate({ key: 'planning_manual_fibers', value: updated });
+                    setPreference.mutate({
+                      key: 'planning_manual_fibers',
+                      value: writeManualSlotMacroPreference(manualFibers, iso, key, 'gouter', val),
+                    });
                   }}
                   onDeselectExtra={deselectExtraForDay}
                   onDragStartExtra={(extraId, dayIso, dayKey, e) => {

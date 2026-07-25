@@ -104,6 +104,16 @@ function asGoalNumber(value: unknown, fallback = 0): number {
 }
 
 /**
+ * Calcule la largeur CSS (en `ch`) d’un input grammes/quantité selon le texte saisi.
+ * Garde une largeur mini pour 3–4 chiffres sans écraser le nom sur mobile.
+ */
+function qtyFieldWidthCh(value: string, minChars = 3, maxChars = 5): number {
+  const len = Math.max(value.trim().length, minChars);
+  // +1.75ch : marge pour tabular-nums, bordure et px (évite la troncature des 3–4 chiffres)
+  return Math.min(len, maxChars) + 1.75;
+}
+
+/**
  * Pop-up affichée avant d'envoyer une carte Tous / Au choix vers Possible :
  * liste tous les ingrédients, quantités éditables, non optionnels cochés par défaut.
  */
@@ -266,9 +276,11 @@ export function OptionalIngredientsMoveDialog({
                               inputMode="decimal"
                               placeholder="g"
                               value={edit.qty}
+                              size={Math.max(edit.qty.trim().length, 3)}
                               onChange={(e) => onQtyEdit(opt.key, "qty", e.target.value)}
                               onClick={(e) => e.stopPropagation()}
-                              className="h-6 w-[3.25rem] min-w-0 shrink-0 rounded-md border-border/60 bg-background/50 text-[11px] px-1 py-0"
+                              style={{ width: `${qtyFieldWidthCh(edit.qty)}ch` }}
+                              className="h-6 w-auto min-w-0 max-w-[6.75ch] shrink-0 rounded-md border-border/60 bg-background/50 text-[11px] tabular-nums text-center px-1 py-0 [field-sizing:content]"
                             />
                           )}
                           {showCount && (
@@ -277,15 +289,17 @@ export function OptionalIngredientsMoveDialog({
                               inputMode="numeric"
                               placeholder="#"
                               value={edit.count}
+                              size={Math.max(edit.count.trim().length, 2)}
                               onChange={(e) => onQtyEdit(opt.key, "count", e.target.value)}
                               onClick={(e) => e.stopPropagation()}
-                              className="h-6 w-[1.75rem] min-w-0 shrink-0 rounded-md border-border/60 bg-background/50 text-[11px] px-0.5 py-0"
+                              style={{ width: `${qtyFieldWidthCh(edit.count, 2, 3)}ch` }}
+                              className="h-6 w-auto min-w-0 max-w-[4.75ch] shrink-0 rounded-md border-border/60 bg-background/50 text-[11px] tabular-nums text-center px-0.5 py-0 [field-sizing:content]"
                             />
                           )}
                           <button
                             type="button"
                             onClick={() => onToggleKey(opt.key)}
-                            className="text-[12px] font-medium text-foreground leading-tight flex-1 min-w-0 text-left truncate"
+                            className="text-[12px] font-medium text-foreground leading-tight flex-1 min-w-0 text-left whitespace-normal break-normal [overflow-wrap:normal] [word-break:normal]"
                           >
                             {opt.name}
                           </button>

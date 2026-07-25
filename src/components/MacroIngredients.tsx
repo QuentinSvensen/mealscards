@@ -752,15 +752,15 @@ export function MacroIngredients({
               return (
                 <div key={entry.key} className="grid grid-cols-[180px_88px_52px_72px_72px_72px_52px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_64px_80px_56px] items-center gap-0 px-2 py-2">
                   <div className="min-w-0 pr-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <p className={`truncate text-xs sm:text-sm font-semibold ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
+                    <div className="flex items-start gap-1.5 min-w-0">
+                      <p className={`min-w-0 flex-1 break-words whitespace-normal text-xs sm:text-sm font-semibold leading-tight ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
                       <NutritionScoreBadge
                         score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber, scoreOptions)}
                         rawScore={getIngredientMacroNutritionScoreRaw(draft.calories, draft.protein, draft.fiber, scoreOptions)}
                         onLight
                       />
                     </div>
-                    <p className="truncate text-[10px] text-muted-foreground">
+                    <p className="break-words whitespace-normal text-[10px] text-muted-foreground leading-snug">
                       {entry.recipeCount} recette(s){entry.foodCount ? ` · ${entry.foodCount} aliment(s)` : ""}{entry.overrideCount ? ` · ${entry.overrideCount} possible(s)` : ""}
                     </p>
                     {hasConflict && (
