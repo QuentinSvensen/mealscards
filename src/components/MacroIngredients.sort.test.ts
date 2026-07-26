@@ -41,11 +41,12 @@ function makeEntry(
 }
 
 describe("MacroIngredients sort", () => {
-  it("cycle Nom → Note → Calories → Protéines → Nom", () => {
+  it("cycle Nom → Note → Calories → Protéines → Satiété → Nom", () => {
     expect(cycleMacroSortMode("name")).toBe("note");
     expect(cycleMacroSortMode("note")).toBe("calories");
     expect(cycleMacroSortMode("calories")).toBe("protein");
-    expect(cycleMacroSortMode("protein")).toBe("name");
+    expect(cycleMacroSortMode("protein")).toBe("satiety");
+    expect(cycleMacroSortMode("satiety")).toBe("name");
   });
 
   it("cycle filtre type Tous → Viande → Féculent → Tous", () => {
@@ -98,6 +99,17 @@ describe("MacroIngredients sort", () => {
     expect(compareMacroIngredientEntries(better, good, {}, "note", false)).toBeLessThan(0);
     // Croissant : bon (105) avant meilleur (110)
     expect(compareMacroIngredientEntries(better, good, {}, "note", true)).toBeGreaterThan(0);
+  });
+
+  it("trie par satiété croissant puis décroissant", () => {
+    // Ravioli dilué ≪ viande riche en protéines
+    const low = makeEntry("ravioli", "Ravioli", "83", "3.6", "1.6");
+    const high = makeEntry("steak", "Steak", "150", "25", "0");
+    expect(compareMacroIngredientEntries(low, high, {}, "satiety", true)).toBeLessThan(0);
+    expect(compareMacroIngredientEntries(low, high, {}, "satiety", false)).toBeGreaterThan(0);
+    // Macros manquantes → fin de liste
+    const missing = makeEntry("m", "Inconnu", "", "", "");
+    expect(compareMacroIngredientEntries(missing, high, {}, "satiety", true)).toBeGreaterThan(0);
   });
 });
 

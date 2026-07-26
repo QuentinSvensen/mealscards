@@ -46,7 +46,7 @@ export function SatietyIndexBadge({
 }: SatietyIndexBadgeProps) {
   if (hideWhenMissing && index == null) return null;
 
-  // px-2 laisse passer 3 chiffres (ex. 532) sans largeur fixe.
+  // px-2 laisse passer jusqu’à 3 chiffres (ex. 100) sans largeur fixe.
   const sizeClass = onMealCard
     ? "text-[10px] font-black px-2 py-0.5"
     : "h-8 min-w-[2rem] px-2 text-xs font-semibold";

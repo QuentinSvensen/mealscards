@@ -50,7 +50,7 @@ import type { FoodType } from "@/types/food";
 export const INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY = "ingredient_macro_unit_grams";
 
 /** Modes de tri de la liste Macro. */
-export type MacroSortMode = "name" | "note" | "calories" | "protein";
+export type MacroSortMode = "name" | "note" | "calories" | "protein" | "satiety";
 
 /** Filtre viande / féculent de la liste Macro (`all` = aucun filtre). */
 export type MacroFoodTypeFilter = "all" | "viande" | "feculent";
@@ -157,18 +157,19 @@ export function cycleMacroFoodTypeFilter(filter: MacroFoodTypeFilter): MacroFood
   return "all";
 }
 
-/** Passe au mode de tri suivant : Nom → Note → Calories → Protéines → Nom. */
+/** Passe au mode de tri suivant : Nom → Note → Calories → Protéines → Satiété → Nom. */
 export function cycleMacroSortMode(mode: MacroSortMode): MacroSortMode {
   if (mode === "name") return "note";
   if (mode === "note") return "calories";
   if (mode === "calories") return "protein";
+  if (mode === "protein") return "satiety";
   return "name";
 }
 
 /**
- * Compare deux lignes Macro selon le mode (nom, note nutritionnelle, calories, protéines).
- * Les valeurs manquantes (note/kcal/prot null) sont poussées en fin de liste.
- * Pour la note en base Quantité, utilise les grammes/unité pour normaliser au 100 g.
+ * Compare deux lignes Macro selon le mode (nom, note, calories, protéines, satiété).
+ * Les valeurs manquantes (note/kcal/prot/sat null) sont poussées en fin de liste.
+ * Pour la note / satiété en base Quantité, utilise les grammes/unité pour normaliser au 100 g.
  */
 export function compareMacroIngredientEntries(
   a: IngredientMacroEntry,
@@ -202,6 +203,36 @@ export function compareMacroIngredientEntries(
     if (scoreA == null) return 1;
     if (scoreB == null) return -1;
     if (scoreA !== scoreB) return dir * (scoreA - scoreB);
+    return byName();
+  }
+
+  if (mode === "satiety") {
+    const scoreOptionsA = {
+      basisLabel: a.basisLabel,
+      unitGrams: unitGramsByKey[a.key],
+      foodType: foodTypeByKey[a.key] ?? null,
+    };
+    const scoreOptionsB = {
+      basisLabel: b.basisLabel,
+      unitGrams: unitGramsByKey[b.key],
+      foodType: foodTypeByKey[b.key] ?? null,
+    };
+    const satA = getIngredientSatietyIndex(
+      draftA.calories,
+      draftA.protein,
+      draftA.fiber,
+      scoreOptionsA,
+    );
+    const satB = getIngredientSatietyIndex(
+      draftB.calories,
+      draftB.protein,
+      draftB.fiber,
+      scoreOptionsB,
+    );
+    if (satA == null && satB == null) return byName();
+    if (satA == null) return 1;
+    if (satB == null) return -1;
+    if (satA !== satB) return dir * (satA - satB);
     return byName();
   }
 
@@ -281,10 +312,30 @@ export function MacroIngredients({
   }, [entries, searchQuery, foodTypeFilter, foodTypeByKey, drafts, sortMode, sortAscending, unitGramsByKey]);
 
   const sortLabel =
-    sortMode === "name" ? "Nom" : sortMode === "note" ? "Note" : sortMode === "calories" ? "Calories" : "Protéines";
+    sortMode === "name"
+      ? "Nom"
+      : sortMode === "note"
+        ? "Note"
+        : sortMode === "calories"
+          ? "Calories"
+          : sortMode === "protein"
+            ? "Protéines"
+            : "Satiété";
   const SortIcon =
-    sortMode === "name" ? ArrowUpDown : sortMode === "note" ? Hash : sortMode === "calories" ? Flame : Drumstick;
-  const showSortDirection = sortMode === "note" || sortMode === "calories" || sortMode === "protein";
+    sortMode === "name"
+      ? ArrowUpDown
+      : sortMode === "note"
+        ? Hash
+        : sortMode === "calories"
+          ? Flame
+          : sortMode === "protein"
+            ? Drumstick
+            : Scale;
+  const showSortDirection =
+    sortMode === "note" ||
+    sortMode === "calories" ||
+    sortMode === "protein" ||
+    sortMode === "satiety";
   const foodTypeFilterLabel =
     foodTypeFilter === "viande" ? "Via" : foodTypeFilter === "feculent" ? "Féc" : "Type";
 
@@ -331,7 +382,7 @@ export function MacroIngredients({
     setFoodTypeFilter((current) => cycleMacroFoodTypeFilter(current));
   };
 
-  /** Alterne le mode de tri Macro (Nom → Note → Calories → Protéines). */
+  /** Alterne le mode de tri Macro (Nom → Note → Calories → Protéines → Satiété). */
   const toggleSortMode = () => {
     setSortMode((current) => cycleMacroSortMode(current));
     setSortAscending(true);

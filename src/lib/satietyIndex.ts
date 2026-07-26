@@ -33,17 +33,19 @@ export type IngredientSatietyOptions = IngredientMacroScoreOptions;
  *       + bonus_volume (faible densité kcal)
  *       − max(0, kcal − 210) × 0,15            // malus très calorique
  * Bonus volume : plein pour un profil « pomme de terre » (féculent, < 130 kcal,
- * protéines ≤ 3) ; très réduit si aliment dilué (peu de prot. + peu calorique),
- * sinon standard — évite de surestimer un ravioli conserve (~25, pas ~65).
+ * protéines ≤ 3) ; annulé + malus dilué si peu de prot. + peu calorique
+ * (ravioli conserve → ~25, pas ~65) ; sinon standard.
  * Ajustements type :
  *   - viande : +18 + 1,4×protéines
  *   - féculent type pomme de terre : +22
- *   - féculent dense (≥ 200 kcal) : −12
+ *   - féculent dense (≥ 200 kcal) peu protéiné : −12
+ *   - repas mixte densément protéiné (prot. ≥ 9, fib. ≤ 2, 200–350 kcal) :
+ *     même sans type UI (kebab/tacos Macro) → annule malus kcal +50 → ~100
  * Score final : entier dans [5, 100].
  *
  * En recette : contribution = indice_base × (grammes / 100), puis indice carte =
- * round(Σ contributions) — somme pondérée brute (volume déjà dans les grammes),
- * sans plafond à 100 pour l’instant.
+ * round(Σ / 4,5), plafonné dans [0, 100] — l’échelle Macro 100 g reste inchangée
+ * (ravioli ≈ 25, kebab/tacos ≈ 100) ; seule la satiété carte est ramenée « sur 100 ».
  */
 export function estimateMealsCardsSatietyIndex(
   caloriesPer100g: number,
@@ -60,17 +62,26 @@ export function estimateMealsCardsSatietyIndex(
   const isPotatoLike =
     foodType === "feculent" && calories < 130 && protein <= 3;
   const isDiluted = protein < 5 && calories < 160;
+  // Plat mixte calorique + protéiné, fibres ≤ 2 (kebab/tacos) — même sans type UI.
+  // Exclut le pain (souvent ≥ 2,5 fib.) qui ne doit pas saturer à 100.
+  const isDenseProteinMeal =
+    foodType !== "viande" &&
+    protein >= 9 &&
+    fiber <= 2 &&
+    calories >= 200 &&
+    calories <= 350;
 
   let raw = 12 + 3.8 * protein + 3.2 * fiber;
   if (isPotatoLike) {
     raw += volumeBonus;
   } else if (isDiluted) {
     // Conserve / féculent humide : l’eau baisse les kcal sans caler vraiment.
-    raw += volumeBonus * 0.05;
+    raw -= 6;
   } else {
     raw += volumeBonus;
   }
-  raw -= Math.max(0, calories - 210) * 0.15;
+  const calorieMalus = Math.max(0, calories - 210) * 0.15;
+  raw -= calorieMalus;
 
   if (foodType === "viande") {
     raw += 18 + 1.4 * protein;
@@ -78,7 +89,10 @@ export function estimateMealsCardsSatietyIndex(
   if (isPotatoLike) {
     raw += 22;
   }
-  if (foodType === "feculent" && calories >= 200) {
+  if (isDenseProteinMeal) {
+    // Remonte vers le plafond : un kebab/tacos Macro cale fort (type UI souvent vide ou Féc).
+    raw += calorieMalus + 50;
+  } else if (foodType === "feculent" && calories >= 200) {
     raw -= 12;
   }
 
@@ -428,7 +442,7 @@ export function computeRecipeIngredientSatietyContribution(
   return computeIngredientSatietyContribution(index, portionFactor);
 }
 
-/** Détail satiété recette : somme pondérée (sans plafond) + volume en grammes retenu. */
+/** Détail satiété recette : somme pondérée ÷ 4,5, clamp [0, 100] + volume en grammes retenu. */
 export type MealSatietyDetails = {
   index: number;
   totalGrams: number | null;
@@ -438,10 +452,12 @@ export type MealSatietyDetails = {
  * Calcule la satiété totale de la recette + volume (grammes) des alts. retenues.
  *
  * Formule :
- *   indice = round(Σ contributions)
+ *   indice = clamp_0_100(round(Σ / MEAL_SATIETY_CARD_DIVISOR))
  * avec contribution = indice_base_100g × (grammes / 100).
  *
- * Le volume est intrinsèque à la somme : +grammes d’un aliment augmente Σ.
+ * Le ÷4,5 ramène l’échelle carte « sur 100 » (Σ brute ~450 pour un gros repas).
+ * Le volume est intrinsèque à la somme : +grammes d’un aliment augmente Σ
+ * (et donc l’indice, sauf au plafond 100).
  * Optionnels exclus ; une seule alt. par groupe « ou ».
  * Une ligne n'entre que si contribution **et** grammes sont connus.
  * Retourne null si aucune ligne exploitable.
@@ -478,7 +494,13 @@ export function getMealRecipeSatietyDetails(
 }
 
 /**
- * Indice satiété totale d'une recette (somme pondérée, sans plafond), ou null si incalculable.
+ * Diviseur pour ramener la satiété carte « sur 100 » (Σ brute ~450 → ~100).
+ * Macro / 100 g non concerné.
+ */
+export const MEAL_SATIETY_CARD_DIVISOR = 4.5;
+
+/**
+ * Indice satiété totale d'une recette (somme pondérée ÷ 4,5, clamp [0, 100]), ou null si incalculable.
  */
 export function getMealRecipeSatietyIndex(
   ingredients: string | null | undefined,
@@ -489,13 +511,14 @@ export function getMealRecipeSatietyIndex(
 }
 
 /**
- * Convertit la somme des contributions satiété d'une recette en indice carte.
- * Somme pondérée brute : round(Σ), sans plafond à 100.
+ * Convertit la somme des contributions satiété d'une recette en indice carte « sur 100 ».
+ * Formule : round(Σ / 4,5), puis clamp dans [0, 100].
+ * Ex. Σ ≈ 82 → 18 ; kebab 350 g (base 100) → 78 ; gros hachis Σ ≈ 532 → 100.
  */
 export function normalizeMealRecipeSatietyTotal(rawContributionSum: number): number | null {
   if (!Number.isFinite(rawContributionSum)) return null;
   if (rawContributionSum <= 0) return 0;
-  return Math.round(rawContributionSum);
+  return clampMealSatietyIndex(rawContributionSum / MEAL_SATIETY_CARD_DIVISOR);
 }
 
 /**
@@ -545,8 +568,8 @@ export type MealSatietyMacrosSource = {
 /**
  * Estime l'indice Meals Cards à partir des macros d'une fiche repas (repli).
  * Avec grammes de portion → macros ramenées au 100 g, puis contribution totale
- * (indice_base × grammes/100) sans plafond ;
- * sinon macros traitées comme déjà exprimées pour 100 g.
+ * (indice_base × grammes/100) normalisée carte via ÷5 et clamp [0, 100] ;
+ * sinon macros traitées comme déjà exprimées pour 100 g (échelle Macro inchangée).
  * N'invente pas de macros manquantes (fibre « 0 » explicite reste valide).
  */
 export function estimateMealsCardsSatietyIndexFromMealMacros(
@@ -633,7 +656,7 @@ export function getMealSatietyDetails(
 }
 
 /**
- * Indice de satiété d'un repas catalogue / carte (somme pondérée, sans plafond), ou null.
+ * Indice de satiété d'un repas catalogue / carte (somme pondérée ÷ 4,5, clamp [0, 100]), ou null.
  */
 export function getMealSatietyIndex(
   meal: MealSatietyMacrosSource,
@@ -644,14 +667,14 @@ export function getMealSatietyIndex(
 }
 
 /**
- * Texte du tooltip satiété carte : satiété totale de la recette + volume retenu.
+ * Texte du tooltip satiété carte : indice sur 100 + volume retenu.
  */
 export function formatMealSatietyIndexTooltip(
   index: number,
   totalGrams?: number | null,
 ): string {
   if (totalGrams != null && totalGrams > 0) {
-    return `Satiété de la recette : ${index} · Volume : ${Math.round(totalGrams)} g`;
+    return `Satiété de la recette (sur 100) : ${index} · Volume : ${Math.round(totalGrams)} g`;
   }
-  return `Satiété Meals Cards (recette) : ${index}`;
+  return `Satiété Meals Cards (recette, sur 100) : ${index}`;
 }
