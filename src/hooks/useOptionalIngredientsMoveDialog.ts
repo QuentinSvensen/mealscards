@@ -21,6 +21,7 @@ export type OptionalIngredientSelection = {
 export function useOptionalIngredientsMoveDialog() {
   const [optionalMoveDialog, setOptionalMoveDialog] = useState<{
     mealName: string;
+    mealCategory: string | null;
     groups: OptionalIngredientGroup[];
     ingredients: string | null;
   } | null>(null);
@@ -32,12 +33,14 @@ export function useOptionalIngredientsMoveDialog() {
   /**
    * Demande quels ingrédients inclure sur la carte Possible (null = annulation).
    * `stockMap` sert à pré-cocher la bonne alternative « ou ».
+   * `mealCategory` sert à afficher la note nutritionnelle dans la pop-up.
    */
   const askOptionalIngredientInclusions = (
     mealName: string,
     groups: OptionalIngredientGroup[],
     ingredients: string | null = null,
     stockMap?: Map<string, OptionalStockSnapshot>,
+    mealCategory: string | null = null,
   ) =>
     new Promise<OptionalIngredientSelection | null>((resolve) => {
       // Garde re-entrante : annule la demande précédente encore ouverte.
@@ -50,7 +53,7 @@ export function useOptionalIngredientsMoveDialog() {
       groupsRef.current = groups;
       setOptionalIncludeKeys(defaultIncludedIngredientKeys(groups, stockMap));
       setOptionalQtyEdits(defaultIngredientQtyEdits(groups));
-      setOptionalMoveDialog({ mealName, groups, ingredients });
+      setOptionalMoveDialog({ mealName, mealCategory, groups, ingredients });
     });
 
   /** Ferme la pop-up et résout la promesse en attente. */

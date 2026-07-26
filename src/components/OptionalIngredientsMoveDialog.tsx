@@ -29,12 +29,19 @@ import {
   resolvePlanningGoalForIso,
 } from "@/lib/planningWeekUtils";
 import { formatExpirationLabel } from "@/lib/stockUtils";
+import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
+import { getMealNutritionScore } from "@/lib/nutritionScore";
+import { getMealRecipeSatietyDetails } from "@/lib/satietyIndex";
+import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 
 export type { OptionalIngredientChoice, OptionalIngredientGroup } from "@/lib/ingredientUtils";
 
 interface OptionalIngredientsMoveDialogProps {
   open: boolean;
   mealName: string;
+  /** Catégorie du repas (plat / petit_dejeuner) pour la note nutritionnelle. */
+  mealCategory?: string | null;
   /** Recette source (pour recalculer les macros des cases cochées). */
   ingredients: string | null;
   groups: OptionalIngredientGroup[];
@@ -42,6 +49,8 @@ interface OptionalIngredientsMoveDialogProps {
   qtyEdits: Record<string, IngredientQtyEdit>;
   foodItems: FoodItem[];
   foodItemIndex?: FoodItemMacroIndex;
+  /** Sources Macro pour l’indice de satiété recette (même base que les cartes Repas). */
+  ingredientMacroSources?: IngredientMacroAutofillSources;
   /** Pref « Masquer calories » : remplace le chiffre kcal par le mot coloré du jour Au choix. */
   hideDayCalorieTotals?: boolean;
   onToggleKey: (key: string) => void;
@@ -120,12 +129,14 @@ function qtyFieldWidthCh(value: string, minChars = 3, maxChars = 5): number {
 export function OptionalIngredientsMoveDialog({
   open,
   mealName,
+  mealCategory = null,
   ingredients,
   groups,
   includeKeys,
   qtyEdits,
   foodItems,
   foodItemIndex,
+  ingredientMacroSources,
   hideDayCalorieTotals = false,
   onToggleKey,
   onQtyEdit,
@@ -135,6 +146,31 @@ export function OptionalIngredientsMoveDialog({
   const totals = useMemo(
     () => computeCheckedIngredientTotals(ingredients, includeKeys, qtyEdits, foodItems, foodItemIndex),
     [ingredients, includeKeys, qtyEdits, foodItems, foodItemIndex],
+  );
+
+  /** Ingrédients actuellement cochés (quantités éditées) pour note + satiété alignées sur la sélection. */
+  const selectedIngredients = useMemo(
+    () => buildIngredientsOverrideFromSelection(ingredients, includeKeys, qtyEdits),
+    [ingredients, includeKeys, qtyEdits],
+  );
+
+  /** Note nutritionnelle de la sélection (même formule que les cartes Repas). */
+  const nutritionScore = useMemo(
+    () =>
+      getMealNutritionScore({
+        category: mealCategory,
+        ingredients: selectedIngredients ?? ingredients,
+        calories: null,
+        protein: null,
+        fiber: null,
+      }),
+    [mealCategory, selectedIngredients, ingredients],
+  );
+
+  /** Densite satiété 0–100 + volume (g) de la sélection. */
+  const satietyDetails = useMemo(
+    () => getMealRecipeSatietyDetails(selectedIngredients ?? ingredients, ingredientMacroSources),
+    [selectedIngredients, ingredients, ingredientMacroSources],
   );
 
   const { getDayCalories, DAILY_GOAL, DAILY_GOAL_LOW } = useCalorieBalance();
@@ -196,8 +232,16 @@ export function OptionalIngredientsMoveDialog({
       <DialogContent className="max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle className="text-left">
-              {mealName ? `Ingrédients — ${mealName}` : "Ingrédients optionnels"}
+            <DialogTitle className="text-left flex items-center gap-1.5 min-w-0">
+              <span className="truncate">{mealName || "Sélection"}</span>
+              <NutritionScoreBadge score={nutritionScore} />
+              <SatietyIndexBadge
+                index={satietyDetails?.index ?? null}
+                totalGrams={satietyDetails?.totalGrams}
+                hideWhenMissing
+                onMealCard
+                recipeTotal
+              />
             </DialogTitle>
             <div className="flex items-center gap-1.5 shrink-0 text-[11px] font-bold leading-none">
               {hideDayCalorieTotals ? (

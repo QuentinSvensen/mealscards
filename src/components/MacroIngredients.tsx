@@ -693,9 +693,8 @@ export function MacroIngredients({
             <NutritionScoreBadge
               score={newIngredientNutritionScore}
               rawScore={newIngredientNutritionScoreRaw}
-              onLight
             />
-            <span title="Indice Holt pour 240 kcal">
+            <span title="Indice Meals Cards pour 100 g">
               <SatietyIndexBadge
                 index={newIngredientSatiety}
                 caloriesPer100g={parseMacroDisplay(newIngredientCalories)}
@@ -718,7 +717,7 @@ export function MacroIngredients({
           <span className="flex items-center justify-center gap-1"><Flame className="h-3 w-3 text-orange-500" />Kcal</span>
           <span className="flex items-center justify-center gap-1"><Drumstick className="h-3 w-3 text-blue-500" />Prot.</span>
           <span className="flex items-center justify-center gap-1"><Wheat className="h-3 w-3 text-emerald-500" />Fib.</span>
-          <span className="flex items-center justify-center gap-1" title="Indice Holt estimé pour 240 kcal (pas pour 100 g)"><Scale className="h-3 w-3 text-violet-500" />Sat.</span>
+          <span className="flex items-center justify-center gap-1" title="Indice Meals Cards estimé pour 100 g"><Scale className="h-3 w-3 text-violet-500" />Sat.</span>
           <span className="text-center">Save</span>
           <span className="text-center">Suppr.</span>
         </div>
@@ -757,7 +756,6 @@ export function MacroIngredients({
                       <NutritionScoreBadge
                         score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber, scoreOptions)}
                         rawScore={getIngredientMacroNutritionScoreRaw(draft.calories, draft.protein, draft.fiber, scoreOptions)}
-                        onLight
                       />
                     </div>
                     <p className="break-words whitespace-normal text-[10px] text-muted-foreground leading-snug">

@@ -1610,7 +1610,6 @@ export function FoodItems() {
           <NutritionScoreBadge
             score={newFoodNutritionScore}
             rawScore={newFoodNutritionScoreRaw}
-            onLight
           />
         </div>
         <Popover open={expCalOpen} onOpenChange={setExpCalOpen}>
@@ -1699,7 +1698,6 @@ export function FoodItems() {
               <NutritionScoreBadge
                 score={pendingFoodNutritionScore}
                 rawScore={pendingFoodNutritionScoreRaw}
-                onLight
               />
             </div>
           )}

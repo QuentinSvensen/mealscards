@@ -35,7 +35,9 @@ import {
 import { findStockKey, type StockInfo, type FoodItemIndex, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber } from "@/lib/stockUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
 import { getMealNutritionScore } from "@/lib/nutritionScore";
+import { getMealSatietyDetails } from "@/lib/satietyIndex";
 
 interface MealCardProps {
   meal: Meal;
@@ -205,6 +207,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   const ovenMinutes = meal.oven_minutes;
   const hasCuisson = ovenTemp || ovenMinutes;
   const nutritionScore = getMealNutritionScore(meal, isAvailableCb);
+  // Satiété : densite 0–100 + volume (g) ; catalogue = recette écrite (pas de filtre stock).
+  const mealSatietyDetails = getMealSatietyDetails(meal, ingredientMacroSources);
   const headerCal = getDisplayedCalories(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
   const headerPro = getDisplayedProtein(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
   const headerFiber = getDisplayedFiber(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
@@ -254,6 +258,13 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                 {meal.name}
               </span>
               <NutritionScoreBadge score={nutritionScore} />
+              <SatietyIndexBadge
+                index={mealSatietyDetails?.index ?? null}
+                totalGrams={mealSatietyDetails?.totalGrams}
+                hideWhenMissing
+                onMealCard
+                recipeTotal
+              />
             </div>
             {/* Ligne d'options - s'enroule sous le titre sur les écrans étroits et reste alignée à droite */}
             <div className="ml-auto flex w-full sm:w-auto items-center justify-end gap-1 shrink-0 flex-wrap">

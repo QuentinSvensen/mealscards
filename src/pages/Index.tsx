@@ -92,6 +92,9 @@ import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from 
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 
+/** Préférence Macro : grammes/unité (même clé que `INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY`). */
+const INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY = "ingredient_macro_unit_grams";
+
 /**
  * Enveloppe un import dynamique : en cas d'erreur de chunk, tente un rechargement (cache SW, sessionStorage).
  */
@@ -432,13 +435,19 @@ const Index = () => {
     return map;
   }, [meals, possibleMeals]);
 
+  const macroUnitGramsByKey = getPreference<Record<string, number>>(
+    INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY,
+    {},
+  );
+
   const ingredientMacroAutofillSources = useMemo<IngredientMacroAutofillSources>(
     () => ({
       foodItems,
       macroLibrary,
       mealMacros: macroLookup,
+      unitGramsByKey: macroUnitGramsByKey,
     }),
-    [foodItems, macroLibrary, macroLookup],
+    [foodItems, macroLibrary, macroLookup, macroUnitGramsByKey],
   );
 
   useEffect(() => {
@@ -1118,12 +1127,14 @@ const Index = () => {
       <OptionalIngredientsMoveDialog
         open={!!optionalMoveDialog}
         mealName={optionalMoveDialog?.mealName ?? ""}
+        mealCategory={optionalMoveDialog?.mealCategory ?? null}
         ingredients={optionalMoveDialog?.ingredients ?? null}
         groups={optionalMoveDialog?.groups ?? []}
         includeKeys={optionalIncludeKeys}
         qtyEdits={optionalQtyEdits}
         foodItems={foodItems}
         foodItemIndex={foodItemIndex}
+        ingredientMacroSources={ingredientMacroAutofillSources}
         hideDayCalorieTotals={hideDayCalorieTotals}
         onToggleKey={toggleOptionalIncludeKey}
         onQtyEdit={updateOptionalQtyEdit}

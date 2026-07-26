@@ -1,53 +1,64 @@
 import { describe, expect, it } from "vitest";
 import {
-  computeHoltPortionGrams,
-  estimateHoltSatietyIndex,
+  clampMealSatietyIndex,
+  computeIngredientSatietyContribution,
+  computeSatietyPortionFactor,
+  estimateMealsCardsSatietyIndex,
+  estimateMealsCardsSatietyIndexFromMealMacros,
+  formatMealSatietyIndexTooltip,
   getIngredientSatietyIndex,
-  HOLT_ISO_CALORIE_PORTION_KCAL,
+  getMealRecipeSatietyDetails,
+  getMealRecipeSatietyIndex,
+  getMealSatietyIndex,
+  normalizeSatietyIndexPer100g,
   resolveFoodItemSatietyOptions,
   resolveFoodItemRecordSatietyOptions,
 } from "@/lib/satietyIndex";
 
-describe("computeHoltPortionGrams", () => {
-  it("calcule ~293 g de pomme de terre pour 240 kcal à 82 kcal/100 g", () => {
-    expect(computeHoltPortionGrams(82)).toBeCloseTo(292.7, 0);
+describe("estimateMealsCardsSatietyIndex", () => {
+  it("augmente avec les protéines et les fibres, baisse avec les kcal", () => {
+    const base = estimateMealsCardsSatietyIndex(100, 10, 2, null);
+    expect(estimateMealsCardsSatietyIndex(100, 20, 2, null)).toBeGreaterThan(base);
+    expect(estimateMealsCardsSatietyIndex(100, 10, 8, null)).toBeGreaterThan(base);
+    expect(estimateMealsCardsSatietyIndex(250, 10, 2, null)).toBeLessThan(base);
   });
 
-  it("calcule ~183 g de pâtes pour 240 kcal à 131 kcal/100 g", () => {
-    expect(computeHoltPortionGrams(131)).toBeCloseTo(183.2, 0);
-  });
-});
-
-describe("estimateHoltSatietyIndex", () => {
-  it("approche les ancres Holt sur portion 240 kcal", () => {
-    expect(estimateHoltSatietyIndex(77, 2, 2.5, "feculent")).toBeGreaterThanOrEqual(310);
-    expect(estimateHoltSatietyIndex(265, 9, 2.5, null)).toBeGreaterThanOrEqual(85);
-    expect(estimateHoltSatietyIndex(265, 9, 2.5, null)).toBeLessThanOrEqual(115);
-    expect(estimateHoltSatietyIndex(131, 5, 3.2, "feculent")).toBeGreaterThanOrEqual(105);
-    expect(estimateHoltSatietyIndex(131, 5, 3.2, "feculent")).toBeLessThanOrEqual(135);
-    expect(estimateHoltSatietyIndex(120, 20, 0, "viande")).toBeGreaterThanOrEqual(200);
-    expect(estimateHoltSatietyIndex(120, 20, 0, "viande")).toBeLessThanOrEqual(240);
+  it("favorise un féculent peu dense vs un pain calorique", () => {
+    const potato = estimateMealsCardsSatietyIndex(82, 2, 2, "feculent");
+    const bread = estimateMealsCardsSatietyIndex(265, 9, 2.5, null);
+    expect(potato).toBeGreaterThan(bread);
   });
 
-  it("pomme de terre utilisateur (82 kcal) proche de l'ancre Holt (~323)", () => {
-    const index = estimateHoltSatietyIndex(82, 2, 2, "feculent");
-    expect(index).toBeGreaterThanOrEqual(280);
-    expect(index).toBeLessThanOrEqual(330);
+  it("crédite davantage une viande riche en protéines (proche de 100)", () => {
+    const withType = estimateMealsCardsSatietyIndex(150, 12, 0, "viande");
+    const withoutType = estimateMealsCardsSatietyIndex(150, 12, 0, null);
+    expect(withType).toBeGreaterThan(withoutType);
+    expect(estimateMealsCardsSatietyIndex(120, 20, 0, "viande")).toBeGreaterThanOrEqual(85);
+  });
+
+  it("applique un malus aux féculents denses (≥ 200 kcal/100 g)", () => {
+    const dense = estimateMealsCardsSatietyIndex(220, 5, 3, "feculent");
+    const sameWithoutType = estimateMealsCardsSatietyIndex(220, 5, 3, null);
+    expect(dense).toBeLessThan(sameWithoutType);
+  });
+
+  it("reste dans [5, 100]", () => {
+    expect(estimateMealsCardsSatietyIndex(900, 0, 0, null)).toBeGreaterThanOrEqual(5);
+    expect(estimateMealsCardsSatietyIndex(50, 80, 40, "viande")).toBeLessThanOrEqual(100);
+    expect(estimateMealsCardsSatietyIndex(120, 25, 0, "viande")).toBe(100);
   });
 });
 
 describe("getIngredientSatietyIndex", () => {
-  it("utilise la portion Holt 240 kcal, pas le 100 g brut", () => {
-    expect(HOLT_ISO_CALORIE_PORTION_KCAL).toBe(240);
+  it("estime un indice de base pour 100 g (pas une portion iso-calorique)", () => {
     const potato = getIngredientSatietyIndex("82", "2", "2", {
       basisLabel: "100g",
       foodType: "feculent",
     });
-    expect(potato).toBeGreaterThan(200);
-    expect(potato).not.toBe(137);
+    expect(potato).toBe(estimateMealsCardsSatietyIndex(82, 2, 2, "feculent"));
   });
 
-  it("favorise la grenaille Picard vs Patatoes Lidl (féculent, portion 240 kcal)", () => {
+  it("favorise la grenaille Picard vs Patatoes Lidl (féculent, densite 100 g)", () => {
     const picard = getIngredientSatietyIndex("122", "2.6", "2.4", {
       basisLabel: "100g",
       foodType: "feculent",
@@ -103,7 +114,7 @@ describe("resolveFoodItemSatietyOptions", () => {
 });
 
 describe("resolveFoodItemRecordSatietyOptions", () => {
-  it("réutilise la même logique qu'un formulaire Aliments", () => {
+  it("réutilise la même logique qu'un formulaire Aliments quand quantité + grammes", () => {
     const fromForm = resolveFoodItemSatietyOptions("1", "40", "feculent");
     const fromRecord = resolveFoodItemRecordSatietyOptions({
       quantity: 1,
@@ -111,5 +122,786 @@ describe("resolveFoodItemRecordSatietyOptions", () => {
       food_type: "feculent",
     });
     expect(fromRecord).toEqual(fromForm);
+  });
+
+  it("garde la base Quantité même sans grammes/unité (comme Macro)", () => {
+    expect(
+      resolveFoodItemRecordSatietyOptions({
+        quantity: 12,
+        grams: null,
+        food_type: "viande",
+      }),
+    ).toEqual({ basisLabel: "Quantité", foodType: "viande" });
+  });
+});
+
+describe("computeSatietyPortionFactor / computeIngredientSatietyContribution", () => {
+  it("applique 300@100g × 10g → contribution 30", () => {
+    const factor = computeSatietyPortionFactor(10, 0, { basisLabel: "100g" });
+    expect(factor).toBeCloseTo(0.1);
+    expect(computeIngredientSatietyContribution(300, factor!)).toBe(30);
+  });
+
+  it("convertit Quantité via grammes/unité (indice déjà au 100 g)", () => {
+    // 2 × 50 g → facteur 1 (pas count=2, qui gonflait densite × 100/U)
+    expect(computeSatietyPortionFactor(0, 2, { basisLabel: "Quantité", unitGrams: 50 })).toBeCloseTo(1);
+    expect(computeIngredientSatietyContribution(120, 1)).toBe(120);
+  });
+
+  it("convertit les unités en grammes quand la base est 100 g + poids/unité", () => {
+    expect(
+      computeSatietyPortionFactor(0, 2, { basisLabel: "100g", unitGrams: 50 }),
+    ).toBeCloseTo(1);
+  });
+
+  it("retourne null si unités sans poids/unité (Quantité ou 100 g)", () => {
+    expect(computeSatietyPortionFactor(0, 2, { basisLabel: "100g" })).toBeNull();
+    expect(computeSatietyPortionFactor(0, 4, { basisLabel: "Quantité" })).toBeNull();
+  });
+});
+
+describe("getMealRecipeSatietyIndex", () => {
+  it("somme les contributions proportionnelles aux grammes de la recette", () => {
+    const potatoIndex = getIngredientSatietyIndex("82", "2", "2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    expect(potatoIndex).not.toBeNull();
+
+    const total = getMealRecipeSatietyIndex(
+      "10g Pomme de terre{82}[2]<2>, Sel",
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pomme de terre",
+            grams: "100",
+            calories: "82",
+            protein: "2",
+            fiber: "2",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: null,
+            food_type: "feculent",
+          },
+        ],
+      },
+    );
+
+    // Densité pour 100 g : (indice × 10/100) / 10 × 100 = indice
+    expect(total).toBe(potatoIndex);
+  });
+
+  it("prend la première alternative non optionnelle d'un groupe « ou »", () => {
+    const firstIndex = getIngredientSatietyIndex("82", "2", "2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    const secondIndex = getIngredientSatietyIndex("131", "5", "3", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    expect(firstIndex).not.toBeNull();
+    expect(secondIndex).not.toBeNull();
+
+    const total = getMealRecipeSatietyIndex(
+      "100g Pomme de terre{82}[2]<2> | 100g Pates{131}[5]<3>",
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pomme de terre",
+            grams: null,
+            calories: "82",
+            protein: "2",
+            fiber: "2",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: null,
+            food_type: "feculent",
+          },
+          {
+            id: "2",
+            name: "Pates",
+            grams: null,
+            calories: "131",
+            protein: "5",
+            fiber: "3",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 1,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: null,
+            food_type: "feculent",
+          },
+        ],
+      },
+    );
+
+    // 100 g d'une seule alt. → densité = indice de cette alt.
+    expect(total).toBe(firstIndex);
+    expect(total).not.toBe(secondIndex);
+  });
+
+  it("retourne null sans ingrédients exploitables", () => {
+    expect(getMealRecipeSatietyIndex("Sel, Poivre")).toBeNull();
+    expect(getMealRecipeSatietyIndex(null)).toBeNull();
+  });
+
+  it("Hachis : lignes en grammes restent en base 100 g malgré un stock Aliments en Quantité sans grammes/unité", () => {
+    const potatoIndex = getIngredientSatietyIndex("82", "2", "2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    const beefIndex = getIngredientSatietyIndex("200", "20", "0", {
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    expect(potatoIndex).not.toBeNull();
+    expect(beefIndex).not.toBeNull();
+
+    const total = getMealRecipeSatietyIndex(
+      "400g Pomme de terre{82}[2]<2>, 200g Boeuf hache{200}[20]<0>",
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pomme de terre",
+            grams: null,
+            calories: "82",
+            protein: "2",
+            fiber: "2",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: 1,
+            food_type: "feculent",
+          },
+          {
+            id: "2",
+            name: "Boeuf hache",
+            grams: null,
+            calories: "200",
+            protein: "20",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 1,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: 2,
+            food_type: "viande",
+          },
+        ],
+      },
+    );
+
+    // 400g + 200g = 600g → densite = min(100, (4×pdt + 2×boeuf) / 600 × 100)
+    const raw = potatoIndex! * 4 + beefIndex! * 2;
+    expect(total).toBe(Math.min(100, Math.round((raw / 600) * 100)));
+    expect(total).not.toBeNull();
+    expect(total!).toBeLessThanOrEqual(100);
+  });
+
+  it("Hachis sans macros inline : résout via fiches Aliments (stock Quantité) pour lignes en grammes", () => {
+    const total = getMealRecipeSatietyIndex("400g Pomme de terre, 200g Boeuf hache", {
+      foodItems: [
+        {
+          id: "1",
+          name: "Pomme de terre",
+          grams: null,
+          calories: "82",
+          protein: "2",
+          fiber: "2",
+          expiration_date: null,
+          counter_start_date: null,
+          sort_order: 0,
+          created_at: "",
+          is_meal: false,
+          is_infinite: false,
+          is_dry: false,
+          is_indivisible: false,
+          no_counter: false,
+          storage_type: "sec",
+          quantity: 1,
+          food_type: "feculent",
+        },
+        {
+          id: "2",
+          name: "Boeuf hache",
+          grams: null,
+          calories: "200",
+          protein: "20",
+          fiber: "0",
+          expiration_date: null,
+          counter_start_date: null,
+          sort_order: 1,
+          created_at: "",
+          is_meal: false,
+          is_infinite: false,
+          is_dry: false,
+          is_indivisible: false,
+          no_counter: false,
+          storage_type: "frais",
+          quantity: 2,
+          food_type: "viande",
+        },
+      ],
+    });
+
+    expect(total).not.toBeNull();
+    expect(total!).toBeGreaterThan(0);
+  });
+
+  it("Hachis-like : total non null même si isAvailable=false (catalogue ≠ stock)", () => {
+    const total = getMealRecipeSatietyIndex(
+      "400g Pommes de terre, 200g Boeuf hache",
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pomme de terre",
+            grams: null,
+            calories: "82",
+            protein: "2",
+            fiber: "2",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: 1,
+            food_type: "feculent",
+          },
+          {
+            id: "2",
+            name: "Boeuf hache",
+            grams: null,
+            calories: "200",
+            protein: "20",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 1,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: 2,
+            food_type: "viande",
+          },
+        ],
+      },
+      () => false,
+    );
+
+    expect(total).not.toBeNull();
+    expect(total!).toBeGreaterThan(0);
+  });
+
+  it("Pizza : Base pizza (unité) + alts OU hors stock contribuent si macros connues", () => {
+    const baseIndex = getIngredientSatietyIndex("250", "8", "2", {
+      basisLabel: "Quantité",
+      unitGrams: 280,
+      foodType: "feculent",
+    });
+    const chickenIndex = getIngredientSatietyIndex("110", "23", "0", {
+      basisLabel: "100g",
+      foodType: "viande",
+    });
+    const cheeseIndex = getIngredientSatietyIndex("400", "27", "0", {
+      basisLabel: "100g",
+      foodType: null,
+    });
+    expect(baseIndex).not.toBeNull();
+    expect(chickenIndex).not.toBeNull();
+    expect(cheeseIndex).not.toBeNull();
+
+    // Première alt. OU sans macros / hors stock → bascule sur Mozzarella avec macros.
+    const total = getMealRecipeSatietyIndex(
+      "1 Base pizza, 75g Des de poulet, 100g Emmental | 35g Gruyere",
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Base pizza",
+            grams: "280",
+            calories: "250",
+            protein: "8",
+            fiber: "2",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: 2,
+            food_type: "feculent",
+          },
+          {
+            id: "2",
+            name: "Des de poulet",
+            grams: null,
+            calories: "110",
+            protein: "23",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 1,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: null,
+            food_type: "viande",
+          },
+          {
+            id: "3",
+            name: "Gruyere",
+            grams: null,
+            calories: "400",
+            protein: "27",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 2,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: null,
+            food_type: null,
+          },
+        ],
+      },
+      () => false,
+    );
+
+    // Volume : 1×280 g (base) + 75 g poulet + 35 g Gruyère = 390 g
+    // Contribution base = indice × (280/100) car indice déjà au 100 g
+    const raw = baseIndex! * 2.8 + chickenIndex! * 0.75 + cheeseIndex! * 0.35;
+    const expected = Math.min(100, Math.round((raw / 390) * 100));
+    expect(total).toBe(expected);
+    expect(total).toBeGreaterThan(0);
+    expect(total!).toBeLessThanOrEqual(100);
+  });
+
+  it("Oeufs au plat : densite = (1,5×indice_oeuf + indice_pâtes) / 250 g × 100", () => {
+    const eggIndex = getIngredientSatietyIndex("65", "5", "0", {
+      basisLabel: "Quantité",
+      unitGrams: 50,
+      foodType: "viande",
+    });
+    const pastaIndex = getIngredientSatietyIndex("347", "13", "8", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    expect(eggIndex).not.toBeNull();
+    expect(pastaIndex).not.toBeNull();
+
+    // Cas bug : fiche Oeuf en Quantité sans grams, poids/unité uniquement en prefs Macro
+    const total = getMealRecipeSatietyIndex("3 Oeufs, 100g Pâtes", {
+      foodItems: [
+        {
+          id: "1",
+          name: "Oeuf",
+          grams: null,
+          calories: "65",
+          protein: "5",
+          fiber: "0",
+          expiration_date: null,
+          counter_start_date: null,
+          sort_order: 0,
+          created_at: "",
+          is_meal: false,
+          is_infinite: false,
+          is_dry: false,
+          is_indivisible: false,
+          no_counter: false,
+          storage_type: "sec",
+          quantity: 12,
+          food_type: "viande",
+        },
+        {
+          id: "2",
+          name: "Pâtes",
+          grams: null,
+          calories: "347",
+          protein: "13",
+          fiber: "8",
+          expiration_date: null,
+          counter_start_date: null,
+          sort_order: 1,
+          created_at: "",
+          is_meal: false,
+          is_infinite: false,
+          is_dry: false,
+          is_indivisible: false,
+          no_counter: false,
+          storage_type: "sec",
+          quantity: null,
+          food_type: "feculent",
+        },
+      ],
+      unitGramsByKey: { oeuf: 50 },
+    });
+
+    // Volume 3×50 g + 100 g = 250 g ; facteur œufs = 150/100 = 1,5 (pas ×3)
+    const expected = Math.min(100, Math.round(((eggIndex! * 1.5 + pastaIndex!) / 250) * 100));
+    expect(total).toBe(expected);
+    expect(total!).toBeLessThanOrEqual(100);
+  });
+
+  it("Avant grimpe : densite = somme / (50g + 100g) × 100 (plafonnée à 100)", () => {
+    const total = getMealRecipeSatietyIndex("50g Fuet{450}[25]<0>, 100g Pain{265}[9]<2.5>");
+    const fuetContrib = getIngredientSatietyIndex("450", "25", "0")! * 0.5;
+    const painContrib = getIngredientSatietyIndex("265", "9", "2.5")! * 1;
+    const expected = Math.min(100, Math.round(((fuetContrib + painContrib) / 150) * 100));
+    expect(total).toBe(expected);
+    expect(total!).toBeLessThanOrEqual(100);
+  });
+
+  it("Croque-like : 4 Pain de mie (unités) + grammes, densite ≤ 100, optionnels exclus", () => {
+    const details = getMealRecipeSatietyDetails(
+      "4 Pain de mie, 2 Blanc de dinde, 40g Gruyère, ?30g Chorizo, ?25g Fuet",
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pain de mie",
+            grams: "40",
+            calories: "265",
+            protein: "9",
+            fiber: "2.5",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: 8,
+            food_type: "feculent",
+          },
+          {
+            id: "2",
+            name: "Blanc de dinde",
+            grams: "20",
+            calories: "105",
+            protein: "22",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 1,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: 4,
+            food_type: "viande",
+          },
+          {
+            id: "3",
+            name: "Gruyère",
+            grams: null,
+            calories: "400",
+            protein: "27",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 2,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: null,
+            food_type: null,
+          },
+          {
+            id: "4",
+            name: "Chorizo",
+            grams: null,
+            calories: "450",
+            protein: "25",
+            fiber: "0",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 3,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "frais",
+            quantity: null,
+            food_type: "viande",
+          },
+        ],
+      },
+    );
+
+    expect(details).not.toBeNull();
+    // 4×40 + 2×20 + 40 = 240 g (Chorizo/Fuet optionnels exclus)
+    expect(details!.totalGrams).toBe(240);
+    expect(details!.index).toBeLessThanOrEqual(100);
+    expect(details!.index).toBeGreaterThan(0);
+
+    // Sans poids/unité → Pain de mie ne doit pas gonfler via count seul
+    expect(
+      getMealRecipeSatietyIndex("4 Pain de mie, 40g Gruyère{400}[27]<0>", {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pain de mie",
+            grams: null,
+            calories: "265",
+            protein: "9",
+            fiber: "2.5",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: 8,
+            food_type: "feculent",
+          },
+        ],
+      }),
+    ).toBe(getIngredientSatietyIndex("400", "27", "0"));
+  });
+});
+
+describe("normalizeSatietyIndexPer100g / clampMealSatietyIndex", () => {
+  it("156 / 150 g × 100 → 100 (plafond)", () => {
+    expect(normalizeSatietyIndexPer100g(156, 150)).toBe(100);
+  });
+
+  it("574 / 250 g × 100 → 100 (plafond, ancien 230)", () => {
+    expect(normalizeSatietyIndexPer100g(574, 250)).toBe(100);
+  });
+
+  it("densite naturelle sous 100 reste inchangée", () => {
+    expect(normalizeSatietyIndexPer100g(120, 200)).toBe(60);
+  });
+
+  it("clampMealSatietyIndex clamp dans [0, 100]", () => {
+    expect(clampMealSatietyIndex(220)).toBe(100);
+    expect(clampMealSatietyIndex(-3)).toBe(0);
+    expect(clampMealSatietyIndex(72.4)).toBe(72);
+  });
+});
+
+describe("formatMealSatietyIndexTooltip", () => {
+  it("inclut le volume en grammes quand fourni", () => {
+    expect(formatMealSatietyIndexTooltip(72, 320)).toBe(
+      "Volume : 320 g · Satiété pour 100 g : 72",
+    );
+  });
+
+  it("reste lisible sans volume", () => {
+    expect(formatMealSatietyIndexTooltip(72)).toBe("Satiété Meals Cards pour 100 g : 72");
+  });
+});
+
+describe("getMealSatietyIndex (repli macros fiche)", () => {
+  it("repas avec ingrédients non résolus + macros fiche → satiété non null (fallback)", () => {
+    const fallback = estimateMealsCardsSatietyIndexFromMealMacros("600", "35", "8");
+    expect(fallback).not.toBeNull();
+
+    const index = getMealSatietyIndex({
+      name: "Hachis parmentier",
+      ingredients: "400g Pomme de terre inconnue, 200g Boeuf mystere",
+      calories: "600",
+      protein: "35",
+      fiber: "8",
+    });
+
+    expect(index).toBe(fallback);
+    expect(getMealRecipeSatietyIndex("400g Pomme de terre inconnue, 200g Boeuf mystere")).toBeNull();
+  });
+
+  it("repas avec ingrédients résolus → densite recette (pas le fallback fiche)", () => {
+    const potatoIndex = getIngredientSatietyIndex("82", "2", "2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    });
+    expect(potatoIndex).not.toBeNull();
+
+    // 10 g seuls → densite = indice (contribution/grammes×100)
+    const recipeDensity = potatoIndex!;
+    const fallback = estimateMealsCardsSatietyIndexFromMealMacros("999", "99", "9");
+    expect(fallback).not.toBe(recipeDensity);
+
+    const index = getMealSatietyIndex(
+      {
+        name: "Pizza maison",
+        ingredients: "10g Pomme de terre{82}[2]<2>",
+        calories: "999",
+        protein: "99",
+        fiber: "9",
+      },
+      {
+        foodItems: [
+          {
+            id: "1",
+            name: "Pomme de terre",
+            grams: "100",
+            calories: "82",
+            protein: "2",
+            fiber: "2",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: false,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: null,
+            food_type: "feculent",
+          },
+        ],
+      },
+    );
+
+    expect(index).toBe(recipeDensity);
+  });
+
+  it("repas sans ingrédients ni macros → null", () => {
+    expect(
+      getMealSatietyIndex({
+        name: "Repas vide",
+        ingredients: null,
+        calories: null,
+        protein: null,
+        fiber: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("n'invente pas de fibre 0 si absente de la fiche", () => {
+    expect(estimateMealsCardsSatietyIndexFromMealMacros("500", "40", null)).toBeNull();
+    expect(estimateMealsCardsSatietyIndexFromMealMacros("500", "40", "")).toBeNull();
+    expect(
+      getMealSatietyIndex({
+        name: "Sans fibres",
+        ingredients: null,
+        calories: "500",
+        protein: "40",
+        fiber: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("repas nom seul : macros aliment homonyme (is_meal) avec densite si grammes connus", () => {
+    const expected = estimateMealsCardsSatietyIndexFromMealMacros("450", "25", "3", "200g");
+    expect(expected).not.toBeNull();
+    // Macros portion → densite pour 100 g (= indice de base au 100 g)
+    expect(expected).toBe(estimateMealsCardsSatietyIndex(225, 12.5, 1.5));
+
+    const index = getMealSatietyIndex(
+      {
+        name: "20 Nuggets McDo",
+        ingredients: null,
+        calories: null,
+        protein: null,
+        fiber: null,
+      },
+      {
+        foodItems: [
+          {
+            id: "n1",
+            name: "20 Nuggets McDo",
+            grams: "200g",
+            calories: "450",
+            protein: "25",
+            fiber: "3",
+            expiration_date: null,
+            counter_start_date: null,
+            sort_order: 0,
+            created_at: "",
+            is_meal: true,
+            is_infinite: false,
+            is_dry: false,
+            is_indivisible: false,
+            no_counter: false,
+            storage_type: "sec",
+            quantity: 1,
+            food_type: null,
+          },
+        ],
+      },
+    );
+
+    expect(index).toBe(expected);
   });
 });

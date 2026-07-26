@@ -278,6 +278,27 @@ describe("ingredientMacroDatabase", () => {
     ]);
   });
 
+  it("résout les macros malgré un pluriel (Pommes de terre ↔ Pomme de terre)", () => {
+    const fi = makeFoodItem("p1", "Pomme de terre", "82", "2", "frais", null, null, "2");
+    const line = {
+      qty: "400",
+      count: "",
+      name: "Pommes de terre",
+      cal: "",
+      pro: "",
+      fiber: "",
+      isOr: false,
+      isAnd: false,
+      isOptional: false,
+    };
+
+    expect(resolveIngredientLineMacros(line, { foodItems: [fi] })).toEqual({
+      cal: "82",
+      pro: "2",
+      fiber: "2",
+    });
+  });
+
   it("calcule les macros d'une ligne depuis le référentiel Macro au 100 g", () => {
     const library = [createIngredientMacroLibraryItem("Patatoes Lidl", "131", "2,1", "4")!];
     const line = {

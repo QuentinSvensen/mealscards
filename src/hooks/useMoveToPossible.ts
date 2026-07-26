@@ -196,7 +196,13 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
     if (fromMasterOrAvailable) {
       const groups = listRecipeIngredientGroups(meal.ingredients);
       if (groups.length > 0) {
-        const choice = await askOptionalIngredientInclusions(meal.name, groups, meal.ingredients, stockMap);
+        const choice = await askOptionalIngredientInclusions(
+          meal.name,
+          groups,
+          meal.ingredients,
+          stockMap,
+          meal.category,
+        );
         if (choice === null) return;
         selectionOverride = buildIngredientsOverrideFromSelection(
           meal.ingredients,
@@ -327,6 +333,7 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
         recipeGroups,
         partialMeal.ingredients,
         stockMap,
+        meal.category,
       );
       if (choice === null) return;
       selectionOverride = buildIngredientsOverrideFromSelection(

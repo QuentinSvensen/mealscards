@@ -896,7 +896,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const expiringIng = analysis.expiringIngredientName;
     return (
       <div key={meal.id} className="relative">
-        <MealCard meal={displayMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+        <MealCard meal={displayMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
+          ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={async () => {
             const cr = customRatios[meal.id];
@@ -989,7 +990,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const partialKey = `partial-${meal.id}`;
     return (
       <div key={partialKey} className="relative">
-        <MealCard meal={partialMeal} stockMap={stockMap} ingredientSuggestions={ingredientSuggestions}
+        <MealCard meal={partialMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
+          ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
           onMoveToPossible={async () => {
             setCustomRatios(prev => { const next = { ...prev }; delete next[partialKey]; return next; });

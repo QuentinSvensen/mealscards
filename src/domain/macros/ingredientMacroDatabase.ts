@@ -1,6 +1,14 @@
 import type { Meal, PossibleMeal } from "@/types/meals";
 import type { FoodItem } from "@/types/food";
-import { getFoodItemTotalGrams, normalizeKey, parseIngredientsToLines, parseQty, serializeIngredients, type IngLine } from "@/lib/ingredientUtils";
+import {
+  getFoodItemTotalGrams,
+  normalizeKey,
+  parseIngredientsToLines,
+  parseQty,
+  serializeIngredients,
+  strictNameMatch,
+  type IngLine,
+} from "@/lib/ingredientUtils";
 import {
   getExtraMacroBasisLabel,
   getExtraMacroReferenceMacros,
@@ -37,6 +45,11 @@ export interface IngredientMacroAutofillSources {
   foodItems?: FoodItem[];
   macroLibrary?: IngredientMacroLibraryItem[];
   mealMacros?: Map<string, { cal: string; pro: string; fiber?: string }>;
+  /**
+   * Grammes par unité saisis dans l'onglet Macro (préférence `ingredient_macro_unit_grams`).
+   * Sert à la satiété recette quand la fiche Aliments n'a pas de poids d'unité.
+   */
+  unitGramsByKey?: Record<string, number>;
 }
 
 export interface IngredientMacroUpdatePlan {
@@ -457,10 +470,56 @@ function formatLineMacroValue(value: number): string {
   return String(rounded).replace(".", ",");
 }
 
-// Trouve la fiche aliment correspondant au nom normalisé d'une ligne d'ingrédient.
-function findFoodItemForIngredientName(foodItems: FoodItem[] | undefined, key: string): FoodItem | undefined {
-  if (!foodItems?.length || !key) return undefined;
-  return foodItems.find((item) => normalizeKey(item.name) === key);
+/**
+ * Trouve la fiche Aliments correspondant à un nom de ligne recette.
+ * Exact via normalizeKey, puis match tolérant (pluriel / petite variante), comme le stock.
+ */
+export function findFoodItemForIngredientName(
+  foodItems: FoodItem[] | undefined,
+  ingredientName: string,
+): FoodItem | undefined {
+  if (!foodItems?.length || !ingredientName.trim()) return undefined;
+  const key = normalizeKey(ingredientName);
+  const exact = foodItems.find((item) => normalizeKey(item.name) === key);
+  if (exact) return exact;
+  return foodItems.find((item) => strictNameMatch(item.name, ingredientName));
+}
+
+/**
+ * Trouve une entrée du référentiel Macro pour un nom d'ingrédient (clé exacte puis match tolérant).
+ */
+function findMacroLibraryItemForIngredientName(
+  library: IngredientMacroLibraryItem[] | undefined,
+  ingredientName: string,
+): IngredientMacroLibraryItem | undefined {
+  if (!library?.length || !ingredientName.trim()) return undefined;
+  const key = normalizeKey(ingredientName);
+  const exact = library.find((entry) => entry.key === key);
+  if (exact) return exact;
+  return library.find(
+    (entry) =>
+      strictNameMatch(entry.displayName, ingredientName) ||
+      strictNameMatch(entry.key, key),
+  );
+}
+
+/**
+ * Trouve des macros déjà vues dans d'autres recettes (clé exacte puis match tolérant).
+ */
+function findMealMacroForIngredientName(
+  mealMacros: Map<string, { cal: string; pro: string; fiber?: string }> | undefined,
+  ingredientName: string,
+): { cal: string; pro: string; fiber?: string } | undefined {
+  if (!mealMacros?.size || !ingredientName.trim()) return undefined;
+  const key = normalizeKey(ingredientName);
+  const exact = mealMacros.get(key);
+  if (exact) return exact;
+  for (const [mapKey, value] of mealMacros) {
+    if (strictNameMatch(mapKey, key) || strictNameMatch(mapKey, ingredientName)) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 // Indique si les macros d'une ligne peuvent être recalculées depuis le garde-manger ou le référentiel Macro.
@@ -468,16 +527,15 @@ export function hasScalableIngredientMacroSource(
   line: Pick<IngLine, "name">,
   sources: IngredientMacroAutofillSources,
 ): boolean {
-  const key = normalizeKey(line.name);
-  if (!key) return false;
+  if (!normalizeKey(line.name)) return false;
 
-  const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
+  const foodItem = findFoodItemForIngredientName(sources.foodItems, line.name);
   if (foodItem) {
     const ref = getExtraMacroReferenceMacros(foodItem);
     if (hasNonZeroMacro(parseFoodMacroValue(ref.cal)) || hasNonZeroMacro(parseFoodMacroValue(ref.pro)) || hasNonZeroMacro(parseFoodMacroValue(ref.fiber))) return true;
   }
 
-  const libraryItem = sources.macroLibrary?.find((entry) => entry.key === key);
+  const libraryItem = findMacroLibraryItemForIngredientName(sources.macroLibrary, line.name);
   if (libraryItem && (hasNonZeroMacro(parseFoodMacroValue(libraryItem.calories)) || hasNonZeroMacro(parseFoodMacroValue(libraryItem.protein)) || hasNonZeroMacro(parseFoodMacroValue(libraryItem.fiber)))) {
     return true;
   }
@@ -490,10 +548,9 @@ export function resolveIngredientLineMacros(
   line: Pick<IngLine, "name" | "qty" | "count">,
   sources: IngredientMacroAutofillSources,
 ): { cal: string; pro: string; fiber: string } {
-  const key = normalizeKey(line.name);
-  if (!key) return { cal: "", pro: "", fiber: "" };
+  if (!normalizeKey(line.name)) return { cal: "", pro: "", fiber: "" };
 
-  const foodItem = findFoodItemForIngredientName(sources.foodItems, key);
+  const foodItem = findFoodItemForIngredientName(sources.foodItems, line.name);
 
   if (foodItem) {
     const ref = getExtraMacroReferenceMacros(foodItem);
@@ -509,7 +566,7 @@ export function resolveIngredientLineMacros(
     }
   }
 
-  const libraryItem = sources.macroLibrary?.find((entry) => entry.key === key);
+  const libraryItem = findMacroLibraryItemForIngredientName(sources.macroLibrary, line.name);
   if (libraryItem) {
     const calRef = parseFoodMacroValue(libraryItem.calories);
     const proRef = parseFoodMacroValue(libraryItem.protein);
@@ -523,7 +580,7 @@ export function resolveIngredientLineMacros(
     }
   }
 
-  const mealMacro = sources.mealMacros?.get(key);
+  const mealMacro = findMealMacroForIngredientName(sources.mealMacros, line.name);
   if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber)) {
     return { cal: mealMacro.cal || "", pro: mealMacro.pro || "", fiber: mealMacro.fiber || "" };
   }
