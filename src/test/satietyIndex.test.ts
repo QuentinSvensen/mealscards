@@ -10,10 +10,16 @@ import {
   getMealRecipeSatietyDetails,
   getMealRecipeSatietyIndex,
   getMealSatietyIndex,
+  normalizeMealRecipeSatietyTotal,
   normalizeSatietyIndexPer100g,
   resolveFoodItemSatietyOptions,
   resolveFoodItemRecordSatietyOptions,
 } from "@/lib/satietyIndex";
+
+/** Attendu carte : somme pondérée brute round(Σ). */
+function expectedMealSatietyFromContributions(rawSum: number): number {
+  return Math.round(rawSum);
+}
 
 describe("estimateMealsCardsSatietyIndex", () => {
   it("augmente avec les protéines et les fibres, baisse avec les kcal", () => {
@@ -27,6 +33,22 @@ describe("estimateMealsCardsSatietyIndex", () => {
     const potato = estimateMealsCardsSatietyIndex(82, 2, 2, "feculent");
     const bread = estimateMealsCardsSatietyIndex(265, 9, 2.5, null);
     expect(potato).toBeGreaterThan(bread);
+  });
+
+  it("ravioli conserve (peu protéiné, peu calorique) ≈ 25, pas le bonus volume pomme de terre", () => {
+    const ravioli = estimateMealsCardsSatietyIndex(83, 3.6, 1.6, "feculent");
+    const ravioliSansType = estimateMealsCardsSatietyIndex(83, 3.6, 1.6, null);
+    expect(ravioli).toBeGreaterThanOrEqual(20);
+    expect(ravioli).toBeLessThanOrEqual(35);
+    expect(ravioliSansType).toBeGreaterThanOrEqual(20);
+    expect(ravioliSansType).toBeLessThanOrEqual(35);
+    // Bien sous l’ancien score ~65 dilué par le bonus faible densité
+    expect(ravioli).toBeLessThan(40);
+  });
+
+  it("pomme de terre (féculent peu protéiné) garde un indice élevé", () => {
+    const potato = estimateMealsCardsSatietyIndex(82, 2, 2, "feculent");
+    expect(potato).toBeGreaterThanOrEqual(70);
   });
 
   it("crédite davantage une viande riche en protéines (proche de 100)", () => {
@@ -196,8 +218,8 @@ describe("getMealRecipeSatietyIndex", () => {
       },
     );
 
-    // Densité pour 100 g : (indice × 10/100) / 10 × 100 = indice
-    expect(total).toBe(potatoIndex);
+    // Satiété totale : courbe (Σ + α×volume) avec 10 g
+    expect(total).toBe(expectedMealSatietyFromContributions(potatoIndex! * 0.1));
   });
 
   it("prend la première alternative non optionnelle d'un groupe « ou »", () => {
@@ -260,8 +282,8 @@ describe("getMealRecipeSatietyIndex", () => {
       },
     );
 
-    // 100 g d'une seule alt. → densité = indice de cette alt.
-    expect(total).toBe(firstIndex);
+    // 100 g d'une seule alt. → courbe saturante de (indice × 1, 100 g)
+    expect(total).toBe(expectedMealSatietyFromContributions(firstIndex!));
     expect(total).not.toBe(secondIndex);
   });
 
@@ -330,11 +352,11 @@ describe("getMealRecipeSatietyIndex", () => {
       },
     );
 
-    // 400g + 200g = 600g → densite = min(100, (4×pdt + 2×boeuf) / 600 × 100)
+    // Σ contributions = 4×pdt + 2×boeuf, volume 600 g → courbe saturante
     const raw = potatoIndex! * 4 + beefIndex! * 2;
-    expect(total).toBe(Math.min(100, Math.round((raw / 600) * 100)));
+    expect(total).toBe(expectedMealSatietyFromContributions(raw));
     expect(total).not.toBeNull();
-    expect(total!).toBeLessThanOrEqual(100);
+    expect(total!).toBeGreaterThan(100);
   });
 
   it("Hachis sans macros inline : résout via fiches Aliments (stock Quantité) pour lignes en grammes", () => {
@@ -529,16 +551,15 @@ describe("getMealRecipeSatietyIndex", () => {
       () => false,
     );
 
-    // Volume : 1×280 g (base) + 75 g poulet + 35 g Gruyère = 390 g
-    // Contribution base = indice × (280/100) car indice déjà au 100 g
+    // Contribution base = indice × (280/100) ; total = courbe (Σ, volume)
     const raw = baseIndex! * 2.8 + chickenIndex! * 0.75 + cheeseIndex! * 0.35;
-    const expected = Math.min(100, Math.round((raw / 390) * 100));
+    const volumeGrams = 280 + 75 + 35;
+    const expected = expectedMealSatietyFromContributions(raw);
     expect(total).toBe(expected);
     expect(total).toBeGreaterThan(0);
-    expect(total!).toBeLessThanOrEqual(100);
   });
 
-  it("Oeufs au plat : densite = (1,5×indice_oeuf + indice_pâtes) / 250 g × 100", () => {
+  it("Oeufs au plat : total = courbe(1,5×indice_oeuf + indice_pâtes, 250 g)", () => {
     const eggIndex = getIngredientSatietyIndex("65", "5", "0", {
       basisLabel: "Quantité",
       unitGrams: 50,
@@ -598,22 +619,91 @@ describe("getMealRecipeSatietyIndex", () => {
       unitGramsByKey: { oeuf: 50 },
     });
 
-    // Volume 3×50 g + 100 g = 250 g ; facteur œufs = 150/100 = 1,5 (pas ×3)
-    const expected = Math.min(100, Math.round(((eggIndex! * 1.5 + pastaIndex!) / 250) * 100));
+    // Facteur œufs = 150/100 = 1,5 (pas ×3) ; volume = 150 + 100 = 250 g
+    const expected = expectedMealSatietyFromContributions(eggIndex! * 1.5 + pastaIndex!);
     expect(total).toBe(expected);
-    expect(total!).toBeLessThanOrEqual(100);
+    expect(total!).toBeGreaterThan(0);
   });
 
-  it("Avant grimpe : densite = somme / (50g + 100g) × 100 (plafonnée à 100)", () => {
-    const total = getMealRecipeSatietyIndex("50g Fuet{450}[25]<0>, 100g Pain{265}[9]<2.5>");
+  it("Avant grimpe vs Pain+Fuet : +50 g pain augmente l'indice (pas de dilution)", () => {
+    const avantGrimpe = getMealRecipeSatietyIndex(
+      "50g Fuet{450}[25]<0>, 100g Pain{265}[9]<2.5>",
+    );
+    const painPlusFuet = getMealRecipeSatietyIndex(
+      "50g Fuet{450}[25]<0>, 150g Pain{265}[9]<2.5>",
+    );
     const fuetContrib = getIngredientSatietyIndex("450", "25", "0")! * 0.5;
-    const painContrib = getIngredientSatietyIndex("265", "9", "2.5")! * 1;
-    const expected = Math.min(100, Math.round(((fuetContrib + painContrib) / 150) * 100));
-    expect(total).toBe(expected);
-    expect(total!).toBeLessThanOrEqual(100);
+    const pain100 = getIngredientSatietyIndex("265", "9", "2.5")! * 1;
+    const pain150 = getIngredientSatietyIndex("265", "9", "2.5")! * 1.5;
+
+    expect(avantGrimpe).toBe(expectedMealSatietyFromContributions(fuetContrib + pain100));
+    expect(painPlusFuet).toBe(expectedMealSatietyFromContributions(fuetContrib + pain150));
+    expect(painPlusFuet!).toBeGreaterThan(avantGrimpe!);
+    expect(avantGrimpe!).toBeGreaterThanOrEqual(70);
+    expect(painPlusFuet!).toBeGreaterThan(avantGrimpe!);
   });
 
-  it("Croque-like : 4 Pain de mie (unités) + grammes, densite ≤ 100, optionnels exclus", () => {
+  it("Hachis (400 g pdt + 200 g bœuf) : somme pondérée sans plafond", () => {
+    const potatoIndex = getIngredientSatietyIndex("82", "2", "2", {
+      basisLabel: "100g",
+      foodType: "feculent",
+    })!;
+    const beefIndex = getIngredientSatietyIndex("200", "20", "0", {
+      basisLabel: "100g",
+      foodType: "viande",
+    })!;
+    const foodItems = [
+      {
+        id: "1",
+        name: "Pomme de terre",
+        grams: null,
+        calories: "82",
+        protein: "2",
+        fiber: "2",
+        expiration_date: null,
+        counter_start_date: null,
+        sort_order: 0,
+        created_at: "",
+        is_meal: false,
+        is_infinite: false,
+        is_dry: false,
+        is_indivisible: false,
+        no_counter: false,
+        storage_type: "sec" as const,
+        quantity: null,
+        food_type: "feculent" as const,
+      },
+      {
+        id: "2",
+        name: "Boeuf hache",
+        grams: null,
+        calories: "200",
+        protein: "20",
+        fiber: "0",
+        expiration_date: null,
+        counter_start_date: null,
+        sort_order: 1,
+        created_at: "",
+        is_meal: false,
+        is_infinite: false,
+        is_dry: false,
+        is_indivisible: false,
+        no_counter: false,
+        storage_type: "frais" as const,
+        quantity: null,
+        food_type: "viande" as const,
+      },
+    ];
+    const hachis = getMealRecipeSatietyIndex(
+      "400g Pomme de terre{82}[2]<2>, 200g Boeuf hache{200}[20]<0>",
+      { foodItems },
+    );
+    const expected = expectedMealSatietyFromContributions(potatoIndex * 4 + beefIndex * 2);
+    expect(hachis).toBe(expected);
+    expect(hachis!).toBeGreaterThan(100);
+  });
+
+  it("Croque-like : 4 Pain de mie (unités) + grammes, optionnels exclus", () => {
     const details = getMealRecipeSatietyDetails(
       "4 Pain de mie, 2 Blanc de dinde, 40g Gruyère, ?30g Chorizo, ?25g Fuet",
       {
@@ -705,7 +795,6 @@ describe("getMealRecipeSatietyIndex", () => {
     expect(details).not.toBeNull();
     // 4×40 + 2×20 + 40 = 240 g (Chorizo/Fuet optionnels exclus)
     expect(details!.totalGrams).toBe(240);
-    expect(details!.index).toBeLessThanOrEqual(100);
     expect(details!.index).toBeGreaterThan(0);
 
     // Sans poids/unité → Pain de mie ne doit pas gonfler via count seul
@@ -734,20 +823,27 @@ describe("getMealRecipeSatietyIndex", () => {
           },
         ],
       }),
-    ).toBe(getIngredientSatietyIndex("400", "27", "0"));
+    ).toBe(expectedMealSatietyFromContributions(getIngredientSatietyIndex("400", "27", "0")! * 0.4));
   });
 });
 
-describe("normalizeSatietyIndexPer100g / clampMealSatietyIndex", () => {
-  it("156 / 150 g × 100 → 100 (plafond)", () => {
+describe("normalizeMealRecipeSatietyTotal / normalizeSatietyIndexPer100g / clampMealSatietyIndex", () => {
+  it("retourne la somme pondérée arrondie, sans plafond", () => {
+    expect(normalizeMealRecipeSatietyTotal(0)).toBe(0);
+    expect(normalizeMealRecipeSatietyTotal(81.5)).toBe(82);
+    expect(normalizeMealRecipeSatietyTotal(104.5)).toBe(105);
+    expect(normalizeMealRecipeSatietyTotal(186)).toBe(186);
+    expect(normalizeMealRecipeSatietyTotal(532)).toBe(532);
+  });
+
+  it("est monotone : plus de contribution → indice ≥", () => {
+    const a = normalizeMealRecipeSatietyTotal(81.5)!;
+    const b = normalizeMealRecipeSatietyTotal(104.5)!;
+    expect(b).toBeGreaterThan(a);
+  });
+
+  it("ancienne densite / 100 g encore disponible (compat)", () => {
     expect(normalizeSatietyIndexPer100g(156, 150)).toBe(100);
-  });
-
-  it("574 / 250 g × 100 → 100 (plafond, ancien 230)", () => {
-    expect(normalizeSatietyIndexPer100g(574, 250)).toBe(100);
-  });
-
-  it("densite naturelle sous 100 reste inchangée", () => {
     expect(normalizeSatietyIndexPer100g(120, 200)).toBe(60);
   });
 
@@ -760,17 +856,70 @@ describe("normalizeSatietyIndexPer100g / clampMealSatietyIndex", () => {
 
 describe("formatMealSatietyIndexTooltip", () => {
   it("inclut le volume en grammes quand fourni", () => {
-    expect(formatMealSatietyIndexTooltip(72, 320)).toBe(
-      "Volume : 320 g · Satiété pour 100 g : 72",
+    expect(formatMealSatietyIndexTooltip(105, 200)).toBe(
+      "Satiété de la recette : 105 · Volume : 200 g",
     );
   });
 
   it("reste lisible sans volume", () => {
-    expect(formatMealSatietyIndexTooltip(72)).toBe("Satiété Meals Cards pour 100 g : 72");
+    expect(formatMealSatietyIndexTooltip(72)).toBe("Satiété Meals Cards (recette) : 72");
   });
 });
 
 describe("getMealSatietyIndex (repli macros fiche)", () => {
+  it("Kebab ~350 g (macros fiche) → somme pondérée sans courbe", () => {
+    const base = estimateMealsCardsSatietyIndex(200, 10, 1);
+    expect(base).toBe(53);
+
+    const index = estimateMealsCardsSatietyIndexFromMealMacros(
+      "700",
+      "35",
+      "3.5",
+      "350g",
+    );
+    expect(index).toBe(expectedMealSatietyFromContributions(base * 3.5));
+    expect(index).toBe(186);
+
+    const viaMeal = getMealSatietyIndex({
+      name: "Kebab (2 viandes)",
+      ingredients: null,
+      calories: "700",
+      protein: "35",
+      fiber: "3.5",
+      grams: "350g",
+    });
+    expect(viaMeal).toBe(index);
+  });
+
+  it("Tacos ~454 g (macros fiche) → somme pondérée sans courbe", () => {
+    expect(normalizeMealRecipeSatietyTotal(182)).toBe(182);
+
+    const base = estimateMealsCardsSatietyIndex(250, 8, 1);
+    expect(base).toBe(40);
+    const fromMacros = estimateMealsCardsSatietyIndexFromMealMacros(
+      String(250 * 4.54),
+      String(8 * 4.54),
+      String(1 * 4.54),
+      "454g",
+    );
+    expect(fromMacros).toBe(expectedMealSatietyFromContributions(base * 4.54));
+  });
+
+  it("snack Avant grimpe clairement sous kebab ~350 g", () => {
+    const snack = getMealRecipeSatietyIndex(
+      "50g Fuet{450}[25]<0>, 100g Pain{265}[9]<2.5>",
+    );
+    const kebab = estimateMealsCardsSatietyIndexFromMealMacros(
+      "700",
+      "35",
+      "3.5",
+      "350g",
+    );
+    expect(snack).not.toBeNull();
+    expect(kebab).not.toBeNull();
+    expect(snack!).toBeLessThan(kebab!);
+  });
+
   it("repas avec ingrédients non résolus + macros fiche → satiété non null (fallback)", () => {
     const fallback = estimateMealsCardsSatietyIndexFromMealMacros("600", "35", "8");
     expect(fallback).not.toBeNull();
@@ -787,17 +936,17 @@ describe("getMealSatietyIndex (repli macros fiche)", () => {
     expect(getMealRecipeSatietyIndex("400g Pomme de terre inconnue, 200g Boeuf mystere")).toBeNull();
   });
 
-  it("repas avec ingrédients résolus → densite recette (pas le fallback fiche)", () => {
+  it("repas avec ingrédients résolus → satiété totale recette (pas le fallback fiche)", () => {
     const potatoIndex = getIngredientSatietyIndex("82", "2", "2", {
       basisLabel: "100g",
       foodType: "feculent",
     });
     expect(potatoIndex).not.toBeNull();
 
-    // 10 g seuls → densite = indice (contribution/grammes×100)
-    const recipeDensity = potatoIndex!;
+    // 10 g seuls → courbe (contribution = indice × 0,1, volume 10 g)
+    const recipeTotal = expectedMealSatietyFromContributions(potatoIndex! * 0.1);
     const fallback = estimateMealsCardsSatietyIndexFromMealMacros("999", "99", "9");
-    expect(fallback).not.toBe(recipeDensity);
+    expect(fallback).not.toBe(recipeTotal);
 
     const index = getMealSatietyIndex(
       {
@@ -833,7 +982,7 @@ describe("getMealSatietyIndex (repli macros fiche)", () => {
       },
     );
 
-    expect(index).toBe(recipeDensity);
+    expect(index).toBe(recipeTotal);
   });
 
   it("repas sans ingrédients ni macros → null", () => {
@@ -862,11 +1011,12 @@ describe("getMealSatietyIndex (repli macros fiche)", () => {
     ).toBeNull();
   });
 
-  it("repas nom seul : macros aliment homonyme (is_meal) avec densite si grammes connus", () => {
+  it("repas nom seul : macros aliment homonyme (is_meal) avec contribution totale si grammes connus", () => {
     const expected = estimateMealsCardsSatietyIndexFromMealMacros("450", "25", "3", "200g");
     expect(expected).not.toBeNull();
-    // Macros portion → densite pour 100 g (= indice de base au 100 g)
-    expect(expected).toBe(estimateMealsCardsSatietyIndex(225, 12.5, 1.5));
+    // Macros portion → courbe (indice_base × 200/100, volume 200 g)
+    const base = estimateMealsCardsSatietyIndex(225, 12.5, 1.5);
+    expect(expected).toBe(expectedMealSatietyFromContributions(base * 2));
 
     const index = getMealSatietyIndex(
       {

@@ -30,16 +30,20 @@ export type IngredientSatietyOptions = IngredientMacroScoreOptions;
  *
  * Formule (macros pour 100 g) :
  *   raw = 12 + 3,8×protéines + 3,2×fibres
- *       + min(38, max(0, 190 − kcal) × 0,32)   // bonus volume / faible densité
+ *       + bonus_volume (faible densité kcal)
  *       − max(0, kcal − 210) × 0,15            // malus très calorique
+ * Bonus volume : plein pour un profil « pomme de terre » (féculent, < 130 kcal,
+ * protéines ≤ 3) ; très réduit si aliment dilué (peu de prot. + peu calorique),
+ * sinon standard — évite de surestimer un ravioli conserve (~25, pas ~65).
  * Ajustements type :
- *   - viande : +18 + 1,4×protéines (les viandes « calent » nettement plus)
- *   - féculent peu dense (< 130 kcal) : +22 (effet pomme de terre)
+ *   - viande : +18 + 1,4×protéines
+ *   - féculent type pomme de terre : +22
  *   - féculent dense (≥ 200 kcal) : −12
  * Score final : entier dans [5, 100].
  *
- * En recette : contribution = indice_base × (grammes / 100), puis densite carte =
- * min(100, round((Σ contributions) / (Σ grammes) × 100)).
+ * En recette : contribution = indice_base × (grammes / 100), puis indice carte =
+ * round(Σ contributions) — somme pondérée brute (volume déjà dans les grammes),
+ * sans plafond à 100 pour l’instant.
  */
 export function estimateMealsCardsSatietyIndex(
   caloriesPer100g: number,
@@ -51,17 +55,27 @@ export function estimateMealsCardsSatietyIndex(
   const fiber = Math.max(0, fiberPer100g);
   const calories = Math.max(0, caloriesPer100g);
 
-  let raw =
-    12 +
-    3.8 * protein +
-    3.2 * fiber +
-    Math.min(38, Math.max(0, 190 - calories) * 0.32) -
-    Math.max(0, calories - 210) * 0.15;
+  const volumeBonus = Math.min(38, Math.max(0, 190 - calories) * 0.32);
+  // Féculent peu dense + peu protéiné ≈ pomme de terre (cale) ; sinon « dilué » (ravioli…).
+  const isPotatoLike =
+    foodType === "feculent" && calories < 130 && protein <= 3;
+  const isDiluted = protein < 5 && calories < 160;
+
+  let raw = 12 + 3.8 * protein + 3.2 * fiber;
+  if (isPotatoLike) {
+    raw += volumeBonus;
+  } else if (isDiluted) {
+    // Conserve / féculent humide : l’eau baisse les kcal sans caler vraiment.
+    raw += volumeBonus * 0.05;
+  } else {
+    raw += volumeBonus;
+  }
+  raw -= Math.max(0, calories - 210) * 0.15;
 
   if (foodType === "viande") {
     raw += 18 + 1.4 * protein;
   }
-  if (foodType === "feculent" && calories < 130) {
+  if (isPotatoLike) {
     raw += 22;
   }
   if (foodType === "feculent" && calories >= 200) {
@@ -414,19 +428,20 @@ export function computeRecipeIngredientSatietyContribution(
   return computeIngredientSatietyContribution(index, portionFactor);
 }
 
-/** Détail satiété recette : densite 0–100 + volume en grammes retenu. */
+/** Détail satiété recette : somme pondérée (sans plafond) + volume en grammes retenu. */
 export type MealSatietyDetails = {
   index: number;
   totalGrams: number | null;
 };
 
 /**
- * Calcule densite satiété + volume (grammes) des alts. retenues d'une recette.
+ * Calcule la satiété totale de la recette + volume (grammes) des alts. retenues.
  *
  * Formule :
- *   densite = min(100, round( (Σ contributions) / grammes_totaux × 100 ))
+ *   indice = round(Σ contributions)
  * avec contribution = indice_base_100g × (grammes / 100).
  *
+ * Le volume est intrinsèque à la somme : +grammes d’un aliment augmente Σ.
  * Optionnels exclus ; une seule alt. par groupe « ou ».
  * Une ligne n'entre que si contribution **et** grammes sont connus.
  * Retourne null si aucune ligne exploitable.
@@ -457,13 +472,13 @@ export function getMealRecipeSatietyDetails(
   }
 
   if (!hasContribution || !(totalGrams > 0)) return null;
-  const index = normalizeSatietyIndexPer100g(total, totalGrams);
+  const index = normalizeMealRecipeSatietyTotal(total);
   if (index == null) return null;
   return { index, totalGrams };
 }
 
 /**
- * Indice satiété densite d'une recette (0–100), ou null si incalculable.
+ * Indice satiété totale d'une recette (somme pondérée, sans plafond), ou null si incalculable.
  */
 export function getMealRecipeSatietyIndex(
   ingredients: string | null | undefined,
@@ -474,7 +489,18 @@ export function getMealRecipeSatietyIndex(
 }
 
 /**
- * Convertit une somme d'indices satiété en densite comparable pour 100 g, plafonnée à 100.
+ * Convertit la somme des contributions satiété d'une recette en indice carte.
+ * Somme pondérée brute : round(Σ), sans plafond à 100.
+ */
+export function normalizeMealRecipeSatietyTotal(rawContributionSum: number): number | null {
+  if (!Number.isFinite(rawContributionSum)) return null;
+  if (rawContributionSum <= 0) return 0;
+  return Math.round(rawContributionSum);
+}
+
+/**
+ * @deprecated Ancienne densite / 100 g (dilutive). Conservée pour compat. tests / appelants ;
+ * les cartes repas utilisent `normalizeMealRecipeSatietyTotal`.
  * densite = min(100, round( somme / grammes × 100 )).
  */
 export function normalizeSatietyIndexPer100g(
@@ -518,7 +544,8 @@ export type MealSatietyMacrosSource = {
 
 /**
  * Estime l'indice Meals Cards à partir des macros d'une fiche repas (repli).
- * Avec grammes de portion → macros ramenées au 100 g, puis densite pour 100 g ;
+ * Avec grammes de portion → macros ramenées au 100 g, puis contribution totale
+ * (indice_base × grammes/100) sans plafond ;
  * sinon macros traitées comme déjà exprimées pour 100 g.
  * N'invente pas de macros manquantes (fibre « 0 » explicite reste valide).
  */
@@ -543,10 +570,9 @@ export function estimateMealsCardsSatietyIndexFromMealMacros(
     const pro100 = pro * factor;
     const fib100 = fib * factor;
     const baseIndex = estimateMealsCardsSatietyIndex(cal100, pro100, fib100, foodType);
-    // Densite pour 100 g : (indice × grammes/100) / grammes × 100 ≡ indice de base.
-    return normalizeSatietyIndexPer100g(
+    // Satiété totale de la portion : contribution = indice × grammes/100.
+    return normalizeMealRecipeSatietyTotal(
       computeIngredientSatietyContribution(baseIndex, portionGrams / 100),
-      portionGrams,
     );
   }
 
@@ -554,10 +580,10 @@ export function estimateMealsCardsSatietyIndexFromMealMacros(
 }
 
 /**
- * Détail satiété d'un repas catalogue / carte (indice 0–100 + volume si recette).
+ * Détail satiété d'un repas catalogue / carte (somme pondérée + volume si recette).
  *
  * Priorité :
- * 1) Densite des contributions ingrédients (si au moins une est calculable)
+ * 1) Satiété totale des contributions ingrédients (si au moins une est calculable)
  * 2) Sinon estimateur Meals Cards des macros de la fiche repas
  * 3) Sinon macros de l'aliment homonyme (`foodItems` / is_meal)
  *
@@ -580,7 +606,7 @@ export function getMealSatietyDetails(
   if (fromMealMacros != null) {
     const portionGrams = parseQty(meal.grams);
     return {
-      index: clampMealSatietyIndex(fromMealMacros),
+      index: fromMealMacros,
       totalGrams: portionGrams > 0 ? portionGrams : null,
     };
   }
@@ -601,13 +627,13 @@ export function getMealSatietyDetails(
   if (fromFood == null) return null;
   const foodGrams = parseQty(foodItem.grams);
   return {
-    index: clampMealSatietyIndex(fromFood),
+    index: fromFood,
     totalGrams: foodGrams > 0 ? foodGrams : null,
   };
 }
 
 /**
- * Indice de satiété d'un repas catalogue / carte (0–100), ou null.
+ * Indice de satiété d'un repas catalogue / carte (somme pondérée, sans plafond), ou null.
  */
 export function getMealSatietyIndex(
   meal: MealSatietyMacrosSource,
@@ -618,14 +644,14 @@ export function getMealSatietyIndex(
 }
 
 /**
- * Texte du tooltip satiété carte : volume retenu + densite pour 100 g (échelle 0–100).
+ * Texte du tooltip satiété carte : satiété totale de la recette + volume retenu.
  */
 export function formatMealSatietyIndexTooltip(
   index: number,
   totalGrams?: number | null,
 ): string {
   if (totalGrams != null && totalGrams > 0) {
-    return `Volume : ${Math.round(totalGrams)} g · Satiété pour 100 g : ${index}`;
+    return `Satiété de la recette : ${index} · Volume : ${Math.round(totalGrams)} g`;
   }
-  return `Satiété Meals Cards pour 100 g : ${index}`;
+  return `Satiété Meals Cards (recette) : ${index}`;
 }

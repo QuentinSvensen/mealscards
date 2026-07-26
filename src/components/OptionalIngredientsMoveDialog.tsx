@@ -167,7 +167,7 @@ export function OptionalIngredientsMoveDialog({
     [mealCategory, selectedIngredients, ingredients],
   );
 
-  /** Densite satiété 0–100 + volume (g) de la sélection. */
+  /** Satiété (somme pondérée) + volume (g) de la sélection. */
   const satietyDetails = useMemo(
     () => getMealRecipeSatietyDetails(selectedIngredients ?? ingredients, ingredientMacroSources),
     [selectedIngredients, ingredients, ingredientMacroSources],

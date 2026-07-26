@@ -11,7 +11,7 @@ interface SatietyIndexBadgeProps {
   index: number | null;
   /** kcal / 100 g (optionnel, réservé au tooltip Macro). */
   caloriesPer100g?: number | null;
-  /** Volume total (g) retenu pour la densite recette — tooltip carte. */
+  /** Volume total (g) retenu pour la satiété recette — tooltip carte. */
   totalGrams?: number | null;
   /** Message si l'indice ne peut pas être calculé. */
   missingTitle?: string;
@@ -26,12 +26,12 @@ interface SatietyIndexBadgeProps {
    * Format compact type carte repas (même taille que la note nutritionnelle).
    */
   onMealCard?: boolean;
-  /** Tooltip dédié au total recette (densite 0–100 + volume). */
+  /** Tooltip dédié au total recette (somme pondérée + volume). */
   recipeTotal?: boolean;
 }
 
 /**
- * Affiche l'indice de satiété Meals Cards (base pour 100 g, ou densite recette 0–100).
+ * Affiche l'indice de satiété Meals Cards (base pour 100 g, ou indice carte recette).
  * Fond teal uniforme partout (distinct du gris des notes nutritionnelles).
  */
 export function SatietyIndexBadge({
@@ -46,9 +46,10 @@ export function SatietyIndexBadge({
 }: SatietyIndexBadgeProps) {
   if (hideWhenMissing && index == null) return null;
 
+  // px-2 laisse passer 3 chiffres (ex. 532) sans largeur fixe.
   const sizeClass = onMealCard
-    ? "text-[10px] font-black px-1.5 py-0.5"
-    : "h-8 min-w-[2rem] px-1.5 text-xs font-semibold";
+    ? "text-[10px] font-black px-2 py-0.5"
+    : "h-8 min-w-[2rem] px-2 text-xs font-semibold";
 
   const toneClass =
     index == null
