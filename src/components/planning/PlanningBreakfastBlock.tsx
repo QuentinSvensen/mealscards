@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Flame } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -62,6 +63,8 @@ export interface PlanningBreakfastBlockProps {
   ) => void;
   assignExtraToDaySlot: (extraId: string, iso: string, key: string, slot: string) => void;
   getBreakfastForDay: (key: string, iso: string) => Meal | null | undefined;
+  /** Ouvre la pop-up détail d’une carte Possible (même UX que midi/soir). */
+  openPlanningCardPopup: (pm: PossibleMeal) => void;
   setPopupBreakfast: (v: { meal: any; day: string } | null) => void;
   setBreakfastForDay: (day: string, selId: string | null) => void;
   updatePlanningWithCounters: (pmId: string, day: string | null, time: string | null) => void;
@@ -114,6 +117,7 @@ export function PlanningBreakfastBlock({
   moveExtraBetweenDaysToSlot,
   assignExtraToDaySlot,
   getBreakfastForDay,
+  openPlanningCardPopup,
   setPopupBreakfast,
   setBreakfastForDay,
   updatePlanningWithCounters,
@@ -122,6 +126,40 @@ export function PlanningBreakfastBlock({
   getMealPro,
   deselectExtraForDay,
 }: PlanningBreakfastBlockProps) {
+  const [breakfastPopoverOpen, setBreakfastPopoverOpen] = useState(false);
+
+  /**
+   * Ouvre le détail recette du badge petit-déj :
+   * carte Possible (matin / sélection pm:) via la pop-up planning, sinon fiche Meal.
+   */
+  const openBreakfastRecipeDetail = () => {
+    setBreakfastPopoverOpen(false);
+
+    if (matinMeals.length === 1 && matinMeals[0]?.meals) {
+      openPlanningCardPopup(matinMeals[0]);
+      return;
+    }
+
+    const selId = iso ? breakfastSelections[iso] : undefined;
+    if (selId?.startsWith("pm:")) {
+      const pm = possiblePetitDej.find((p) => p.id === selId.slice(3));
+      if (pm?.meals) {
+        openPlanningCardPopup(pm);
+        return;
+      }
+    }
+
+    const bm = getBreakfastForDay(key, iso);
+    if (bm) {
+      setPopupBreakfast({ meal: bm, day: iso });
+      return;
+    }
+
+    if (matinMeals.length > 0 && matinMeals[0]?.meals) {
+      openPlanningCardPopup(matinMeals[0]);
+    }
+  };
+
   return (
 <div
                   className={`rounded-xl border border-dashed px-2 py-2 transition-colors ${isBreakfastDragOver ? 'border-primary/60 bg-primary/7 ring-1 ring-primary/20' : 'border-border/55 bg-background/10 hover:border-primary/40'}`}
@@ -149,9 +187,11 @@ export function PlanningBreakfastBlock({
                 >
                 {/* Sélecteur de petit déj */}
                 <div className="flex items-center gap-1 flex-wrap">
-                  <Popover>
+                  <Popover open={breakfastPopoverOpen} onOpenChange={setBreakfastPopoverOpen}>
                     <PopoverTrigger asChild>
                       <button
+                        type="button"
+                        title="Double-clic pour voir le détail"
                         className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors truncate max-w-[120px] ${
                           (() => {
                             return liveBreakfastBreakdown.length > 0
@@ -159,9 +199,10 @@ export function PlanningBreakfastBlock({
                               : "bg-slate-200/80 dark:bg-slate-700/45 text-slate-700 dark:text-slate-300 border border-dashed border-slate-400/50 dark:border-slate-500/50 hover:bg-slate-300/80 dark:hover:bg-slate-600/50";
                           })()
                         }`}
-                        onDoubleClick={() => {
-                          const bm = getBreakfastForDay(key, iso);
-                          if (bm) setPopupBreakfast({ meal: bm, day: iso });
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openBreakfastRecipeDetail();
                         }}
                       >
                         {getBreakfastButtonLabel(liveBreakfastBreakdown)}

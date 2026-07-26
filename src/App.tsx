@@ -9,6 +9,12 @@ import { ThemeProvider } from "next-themes";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { isMobileViewport } from "./hooks/use-mobile";
+
+/** Redirige `/` vers Planning sur mobile, Repas sur desktop. */
+function HomeRedirect() {
+  return <Navigate to={isMobileViewport() ? "/planning" : "/repas"} replace />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,7 +52,7 @@ const App = () => (
   <BrowserRouter>
           <ErrorBoundary section="Application">
             <Routes>
-              <Route path="/" element={<Navigate to="/repas" replace />} />
+              <Route path="/" element={<HomeRedirect />} />
               <Route path="/aliments" element={<Index />} />
               <Route path="/repas" element={<Index />} />
               <Route path="/macros" element={<Index />} />

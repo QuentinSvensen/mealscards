@@ -1975,6 +1975,7 @@ export function WeeklyPlanning({
                   moveExtraBetweenDaysToSlot={moveExtraBetweenDaysToSlot}
                   assignExtraToDaySlot={assignExtraToDaySlot}
                   getBreakfastForDay={getBreakfastForDay}
+                  openPlanningCardPopup={openPlanningCardPopup}
                   setPopupBreakfast={setPopupBreakfast}
                   setBreakfastForDay={setBreakfastForDay}
                   updatePlanningWithCounters={updatePlanningWithCounters}
