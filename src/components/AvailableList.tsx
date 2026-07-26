@@ -21,13 +21,14 @@
  * Pipeline unifié : `buildUnifiedAvailableItems` (src/lib/availableListPipeline.ts)
  */
 import { useState, Fragment, useEffect, useMemo, useSyncExternalStore } from "react";
-import type { ReactNode } from "react";
+import type { DragEvent, ReactNode } from "react";
 import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Calendar, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
+import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -750,7 +751,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       oven_temp: null, oven_minutes: null,
     };
     return (
-      <div key={fi.id} className="relative">
+      <div key={fi.id} className="relative" data-reorder-idx={unifiedIdx}>
         <MealCard meal={fakeMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
           ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
@@ -810,7 +811,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const expIsTodayNm = isToday(fi.expiration_date);
     const fakeMeal: Meal = { ...displayMeal, id: nmKey };
     return (
-      <div key={`nm-${idx}`} className="relative">
+      <div key={`nm-${idx}`} className="relative" data-reorder-idx={unifiedIdx}>
         <MealCard meal={fakeMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
           ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
@@ -895,7 +896,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const expIsTodayAv = isToday(analysis.earliestExpiration);
     const expiringIng = analysis.expiringIngredientName;
     return (
-      <div key={meal.id} className="relative">
+      <div key={meal.id} className="relative" data-reorder-idx={unifiedIdx}>
         <MealCard meal={displayMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
           ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
@@ -989,7 +990,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const partialMeal = buildScaledMealForRatio(meal, effectiveRatio, stockMap);
     const partialKey = `partial-${meal.id}`;
     return (
-      <div key={partialKey} className="relative">
+      <div key={partialKey} className="relative" data-reorder-idx={unifiedIdx}>
         <MealCard meal={partialMeal} stockMap={stockMap} foodItems={foodItems} foodItemIndex={foodItemIndex}
           ingredientSuggestions={ingredientSuggestions}
           ingredientMacroSources={ingredientMacroAutofillSources}
@@ -1038,6 +1039,19 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     setAvailPref.mutate({ key: `available_order_${category.value}`, value: reordered.map(u => u.key) });
+  };
+
+  /**
+   * Drop dans le vide de l’encadré « Au choix » : réordonne selon la position Y (tri manuel uniquement).
+   */
+  const handleAvailableContainerDrop = (e: DragEvent) => {
+    e.preventDefault();
+    if (sortMode !== "manual") {
+      setAvDragIndex(null);
+      return;
+    }
+    applyContainerReorderDrop(avDragIndex, e.clientY, e.currentTarget, handleAvReorder);
+    setAvDragIndex(null);
   };
 
   // Pour chaque aliment inutilisé, cherche la meilleure recette qui l'utilise (priorité :
@@ -1656,7 +1670,11 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   };
 
   return (
-    <div className="rounded-3xl bg-card/80 backdrop-blur-sm p-4">
+    <div
+      className="rounded-3xl bg-card/80 backdrop-blur-sm p-4"
+      onDragOver={(e) => { if (sortMode === "manual") e.preventDefault(); }}
+      onDrop={handleAvailableContainerDrop}
+    >
       <div className="flex items-center gap-2 w-full">
         <button onClick={onToggleCollapse} className="flex items-center gap-2 flex-1 text-left">
           {!collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}

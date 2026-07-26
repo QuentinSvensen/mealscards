@@ -91,9 +91,9 @@ export function PlanningGouterBand({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`mt-1.5 min-h-[48px] sm:min-h-[52px] rounded-xl border border-dashed p-1.5 sm:p-2 transition-colors flex items-center ${isOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
+      className={`mt-1.5 min-h-[48px] sm:min-h-[52px] rounded-xl border border-dashed p-1.5 sm:p-2 transition-colors flex items-stretch ${isOver ? "border-orange-400/65 bg-orange-500/8 ring-1 ring-orange-400/25" : "border-orange-300/45 bg-orange-500/3 hover:border-orange-400/45"}`}
     >
-      <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full">
+      <div className="flex items-center gap-1 sm:gap-2 flex-wrap w-full min-h-[32px]">
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Goûter</span>
           <button

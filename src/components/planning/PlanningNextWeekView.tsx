@@ -36,6 +36,7 @@ import {
   scaleExtraDisplayMacrosByCount,
 } from "@/lib/planningExtraMacros";
 import { writeManualSlotMacroPreference } from "@/domain/planning/resolveManualSlotMacros";
+import { canAcceptPlanningSlotDrag } from "@/lib/planningDnD";
 import {
   pickDayExtraSelections,
   isExtraIdAssignedForDay,
@@ -111,6 +112,8 @@ export interface PlanningNextWeekViewProps {
   dragOverSlot: string | null;
   setDragOverSlot: React.Dispatch<React.SetStateAction<string | null>>;
   draggedSelectedExtraId: string | null;
+  /** Carte planning en cours de drag — permet d’accepter le drop sur le fond vide du créneau. */
+  draggedPlanningPmId: string | null;
   setDraggedSelectedExtraId: React.Dispatch<React.SetStateAction<string | null>>;
   setDraggedSelectedExtraOrigin: React.Dispatch<React.SetStateAction<{ iso: string; key: string } | null>>;
   openExtrasDay: string | null;
@@ -187,6 +190,7 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
     dragOverSlot,
     setDragOverSlot,
     draggedSelectedExtraId,
+    draggedPlanningPmId,
     setDraggedSelectedExtraId,
     setDraggedSelectedExtraOrigin,
     openExtrasDay,
@@ -388,11 +392,15 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                         : "border-border/55 bg-background/10 hover:border-primary/40"
                     }`}
                     onDragOver={(e) => {
-                      const canAccept = !!(
-                        draggedSelectedExtraId ||
-                        e.dataTransfer.types.includes("text/plain")
-                      );
-                      if (!canAccept) return;
+                      if (
+                        !canAcceptPlanningSlotDrag(
+                          e.dataTransfer,
+                          draggedSelectedExtraId,
+                          draggedPlanningPmId,
+                        )
+                      ) {
+                        return;
+                      }
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "move";
                       setDragOverSlot(breakfastDropKey);
@@ -624,13 +632,22 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                         data-day={iso}
                         data-time={time}
                         onDragOver={(e) => {
-                          const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain') || e.dataTransfer.types.includes('pmId'));
-                          if (canAccept) e.preventDefault();
+                          if (
+                            !canAcceptPlanningSlotDrag(
+                              e.dataTransfer,
+                              draggedSelectedExtraId,
+                              draggedPlanningPmId,
+                            )
+                          ) {
+                            return;
+                          }
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
                           setDragOverSlot(slotKey);
                         }}
                         onDragLeave={() => setDragOverSlot(null)}
                         onDrop={(e) => { e.preventDefault(); handleNextWeekDrop(e, iso, time); }}
-                        className={`min-h-[56px] sm:min-h-[64px] rounded-xl border border-dashed p-1.5 sm:p-2 transition-all ${isOver ? 'bg-primary/16 border-primary/70 scale-[1.02] shadow-lg ring-1 ring-primary/25' : 'border-border/55 bg-background/10'}`}
+                        className={`min-h-[56px] sm:min-h-[64px] flex flex-col rounded-xl border border-dashed p-1.5 sm:p-2 transition-all ${isOver ? 'bg-primary/16 border-primary/70 scale-[1.02] shadow-lg ring-1 ring-primary/25' : 'border-border/55 bg-background/10'}`}
                       >
                         <div className="flex items-center justify-between mb-0.5 gap-0.5 min-w-0">
                           <div className="flex items-center gap-1">
@@ -671,7 +688,7 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                             </div>
                           )}
                         </div>
-                        <div className="mt-0.5 space-y-1">
+                        <div className="mt-0.5 space-y-1 flex-1 min-h-[28px]">
                           {slotMeals.map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))}
                           {slotMeals.length === 0 && (
                             <div className="flex flex-col items-start gap-0.5">
@@ -1244,12 +1261,17 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                     </div>
                   ))}
                   onDragOver={(e) => {
-                    const canAccept = !!(
-                      draggedSelectedExtraId ||
-                      e.dataTransfer.types.includes("text/plain") ||
-                      e.dataTransfer.types.includes("pmId")
-                    );
-                    if (canAccept) e.preventDefault();
+                    if (
+                      !canAcceptPlanningSlotDrag(
+                        e.dataTransfer,
+                        draggedSelectedExtraId,
+                        draggedPlanningPmId,
+                      )
+                    ) {
+                      return;
+                    }
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
                     setDragOverSlot(gouterKIso);
                   }}
                   onDragLeave={() => setDragOverSlot((cur) => (cur === gouterKIso ? null : cur))}

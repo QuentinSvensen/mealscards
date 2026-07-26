@@ -88,15 +88,15 @@ export function PlanningSlotSection({
 
   return (
     <div
-      data-slot
+      data-slot={`${dayIso}-${time}`}
       data-day={dayIso}
       data-time={time}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`min-w-0 min-h-[56px] sm:min-h-[64px] rounded-xl border border-dashed p-1.5 sm:p-2 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
+      className={`min-w-0 min-h-[56px] sm:min-h-[64px] flex flex-col rounded-xl border border-dashed p-1.5 sm:p-2 transition-colors ${isOver ? "border-primary/60 bg-primary/7 ring-1 ring-primary/20" : "border-border/55 bg-background/10 hover:border-primary/40"}`}
     >
-      <div className="flex items-center justify-between gap-0.5 mb-0.5 min-w-0">
+      <div className="flex items-center justify-between gap-0.5 mb-0.5 min-w-0 shrink-0">
         <div className="flex items-center gap-0.5 sm:gap-1 min-w-0 shrink">
           <span className="text-[8px] sm:text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
             {timeLabel}
@@ -120,7 +120,8 @@ export function PlanningSlotSection({
           hidden={hideDayCalorieTotals}
         />
       </div>
-      <div className="mt-0.5 space-y-1">
+      {/* Zone flexible : le fond vide du créneau reste une cible de drop (pas seulement les cartes). */}
+      <div className="mt-0.5 space-y-1 flex-1 min-h-[28px]">
         {!hasSlotMeals ? (
           <div className="flex flex-col items-start gap-0.5">
             <PlanningInput

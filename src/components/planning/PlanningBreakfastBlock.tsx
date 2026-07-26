@@ -16,6 +16,7 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import type { PlanningSnapshotEntry } from "@/domain/planning/types";
 import { formatPlanningSnapshotTitle } from "@/domain/planning/formatPlanningSnapshotTitle";
 import { clearWeekdayScopedSnapshots } from "@/domain/planning/weekdaySnapshotUtils";
+import { canAcceptPlanningSlotDrag, getPlanningPmIdFromDrop } from "@/lib/planningDnD";
 
 export interface PlanningBreakfastBlockProps {
   dayKey: string;
@@ -49,6 +50,8 @@ export interface PlanningBreakfastBlockProps {
   nextBreakfastManualProteins: Record<string, number>;
   jsDayToKey: Record<number, string>;
   draggedSelectedExtraId: string | null;
+  /** Carte planning en cours de drag (pour accepter le drop sur le fond du petit-déj). */
+  draggedPlanningPmId?: string | null;
   draggedSelectedExtraOrigin: { iso: string; key: string } | null;
   setDragOverSlot: React.Dispatch<React.SetStateAction<string | null>>;
   setDraggedSelectedExtraId: React.Dispatch<React.SetStateAction<string | null>>;
@@ -62,6 +65,8 @@ export interface PlanningBreakfastBlockProps {
     slot: string,
   ) => void;
   assignExtraToDaySlot: (extraId: string, iso: string, key: string, slot: string) => void;
+  /** Dépose une carte Possible sur le créneau matin (même logique que midi/soir). */
+  onDropPlanningCard?: (e: React.DragEvent, dayIso: string, time: string) => void;
   getBreakfastForDay: (key: string, iso: string) => Meal | null | undefined;
   /** Ouvre la pop-up détail d’une carte Possible (même UX que midi/soir). */
   openPlanningCardPopup: (pm: PossibleMeal) => void;
@@ -110,12 +115,14 @@ export function PlanningBreakfastBlock({
   nextBreakfastManualProteins,
   jsDayToKey: JS_DAY_TO_KEY,
   draggedSelectedExtraId,
+  draggedPlanningPmId = null,
   draggedSelectedExtraOrigin,
   setDragOverSlot,
   setDraggedSelectedExtraId,
   setDraggedSelectedExtraOrigin,
   moveExtraBetweenDaysToSlot,
   assignExtraToDaySlot,
+  onDropPlanningCard,
   getBreakfastForDay,
   openPlanningCardPopup,
   setPopupBreakfast,
@@ -162,18 +169,36 @@ export function PlanningBreakfastBlock({
 
   return (
 <div
+                  data-slot={`${iso}-matin`}
+                  data-day={iso}
+                  data-time="matin"
                   className={`rounded-xl border border-dashed px-2 py-2 transition-colors ${isBreakfastDragOver ? 'border-primary/60 bg-primary/7 ring-1 ring-primary/20' : 'border-border/55 bg-background/10 hover:border-primary/40'}`}
                   onDragOver={(e) => {
-                    const canAccept = !!(draggedSelectedExtraId || e.dataTransfer.types.includes('text/plain'));
-                    if (!canAccept) return;
+                    if (
+                      !canAcceptPlanningSlotDrag(
+                        e.dataTransfer,
+                        draggedSelectedExtraId,
+                        draggedPlanningPmId,
+                      )
+                    ) {
+                      return;
+                    }
                     e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
                     setDragOverSlot(breakfastDropKey);
                   }}
                   onDragLeave={() => setDragOverSlot((cur) => (cur === breakfastDropKey ? null : cur))}
                   onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverSlot(null);
+                    const pmId = getPlanningPmIdFromDrop(e);
+                    if (pmId) {
+                      if (onDropPlanningCard) onDropPlanningCard(e, iso, "matin");
+                      else updatePlanningWithCounters(pmId, iso, "matin");
+                      return;
+                    }
                     const extraId = draggedSelectedExtraId || e.dataTransfer.getData('text/plain');
                     if (!extraId) return;
-                    e.preventDefault();
                     const origin = draggedSelectedExtraOrigin;
                     if (origin && origin.iso && origin.iso !== iso) {
                       moveExtraBetweenDaysToSlot(extraId, origin.iso, origin.key, iso, key, 'matin');
@@ -182,7 +207,6 @@ export function PlanningBreakfastBlock({
                     }
                     setDraggedSelectedExtraId(null);
                     setDraggedSelectedExtraOrigin(null);
-                    setDragOverSlot(null);
                   }}
                 >
                 {/* Sélecteur de petit déj */}

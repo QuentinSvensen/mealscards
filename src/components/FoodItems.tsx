@@ -28,6 +28,7 @@ import { colorFromName, computeCounterDays, computeCounterHours, formatFoodCount
 import { usePreferences } from "@/hooks/usePreferences";
 import { useSortModes, FoodSortMode } from "@/hooks/useSortModes";
 import { getSortedFoodItems } from "@/lib/foodSortUtils";
+import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import {
   FOOD_EXTRAS_DIVIDER_PREF_KEY,
   extrasDividerMoveState,
@@ -2015,21 +2016,37 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
     }, 350);
   };
 
+  /**
+   * Drop dans le vide de la section aliments : réordonne dans la même zone, sinon change de stockage.
+   */
+  const handleSectionContainerDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setSectionDragOver(false);
+    const itemId = e.dataTransfer.getData("foodItemId");
+    const fromStorage = e.dataTransfer.getData("foodItemStorage");
+    if (fromStorage === storageType) {
+      applyContainerReorderDrop(
+        dragIndex,
+        e.clientY,
+        e.currentTarget,
+        onReorder,
+        "[data-food-idx]",
+      );
+      setDragIndex(null);
+      return;
+    }
+    if (itemId && fromStorage !== storageType) {
+      onChangeStorage(itemId, storageType);
+      setDragIndex(null);
+    }
+  };
+
   return (
     <div
       className="rounded-3xl bg-card/80 backdrop-blur-sm p-4"
       onDragOver={(e) => { e.preventDefault(); setSectionDragOver(true); }}
       onDragLeave={() => setSectionDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setSectionDragOver(false);
-        const itemId = e.dataTransfer.getData("foodItemId");
-        const fromStorage = e.dataTransfer.getData("foodItemStorage");
-        if (itemId && fromStorage !== storageType) {
-          onChangeStorage(itemId, storageType);
-          setDragIndex(null);
-        }
-      }}
+      onDrop={handleSectionContainerDrop}
     >
       <div className="flex items-center gap-2 mb-3">
         <button onClick={() => setCollapsed(c => !c)} className="flex items-center gap-2 flex-1 text-left">
@@ -2066,6 +2083,7 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
               <div key={item.id}>
                 <div
                   data-food-idx={sectionIdx}
+                  data-reorder-idx={sectionIdx}
                   onTouchStart={(e) => handleTouchStart(e, item, sectionIdx)}
                   className={sortMode === "manual" && isTouchDevice ? "touch-manipulation select-none" : undefined}
                   style={sortMode === "manual" && isTouchDevice ? { WebkitUserSelect: "none", userSelect: "none" } : undefined}

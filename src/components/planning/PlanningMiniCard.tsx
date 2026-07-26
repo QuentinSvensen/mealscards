@@ -74,6 +74,8 @@ export interface PlanningMiniCardProps {
   touchDragActive: boolean;
   slotDragOver: string | null;
   onDragStart: (e: React.DragEvent) => void;
+  /** Nettoyage après drag (ref / state carte en cours). */
+  onDragEnd?: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent) => void;
@@ -112,6 +114,7 @@ export function PlanningMiniCard({
   touchDragActive,
   slotDragOver,
   onDragStart,
+  onDragEnd,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -224,6 +227,7 @@ export function PlanningMiniCard({
     <div
       draggable={!isTouchDevice}
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

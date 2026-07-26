@@ -19,6 +19,7 @@ import { usePreferences, usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { Meal } from "@/hooks/useMeals";
 import { colorFromName } from "@/lib/foodColors";
+import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { buildStockMap, findStockKey, getMealMultiple, hasActiveFoodItemCounter } from "@/lib/stockUtils";
 import { normalizeForMatch, strictNameMatch, parseIngredientGroups, formatNumeric, getFoodItemTotalGrams, normalizeKey, computeCounterDays, parseQty } from "@/lib/ingredientUtils";
@@ -270,6 +271,7 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
         key={fi.id}
         data-upu-idx={idx}
         data-upu-col={col}
+        data-reorder-idx={idx}
         draggable={!isTouchDevice && sortMode === "manual"}
         onDragStart={() => { setDragIdx(idx); setDragCol(col); }}
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -389,14 +391,54 @@ export function UnParUnSection({ category, foodItems, allMeals, collapsed, onTog
 
       {!collapsed && (
         <div className={`grid grid-cols-2 gap-3 mt-3 ${touchActive ? "touch-none" : ""}`}>
-          <div className="flex flex-col gap-2">
+          <div
+            className="flex flex-col gap-2 min-h-[48px]"
+            onDragOver={(e) => { if (sortMode === "manual") e.preventDefault(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (sortMode !== "manual" || dragCol !== "viande") {
+                setDragIdx(null);
+                setDragCol(null);
+                return;
+              }
+              applyContainerReorderDrop(
+                dragIdx,
+                e.clientY,
+                e.currentTarget,
+                (from, to) => handleReorder("viande", from, to),
+                '[data-upu-col="viande"][data-reorder-idx]',
+              );
+              setDragIdx(null);
+              setDragCol(null);
+            }}
+          >
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
               <Drumstick className="h-3 w-3 text-red-400" /> Viande ({sortedViande.length})
             </p>
             {sortedViande.length === 0 && <p className="text-muted-foreground text-xs italic text-center py-4">Aucun</p>}
             {sortedViande.map((fi, idx) => renderFoodCard(fi, 'viande', idx))}
           </div>
-          <div className="flex flex-col gap-2">
+          <div
+            className="flex flex-col gap-2 min-h-[48px]"
+            onDragOver={(e) => { if (sortMode === "manual") e.preventDefault(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (sortMode !== "manual" || dragCol !== "feculent") {
+                setDragIdx(null);
+                setDragCol(null);
+                return;
+              }
+              applyContainerReorderDrop(
+                dragIdx,
+                e.clientY,
+                e.currentTarget,
+                (from, to) => handleReorder("feculent", from, to),
+                '[data-upu-col="feculent"][data-reorder-idx]',
+              );
+              setDragIdx(null);
+              setDragCol(null);
+            }}
+          >
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
               <Wheat className="h-3 w-3 text-amber-400" /> Féculent ({sortedFeculent.length})
             </p>

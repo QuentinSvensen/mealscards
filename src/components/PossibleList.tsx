@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { MealList } from "@/components/MealList";
 import { PossibleMealCard } from "@/components/PossibleMealCard";
+import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import { computeIngredientCalories, computeIngredientProtein, computeIngredientFiber, getMealColor, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
 import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
@@ -171,8 +172,21 @@ export function PossibleList({
     );
   }, [displayItemsWithAnalysis, showFromToday]);
 
+  /**
+   * Drop dans le vide de l’encadré Possible : réordonne la carte glissée selon la position Y.
+   */
+  const handleContainerReorderDrop = (e: React.DragEvent): boolean => {
+    const source = e.dataTransfer.getData("source");
+    if (source !== "possible" || dragIndex === null) return false;
+    const cardsRoot = (e.currentTarget as HTMLElement).querySelector("[data-meal-list-cards]");
+    const handled = applyContainerReorderDrop(dragIndex, e.clientY, cardsRoot, onReorder);
+    setDragIndex(null);
+    return handled;
+  };
+
   return (
     <MealList title={`${category.label} possibles`} emoji={category.emoji} count={visibleItemsWithAnalysis.length} onExternalDrop={onExternalDrop}
+      onInternalReorderDrop={handleContainerReorderDrop}
       headerActions={<>
         <label
           className="inline-flex items-center justify-center mr-1 cursor-pointer"
@@ -250,71 +264,73 @@ export function PossibleList({
                   <Separator className="flex-1 opacity-40 bg-primary/30" />
                 </div>
               )}
-              <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
-                ingredientMacroSources={ingredientMacroAutofillSources}
-                mealsCatalog={mealsCatalog}
-                fromMaster={masterSourcePmIds.has(pm.id)}
-                frozenCounterDays={frozenCounterDays}
-                expiredIngredientNames={expiredIngs}
-                expiringSoonIngredientNames={soonIngs}
-                onRemove={() => onRemove(pm.id)}
-                onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
-                onReturnWithoutDeductionLabel={unParUnSourcePmIds.has(pm.id) ? "Revenir dans Un par un" : undefined}
-                onReturnToMaster={masterSourcePmIds.has(pm.id) ? () => onReturnToMaster(pm.id) : undefined}
-                onDelete={() => onDelete(pm.id)}
-                onDuplicate={() => onDuplicate(pm.id)}
-                onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
-                onUpdatePlanning={(day, time) =>
-                  // Créneau complet : ne pas passer de counter forcé (Index → null sur la ligne PM + sync food_items).
-                  // Sinon le 4e paramètre repasse une date « ouvert maintenant » et fausse updateFoodItemCountersForPlanning.
-                  onUpdatePlanning(
-                    pm.id,
-                    day,
-                    time,
-                    day && time
-                      ? undefined
-                      : (resolvedCounterStart ?? pm.counter_start_date ?? analysis.earliestCounterDate),
-                  )}
-                onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
-                onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal, pm.id)}
-                onUpdateProtein={onUpdateProtein ? (pro) => onUpdateProtein(pm.meal_id, pro, pm.id) : undefined}
-                onUpdateFiber={onUpdateFiber ? (fiber) => onUpdateFiber(pm.meal_id, fiber, pm.id) : undefined}
-                onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g, pm.id)}
-                onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
-                onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
-                onUpdateOvenTemp={onUpdateOvenTemp ? (t) => onUpdateOvenTemp(pm.meals.id, t) : undefined}
-                onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
-                onUpdateDescription={onUpdateDescription ? (d) => onUpdateDescription(pm.meals.id, d) : undefined}
-                onRename={
-                  onRename && isPossibleOnlyCreatedMeal(meal.id, possibleOnlyMealIds)
-                    ? (name) => onRename(meal.id, name)
-                    : undefined
-                }
-                onUpdateQuantity={unParUnSourcePmIds.has(pm.id) ? (qty) => onUpdateQuantity(pm.id, qty) : undefined}
-                onSplitQuantity={onSplitQuantity ? (ratio, baseIng) => onSplitQuantity(pm.id, ratio, baseIng) : undefined}
-                onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (dragIndex !== null && dragIndex !== index) {
-                    onReorder(dragIndex, index);
+              <div data-reorder-idx={index}>
+                <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
+                  ingredientMacroSources={ingredientMacroAutofillSources}
+                  mealsCatalog={mealsCatalog}
+                  fromMaster={masterSourcePmIds.has(pm.id)}
+                  frozenCounterDays={frozenCounterDays}
+                  expiredIngredientNames={expiredIngs}
+                  expiringSoonIngredientNames={soonIngs}
+                  onRemove={() => onRemove(pm.id)}
+                  onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
+                  onReturnWithoutDeductionLabel={unParUnSourcePmIds.has(pm.id) ? "Revenir dans Un par un" : undefined}
+                  onReturnToMaster={masterSourcePmIds.has(pm.id) ? () => onReturnToMaster(pm.id) : undefined}
+                  onDelete={() => onDelete(pm.id)}
+                  onDuplicate={() => onDuplicate(pm.id)}
+                  onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
+                  onUpdatePlanning={(day, time) =>
+                    // Créneau complet : ne pas passer de counter forcé (Index → null sur la ligne PM + sync food_items).
+                    // Sinon le 4e paramètre repasse une date « ouvert maintenant » et fausse updateFoodItemCountersForPlanning.
+                    onUpdatePlanning(
+                      pm.id,
+                      day,
+                      time,
+                      day && time
+                        ? undefined
+                        : (resolvedCounterStart ?? pm.counter_start_date ?? analysis.earliestCounterDate),
+                    )}
+                  onUpdateCounter={(d) => onUpdateCounter(pm.id, d)}
+                  onUpdateCalories={(cal) => onUpdateCalories(pm.meal_id, cal, pm.id)}
+                  onUpdateProtein={onUpdateProtein ? (pro) => onUpdateProtein(pm.meal_id, pro, pm.id) : undefined}
+                  onUpdateFiber={onUpdateFiber ? (fiber) => onUpdateFiber(pm.meal_id, fiber, pm.id) : undefined}
+                  onUpdateGrams={(g) => onUpdateGrams(pm.meal_id, g, pm.id)}
+                  onUpdateIngredients={(ing) => onUpdateIngredients(pm.meal_id, ing)}
+                  onUpdatePossibleIngredients={(newIng) => onUpdatePossibleIngredients(pm.id, newIng)}
+                  onUpdateOvenTemp={onUpdateOvenTemp ? (t) => onUpdateOvenTemp(pm.meals.id, t) : undefined}
+                  onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
+                  onUpdateDescription={onUpdateDescription ? (d) => onUpdateDescription(pm.meals.id, d) : undefined}
+                  onRename={
+                    onRename && isPossibleOnlyCreatedMeal(meal.id, possibleOnlyMealIds)
+                      ? (name) => onRename(meal.id, name)
+                      : undefined
                   }
-                  setDragIndex(null);
-                }}
-                onDoubleClick={() => setPopupPm(pm)}
-                isHighlighted={highlightedId === pm.id}
-                realtimeCounterStartDate={
-                  resolvedCounterStart === null
-                    ? undefined
-                    : pickEarliestPastCounterStart(
-                        resolvedCounterStart,
-                        snapshotPastOpening,
-                        analysis.earliestActiveCounterDate,
-                        analysis.earliestCounterDate,
-                        pm.counter_start_date,
-                      )
-                } />
+                  onUpdateQuantity={unParUnSourcePmIds.has(pm.id) ? (qty) => onUpdateQuantity(pm.id, qty) : undefined}
+                  onSplitQuantity={onSplitQuantity ? (ratio, baseIng) => onSplitQuantity(pm.id, ratio, baseIng) : undefined}
+                  onDragStart={(e) => { e.dataTransfer.setData("mealId", pm.meal_id); e.dataTransfer.setData("pmId", pm.id); e.dataTransfer.setData("source", "possible"); setDragIndex(index); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (dragIndex !== null && dragIndex !== index) {
+                      onReorder(dragIndex, index);
+                    }
+                    setDragIndex(null);
+                  }}
+                  onDoubleClick={() => setPopupPm(pm)}
+                  isHighlighted={highlightedId === pm.id}
+                  realtimeCounterStartDate={
+                    resolvedCounterStart === null
+                      ? undefined
+                      : pickEarliestPastCounterStart(
+                          resolvedCounterStart,
+                          snapshotPastOpening,
+                          analysis.earliestActiveCounterDate,
+                          analysis.earliestCounterDate,
+                          pm.counter_start_date,
+                        )
+                  } />
+              </div>
 
               {showBottomSeparator && (
                 <div className="py-2 px-2">

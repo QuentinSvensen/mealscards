@@ -8,11 +8,12 @@
  * Chaque carte affiche les ingrédients manquants, les dates de péremption,
  * les compteurs d'ouverture et les macros nutritionnelles.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type DragEvent } from "react";
 import { Flame, Star, List, ArrowUpDown, Search, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealList } from "@/components/MealList";
+import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import { MealCard } from "@/components/MealCard";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
@@ -82,6 +83,17 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
       })
     : meals;
 
+  /**
+   * Drop dans le vide de l’encadré Master : réordonne selon la position Y la plus proche.
+   */
+  const handleContainerReorderDrop = (e: DragEvent): boolean => {
+    if (dragIndex === null) return false;
+    const cardsRoot = (e.currentTarget as HTMLElement).querySelector("[data-meal-list-cards]");
+    const handled = applyContainerReorderDrop(dragIndex, e.clientY, cardsRoot, onReorder);
+    setDragIndex(null);
+    return handled;
+  };
+
   return (
     <MealList
       title={`Tous · ${category.label}`}
@@ -89,6 +101,7 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
       count={meals.length}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}
+      onInternalReorderDrop={handleContainerReorderDrop}
       headerActions={
         <>
           {!collapsed && (
@@ -124,32 +137,34 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
             const expIsTodayM = isToday(analysis.earliestExpiration);
 
             return (
-              <MealCard key={meal.id} meal={meal} stockMap={stockMap}
-                foodItems={foodItems}
-                foodItemIndex={foodItemIndex}
-                ingredientSuggestions={ingredientSuggestions}
-                ingredientMacroSources={ingredientMacroAutofillSources}
-                onMoveToPossible={() => onMoveToPossible(meal.id)}
-                onRename={(name) => onRename(meal.id, name)}
-                onDelete={() => onDelete(meal.id)}
-                onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
-                onUpdateProtein={(prot) => onUpdateProtein(meal.id, prot)}
-                onUpdateFiber={(fiber) => onUpdateFiber(meal.id, fiber)}
-                onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
-                onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-                onToggleFavorite={() => onToggleFavorite(meal.id)}
-                onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
-                onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-                onUpdateDescription={(d) => onUpdateDescription(meal.id, d)}
-                missingIngredientNames={missingIngs.size > 0 ? missingIngs : undefined}
-                expirationLabel={expLabel} expirationDate={analysis.earliestExpiration} expirationIsToday={expIsTodayM}
-                expiredIngredientNames={analysis.expiredIngredientNames} expiringSoonIngredientNames={analysis.expiringSoonIngredientNames}
-                maxIngredientCounter={analysis.maxIngredientCounter} counterIngredientNames={analysis.counterIngredientNames}
-                earliestCounterDate={analysis.earliestCounterDate}
-                onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
-                hideCounter />
+              <div key={meal.id} data-reorder-idx={index}>
+                <MealCard meal={meal} stockMap={stockMap}
+                  foodItems={foodItems}
+                  foodItemIndex={foodItemIndex}
+                  ingredientSuggestions={ingredientSuggestions}
+                  ingredientMacroSources={ingredientMacroAutofillSources}
+                  onMoveToPossible={() => onMoveToPossible(meal.id)}
+                  onRename={(name) => onRename(meal.id, name)}
+                  onDelete={() => onDelete(meal.id)}
+                  onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
+                  onUpdateProtein={(prot) => onUpdateProtein(meal.id, prot)}
+                  onUpdateFiber={(fiber) => onUpdateFiber(meal.id, fiber)}
+                  onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
+                  onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+                  onToggleFavorite={() => onToggleFavorite(meal.id)}
+                  onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+                  onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+                  onUpdateDescription={(d) => onUpdateDescription(meal.id, d)}
+                  missingIngredientNames={missingIngs.size > 0 ? missingIngs : undefined}
+                  expirationLabel={expLabel} expirationDate={analysis.earliestExpiration} expirationIsToday={expIsTodayM}
+                  expiredIngredientNames={analysis.expiredIngredientNames} expiringSoonIngredientNames={analysis.expiringSoonIngredientNames}
+                  maxIngredientCounter={analysis.maxIngredientCounter} counterIngredientNames={analysis.counterIngredientNames}
+                  earliestCounterDate={analysis.earliestCounterDate}
+                  onDragStart={(e) => { e.dataTransfer.setData("mealId", meal.id); e.dataTransfer.setData("source", "master"); setDragIndex(index); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex !== null && dragIndex !== index) onReorder(dragIndex, index); setDragIndex(null); }}
+                  hideCounter />
+              </div>
             );
           })}
         </>

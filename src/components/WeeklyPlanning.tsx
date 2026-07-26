@@ -35,6 +35,11 @@ import {
   TIME_LABELS,
 } from "@/components/planning/planningSlotStyles";
 import { usePlanningTouchDrag } from "@/hooks/usePlanningTouchDrag";
+import {
+  canAcceptPlanningSlotDrag,
+  getPlanningPmIdFromDrop,
+  setPlanningCardDragData,
+} from "@/lib/planningDnD";
 import { formatPlanningSnapshotTitle } from "@/domain/planning/formatPlanningSnapshotTitle";
 import {
   EXTRA_DAY_SLOTS,
@@ -671,6 +676,8 @@ export function WeeklyPlanning({
   const [dragOverUnplanned, setDragOverUnplanned] = useState(false);
 
   const slotDragRef = useRef<{ pmId: string; slotKey: string } | null>(null);
+  /** Id de la carte planning en cours de drag (state pour accepter le drop sur zone vide). */
+  const [draggedPlanningPmId, setDraggedPlanningPmId] = useState<string | null>(null);
   const [slotDragOver, setSlotDragOver] = useState<string | null>(null);
 
   const todayRef = useRef<HTMLDivElement | null>(null);
@@ -1422,10 +1429,12 @@ export function WeeklyPlanning({
   const handleNextWeekDrop = (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
     setDragOverSlot(null);
-    const pmId = e.dataTransfer.getData("pmId");
+    const pmId = getPlanningPmIdFromDrop(e, slotDragRef.current);
     if (pmId) {
       // Goûter : même persistance que midi/soir (plus d’override d’affichage seul)
       assignPmToPlanningSlot(pmId, day, time);
+      slotDragRef.current = null;
+      setDraggedPlanningPmId(null);
       return;
     }
     const extraId = draggedSelectedExtraId || e.dataTransfer.getData("text/plain");
@@ -1445,13 +1454,16 @@ export function WeeklyPlanning({
     }
   };
 
+  // Gère le dépôt dans un créneau (fond / zone vide inclus) : déplace la carte ou l’extra.
   const handleDrop = async (e: React.DragEvent, day: string, time: string) => {
     e.preventDefault();
     setDragOverSlot(null);
-    const pmId = e.dataTransfer.getData("pmId");
+    const pmId = getPlanningPmIdFromDrop(e, slotDragRef.current);
     if (pmId) {
       // Goûter : même persistance que midi/soir (plus d’override d’affichage seul)
       assignPmToPlanningSlot(pmId, day, time);
+      slotDragRef.current = null;
+      setDraggedPlanningPmId(null);
       return;
     }
     // Drop d’un extra sélectionné dans ce créneau (matin/midi/goûter/soir).
@@ -1470,6 +1482,7 @@ export function WeeklyPlanning({
     }
   };
 
+  // Gère le dépôt sur une carte déjà présente : réordonne dans le créneau (ou y déplace la carte).
   const handleDropOnCard = (e: React.DragEvent, targetPm: PossibleMeal) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1491,7 +1504,7 @@ export function WeeklyPlanning({
       }
       return;
     }
-    const draggedPmId = e.dataTransfer.getData("pmId");
+    const draggedPmId = getPlanningPmIdFromDrop(e, slotDragRef.current);
     if (!draggedPmId || draggedPmId === targetPm.id) return;
 
     const targetVisual = getVisualSlotForPm(targetPm);
@@ -1510,13 +1523,18 @@ export function WeeklyPlanning({
     const insertAt = targetIdx === -1 ? filtered.length : targetIdx;
     filtered.splice(insertAt, 0, { id: draggedPmId } as PossibleMeal);
     reorderPossibleMeals.mutate(filtered.map((p, i) => ({ id: p.id, sort_order: i })));
+    slotDragRef.current = null;
+    setDraggedPlanningPmId(null);
   };
 
+  // Dépose une carte hors planning (zone « non planifié »).
   const handleDropUnplanned = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOverUnplanned(false);
-    const pmId = e.dataTransfer.getData("pmId");
+    const pmId = getPlanningPmIdFromDrop(e, slotDragRef.current);
     if (pmId) clearPmPlanningSlot(pmId);
+    slotDragRef.current = null;
+    setDraggedPlanningPmId(null);
   };
 
   /** Retire une carte d’un créneau via le bouton × de la mini-carte. */
@@ -1606,10 +1624,14 @@ export function WeeklyPlanning({
         touchDragActive={touchDragActive}
         slotDragOver={slotDragOver}
         onDragStart={(e) => {
-          e.dataTransfer.setData("pmId", pm.id);
-          e.dataTransfer.setData("mealId", pm.meal_id);
-          e.dataTransfer.setData("source", "planning-slot");
+          setPlanningCardDragData(e.dataTransfer, pm.id, pm.meal_id);
           slotDragRef.current = { pmId: pm.id, slotKey: `${pm.day_of_week}-${pm.meal_time}` };
+          setDraggedPlanningPmId(pm.id);
+        }}
+        onDragEnd={() => {
+          slotDragRef.current = null;
+          setDraggedPlanningPmId(null);
+          setSlotDragOver(null);
         }}
         onDragOver={(e) => {
           e.preventDefault();
@@ -1968,12 +1990,14 @@ export function WeeklyPlanning({
                   nextBreakfastManualProteins={nextBreakfastManualProteins}
                   jsDayToKey={JS_DAY_TO_KEY}
                   draggedSelectedExtraId={draggedSelectedExtraId}
+                  draggedPlanningPmId={draggedPlanningPmId}
                   draggedSelectedExtraOrigin={draggedSelectedExtraOrigin}
                   setDragOverSlot={setDragOverSlot}
                   setDraggedSelectedExtraId={setDraggedSelectedExtraId}
                   setDraggedSelectedExtraOrigin={setDraggedSelectedExtraOrigin}
                   moveExtraBetweenDaysToSlot={moveExtraBetweenDaysToSlot}
                   assignExtraToDaySlot={assignExtraToDaySlot}
+                  onDropPlanningCard={handleDrop}
                   getBreakfastForDay={getBreakfastForDay}
                   openPlanningCardPopup={openPlanningCardPopup}
                   setPopupBreakfast={setPopupBreakfast}
@@ -2092,7 +2116,18 @@ export function WeeklyPlanning({
                       snapshotTitle={formatPlanningSnapshotTitle(savedSnapshots[`manual-${iso}-${time}`] || savedSnapshots[`manual-${key}-${time}`])}
                       mealCards={slotMeals.map((pm) => renderMiniCard(pm, false, time === 'midi' || time === 'soir'))}
                       onDragOver={(e) => {
+                        if (
+                          !canAcceptPlanningSlotDrag(
+                            e.dataTransfer,
+                            draggedSelectedExtraId,
+                            draggedPlanningPmId,
+                            slotDragRef.current,
+                          )
+                        ) {
+                          return;
+                        }
                         e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
                         setDragOverSlot(slotKey);
                       }}
                       onDragLeave={() => setDragOverSlot(null)}
@@ -2299,7 +2334,18 @@ export function WeeklyPlanning({
                     </div>
                   ))}
                   onDragOver={(e) => {
+                    if (
+                      !canAcceptPlanningSlotDrag(
+                        e.dataTransfer,
+                        draggedSelectedExtraId,
+                        draggedPlanningPmId,
+                        slotDragRef.current,
+                      )
+                    ) {
+                      return;
+                    }
                     e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
                     setDragOverSlot(`${iso}-gouter`);
                   }}
                   onDragLeave={() => setDragOverSlot((cur) => (cur === `${iso}-gouter` ? null : cur))}
@@ -2460,6 +2506,7 @@ export function WeeklyPlanning({
           dragOverSlot={dragOverSlot}
           setDragOverSlot={setDragOverSlot}
           draggedSelectedExtraId={draggedSelectedExtraId}
+          draggedPlanningPmId={draggedPlanningPmId}
           setDraggedSelectedExtraId={setDraggedSelectedExtraId}
           setDraggedSelectedExtraOrigin={setDraggedSelectedExtraOrigin}
           openExtrasDay={openExtrasDay}

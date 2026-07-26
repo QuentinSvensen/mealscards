@@ -2,7 +2,8 @@
  * MealList — Conteneur générique pour une liste de repas.
  *
  * Affiche un titre avec emoji, compteur et actions d'en-tête.
- * Gère le drag & drop externe (glisser un repas d'une liste à l'autre)
+ * Gère le drag & drop externe (glisser un repas d'une liste à l'autre),
+ * le réordonnancement interne (drop dans le vide de l’encadré),
  * et le repli/dépli de la liste.
  *
  * Utilisé comme conteneur partagé par MasterList, PossibleList, etc.
@@ -16,12 +17,27 @@ interface MealListProps {
   count: number;
   children: React.ReactNode;
   onExternalDrop?: (mealId: string, source: string, pmId?: string | null) => void;
+  /**
+   * Drop dans le vide de l’encadré (padding / gaps) pour un réordonnancement interne.
+   * Doit retourner true si le drop a été consommé (même sans déplacement effectif).
+   */
+  onInternalReorderDrop?: (e: React.DragEvent) => boolean;
   headerActions?: React.ReactNode;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
-export function MealList({ title, emoji, count, children, onExternalDrop, headerActions, collapsed, onToggleCollapse }: MealListProps) {
+export function MealList({
+  title,
+  emoji,
+  count,
+  children,
+  onExternalDrop,
+  onInternalReorderDrop,
+  headerActions,
+  collapsed,
+  onToggleCollapse,
+}: MealListProps) {
   const [dragOver, setDragOver] = useState(false);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -31,9 +47,14 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
 
   const handleDragLeave = useCallback(() => setDragOver(false), []);
 
+  /**
+   * Gère le drop sur l’encadré : d’abord réordonnancement interne, sinon dépôt externe.
+   */
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
+    // Les cartes stoppent la propagation : ici = drop hors carte (vide / gaps / padding).
+    if (onInternalReorderDrop?.(e)) return;
     const mealId = e.dataTransfer.getData("mealId");
     const pmId = e.dataTransfer.getData("pmId");
     const source = e.dataTransfer.getData("source");
@@ -42,7 +63,7 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
     if (mealId && source !== title && onExternalDrop) {
       onExternalDrop(mealId, source, pmId || null);
     }
-  }, [onExternalDrop, title]);
+  }, [onExternalDrop, onInternalReorderDrop, title]);
 
   return (
     <div
@@ -69,7 +90,7 @@ export function MealList({ title, emoji, count, children, onExternalDrop, header
       </div>
 
       {!collapsed && (
-        <div className="flex flex-col gap-2 flex-1 mt-2">
+        <div data-meal-list-cards className="flex flex-col gap-2 flex-1 mt-2">
           {children}
         </div>
       )}
