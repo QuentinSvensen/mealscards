@@ -5,6 +5,7 @@
  * - Dates : péremption, jour de la semaine, créneau (matin/midi/soir/goûter)
  * - Compteur d'ouverture (jours depuis l'ouverture de l'ingrédient)
  * - Macros : calories, protéines et fibres (calculées ou manuelles)
+ * - Badges note nutritionnelle + indice de satiété (comme MealCard)
  * - Multiplicateur de ratio (détecté automatiquement depuis les ingrédients)
  * - Édition inline des calories, grammes, quantité, ratio
  * - Édition des ingrédients via IngredientEditor
@@ -47,7 +48,9 @@ import {
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, formatFrozenPossibleCounterTooltip, parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
+import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
+import { getPossibleMealSatietyDetails } from "@/lib/satietyIndex";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { usePreferenceValue } from "@/hooks/usePreferences";
@@ -389,6 +392,8 @@ export function PossibleMealCard({
     foodItems,
     foodMacroIndex,
   );
+  // Satiété : override Possible si présent, sinon fiche maître (pas de filtre stock, comme MealCard).
+  const mealSatietyDetails = getPossibleMealSatietyDetails(pm, ingredientMacroSources);
 
   const isExpired = pm.expiration_date && new Date(pm.expiration_date) < new Date();
   const todayISO = format(new Date(), 'yyyy-MM-dd');
@@ -717,6 +722,13 @@ export function PossibleMealCard({
               {meal.name}
             </span>
             <NutritionScoreBadge score={nutritionScore} />
+            <SatietyIndexBadge
+              index={mealSatietyDetails?.index ?? null}
+              totalGrams={mealSatietyDetails?.totalGrams}
+              hideWhenMissing
+              onMealCard
+              recipeTotal
+            />
             {counterDays !== null ? (
               <button
                 onClick={() => onUpdateCounter(null)}

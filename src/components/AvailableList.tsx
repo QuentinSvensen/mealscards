@@ -11,7 +11,7 @@
  * - Filtrage par seuil calorique restant (useRemainingCalories) — filtre séparé
  * - Filtre « 100 % » = complétude stock uniquement (multiple ≥ 1 / partiel ≥ 90 %)
  * - Sélecteur de jour (14 j) en mémoire JS : défaut = aujourd’hui, reset au F5 / déconnexion
- * - Tri par calories, protéines, péremption ou manuel
+ * - Tri par calories, protéines, note, satiété, péremption ou manuel
  * - Recherche dans les noms et ingrédients
  * - Badges de ratio personnalisable (x2, 75%, etc.)
  * - Affichage des aliments inutilisés et des items cross-catégorie périmant bientôt
@@ -22,7 +22,7 @@
  */
 import { useState, Fragment, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { DragEvent, ReactNode } from "react";
-import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Calendar, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search } from "lucide-react";
+import { Plus, GripVertical, CheckCircle2, RotateCcw, AlertCircle, ArrowUpDown, CalendarDays, Calendar, Box, Wand2, Flame, Drumstick, Sparkles, PieChart, ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight, UtensilsCrossed, Infinity as InfinityIcon, Search, Hash, Scale } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,6 +86,10 @@ import {
   type AvailablePartialItem,
   type AvailableSortMode,
 } from "@/lib/availableListPipeline";
+import {
+  compareMealsByNutritionNote,
+  compareMealsBySatiety,
+} from "@/lib/mealListSort";
 
 /**
  * Indique si un aliment est marqué comme option planning (repas, matin ou dessert)
@@ -643,6 +647,16 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       sortedNameMatches.sort((a, b) => dir * (getAvailableSortMacroValue(buildNameMatchCalorieMeal(a), "protein") - getAvailableSortMacroValue(buildNameMatchCalorieMeal(b), "protein")));
       sortedIsMealItems.sort((a, b) => dir * (getAvailableSortMacroValue(buildIsMealCalorieMeal(a), "protein") - getAvailableSortMacroValue(buildIsMealCalorieMeal(b), "protein")));
     }
+  } else if (sortMode === "note" || sortMode === "satiety") {
+    /** Compare deux repas selon note ou satiété pour le pré-tri des listes sources. */
+    const compareScore = (a: Meal, b: Meal) =>
+      sortMode === "note"
+        ? compareMealsByNutritionNote(a, b, sortAsc, isAvailableCb)
+        : compareMealsBySatiety(a, b, sortAsc, ingredientMacroAutofillSources);
+
+    sortedAvailable.sort((a, b) => compareScore(a.meal, b.meal));
+    sortedNameMatches.sort((a, b) => compareScore(buildNameMatchCalorieMeal(a), buildNameMatchCalorieMeal(b)));
+    sortedIsMealItems.sort((a, b) => compareScore(buildIsMealCalorieMeal(a), buildIsMealCalorieMeal(b)));
   } else if (sortMode === "expiration") {
     sortedAvailable.sort((a, b) => {
       const aAn = analyzeMealIngredients(a.meal, foodItems, foodItemIndex);
@@ -694,6 +708,8 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           buildIsMealCalorieMeal,
           buildNameMatchCalorieMeal,
           tryFitMeal,
+          isIngredientAvailable: isAvailableCb,
+          ingredientMacroSources: ingredientMacroAutofillSources,
         },
       }),
     // Les helpers ferment sur stockMap / seuils / macros — deps données ci-dessous suffisent.
@@ -721,9 +737,22 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   const totalIsMealCount = unifiedItems.filter(u => u.type === 'isMeal').length;
   const totalCount = unifiedItems.length;
 
-  const isNumericSort = sortMode === "calories" || sortMode === "protein";
-  const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "expiration" ? CalendarDays : ArrowUpDown;
-  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : sortMode === "expiration" ? "Péremption" : "Manuel";
+  const isNumericSort =
+    sortMode === "calories" || sortMode === "protein" || sortMode === "note" || sortMode === "satiety";
+  const SortIcon =
+    sortMode === "calories" ? Flame
+      : sortMode === "protein" ? Drumstick
+        : sortMode === "note" ? Hash
+          : sortMode === "satiety" ? Scale
+            : sortMode === "expiration" ? CalendarDays
+              : ArrowUpDown;
+  const sortLabel =
+    sortMode === "calories" ? "Calories"
+      : sortMode === "protein" ? "Protéines"
+        : sortMode === "note" ? "Note"
+          : sortMode === "satiety" ? "Satiété"
+            : sortMode === "expiration" ? "Péremption"
+              : "Manuel";
 
   const isToday = (dateStr: string | null) => {
     if (!dateStr) return false;
@@ -1832,7 +1861,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
               ? unifiedItems.findIndex((u) => u.type === 'isMeal' && !u.fi.expiration_date)
               : -1;
             // En manuel : séparateur avant le premier repas seul (tous regroupés).
-            // En calories/protéines/péremption : séparateur seulement avant ceux sans date.
+            // En calories/protéines/note/satiété/péremption : séparateur seulement avant ceux sans date.
             const firstPinnedIsMealIdx =
               sortMode === "manual"
                 ? (showMealItemsInAvailable ? unifiedItems.findIndex((u) => u.type === 'isMeal') : -1)

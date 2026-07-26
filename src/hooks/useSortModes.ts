@@ -5,15 +5,20 @@
  * available, un-par-un, food items) avec synchronisation en base
  * et debounce pour éviter les écritures trop fréquentes.
  *
- * Types exportés : FoodSortMode
+ * Types exportés : FoodSortMode, MasterSortMode, AvailableSortMode
+ * (Master / Available incluent note + satiété via mealListSort)
  * Fonctions : toggleSort, toggleSortDirection, resetToManual
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { usePreferences } from "@/hooks/usePreferences";
+import {
+  cycleAvailableSortMode,
+  cycleMasterSortMode,
+  type AvailableSortMode,
+  type MasterSortMode,
+} from "@/lib/mealListSort";
 
 type SortMode = "manual" | "expiration" | "planning";
-type MasterSortMode = "manual" | "calories" | "protein" | "favorites" | "ingredients";
-type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
 type UnParUnSortMode = "manual" | "expiration";
 type FoodSortMode = "manual" | "expiration" | "name" | "calories" | "protein";
 
@@ -140,7 +145,7 @@ export function useSortModes({ enabled }: UseSortModesOptions) {
   const toggleMasterSort = useCallback((cat: string) => {
     setMasterSortModes((prev) => {
       const current = prev[cat] || "manual";
-      const next: MasterSortMode = current === "manual" ? "calories" : current === "calories" ? "protein" : current === "protein" ? "favorites" : current === "favorites" ? "ingredients" : "manual";
+      const next = cycleMasterSortMode(current);
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_master_sort_modes', JSON.stringify(updated));
       debouncedSetPreference(masterSortDebounce, 'meal_master_sort_modes', () => updated);
@@ -151,7 +156,7 @@ export function useSortModes({ enabled }: UseSortModesOptions) {
   const toggleAvailableSort = useCallback((cat: string) => {
     setAvailableSortModes(prev => {
       const current = prev[cat] || "manual";
-      const next: AvailableSortMode = current === "manual" ? "calories" : current === "calories" ? "protein" : current === "protein" ? "expiration" : "manual";
+      const next = cycleAvailableSortMode(current);
       const updated = { ...prev, [cat]: next };
       localStorage.setItem('meal_available_sort_modes', JSON.stringify(updated));
       debouncedSetPreference(availableSortDebounce, 'meal_available_sort_modes', () => updated);

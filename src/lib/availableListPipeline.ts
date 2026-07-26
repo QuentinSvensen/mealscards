@@ -9,6 +9,7 @@
  */
 import type { Meal } from "@/types/meals";
 import type { FoodItem } from "@/types/food";
+import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   normalizeForMatch,
   computeCounterDays,
@@ -25,6 +26,13 @@ import {
   type FoodItemIndex,
   type StockInfo,
 } from "@/lib/stockUtils";
+import {
+  compareMealsByNutritionNote,
+  compareMealsBySatiety,
+  type AvailableSortMode,
+} from "@/lib/mealListSort";
+
+export type { AvailableSortMode };
 
 /** Correspondance repas sans ingrédients ↔ aliment en stock. */
 export type AvailableNameMatch = {
@@ -89,8 +97,6 @@ export type UnifiedAvail =
       sortCalories: number | null;
     };
 
-export type AvailableSortMode = "manual" | "calories" | "protein" | "expiration";
-
 /** Seuil stock du filtre UI « 100 % » : les partiels sous 90 % sont exclus. */
 export const MIN_FULL_STOCK_RATIO = 0.9;
 
@@ -107,12 +113,16 @@ export function matchesFullStockRecipeFilter(u: UnifiedAvail): boolean {
   return false;
 }
 
-/** Helpers injectés depuis AvailableList (macros / budget calories). */
+/** Helpers injectés depuis AvailableList (macros / budget calories / note / satiété). */
 export type UnifiedPipelineHelpers = {
   getAvailableSortMacroValue: (meal: Meal, field: "calories" | "protein", ratio?: number) => number;
   buildIsMealCalorieMeal: (fi: FoodItem) => Meal;
   buildNameMatchCalorieMeal: (nm: AvailableNameMatch) => Meal;
   tryFitMeal: (meal: Meal, overrideRatio: number | null, isScalable?: boolean) => { show: boolean; newRatio: number | null };
+  /** Callback stock pour la note (aligné MealCard). */
+  isIngredientAvailable?: (name: string) => boolean;
+  /** Sources macros pour l'indice de satiété carte. */
+  ingredientMacroSources?: IngredientMacroAutofillSources;
 };
 
 export type BuildUnifiedAvailableItemsParams = {
@@ -283,7 +293,18 @@ export function buildUnifiedAvailableItems(params: BuildUnifiedAvailableItemsPar
     buildIsMealCalorieMeal,
     buildNameMatchCalorieMeal,
     tryFitMeal,
+    isIngredientAvailable,
+    ingredientMacroSources,
   } = helpers;
+
+  /**
+   * Résout le repas utilisé pour comparer note / satiété selon le type d'item unifié.
+   */
+  const resolveMealForScoreSort = (u: UnifiedAvail): Meal => {
+    if (u.type === "isMeal") return buildIsMealCalorieMeal(u.fi);
+    if (u.type === "nm") return buildNameMatchCalorieMeal(u.nm);
+    return u.item.meal;
+  };
 
   const allIsMeal =
     sortMode === "expiration"
@@ -430,6 +451,18 @@ export function buildUnifiedAvailableItems(params: BuildUnifiedAvailableItemsPar
       const bPinnedBottom = b.type === "isMeal" && !b.fi.expiration_date ? 1 : 0;
       if (aPinnedBottom !== bPinnedBottom) return aPinnedBottom - bPinnedBottom;
       return dir * (getVal(a) - getVal(b));
+    });
+  } else if (sortMode === "note" || sortMode === "satiety") {
+    items.sort((a, b) => {
+      const aPinnedBottom = a.type === "isMeal" && !a.fi.expiration_date ? 1 : 0;
+      const bPinnedBottom = b.type === "isMeal" && !b.fi.expiration_date ? 1 : 0;
+      if (aPinnedBottom !== bPinnedBottom) return aPinnedBottom - bPinnedBottom;
+      const mealA = resolveMealForScoreSort(a);
+      const mealB = resolveMealForScoreSort(b);
+      if (sortMode === "note") {
+        return compareMealsByNutritionNote(mealA, mealB, sortAsc, isIngredientAvailable);
+      }
+      return compareMealsBySatiety(mealA, mealB, sortAsc, ingredientMacroSources);
     });
   } else if (sortMode === "expiration") {
     items.sort((a, b) => {

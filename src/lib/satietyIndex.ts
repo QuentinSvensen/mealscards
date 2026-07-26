@@ -667,6 +667,25 @@ export function getMealSatietyIndex(
 }
 
 /**
+ * Calcule le détail satiété d'une carte Possible (override d'ingrédients si présent, sinon fiche maître).
+ * Sert à afficher le badge satiété à côté de la note, comme sur MealCard / catalogue.
+ */
+export function getPossibleMealSatietyDetails(
+  pm: {
+    ingredients_override?: string | null;
+    meals?: MealSatietyMacrosSource | null;
+  },
+  sources?: IngredientMacroAutofillSources,
+  isAvailable?: (name: string) => boolean,
+): MealSatietyDetails | null {
+  const meal = pm.meals;
+  if (!meal) return null;
+  const ingredients =
+    pm.ingredients_override != null ? pm.ingredients_override : meal.ingredients;
+  return getMealSatietyDetails({ ...meal, ingredients }, sources, isAvailable);
+}
+
+/**
  * Texte du tooltip satiété carte : indice sur 100 + volume retenu.
  */
 export function formatMealSatietyIndexTooltip(

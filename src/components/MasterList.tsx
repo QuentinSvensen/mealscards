@@ -2,14 +2,14 @@
  * MasterList — Liste "Tous" affichant l'ensemble des repas d'une catégorie.
  *
  * Affiche tous les repas du catalogue avec recherche, tri multiple
- * (manuel, calories, protéines, favoris, ingrédients) et drag & drop
+ * (manuel, calories, protéines, note, satiété, favoris, ingrédients) et drag & drop
  * pour réordonner.
  *
  * Chaque carte affiche les ingrédients manquants, les dates de péremption,
  * les compteurs d'ouverture et les macros nutritionnelles.
  */
 import { useMemo, useState, type DragEvent } from "react";
-import { Flame, Star, List, ArrowUpDown, Search, ArrowUp, ArrowDown, Drumstick } from "lucide-react";
+import { Flame, Star, List, ArrowUpDown, Search, ArrowUp, ArrowDown, Drumstick, Hash, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealList } from "@/components/MealList";
@@ -21,8 +21,9 @@ import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientM
 import { buildStockMap, buildFoodItemIndex, getMissingIngredients, analyzeMealIngredients, formatExpirationLabel } from "@/lib/stockUtils";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
 import { isToday } from "date-fns";
+import type { MasterSortMode } from "@/lib/mealListSort";
 
-export type MasterSortMode = "manual" | "calories" | "protein" | "favorites" | "ingredients";
+export type { MasterSortMode };
 
 interface MasterListProps {
   category: { value: string; label: string; emoji: string };
@@ -62,9 +63,24 @@ export function MasterList({ category, meals, foodItems, sortMode, sortAsc, onTo
     [foodItems],
   );
 
-  const SortIcon = sortMode === "calories" ? Flame : sortMode === "protein" ? Drumstick : sortMode === "favorites" ? Star : sortMode === "ingredients" ? List : ArrowUpDown;
-  const sortLabel = sortMode === "calories" ? "Calories" : sortMode === "protein" ? "Protéines" : sortMode === "favorites" ? "Favoris" : sortMode === "ingredients" ? "Ingrédients" : "Manuel";
-  const isNumericSort = sortMode === "calories" || sortMode === "protein";
+  const SortIcon =
+    sortMode === "calories" ? Flame
+      : sortMode === "protein" ? Drumstick
+        : sortMode === "note" ? Hash
+          : sortMode === "satiety" ? Scale
+            : sortMode === "favorites" ? Star
+              : sortMode === "ingredients" ? List
+                : ArrowUpDown;
+  const sortLabel =
+    sortMode === "calories" ? "Calories"
+      : sortMode === "protein" ? "Protéines"
+        : sortMode === "note" ? "Note"
+          : sortMode === "satiety" ? "Satiété"
+            : sortMode === "favorites" ? "Favoris"
+              : sortMode === "ingredients" ? "Ingrédients"
+                : "Manuel";
+  const isNumericSort =
+    sortMode === "calories" || sortMode === "protein" || sortMode === "note" || sortMode === "satiety";
 
   const filteredMeals = searchQuery.trim()
     ? meals.filter(m => {

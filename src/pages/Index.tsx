@@ -189,6 +189,10 @@ function validateMealName(name: string): string | null {
 }
 
 import type { SortMode, MasterSortMode, AvailableSortMode, UnParUnSortMode } from "@/hooks/useSortModes";
+import {
+  compareMealsByNutritionNote,
+  compareMealsBySatiety,
+} from "@/lib/mealListSort";
 type MainPage = "aliments" | "repas" | "macros" | "planning" | "courses";
 
 
@@ -950,6 +954,22 @@ const Index = () => {
         const pb = parseFloat((b.protein || "0").replace(/[^0-9.]/g, "")) || 0;
         return asc ? pa - pb : pb - pa;
       });
+    }
+    if (mode === "note") {
+      /** Aligné MealCard : note basée sur les ingrédients encore en stock. */
+      const isIngredientAvailable = (name: string) => {
+        const key = findStockKey(stockMap, name);
+        if (!key) return false;
+        const stock = stockMap.get(key);
+        if (!stock) return false;
+        return stock.infinite || stock.grams > 0 || stock.count > 0;
+      };
+      return [...items].sort((a, b) => compareMealsByNutritionNote(a, b, asc, isIngredientAvailable));
+    }
+    if (mode === "satiety") {
+      return [...items].sort((a, b) =>
+        compareMealsBySatiety(a, b, asc, ingredientMacroAutofillSources),
+      );
     }
     if (mode === "favorites") return [...items].sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
     if (mode === "ingredients") {
