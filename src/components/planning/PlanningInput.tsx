@@ -60,7 +60,7 @@ export function PlanningInput({
 
   if (addMode) {
     return (
-      <div className="relative flex items-center w-full">
+      <div className="relative inline-flex items-center">
         <input
           ref={inputRef}
           type="number"
@@ -96,7 +96,7 @@ export function PlanningInput({
   }
 
   return (
-    <div className="relative flex items-center">
+    <div className="relative inline-flex items-center">
       <input
         type="number"
         value={editVal}
