@@ -4,6 +4,7 @@ export interface PlanningHeaderBackupTotals {
   archivedDailyGoal: number;
   archivedDailyGoalLow: number;
   archivedProteinGoal: number;
+  archivedFiberGoal: number;
 }
 
 export interface PlanningHeaderProps {
@@ -175,6 +176,13 @@ export function PlanningHeader({
               {Math.round(backupTotals.archivedProteinGoal)}
             </div>
             <span className="text-[9px] text-muted-foreground">prot/j</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs">🌾</span>
+            <div className="w-14 h-6 text-xs bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 flex items-center justify-center font-bold">
+              {Math.round(backupTotals.archivedFiberGoal)}
+            </div>
+            <span className="text-[9px] text-muted-foreground">fib/j</span>
           </div>
         </>
       )}

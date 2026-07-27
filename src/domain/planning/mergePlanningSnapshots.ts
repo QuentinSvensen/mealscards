@@ -1,5 +1,5 @@
 import type { PlanningSnapshotEntry, MergedPlanningLiveState, PlanningPrefMap } from "./types";
-import type { PlanningWeekDayInfo } from "@/lib/planningWeekUtils";
+import type { PlanningWeekDayLike } from "@/lib/planningWeekUtils";
 import { remapPlanningKeyToTargetWeek } from "./remapPlanningKeys";
 import { isSnapshotSourceEligibleForTargetWeek } from "./weekdaySnapshotUtils";
 import {
@@ -49,7 +49,7 @@ function shouldApplySnapshot(
 export function mergeSnapshotsIntoLivePrefMap(
   _prefMap: PlanningPrefMap,
   snapshots: Record<string, PlanningSnapshotEntry>,
-  targetWeek?: PlanningWeekDayInfo[],
+  targetWeek?: PlanningWeekDayLike[],
 ): MergedPlanningLiveState {
   // Reset hebdo : on repart d'un état vierge.
   // Seules les entrées explicitement sauvegardées (snapshots 💾) sont réinjectées.

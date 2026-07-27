@@ -6,6 +6,9 @@ import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { fetchSnapshotsAndPrefsParallel } from "@/data/planning/planningResetRepository";
 import { buildFullBackupPayload } from "@/domain/planning/buildBackupPayload";
+import { enrichPrefMapForArchive } from "@/domain/planning/enrichPrefMapForArchive";
+import { filterPossibleMealsForArchiveWeek } from "@/domain/planning/filterArchiveWeekMeals";
+import { embedPlanningSnapshotsInBackup } from "@/domain/planning/embedPlanningSnapshotsInBackup";
 import {
   buildUpdatedDailyCalorieHistory,
   PLANNING_DAILY_CALORIE_HISTORY_KEY,
@@ -18,6 +21,13 @@ import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekProm
 import { remapPlanningRecordToTargetWeek } from "@/domain/planning/remapPlanningKeys";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
+import { shouldReplaceBackup } from "@/domain/planning/backupSafety";
+import {
+  assertResetCanProceed,
+  buildPlanningResetReport,
+  PLANNING_LAST_RESET_REPORT_KEY,
+} from "@/domain/planning/resetReport";
+import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
 import { buildWeekDates } from "@/lib/planningWeekUtils";
@@ -118,15 +128,42 @@ export function useWeeklyAutoReset({
           endISO: mostRecentSunday.toISOString().split("T")[0],
         };
         const archivedWeekDates = buildWeekDates(0, previousWeekStart);
-        const fullBackup = buildFullBackupPayload(freshPossible, prefMap, {
-          startISO: archivedWeekDates[0]?.iso ?? preservedPreviousWeek.startISO,
-          endISO:
-            archivedWeekDates[archivedWeekDates.length - 1]?.iso ?? preservedPreviousWeek.endISO,
+        const mealsForArchive = filterPossibleMealsForArchiveWeek(freshPossible, archivedWeekDates);
+        const enrichedPrefMap = enrichPrefMapForArchive(prefMap, snapshots, archivedWeekDates);
+        const fullBackup = embedPlanningSnapshotsInBackup(
+          buildFullBackupPayload(mealsForArchive, enrichedPrefMap, {
+            startISO: archivedWeekDates[0]?.iso ?? preservedPreviousWeek.startISO,
+            endISO:
+              archivedWeekDates[archivedWeekDates.length - 1]?.iso ?? preservedPreviousWeek.endISO,
+          }),
+          snapshots,
+          archivedWeekDates,
+        );
+        const { data: existingBackupRow } = await supabase
+          .from("user_preferences")
+          .select("value")
+          .eq("key", "possible_meals_backup")
+          .eq("user_id", userId)
+          .maybeSingle();
+        const existingBackup =
+          existingBackupRow?.value &&
+          typeof existingBackupRow.value === "object" &&
+          !Array.isArray(existingBackupRow.value)
+            ? (existingBackupRow.value as unknown as PossibleMealsFullBackup)
+            : null;
+        assertResetCanProceed(existingBackup, fullBackup);
+        const replaceBackup = shouldReplaceBackup(existingBackup, fullBackup);
+        if (replaceBackup) {
+          await upsertPossibleMealsFullBackup(userId, fullBackup);
+        }
+        setPreference.mutate({
+          key: PLANNING_LAST_RESET_REPORT_KEY,
+          value: buildPlanningResetReport(fullBackup, "auto_sunday", replaceBackup),
         });
-        await upsertPossibleMealsFullBackup(userId, fullBackup);
+        const effectiveBackup = replaceBackup ? fullBackup : (existingBackup ?? fullBackup);
 
         const backupCtx = parseBackupCalorieContext(
-          fullBackup,
+          effectiveBackup,
           asPlanningOverrideRecord(prefMap["planning_cal_overrides"]),
           asPlanningOverrideRecord(prefMap["planning_pro_overrides"]),
         );

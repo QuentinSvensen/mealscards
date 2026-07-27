@@ -58,3 +58,47 @@ export function writeManualSlotMacroPreference(
   updated[isoKey] = Math.max(0, Math.trunc(Number(val)) || 0);
   return updated;
 }
+
+/**
+ * Synchronise le brouillon « semaine suivante » avec une saisie de la semaine courante.
+ * Valeur > 0 → écrit sur la clé jour (ex. samedi-midi) ; 0 → supprime les clés jour et ISO
+ * pour éviter qu’une valeur fantôme soit re-promue au prochain reset.
+ */
+export function syncNextWeekManualSlotMacro(
+  nextRecord: Record<string, number>,
+  iso: string,
+  dayKey: string,
+  slot: string,
+  val: number,
+): Record<string, number> {
+  const updated = { ...nextRecord };
+  const isoKey = `${iso}-${slot}`;
+  const daySlotKey = `${dayKey}-${slot}`;
+  const n = Math.max(0, Math.trunc(Number(val)) || 0);
+  delete updated[isoKey];
+  if (n > 0) {
+    updated[daySlotKey] = n;
+  } else {
+    delete updated[daySlotKey];
+  }
+  return updated;
+}
+
+/**
+ * Remet à zéro les macros live d’un créneau (kcal/prot/fib) pour bloquer le fallback 💾.
+ * Sert au double-clic « clear snapshot » : plus de 💾 = plus de valeur affichée.
+ */
+export function clearManualSlotMacroPreferences(
+  calories: Record<string, number>,
+  proteins: Record<string, number>,
+  fibers: Record<string, number>,
+  iso: string,
+  dayKey: string,
+  slot: string,
+): ManualSlotMacroMaps {
+  return {
+    calories: writeManualSlotMacroPreference(calories, iso, dayKey, slot, 0),
+    proteins: writeManualSlotMacroPreference(proteins, iso, dayKey, slot, 0),
+    fibers: writeManualSlotMacroPreference(fibers, iso, dayKey, slot, 0),
+  };
+}

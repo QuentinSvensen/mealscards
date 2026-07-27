@@ -20,6 +20,16 @@ export interface PlanningWeekDayInfo {
   display: string;
 }
 
+/**
+ * Forme minimale d’un jour de semaine planning (clé + ISO).
+ * Permet aux helpers de sauvegarde d’accepter les `weekDates` typés librement
+ * par les composants sans imposer `display` ni l’union stricte des clés.
+ */
+export type PlanningWeekDayLike = {
+  key: string;
+  iso: string;
+};
+
 export const DAY_KEY_TO_INDEX: Record<string, number> = {
   lundi: 0,
   mardi: 1,

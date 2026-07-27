@@ -1,4 +1,4 @@
-import { DAY_KEY_TO_INDEX, PLANNING_DAY_KEYS, type PlanningWeekDayInfo } from "@/lib/planningWeekUtils";
+﻿import { DAY_KEY_TO_INDEX, PLANNING_DAY_KEYS, type PlanningWeekDayLike } from "@/lib/planningWeekUtils";
 
 type DayScopedKey = {
   day: string;
@@ -41,7 +41,7 @@ function splitDayScopedKey(key: string): DayScopedKey | null {
 /** Convertit une clé jour / jour-créneau vers l'ISO de la semaine cible. */
 export function remapPlanningKeyToTargetWeek(
   key: string,
-  targetWeek: PlanningWeekDayInfo[] | undefined,
+  targetWeek: PlanningWeekDayLike[] | undefined,
 ): string {
   if (!targetWeek?.length) return key;
   const parsed = splitDayScopedKey(key);
@@ -59,7 +59,7 @@ export function remapPlanningKeyToTargetWeek(
 /** Remappe toutes les clés d'un record de préférences vers la semaine cible. */
 export function remapPlanningRecordToTargetWeek<T>(
   record: Record<string, T>,
-  targetWeek: PlanningWeekDayInfo[] | undefined,
+  targetWeek: PlanningWeekDayLike[] | undefined,
 ): Record<string, T> {
   if (!targetWeek?.length) return { ...record };
   const out: Record<string, T> = {};

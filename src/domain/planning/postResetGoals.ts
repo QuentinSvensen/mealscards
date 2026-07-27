@@ -5,6 +5,11 @@ import { asPositiveInt } from "./jsonCoerce";
  * Après reset : la semaine suivante peut promouvoir les objectifs de la semaine courante ;
  * puis les deux alignements (courant + suivant) reçoivent la même valeur cible.
  * Couvre aussi fourchette basse (kcal) et objectif fibres.
+ *
+ * Important pour la borne basse : un `next_week_daily_goal_low === 0` n’écrase plus
+ * une borne positive déjà définie sur la semaine courante (évite d’effacer la fourchette
+ * via un blur accidentel du champ « min » dans la vue Suiv.). Pour désactiver la
+ * fourchette, vider le min sur « Actuelle » (qui synchronise aussi Suiv.).
  */
 export function resolvePostResetGoals(prefMap: PlanningPrefMap): PostResetGoalValues {
   let newCal: number | undefined;
@@ -18,8 +23,14 @@ export function resolvePostResetGoals(prefMap: PlanningPrefMap): PostResetGoalVa
   if (typeof rawPlanCalLow === "number" && rawPlanCalLow >= 0) newCalLow = rawPlanCalLow;
   const nCalLow = asPositiveInt(prefMap["next_week_daily_goal_low"]);
   if (nCalLow !== undefined) newCalLow = nCalLow;
-  // 0 est une valeur valide (fourchette désactivée) : la promouvoir si next_week est explicitement 0.
-  if (prefMap["next_week_daily_goal_low"] === 0) newCalLow = 0;
+  // 0 explicite en Suiv. : ne désactive la fourchette que si la semaine courante
+  // n’avait déjà plus de borne basse (évite le wipe silencieux).
+  if (prefMap["next_week_daily_goal_low"] === 0) {
+    const planLow =
+      typeof rawPlanCalLow === "number" && Number.isFinite(rawPlanCalLow) ? rawPlanCalLow : 0;
+    if (planLow <= 0) newCalLow = 0;
+    // sinon on conserve newCalLow (= borne positive courante)
+  }
 
   let newPro: number | undefined;
   const rawPlanPro = prefMap["planning_protein_goal"];

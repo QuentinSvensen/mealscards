@@ -76,6 +76,26 @@ import {
 import { asNumberRecord } from "@/domain/planning/jsonCoerce";
 import type { PossibleMealsFullBackup } from "@/domain/planning/types";
 import { mergeBackupCardOverrides } from "@/domain/planning/mergeBackupOverrides";
+import { applySnapshotsToBackupForDisplay } from "@/domain/planning/embedPlanningSnapshotsInBackup";
+import {
+  mergeRecoveredAndBackupCards,
+  recoverPreviousWeekCardsFromLive,
+} from "@/domain/planning/recoverPreviousWeekCards";
+import {
+  parseWeeklyGoalsHistory,
+  readWeeklyGoals,
+  upsertWeeklyGoals,
+  PLANNING_WEEKLY_GOALS_HISTORY_KEY,
+} from "@/domain/planning/weeklyGoalsHistory";
+import {
+  filterBackupCardsForDisplayDay,
+  prepareBackupForDisplayWeek,
+  pickBackupDayNumber,
+  pickBackupDayString,
+  pickBackupDayStringArray,
+  resolveArchivedIsoForDisplay,
+  resolveArchivedPlanningGoals,
+} from "@/domain/planning/backupWeekAlignment";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import { filterStockAffectingPossibleMeals } from "@/lib/masterSourcePossibleMeals";
 import { getRemainingDayCalories, isDayCaloriesGoalMet } from "@/domain/planning/calorieGoalRange";
@@ -108,7 +128,9 @@ import {
   getAssignedExtraIdsForDay,
 } from "@/lib/planningExtraMacros";
 import {
+  clearManualSlotMacroPreferences,
   resolveManualSlotMacros,
+  syncNextWeekManualSlotMacro,
   writeManualSlotMacroPreference,
 } from "@/domain/planning/resolveManualSlotMacros";
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
@@ -945,6 +967,33 @@ export function WeeklyPlanning({
   const hideDayCalorieTotals = getPreference<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const NEXT_PROTEIN_GOAL = getPreference<number>('next_week_protein_goal', DAILY_PROTEIN_GOAL_PREF);
   const NEXT_FIBER_GOAL = getPreference<number>('next_week_fiber_goal', DAILY_FIBER_GOAL_PREF);
+  const weeklyGoalsHistory = useMemo(
+    () => parseWeeklyGoalsHistory(getPreference<unknown>(PLANNING_WEEKLY_GOALS_HISTORY_KEY, null)),
+    [getPreference],
+  );
+
+  /** Mémorise les objectifs de la semaine courante pour que la vue Préc. les retrouve. */
+  useEffect(() => {
+    if (prefsLoading) return;
+    const currentMondayIso = buildWeekDates(0, new Date())[0]?.iso;
+    if (!currentMondayIso) return;
+    const updated = upsertWeeklyGoals(weeklyGoalsHistory, currentMondayIso, {
+      dailyGoal: DAILY_GOAL,
+      dailyGoalLow: DAILY_GOAL_LOW,
+      proteinGoal: DAILY_PROTEIN_GOAL_PREF,
+      fiberGoal: DAILY_FIBER_GOAL_PREF,
+    });
+    if (!updated) return;
+    setPreference.mutate({ key: PLANNING_WEEKLY_GOALS_HISTORY_KEY, value: updated });
+  }, [
+    prefsLoading,
+    weeklyGoalsHistory,
+    DAILY_GOAL,
+    DAILY_GOAL_LOW,
+    DAILY_PROTEIN_GOAL_PREF,
+    DAILY_FIBER_GOAL_PREF,
+  ]);
+
   const [editingGoal, setEditingGoal] = useState(false);
   const [goalInput, setGoalInput] = useState("");
   const [editingProteinGoal, setEditingProteinGoal] = useState(false);
@@ -1064,46 +1113,102 @@ export function WeeklyPlanning({
   const backupTotals = useMemo(() => {
     if (weekOffset !== -1) return null;
     const backupRaw = getPreference<any>('possible_meals_backup', null);
-    if (!backupRaw) return null;
+    const recoveredCards = recoverPreviousWeekCardsFromLive(possibleMeals, weekDates);
+    if (!backupRaw && recoveredCards.length === 0) return null;
 
     const isNF = backupRaw && !Array.isArray(backupRaw) && backupRaw.cards;
-    const cards: any[] = isNF ? backupRaw.cards : (Array.isArray(backupRaw) ? backupRaw : []);
-    const bMC = isNF ? (backupRaw.manualCalories || {}) : {};
-    const bMP = isNF ? (backupRaw.manualProteins || {}) : {};
-    const bEC = isNF ? (backupRaw.extraCalories || {}) : {};
-    const bEP = isNF ? (backupRaw.extraProteins || {}) : {};
-    const bES = isNF ? (backupRaw.extraSelections || {}) : {};
-    const bBC = isNF ? (backupRaw.breakfastManualCalories || {}) : {};
-    const bBP = isNF ? (backupRaw.breakfastManualProteins || {}) : {};
-    const bBS = isNF ? (backupRaw.breakfastSelections || {}) : {};
-    const bDC = isNF ? (backupRaw.drinkChecks || {}) : {};
-    const bCO = isNF
-      ? mergeBackupCardOverrides(backupRaw.calOverrides, calOverrides, cards.map((c) => c.id))
-      : {};
-    const bPO = isNF
-      ? mergeBackupCardOverrides(backupRaw.proOverrides, proOverrides, cards.map((c) => c.id))
-      : {};
+    const backupParsed: PossibleMealsFullBackup = isNF
+      ? (backupRaw as PossibleMealsFullBackup)
+      : {
+          cards: Array.isArray(backupRaw) ? backupRaw : [],
+          manualCalories: {},
+          manualProteins: {},
+          manualFibers: {},
+          extraCalories: {},
+          extraProteins: {},
+          extraFibers: {},
+          extraSelections: {},
+          extraSlotAssignments: {},
+          breakfastManualCalories: {},
+          breakfastManualProteins: {},
+          breakfastSelections: {},
+          drinkChecks: {},
+          calOverrides: {},
+          proOverrides: {},
+          daily_goal: null,
+          protein_goal: null,
+        };
+    const backupWithSnapshots = applySnapshotsToBackupForDisplay(
+      backupParsed,
+      savedSnapshots,
+      weekDates,
+    );
+    const { backup: backupFull, displayToArchivedIso } = prepareBackupForDisplayWeek(
+      backupWithSnapshots,
+      weekDates,
+    );
+    const cards: any[] = mergeRecoveredAndBackupCards(
+      recoveredCards,
+      backupFull.cards ?? [],
+      weekDates,
+    );
+    const bMC = backupFull.manualCalories || {};
+    const bMP = backupFull.manualProteins || {};
+    const bEC = backupFull.extraCalories || {};
+    const bEP = backupFull.extraProteins || {};
+    const bES = backupFull.extraSelections || {};
+    const bBC = backupFull.breakfastManualCalories || {};
+    const bBP = backupFull.breakfastManualProteins || {};
+    const bBS = backupFull.breakfastSelections || {};
+    const bDC = backupFull.drinkChecks || {};
+    const bCO = mergeBackupCardOverrides(
+      backupFull.calOverrides,
+      calOverrides,
+      cards.map((c) => c.id),
+    );
+    const bPO = mergeBackupCardOverrides(
+      backupFull.proOverrides,
+      proOverrides,
+      cards.map((c) => c.id),
+    );
 
-    // Objectifs tels qu’au moment de la sauvegarde (ne pas utiliser les objectifs courants / semaine suivante)
-    const archivedDailyGoal =
-      isNF && backupRaw.daily_goal != null && backupRaw.daily_goal > 0 ? backupRaw.daily_goal : DEFAULT_DAILY_GOAL;
-    const archivedDailyGoalLow =
-      isNF && backupRaw.daily_goal_low != null && backupRaw.daily_goal_low > 0 ? backupRaw.daily_goal_low : 0;
-    const archivedProteinGoal =
-      isNF && backupRaw.protein_goal != null && backupRaw.protein_goal > 0 ? backupRaw.protein_goal : DAILY_PROTEIN_GOAL;
+    // Les objectifs historisés de la semaine affichée sont la source la plus fiable ;
+    // la sauvegarde ne sert qu’en repli (elle peut venir d’une autre semaine).
+    const historicGoals = readWeeklyGoals(weeklyGoalsHistory, weekDates[0]?.iso ?? "");
+    const archivedGoals = historicGoals
+      ? {
+          archivedDailyGoal: historicGoals.dailyGoal,
+          archivedDailyGoalLow: historicGoals.dailyGoalLow,
+          archivedProteinGoal: historicGoals.proteinGoal || DAILY_PROTEIN_GOAL_PREF,
+          archivedFiberGoal: historicGoals.fiberGoal || DAILY_FIBER_GOAL_PREF,
+        }
+      : resolveArchivedPlanningGoals(
+          backupFull,
+          DAILY_GOAL,
+          DAILY_GOAL_LOW,
+          DAILY_PROTEIN_GOAL_PREF,
+          DAILY_FIBER_GOAL_PREF,
+          DEFAULT_DAILY_GOAL,
+        );
+    const {
+      archivedDailyGoal,
+      archivedDailyGoalLow,
+      archivedProteinGoal,
+      archivedFiberGoal,
+    } = archivedGoals;
 
     let totalCal = 0;
     let totalPro = 0;
 
     const bDates = weekDates;
     bDates.forEach(({ key, iso }) => {
-      const isTodayBack = iso === todayISO;
+      const bIso = resolveArchivedIsoForDisplay(iso, displayToArchivedIso);
+      const dayVariants = [iso, key, bIso];
       let dayCal = 0;
       let dayPro = 0;
 
-      // Repas
-      cards.filter(c => c.day_of_week === key || c.day_of_week === iso).forEach(c => {
-        const m = allMealsById.get(c.meal_id);
+      filterBackupCardsForDisplayDay(cards, iso, key, bIso).forEach((c) => {
+        const m = resolveBackupCardMeal(c);
         if (m) {
           const overrideCal = c.id ? bCO[c.id] : undefined;
           const overridePro = c.id ? bPO[c.id] : undefined;
@@ -1113,51 +1218,76 @@ export function WeeklyPlanning({
         }
       });
 
-      // Manuel
-      dayCal += (bMC[iso] || bMC[key] || 0);
-      dayPro += (bMP[iso] || bMP[key] || 0);
+      dayCal += pickBackupDayNumber(bMC, dayVariants);
+      dayPro += pickBackupDayNumber(bMP, dayVariants);
 
-      // Extra (manuel + liste : inclut les ids `custom::…` de la sauvegarde)
-      const selExtra = sumDayExtras(bES[iso] || bES[key]);
-      const eCal = (bEC[iso] || bEC[key] || 0) + selExtra.cal;
-      const ePro = (bEP[iso] || bEP[key] || 0) + selExtra.pro;
+      const extraIds = pickBackupDayStringArray(bES, dayVariants);
+      const selExtra = sumDayExtras(extraIds);
+      const eCal =
+        pickBackupDayNumber(bEC, dayVariants) + selExtra.cal;
+      const ePro =
+        pickBackupDayNumber(bEP, dayVariants) + selExtra.pro;
       dayCal += eCal;
       dayPro += ePro;
 
-      // Petit déjeuner
-      const bfSel = bBS[iso] || bBS[key];
+      const bfSel = pickBackupDayString(bBS, dayVariants);
       if (bfSel) {
         if (bfSel.startsWith('pm:')) {
           const pm = cards.find((p: { id: string }) => p.id === bfSel.slice(3));
-          const dayMatinCards = cards.filter(
-            (c: { day_of_week: string; meal_time: string }) =>
-              (c.day_of_week === iso || c.day_of_week === key) && c.meal_time === 'matin',
+          const dayMatinCards = filterBackupCardsForDisplayDay(cards, iso, key, bIso).filter(
+            (c: { meal_time: string }) => c.meal_time === 'matin',
           );
-          if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, iso, key, dayMatinCards)) {
+          if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, bIso, key, dayMatinCards)) {
             dayCal += getCardDisplayCalories(pm, bCO[pm.id], isAvailableCb);
             dayPro += getCardDisplayProtein(pm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
           }
-        } else {
-          const m = allMealsById.get(bfSel);
+        } else if (bfSel.startsWith('meal:')) {
+          const m = allMealsById.get(bfSel.slice(5));
           if (m) {
             dayCal += parseCalories(m.calories);
             dayPro += parseProtein(m.protein);
           }
         }
       }
-      dayCal += (bBC[iso] || bBC[key] || 0);
-      dayPro += (bBP[iso] || bBP[key] || 0);
+      dayCal += pickBackupDayNumber(bBC, dayVariants);
+      dayPro += pickBackupDayNumber(bBP, dayVariants);
 
       for (const time of TIMES) {
-        if (bDC[`${iso}-${time}`] || bDC[`${key}-${time}`]) dayCal += DRINK_CALORIES;
+        if (bDC[`${bIso}-${time}`] || bDC[`${key}-${time}`] || bDC[`${iso}-${time}`]) {
+          dayCal += DRINK_CALORIES;
+        }
       }
 
       totalCal += dayCal;
       totalPro += dayPro;
     });
 
-    return { totalCal, totalPro, archivedDailyGoal, archivedDailyGoalLow, archivedProteinGoal };
-  }, [getPreference, weekOffset, allMealsById, foodItems, weekDates, calOverrides, proOverrides, todayISO, isAvailableCb, foodMacroIndex]);
+    return {
+      totalCal,
+      totalPro,
+      archivedDailyGoal,
+      archivedDailyGoalLow,
+      archivedProteinGoal,
+      archivedFiberGoal,
+    };
+  }, [
+    getPreference,
+    weekOffset,
+    allMealsById,
+    foodItems,
+    weekDates,
+    calOverrides,
+    proOverrides,
+    isAvailableCb,
+    foodMacroIndex,
+    DAILY_GOAL_LOW,
+    DAILY_GOAL,
+    DAILY_PROTEIN_GOAL_PREF,
+    DAILY_FIBER_GOAL_PREF,
+    savedSnapshots,
+    possibleMeals,
+    weeklyGoalsHistory,
+  ]);
 
   const handleAddExtraItem = (day: string, item: FoodItem, remove = false) => {
     const updated = { ...extraSelections };
@@ -2140,22 +2270,40 @@ export function WeeklyPlanning({
                         setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                       }}
                       onSaveManualCalories={(val) => {
-                        setPreference.mutate({
-                          key: 'planning_manual_calories',
-                          value: writeManualSlotMacroPreference(manualCalories, iso, key, time, val),
-                        });
+                        setPreferencesBatch.mutate([
+                          {
+                            key: 'planning_manual_calories',
+                            value: writeManualSlotMacroPreference(manualCalories, iso, key, time, val),
+                          },
+                          {
+                            key: 'next_week_manual_calories',
+                            value: syncNextWeekManualSlotMacro(nextManualCalories, iso, key, time, val),
+                          },
+                        ]);
                       }}
                       onSaveManualProteins={(val) => {
-                        setPreference.mutate({
-                          key: 'planning_manual_proteins',
-                          value: writeManualSlotMacroPreference(manualProteins, iso, key, time, val),
-                        });
+                        setPreferencesBatch.mutate([
+                          {
+                            key: 'planning_manual_proteins',
+                            value: writeManualSlotMacroPreference(manualProteins, iso, key, time, val),
+                          },
+                          {
+                            key: 'next_week_manual_proteins',
+                            value: syncNextWeekManualSlotMacro(nextManualProteins, iso, key, time, val),
+                          },
+                        ]);
                       }}
                       onSaveManualFibers={(val) => {
-                        setPreference.mutate({
-                          key: 'planning_manual_fibers',
-                          value: writeManualSlotMacroPreference(manualFibers, iso, key, time, val),
-                        });
+                        setPreferencesBatch.mutate([
+                          {
+                            key: 'planning_manual_fibers',
+                            value: writeManualSlotMacroPreference(manualFibers, iso, key, time, val),
+                          },
+                          {
+                            key: 'next_week_manual_fibers',
+                            value: syncNextWeekManualSlotMacro(nextManualFibers, iso, key, time, val),
+                          },
+                        ]);
                       }}
                       onSaveSnapshot={() => {
                         const snapKeyIso = `manual-${iso}-${time}`;
@@ -2209,14 +2357,25 @@ export function WeeklyPlanning({
                       onClearSnapshot={() => {
                         const updated = clearWeekdayScopedSnapshots(savedSnapshots, "manual", iso, key, JS_DAY_TO_KEY, time);
                         if (weekOffset === 0) {
+                          const clearedLive = clearManualSlotMacroPreferences(
+                            manualCalories,
+                            manualProteins,
+                            manualFibers,
+                            iso,
+                            key,
+                            time,
+                          );
+                          const nxtCal = syncNextWeekManualSlotMacro(nextManualCalories, iso, key, time, 0);
+                          const nxtPro = syncNextWeekManualSlotMacro(nextManualProteins, iso, key, time, 0);
+                          const nxtFiber = syncNextWeekManualSlotMacro(nextManualFibers, iso, key, time, 0);
                           const kKeySlot = `${key}-${time}`;
                           const kIsoSlot = `${iso}-${time}`;
-                          const nxtCal = { ...nextManualCalories }; delete nxtCal[kKeySlot]; delete nxtCal[kIsoSlot];
-                          const nxtPro = { ...nextManualProteins }; delete nxtPro[kKeySlot]; delete nxtPro[kIsoSlot];
-                          const nxtFiber = { ...nextManualFibers }; delete nxtFiber[kKeySlot]; delete nxtFiber[kIsoSlot];
                           const nxtDrk = { ...nextDrinkChecks }; delete nxtDrk[kKeySlot]; delete nxtDrk[kIsoSlot];
                           setPreferencesBatch.mutate([
                             { key: 'planning_saved_snapshots', value: updated },
+                            { key: 'planning_manual_calories', value: clearedLive.calories },
+                            { key: 'planning_manual_proteins', value: clearedLive.proteins },
+                            { key: 'planning_manual_fibers', value: clearedLive.fibers },
                             { key: 'next_week_manual_calories', value: nxtCal },
                             { key: 'next_week_manual_proteins', value: nxtPro },
                             { key: 'next_week_manual_fibers', value: nxtFiber },
@@ -2358,22 +2517,40 @@ export function WeeklyPlanning({
                     setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                   }}
                   onSaveManualCalories={(val) => {
-                    setPreference.mutate({
-                      key: 'planning_manual_calories',
-                      value: writeManualSlotMacroPreference(manualCalories, iso, key, 'gouter', val),
-                    });
+                    setPreferencesBatch.mutate([
+                      {
+                        key: 'planning_manual_calories',
+                        value: writeManualSlotMacroPreference(manualCalories, iso, key, 'gouter', val),
+                      },
+                      {
+                        key: 'next_week_manual_calories',
+                        value: syncNextWeekManualSlotMacro(nextManualCalories, iso, key, 'gouter', val),
+                      },
+                    ]);
                   }}
                   onSaveManualProteins={(val) => {
-                    setPreference.mutate({
-                      key: 'planning_manual_proteins',
-                      value: writeManualSlotMacroPreference(manualProteins, iso, key, 'gouter', val),
-                    });
+                    setPreferencesBatch.mutate([
+                      {
+                        key: 'planning_manual_proteins',
+                        value: writeManualSlotMacroPreference(manualProteins, iso, key, 'gouter', val),
+                      },
+                      {
+                        key: 'next_week_manual_proteins',
+                        value: syncNextWeekManualSlotMacro(nextManualProteins, iso, key, 'gouter', val),
+                      },
+                    ]);
                   }}
                   onSaveManualFibers={(val) => {
-                    setPreference.mutate({
-                      key: 'planning_manual_fibers',
-                      value: writeManualSlotMacroPreference(manualFibers, iso, key, 'gouter', val),
-                    });
+                    setPreferencesBatch.mutate([
+                      {
+                        key: 'planning_manual_fibers',
+                        value: writeManualSlotMacroPreference(manualFibers, iso, key, 'gouter', val),
+                      },
+                      {
+                        key: 'next_week_manual_fibers',
+                        value: syncNextWeekManualSlotMacro(nextManualFibers, iso, key, 'gouter', val),
+                      },
+                    ]);
                   }}
                   onDeselectExtra={deselectExtraForDay}
                   onDragStartExtra={(extraId, dayIso, dayKey, e) => {
@@ -2455,6 +2632,8 @@ export function WeeklyPlanning({
           setOpenExtrasDay={setOpenExtrasDay}
           parseCalories={parseCalories}
           parseProtein={parseProtein}
+          savedSnapshots={savedSnapshots}
+          possibleMeals={possibleMeals}
         />
       ) : (
         /* ─── Planification de la semaine prochaine ─── */

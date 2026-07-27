@@ -63,6 +63,8 @@ export interface PossibleMealsFullBackup {
   weekStartISO?: string | null;
   /** Fin de la semaine archivée (dimanche), si connue. */
   weekEndISO?: string | null;
+  /** Snapshots 💾 de la semaine archivée (extras / créneaux manuels). */
+  savedSnapshots?: Record<string, PlanningSnapshotEntry>;
 }
 
 /** Clés de préférences lues avant un reset (saisie planning + objectifs). */

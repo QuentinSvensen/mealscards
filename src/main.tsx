@@ -1,8 +1,9 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { installPlanningDiagnostics } from "./lib/planningDiagnostics";
 
-import "./index.css";
+installPlanningDiagnostics();
 
 // Enregistre et pilote le Service Worker en production pour garantir que l'utilisateur
 // reçoive automatiquement la dernière version déployée sans refresh manuel.
