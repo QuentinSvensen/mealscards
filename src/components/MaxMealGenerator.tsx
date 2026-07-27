@@ -1,25 +1,15 @@
 /**
  * MaxMealGenerator — Générateur de plats maximum réalisables.
  *
- * Simule un algorithme glouton (greedy) : sélectionne séquentiellement
- * les plats faisables en déduisant le stock virtuel à chaque itération.
- * La même recette peut apparaître plusieurs fois (une ligne par portion) tant
- * qu'il reste assez d'ingrédients (ex. 5× 200 g de tenders → jusqu'à 5 plats
- * nécessitant 200 g de tenders, pas seulement 5 noms de plats distincts).
- * Résultat : la liste de plats produite par la simulation gloutonne.
+ * Affiche d’abord un plan glouton rapide, puis affine en arrière-plan via une
+ * beam search sur le vivier « Au choix » (max portions, puis min reste).
  *
  * Fonctionnalités :
- * - Choix glouton déterministe : à chaque étape, compare le reste SI l’on prenait
- *   toutes les portions entières possibles de chaque recette (ex. 2×3 œufs plutôt que 1×4),
- *   puis n’en consomme qu’une pour laisser de la variété aux tours suivants ;
- *   départage sans tirage au sort (variété / calories / ordre alphabétique).
- * - Tri par calories (ascendant/descendant) ou par premier ingrédient (regroupe les mêmes têtes de liste).
- * - Persistance des résultats en sessionStorage ; recalcul automatique si aliments / recettes changent
- * - Exclut les aliments marqués « Matin » (petit-déj. autonome, pas un plat du soir).
- * - Exclut les fiches plat « raccourci » (un seul ingrédient obligatoire = le nom du plat, ex. Fuet).
- * - Inclut en second les aliments "is_meal" seulement s'il n'existe pas déjà
- *   une recette plat homonyme dans le catalogue, et si le stock restant le permet.
- * - Sous la liste : comme sur les cartes (#, unité g, → reste) ; péremption / surgelé ; seulement ingrédients de plats.
+ * - Glouton immédiat + optimisation chunkée (sans bloquer l’UI).
+ * - Tri par calories / 1er ingrédient / péremption.
+ * - Persistance sessionStorage ; recalcul si aliments / recettes changent.
+ * - Exclut Matin, raccourcis, « Avant grimpe », pain+fuet.
+ * - Ajoute en fin les aliments is_meal sans recette homonyme.
  *
  */
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -46,6 +36,13 @@ import {
   cleanIngredientText,
   strictNameMatch,
 } from "@/lib/ingredientUtils";
+import {
+  runMaxMealBeamSearchAsync,
+  beamPicksToDisplayRows,
+  isBetterBeamPlan,
+  cloneStockMap,
+  type MaxMealBeamResult,
+} from "@/domain/planning/maxMealBeamSearch";
 
 /** Modes de tri de la liste générée (calories, 1er ingrédient, ou péremption). */
 type MaxMealSort = "none" | "asc" | "desc" | "first_ingredient" | "expiration";
@@ -697,27 +694,52 @@ export function isPreferredMaxMealChoice(
 }
 
 /**
- * Exécute la simulation gloutonne (même logique que le bouton « Générer ») : liste de plats
- * et blocs reste en stock, à partir des aliments et repas actuels.
- * À chaque étape, on évalue le reste APRÈS avoir pris toutes les portions entières possibles
- * de la recette candidate (pas une seule), pour privilégier les recettes qui vident le stock.
+ * Ajoute les aliments is_meal autonomes (sans recette plat homonyme) en consommant le stock restant.
  */
-function runMaxPlatSimulation(
+function appendStandaloneIsMealRows(
+  virtualStock: Map<string, StockInfo>,
   foodItems: FoodItem[],
   meals: Meal[],
-  morningMealFoodItemIds: Set<string> = new Set(),
-): {
-  results: GeneratedMeal[];
-  remaining: RemainingFoodLine[];
-} {
-  const morningFoodItems = foodItems.filter((fi) => morningMealFoodItemIds.has(fi.id));
-  const originalStock = buildStockMap(foodItems);
-  const virtualStock = new Map<string, StockInfo>();
-  for (const [key, info] of originalStock.entries()) {
-    virtualStock.set(key, { ...info });
-  }
+  platMeals: Meal[],
+  morningMealFoodItemIds: Set<string>,
+): GeneratedMeal[] {
+  const recipeNameKeys = new Set(platMeals.map((m) => normalizeKey(m.name)));
+  const fromIsMeal: GeneratedMeal[] = [];
+  const seenStandaloneKeys = new Set<string>();
+  const isMealItems = foodItems.filter((fi) => fi.is_meal && !morningMealFoodItemIds.has(fi.id));
+  for (const fi of isMealItems) {
+    if (recipeNameKeys.has(normalizeKey(fi.name))) continue;
+    const stockKey = findStockKey(virtualStock, fi.name);
+    if (!stockKey || seenStandaloneKeys.has(stockKey)) continue;
+    const portions = resolveStandalonePortionCount(fi, virtualStock, meals);
+    if (portions < 1) continue;
+    if (!tryConsumeStandaloneIsMealFood(fi, virtualStock, portions, meals)) continue;
+    seenStandaloneKeys.add(stockKey);
 
-  const platMeals = meals.filter((m) => {
+    const calVal = fi.calories ? parseFloat(fi.calories.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
+    const proVal = fi.protein ? parseFloat(fi.protein.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
+    fromIsMeal.push({
+      name: `🍱 ${fi.name}`,
+      calories: calVal ? Math.round(calVal) : null,
+      protein: proVal ? Math.round(proVal) : null,
+      ingredients: "",
+      ratio: 1,
+      portionCount: portions,
+      isStandaloneFood: true,
+    });
+  }
+  fromIsMeal.sort((a, b) => (b.calories ?? 0) - (a.calories ?? 0));
+  return fromIsMeal;
+}
+
+/**
+ * Catalogue plats éligibles au générateur (hors Matin, raccourcis, noms exclus).
+ */
+function filterPlatMealsForMaxGenerator(
+  meals: Meal[],
+  morningFoodItems: FoodItem[],
+): Meal[] {
+  return meals.filter((m) => {
     if (m.category !== "plat" || !m.ingredients?.trim()) return false;
     if (isShortcutStandalonePlat(m)) return false;
     if (isMorningMealPlat(m, morningFoodItems)) return false;
@@ -726,11 +748,62 @@ function runMaxPlatSimulation(
     if (n.includes("pain + fuet") || n.includes("pain+fuet")) return false;
     return true;
   });
+}
+
+/**
+ * Matérialise un plan beam (recettes) + standalones is_meal + reste affiché.
+ */
+function materializePlanWithStandalones(
+  plan: MaxMealBeamResult,
+  foodItems: FoodItem[],
+  meals: Meal[],
+  morningMealFoodItemIds: Set<string>,
+): { results: GeneratedMeal[]; remaining: RemainingFoodLine[] } {
+  const morningFoodItems = foodItems.filter((fi) => morningMealFoodItemIds.has(fi.id));
+  const platMeals = filterPlatMealsForMaxGenerator(meals, morningFoodItems);
+  const originalStock = buildStockMap(foodItems);
+  const fromRecipes = beamPicksToDisplayRows(plan.picks, originalStock);
+  fromRecipes.sort((a, b) => (b.calories ?? 0) - (a.calories ?? 0));
+  const virtualStock = cloneStockMap(plan.stock);
+  const fromIsMeal = appendStandaloneIsMealRows(
+    virtualStock,
+    foodItems,
+    meals,
+    platMeals,
+    morningMealFoodItemIds,
+  );
+  const results = [...fromRecipes, ...fromIsMeal];
+  const remaining = buildRemainingFoodLines(virtualStock, foodItems, originalStock, meals);
+  return { results, remaining };
+}
+
+/**
+ * Exécute la simulation gloutonne (affichage immédiat) : liste de plats
+ * et reste en stock. Sert de baseline avant la beam search en arrière-plan.
+ */
+function runMaxPlatSimulation(
+  foodItems: FoodItem[],
+  meals: Meal[],
+  morningMealFoodItemIds: Set<string> = new Set(),
+): {
+  results: GeneratedMeal[];
+  remaining: RemainingFoodLine[];
+  recipeBaseline: MaxMealBeamResult;
+} {
+  const morningFoodItems = foodItems.filter((fi) => morningMealFoodItemIds.has(fi.id));
+  const originalStock = buildStockMap(foodItems);
+  const virtualStock = new Map<string, StockInfo>();
+  for (const [key, info] of originalStock.entries()) {
+    virtualStock.set(key, { ...info });
+  }
+
+  const platMeals = filterPlatMealsForMaxGenerator(meals, morningFoodItems);
   // Ordre stable (pas de shuffle) : le choix se fait uniquement sur le score de reste.
   const candidates = [...platMeals].sort((a, b) =>
     a.name.localeCompare(b.name, "fr", { sensitivity: "base" }),
   );
   const fromRecipes: GeneratedMeal[] = [];
+  const recipePicks: MaxMealBeamResult["picks"] = [];
   const usedMealIdCounts = new Map<string, number>();
   let changed = true;
   let guard = 0;
@@ -798,6 +871,7 @@ function runMaxPlatSimulation(
       const scaledMeal =
         bestRatio !== 1 ? buildScaledMealForRatio(bestMeal, bestRatio, virtualStock) : bestMeal;
       deductMealServingFromVirtualStock(bestMeal, virtualStock, bestRatio);
+      recipePicks.push({ meal: bestMeal, ratio: bestRatio });
 
       const cal = computeIngredientCalories(scaledMeal.ingredients);
       const pro = computeIngredientProtein(scaledMeal.ingredients);
@@ -814,37 +888,25 @@ function runMaxPlatSimulation(
     }
   }
 
-  const recipeNameKeys = new Set(platMeals.map((m) => normalizeKey(m.name)));
-  const fromIsMeal: GeneratedMeal[] = [];
-  const seenStandaloneKeys = new Set<string>();
-  const isMealItems = foodItems.filter((fi) => fi.is_meal && !morningMealFoodItemIds.has(fi.id));
-  for (const fi of isMealItems) {
-    if (recipeNameKeys.has(normalizeKey(fi.name))) continue;
-    const stockKey = findStockKey(virtualStock, fi.name);
-    if (!stockKey || seenStandaloneKeys.has(stockKey)) continue;
-    const portions = resolveStandalonePortionCount(fi, virtualStock, meals);
-    if (portions < 1) continue;
-    if (!tryConsumeStandaloneIsMealFood(fi, virtualStock, portions, meals)) continue;
-    seenStandaloneKeys.add(stockKey);
+  const recipeBaseline: MaxMealBeamResult = {
+    picks: recipePicks,
+    stock: cloneVirtualStock(virtualStock),
+    totalPortions: recipePicks.length,
+    waste: measureLeftoverWaste(virtualStock),
+  };
 
-    const calVal = fi.calories ? parseFloat(fi.calories.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
-    const proVal = fi.protein ? parseFloat(fi.protein.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
-    fromIsMeal.push({
-      name: `🍱 ${fi.name}`,
-      calories: calVal ? Math.round(calVal) : null,
-      protein: proVal ? Math.round(proVal) : null,
-      ingredients: "",
-      ratio: 1,
-      portionCount: portions,
-      isStandaloneFood: true,
-    });
-  }
+  const fromIsMeal = appendStandaloneIsMealRows(
+    virtualStock,
+    foodItems,
+    meals,
+    platMeals,
+    morningMealFoodItemIds,
+  );
 
   fromRecipes.sort((a, b) => (b.calories ?? 0) - (a.calories ?? 0));
-  fromIsMeal.sort((a, b) => (b.calories ?? 0) - (a.calories ?? 0));
   const results = [...fromRecipes, ...fromIsMeal];
   const remaining = buildRemainingFoodLines(virtualStock, foodItems, originalStock, meals);
-  return { results, remaining };
+  return { results, remaining, recipeBaseline };
 }
 
 /**
@@ -897,12 +959,103 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
   );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
   const [results, setResults] = useState<GeneratedMeal[]>([]);
   const [hasGenerated, setHasGenerated] = useState(false);
   const [sortBy, setSortBy] = useState<MaxMealSort>("expiration");
   const [remainingAfterSimulation, setRemainingAfterSimulation] = useState<RemainingFoodLine[]>([]);
   const lastRunDepsKeyRef = useRef<string | null>(null);
+  const beamRunIdRef = useRef(0);
+  const bestBeamRef = useRef<MaxMealBeamResult | null>(null);
   const depsKey = buildMaxMealGeneratorDepsKey(foodItems, meals, morningMealFoodItemIds);
+
+  /**
+   * Annule la beam search en cours (nouveau Générer, changement de stock, démontage).
+   */
+  function cancelBeamSearch() {
+    beamRunIdRef.current += 1;
+    setIsOptimizing(false);
+  }
+
+  /**
+   * Applique un plan beam à l’UI s’il est meilleur que le dernier plan retenu.
+   */
+  function applyBeamPlanIfBetter(
+    plan: MaxMealBeamResult,
+    depsKeyForStore: string,
+    runId: number,
+  ) {
+    if (runId !== beamRunIdRef.current) return;
+    const prev = bestBeamRef.current;
+    if (prev && !isBetterBeamPlan(plan, prev)) return;
+    bestBeamRef.current = plan;
+    const { results: r, remaining: rem } = materializePlanWithStandalones(
+      plan,
+      foodItems,
+      meals,
+      morningMealFoodItemIdSet,
+    );
+    setResults(r);
+    setRemainingAfterSimulation(rem);
+    sessionStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ results: r, remaining: rem, depsKey: depsKeyForStore }),
+    );
+  }
+
+  /**
+   * Lance la beam search chunkée après le glouton ; met à jour dès qu’un meilleur plan apparaît.
+   */
+  function startBeamOptimization(baseline: MaxMealBeamResult, depsKeyForStore: string) {
+    const runId = ++beamRunIdRef.current;
+    bestBeamRef.current = baseline;
+    setIsOptimizing(true);
+    void (async () => {
+      try {
+        const best = await runMaxMealBeamSearchAsync(
+          foodItems,
+          meals,
+          morningMealFoodItemIdSet,
+          {
+            shouldCancel: () => runId !== beamRunIdRef.current,
+            onProgress: (partial) => {
+              applyBeamPlanIfBetter(partial, depsKeyForStore, runId);
+            },
+            yieldBetweenDepths: true,
+          },
+        );
+        applyBeamPlanIfBetter(best, depsKeyForStore, runId);
+      } catch {
+        /* ignore — le glouton reste affiché */
+      } finally {
+        if (runId === beamRunIdRef.current) setIsOptimizing(false);
+      }
+    })();
+  }
+
+  /**
+   * Applique le glouton immédiat puis démarre l’optimisation background.
+   */
+  function applyGreedyThenOptimize() {
+    const { results: r, remaining: rem, recipeBaseline } = runMaxPlatSimulation(
+      foodItems,
+      meals,
+      morningMealFoodItemIdSet,
+    );
+    const k = buildMaxMealGeneratorDepsKey(foodItems, meals, morningMealFoodItemIds);
+    lastRunDepsKeyRef.current = k;
+    setResults(r);
+    setRemainingAfterSimulation(rem);
+    setHasGenerated(true);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey: k }));
+    startBeamOptimization(recipeBaseline, k);
+  }
+
+  useEffect(() => {
+    return () => {
+      beamRunIdRef.current += 1;
+    };
+  }, []);
 
   /**
    * Restaure la session si elle correspond au stock / recettes actuels, sinon relance la simulation
@@ -915,32 +1068,13 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
         try {
           const parsed = JSON.parse(raw) as unknown;
           if (Array.isArray(parsed)) {
-            const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
-            setHasGenerated(true);
-            setResults(r);
-            setRemainingAfterSimulation(rem);
-            lastRunDepsKeyRef.current = depsKey;
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey }));
+            applyGreedyThenOptimize();
             return;
           }
           if (parsed && typeof parsed === "object" && "results" in parsed) {
             const p = parsed as { results: GeneratedMeal[]; remaining?: unknown[]; depsKey?: string };
-            if (p.depsKey === depsKey && Array.isArray(p.results)) {
-              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
-              setHasGenerated(true);
-              setResults(r);
-              setRemainingAfterSimulation(rem);
-              lastRunDepsKeyRef.current = depsKey;
-              sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey }));
-              return;
-            }
             if (Array.isArray(p.results)) {
-              const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
-              setHasGenerated(true);
-              setResults(r);
-              setRemainingAfterSimulation(rem);
-              lastRunDepsKeyRef.current = depsKey;
-              sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey }));
+              applyGreedyThenOptimize();
               return;
             }
           }
@@ -951,15 +1085,11 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     }
     if (!hasGenerated) return;
     try {
-      const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
-      lastRunDepsKeyRef.current = depsKey;
-      setResults(r);
-      setRemainingAfterSimulation(rem);
-      setHasGenerated(true);
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey }));
+      applyGreedyThenOptimize();
     } catch {
       toast({ title: "Erreur", description: "Impossible de générer les plats.", variant: "destructive" });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- relance uniquement quand depsKey / hasGenerated changent
   }, [depsKey, hasGenerated]);
 
   // Persister dans la DB
@@ -973,15 +1103,10 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
 
   const generate = () => {
     setLoading(true);
+    cancelBeamSearch();
     setTimeout(() => {
       try {
-        const { results: r, remaining: rem } = runMaxPlatSimulation(foodItems, meals, morningMealFoodItemIdSet);
-        const k = buildMaxMealGeneratorDepsKey(foodItems, meals, morningMealFoodItemIds);
-        lastRunDepsKeyRef.current = k;
-        setResults(r);
-        setRemainingAfterSimulation(rem);
-        setHasGenerated(true);
-        sessionStorage.setItem(SESSION_KEY, JSON.stringify({ results: r, remaining: rem, depsKey: k }));
+        applyGreedyThenOptimize();
       } catch {
         toast({ title: "Erreur", description: "Impossible de générer les plats.", variant: "destructive" });
       } finally {
@@ -1049,6 +1174,12 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
             Plats max faisables
           </h2>
           {hasGenerated && <span className="text-sm font-normal text-muted-foreground">{totalPortions}</span>}
+          {isOptimizing && (
+            <span className="text-[10px] font-normal text-muted-foreground flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Optimisation…
+            </span>
+          )}
         </button>
       </div>
 
@@ -1109,7 +1240,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
               )}
             </div>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Enchaînements qui vident le stock d’abord (préfère la recette qui peut tout utiliser, ex. 2×3 œufs plutôt que 1×4), puis variété — sans tirage au sort
+              Glouton rapide puis optimisation en arrière-plan (vivier Au choix) pour maximiser le nombre de repas, puis réduire les restes
             </p>
           </div>
 
