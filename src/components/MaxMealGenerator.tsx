@@ -9,9 +9,10 @@
  * Résultat : la liste de plats produite par la simulation gloutonne.
  *
  * Fonctionnalités :
- * - Choix glouton : 1) minimiser les restes, 2) si stock final comparable (seuil), préférer
- *   une fiche recette moins souvent choisie pour limiter la répétition (ex. tenders répartis
- *   sur burrito, sandwich, gaufrette plutôt que 3× la même ligne).
+ * - Choix glouton déterministe : à chaque étape, compare le reste SI l’on prenait
+ *   toutes les portions entières possibles de chaque recette (ex. 2×3 œufs plutôt que 1×4),
+ *   puis n’en consomme qu’une pour laisser de la variété aux tours suivants ;
+ *   départage sans tirage au sort (variété / calories / ordre alphabétique).
  * - Tri par calories (ascendant/descendant) ou par premier ingrédient (regroupe les mêmes têtes de liste).
  * - Persistance des résultats en sessionStorage ; recalcul automatique si aliments / recettes changent
  * - Exclut les aliments marqués « Matin » (petit-déj. autonome, pas un plat du soir).
@@ -35,7 +36,6 @@ import {
   deductMealServingFromVirtualStock,
   findStockKey,
   normalizeKey,
-  getFoodItemTotalGrams,
   parseQty,
   parseIngredientGroups,
   type StockInfo,
@@ -61,6 +61,11 @@ interface GeneratedMeal {
   protein: number | null;
   ingredients: string;
   ratio: number;
+  /**
+   * Nombre de portions planifiées pour cette ligne (ex. 2 = deux repas de la même recette).
+   * Distinct du ratio partiel (&lt; 1) qui reste dans `ratio`.
+   */
+  portionCount?: number;
   /** true si la ligne vient d'un aliment is_meal sans recette catalogue (affichage après les recettes). */
   isStandaloneFood?: boolean;
 }
@@ -473,31 +478,137 @@ function formatExpirationLabel(dateIso: string | null): string | null {
   return `${m[3]}/${m[2]}`;
 }
 
+/** Clé de regroupement pour fusionner les lignes identiques (tri indépendant). */
+function generatedMealGroupKey(row: GeneratedMeal): string {
+  return [
+    row.name,
+    row.calories ?? "",
+    row.protein ?? "",
+    row.ingredients ?? "",
+    row.ratio,
+    row.isStandaloneFood ? 1 : 0,
+  ].join("||");
+}
+
+/** Nombre de portions représentées par une ligne générée. */
+export function getGeneratedMealPortionCount(row: GeneratedMeal): number {
+  if (row.portionCount != null && row.portionCount >= 1) return Math.floor(row.portionCount);
+  return 1;
+}
+
 /**
- * Tente de retirer du stock virtuel l'équivalent d'un aliment autonome (is_meal) lorsqu'il
- * n'a pas d'équivalent en recette : une portion = l'item aliment (grammes totaux ou unités).
- * Sert à n'ajouter la ligne "repas seul" que si le stock restant suffit après la simulation.
+ * Regroupe les lignes générées identiques et cumule leurs portions planifiées.
  */
-function tryConsumeStandaloneIsMealFood(fi: FoodItem, virtualStock: Map<string, StockInfo>): boolean {
+export function groupGeneratedMealRows(
+  rows: GeneratedMeal[],
+): Array<{ row: GeneratedMeal; count: number }> {
+  const map = new Map<string, { row: GeneratedMeal; count: number }>();
+  for (const row of rows) {
+    const key = generatedMealGroupKey(row);
+    const portions = getGeneratedMealPortionCount(row);
+    const existing = map.get(key);
+    if (existing) {
+      existing.count += portions;
+    } else {
+      map.set(key, { row: { ...row, portionCount: portions }, count: portions });
+    }
+  }
+  return Array.from(map.values());
+}
+
+/**
+ * Formate la pastille de quantité (xN ou %) pour une ligne générée.
+ * `groupedCount` = total de portions après fusion des doublons.
+ */
+export function formatGeneratedMealQuantityBadge(row: GeneratedMeal, groupedCount: number): string {
+  if (row.ratio > 0 && row.ratio < 1) return `${Math.round(row.ratio * 100)}%`;
+  const n = Math.max(1, groupedCount);
+  return `x${n}`;
+}
+
+/** Somme des portions affichées (alignée sur les pastilles xN). */
+export function sumGroupedMealPortions(
+  grouped: Array<{ row: GeneratedMeal; count: number }>,
+): number {
+  return grouped.reduce((sum, g) => {
+    if (g.row.ratio > 0 && g.row.ratio < 1) return sum + 1;
+    return sum + Math.max(1, g.count);
+  }, 0);
+}
+
+/**
+ * Calcule combien de portions d’un aliment-repas autonome restent dans le stock virtuel.
+ * Priorité : stock.grammes / grammage unitaire de la fiche, sinon stock.count.
+ * Si une fiche catalogue homonyme a un grammage portion, on s’en sert pour découper un pack (ex. 750g → 2×375g).
+ */
+export function resolveStandalonePortionCount(
+  fi: FoodItem,
+  virtualStock: Map<string, StockInfo>,
+  meals: Meal[] = [],
+): number {
+  const key = findStockKey(virtualStock, fi.name);
+  if (!key) return 0;
+  const stock = virtualStock.get(key)!;
+  if (stock.infinite) return 1;
+
+  const unitGrams = parseQty(fi.grams);
+  const matchingMeal = meals.find((m) => strictNameMatch(m.name, fi.name));
+  const recipeGrams = parseQty(matchingMeal?.grams ?? null);
+
+  let best = 0;
+  if (unitGrams > 0) {
+    best = Math.max(best, Math.floor((stock.grams + 1e-6) / unitGrams));
+  }
+  // Pack unique (ex. 750g) découpé via la portion catalogue (375g) → x2.
+  if (recipeGrams > 0 && stock.grams > 0) {
+    best = Math.max(best, Math.floor((stock.grams + 1e-6) / recipeGrams));
+  }
+  if (stock.count > 0) {
+    best = Math.max(best, Math.floor(stock.count));
+  }
+  return best;
+}
+
+/**
+ * Retire `portions` unités d’un aliment autonome du stock virtuel.
+ * Retourne false si le stock ne suffit pas.
+ */
+function tryConsumeStandaloneIsMealFood(
+  fi: FoodItem,
+  virtualStock: Map<string, StockInfo>,
+  portions: number,
+  meals: Meal[] = [],
+): boolean {
+  if (portions < 1) return false;
   const key = findStockKey(virtualStock, fi.name);
   if (!key) return false;
   const stock = virtualStock.get(key)!;
   if (stock.infinite) return true;
+
   const unitGrams = parseQty(fi.grams);
-  if (unitGrams > 0) {
-    const need = getFoodItemTotalGrams(fi);
-    if (need <= 0) return false;
-    if (stock.grams < need) return false;
+  const matchingMeal = meals.find((m) => strictNameMatch(m.name, fi.name));
+  const recipeGrams = parseQty(matchingMeal?.grams ?? null);
+  // Même logique que resolveStandalonePortionCount : portion = fiche ou grammage catalogue.
+  let portionGrams = 0;
+  if (unitGrams > 0 && recipeGrams > 0) {
+    const byUnit = Math.floor((stock.grams + 1e-6) / unitGrams);
+    const byRecipe = Math.floor((stock.grams + 1e-6) / recipeGrams);
+    portionGrams = byRecipe > byUnit ? recipeGrams : unitGrams;
+  } else {
+    portionGrams = unitGrams > 0 ? unitGrams : recipeGrams > 0 ? recipeGrams : 0;
+  }
+
+  if (portionGrams > 0) {
+    const need = portionGrams * portions;
+    if (need <= 0 || stock.grams < need - 1e-6) return false;
     stock.grams = Math.max(0, stock.grams - need);
+    if (stock.count > 0) {
+      stock.count = Math.max(0, stock.count - portions);
+    }
     return true;
   }
-  if (fi.quantity != null && fi.quantity > 0) {
-    if (stock.count < fi.quantity) return false;
-    stock.count -= fi.quantity;
-    return true;
-  }
-  if (stock.count > 0) {
-    stock.count -= 1;
+  if (stock.count >= portions) {
+    stock.count -= portions;
     return true;
   }
   return false;
@@ -549,21 +660,25 @@ export function isShortcutStandalonePlat(meal: Meal): boolean {
 }
 
 /** Marge (score « invendus ») en dessous de laquelle deux plats sont considérés équivalents côté stock. */
-const WASTE_TIE_EPS = 55;
+const WASTE_TIE_EPS = 40;
 /** Pénalité douce par répétition de recette pour favoriser la diversité à restes comparables. */
 const DIVERSITY_REPEAT_PENALTY = 18;
 
 /**
- * Indique si le candidat A est préférable à B : d'abord moins de restes, puis moins d’utilisations
- * de la même fiche recette (variété) si le stock final reste comparable.
+ * Indique si le candidat A est préférable à B : d'abord moins de restes, puis plus de portions
+ * consommées d’un coup (vider le stock), puis variété, puis calories — sans tirage au sort.
  */
-function isPreferredMaxMealChoice(
+export function isPreferredMaxMealChoice(
   wasteA: number,
+  servingsA: number,
   timesPickedA: number,
   caloriesA: number | null,
+  nameA: string,
   wasteB: number,
+  servingsB: number,
   timesPickedB: number,
-  caloriesB: number | null
+  caloriesB: number | null,
+  nameB: string,
 ): boolean {
   const adjustedA = wasteA + timesPickedA * DIVERSITY_REPEAT_PENALTY;
   const adjustedB = wasteB + timesPickedB * DIVERSITY_REPEAT_PENALTY;
@@ -571,19 +686,21 @@ function isPreferredMaxMealChoice(
   if (adjustedA > adjustedB + WASTE_TIE_EPS) return false;
   if (wasteA < wasteB - WASTE_TIE_EPS) return true;
   if (wasteA > wasteB + WASTE_TIE_EPS) return false;
-  if (timesPickedA < timesPickedB) return true;
-  if (timesPickedA > timesPickedB) return false;
-  // À égalité de stock/variété, on privilégie la recette la moins calorique.
+  // À restes comparables, on préfère la recette qui consomme plus de portions d’un coup
+  // (ex. 2×3 œufs vide mieux le stock que 1×4 œufs).
+  if (servingsA !== servingsB) return servingsA > servingsB;
+  if (timesPickedA !== timesPickedB) return timesPickedA < timesPickedB;
   const calA = caloriesA ?? Number.POSITIVE_INFINITY;
   const calB = caloriesB ?? Number.POSITIVE_INFINITY;
-  if (calA < calB) return true;
-  if (calA > calB) return false;
-  return Math.random() < 0.5;
+  if (calA !== calB) return calA < calB;
+  return nameA.localeCompare(nameB, "fr", { sensitivity: "base" }) < 0;
 }
 
 /**
  * Exécute la simulation gloutonne (même logique que le bouton « Générer ») : liste de plats
  * et blocs reste en stock, à partir des aliments et repas actuels.
+ * À chaque étape, on évalue le reste APRÈS avoir pris toutes les portions entières possibles
+ * de la recette candidate (pas une seule), pour privilégier les recettes qui vident le stock.
  */
 function runMaxPlatSimulation(
   foodItems: FoodItem[],
@@ -609,46 +726,74 @@ function runMaxPlatSimulation(
     if (n.includes("pain + fuet") || n.includes("pain+fuet")) return false;
     return true;
   });
+  // Ordre stable (pas de shuffle) : le choix se fait uniquement sur le score de reste.
+  const candidates = [...platMeals].sort((a, b) =>
+    a.name.localeCompare(b.name, "fr", { sensitivity: "base" }),
+  );
   const fromRecipes: GeneratedMeal[] = [];
   const usedMealIdCounts = new Map<string, number>();
-  const shuffled = [...platMeals].sort(() => Math.random() - 0.5);
   let changed = true;
   let guard = 0;
   const maxIterations = 2000;
   while (changed && guard < maxIterations) {
     guard++;
     changed = false;
-    let bestPick: { meal: Meal; ratio: number; waste: number; timesPicked: number } | null = null;
+    let bestPick: {
+      meal: Meal;
+      ratio: number;
+      servings: number;
+      waste: number;
+      timesPicked: number;
+    } | null = null;
 
-    for (const meal of shuffled) {
+    for (const meal of candidates) {
       const multiple = getMealMultiple(meal, virtualStock);
-      if (multiple !== null && multiple > 0 && multiple !== Infinity) {
-        const ratio = Math.min(multiple, 1);
-        if (ratio >= 0.5) {
-          const trial = cloneVirtualStock(virtualStock);
-          if (!deductMealServingFromVirtualStock(meal, trial, ratio)) continue;
-          const wasteAfter = measureLeftoverWaste(trial);
-          const timesPicked = usedMealIdCounts.get(meal.id) ?? 0;
-          const candidateCalories = computeIngredientCalories(meal.ingredients);
-          if (
-            !bestPick ||
-            isPreferredMaxMealChoice(
-              wasteAfter,
-              timesPicked,
-              candidateCalories,
-              bestPick.waste,
-              bestPick.timesPicked,
-              computeIngredientCalories(bestPick.meal.ingredients)
-            )
-          ) {
-            bestPick = { meal, ratio, waste: wasteAfter, timesPicked };
-          }
+      if (multiple === null || multiple <= 0 || multiple === Infinity) continue;
+
+      const fullServings = Math.floor(multiple);
+      const partialRatio = multiple >= 0.5 && multiple < 1 ? multiple : null;
+      if (fullServings < 1 && !partialRatio) continue;
+
+      const servings = fullServings >= 1 ? fullServings : 1;
+      const ratio = fullServings >= 1 ? 1 : (partialRatio as number);
+
+      const trial = cloneVirtualStock(virtualStock);
+      let ok = true;
+      for (let i = 0; i < servings; i++) {
+        if (!deductMealServingFromVirtualStock(meal, trial, ratio)) {
+          ok = false;
+          break;
         }
+      }
+      if (!ok) continue;
+
+      const wasteAfter = measureLeftoverWaste(trial);
+      const timesPicked = usedMealIdCounts.get(meal.id) ?? 0;
+      const candidateCalories = computeIngredientCalories(meal.ingredients);
+      if (
+        !bestPick ||
+        isPreferredMaxMealChoice(
+          wasteAfter,
+          servings,
+          timesPicked,
+          candidateCalories,
+          meal.name,
+          bestPick.waste,
+          bestPick.servings,
+          bestPick.timesPicked,
+          computeIngredientCalories(bestPick.meal.ingredients),
+          bestPick.meal.name,
+        )
+      ) {
+        bestPick = { meal, ratio, servings, waste: wasteAfter, timesPicked };
       }
     }
 
     if (bestPick) {
       const { meal: bestMeal, ratio: bestRatio } = bestPick;
+      // On n’applique qu’une portion à la fois : la variété entre recettes reste possible
+      // aux itérations suivantes (ex. tenders répartis sur plusieurs plats).
+      const servingsToCommit = 1;
       usedMealIdCounts.set(bestMeal.id, (usedMealIdCounts.get(bestMeal.id) ?? 0) + 1);
       const scaledMeal =
         bestRatio !== 1 ? buildScaledMealForRatio(bestMeal, bestRatio, virtualStock) : bestMeal;
@@ -658,10 +803,11 @@ function runMaxPlatSimulation(
       const pro = computeIngredientProtein(scaledMeal.ingredients);
       fromRecipes.push({
         name: bestMeal.name,
-        calories: cal,
-        protein: pro,
+        calories: cal != null ? Math.round(cal) : null,
+        protein: pro != null ? Math.round(pro) : null,
         ingredients: cleanIngredientText(scaledMeal.ingredients || ""),
         ratio: bestRatio,
+        portionCount: servingsToCommit,
         isStandaloneFood: false,
       });
       changed = true;
@@ -670,10 +816,17 @@ function runMaxPlatSimulation(
 
   const recipeNameKeys = new Set(platMeals.map((m) => normalizeKey(m.name)));
   const fromIsMeal: GeneratedMeal[] = [];
+  const seenStandaloneKeys = new Set<string>();
   const isMealItems = foodItems.filter((fi) => fi.is_meal && !morningMealFoodItemIds.has(fi.id));
   for (const fi of isMealItems) {
     if (recipeNameKeys.has(normalizeKey(fi.name))) continue;
-    if (!tryConsumeStandaloneIsMealFood(fi, virtualStock)) continue;
+    const stockKey = findStockKey(virtualStock, fi.name);
+    if (!stockKey || seenStandaloneKeys.has(stockKey)) continue;
+    const portions = resolveStandalonePortionCount(fi, virtualStock, meals);
+    if (portions < 1) continue;
+    if (!tryConsumeStandaloneIsMealFood(fi, virtualStock, portions, meals)) continue;
+    seenStandaloneKeys.add(stockKey);
+
     const calVal = fi.calories ? parseFloat(fi.calories.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
     const proVal = fi.protein ? parseFloat(fi.protein.replace(/[^0-9.,]/g, "").replace(",", ".")) || null : null;
     fromIsMeal.push({
@@ -682,6 +835,7 @@ function runMaxPlatSimulation(
       protein: proVal ? Math.round(proVal) : null,
       ingredients: "",
       ratio: 1,
+      portionCount: portions,
       isStandaloneFood: true,
     });
   }
@@ -861,35 +1015,8 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
     const valB = b.calories ?? 0;
     return sortBy === "desc" ? valB - valA : valA - valB;
   });
-  const groupedResults = sortedResults.reduce<
-    Array<{ row: GeneratedMeal; count: number }>
-  >((acc, row) => {
-    const key = [
-      row.name,
-      row.calories ?? "",
-      row.protein ?? "",
-      row.ingredients ?? "",
-      row.ratio,
-      row.isStandaloneFood ? 1 : 0,
-    ].join("||");
-    const last = acc[acc.length - 1];
-    if (last) {
-      const lastKey = [
-        last.row.name,
-        last.row.calories ?? "",
-        last.row.protein ?? "",
-        last.row.ingredients ?? "",
-        last.row.ratio,
-        last.row.isStandaloneFood ? 1 : 0,
-      ].join("||");
-      if (lastKey === key) {
-        last.count += 1;
-        return acc;
-      }
-    }
-    acc.push({ row, count: 1 });
-    return acc;
-  }, []);
+  const groupedResults = groupGeneratedMealRows(sortedResults);
+  const totalPortions = sumGroupedMealPortions(groupedResults);
 
   const toggleCaloriesSort = () => {
     setSortBy((prev) => {
@@ -921,7 +1048,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
             <Zap className="h-4 w-4 text-amber-500" />
             Plats max faisables
           </h2>
-          {hasGenerated && <span className="text-sm font-normal text-muted-foreground">{results.length}</span>}
+          {hasGenerated && <span className="text-sm font-normal text-muted-foreground">{totalPortions}</span>}
         </button>
       </div>
 
@@ -982,7 +1109,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
               )}
             </div>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Enchaînements qui vident le stock d’abord, puis variété (éviter la même recette si une autre option laisse un stock comparable)
+              Enchaînements qui vident le stock d’abord (préfère la recette qui peut tout utiliser, ex. 2×3 œufs plutôt que 1×4), puis variété — sans tirage au sort
             </p>
           </div>
 
@@ -1003,9 +1130,7 @@ export default function MaxMealGenerator({ foodItems, meals }: Props) {
                         count > 1 ? "text-sm px-2 py-0.5" : "text-[10px] px-1.5 py-0.5"
                       }`}
                     >
-                      {count > 1
-                        ? `x${count}`
-                        : (r.ratio >= 1 && Number.isInteger(r.ratio) ? `x${r.ratio}` : `${Math.round(r.ratio * 100)}%`)}
+                      {formatGeneratedMealQuantityBadge(r, count)}
                     </span>
                     {r.calories !== null && (
                       <span className="text-[10px] font-bold text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded-full shrink-0">

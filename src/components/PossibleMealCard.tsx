@@ -372,16 +372,24 @@ export function PossibleMealCard({
     return firstRatio;
   };
   const detectedRatio = detectScaleRatio();
-  // Facteur de division : ratio ingrédients détecté, sinon quantité #N de la carte Possible.
+  // Facteur affiché : quantité # de la carte Possible, ou ratio détecté sur les ingrédients.
+  const displayMultiplier = (() => {
+    const qtyMul = pm.quantity >= 2 ? pm.quantity : null;
+    const ratioMul =
+      detectedRatio !== null &&
+      (detectedRatio < 1 || Math.abs(detectedRatio - 1) > 0.01)
+        ? detectedRatio
+        : detectedRatio !== null && detectedRatio >= 2 && Number.isInteger(detectedRatio)
+          ? detectedRatio
+          : null;
+    if (qtyMul != null && ratioMul != null) {
+      return Math.max(qtyMul, Math.round(ratioMul));
+    }
+    return qtyMul ?? ratioMul;
+  })();
   const splitFactor =
-    detectedRatio !== null && detectedRatio >= 2 && Number.isInteger(detectedRatio)
-      ? detectedRatio
-      : pm.quantity >= 2
-        ? pm.quantity
-        : null;
-  const displayMultiplier =
-    detectedRatio !== null
-      ? detectedRatio
+    displayMultiplier !== null && displayMultiplier >= 2 && Number.isInteger(displayMultiplier)
+      ? displayMultiplier
       : pm.quantity >= 2
         ? pm.quantity
         : null;
