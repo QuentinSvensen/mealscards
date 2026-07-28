@@ -74,3 +74,20 @@ export function extrasDividerMoveState<T extends { id: string }>(
     canMoveDown: idx < sortedItems.length - 1,
   };
 }
+
+/**
+ * Place un nouvel extra juste au-dessus du trait (fin de la zone « au-dessus »)
+ * et renvoie le nouvel ordre + l’id du trait à persister.
+ */
+export function placeNewExtraAboveDivider<T extends { id: string }>(
+  sortedItemsWithoutNew: T[],
+  newItem: T,
+  dividerAfterId: string | null | undefined,
+): { ordered: T[]; nextDividerAfterId: string } {
+  const withoutDup = sortedItemsWithoutNew.filter((item) => item.id !== newItem.id);
+  const { above, below } = splitSortedExtrasByDivider(withoutDup, dividerAfterId);
+  return {
+    ordered: [...above, newItem, ...below],
+    nextDividerAfterId: newItem.id,
+  };
+}

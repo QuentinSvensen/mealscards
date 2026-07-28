@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   moveExtrasDividerDown,
   moveExtrasDividerUp,
+  placeNewExtraAboveDivider,
   resolveExtrasDividerAfterId,
   splitSortedExtrasByDivider,
 } from "./extrasDividerUtils";
@@ -24,5 +25,11 @@ describe("extrasDividerUtils", () => {
   it("déplace le trait vers le bas puis le haut", () => {
     expect(moveExtrasDividerDown(items, "a")).toBe("b");
     expect(moveExtrasDividerUp(items, "b")).toBe("a");
+  });
+
+  it("place un nouvel extra juste au-dessus du trait", () => {
+    const result = placeNewExtraAboveDivider(items, { id: "n", name: "N" }, "a");
+    expect(result.nextDividerAfterId).toBe("n");
+    expect(result.ordered.map((x) => x.id)).toEqual(["a", "n", "b", "c"]);
   });
 });

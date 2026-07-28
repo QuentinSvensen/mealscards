@@ -34,6 +34,7 @@ import {
   extrasDividerMoveState,
   moveExtrasDividerDown,
   moveExtrasDividerUp,
+  placeNewExtraAboveDivider,
   resolveExtrasDividerAfterId,
   splitSortedExtrasByDivider,
 } from "@/lib/extrasDividerUtils";
@@ -1333,6 +1334,18 @@ export function FoodItems() {
         }
         if (storageType === "test" && created?.id) {
           setPreference.mutate({ key: "food_test_ids", value: Array.from(new Set([...testItemIds, created.id])) });
+        }
+        // Nouvel extra (hors Test) : placé juste au-dessus du trait par défaut.
+        if (persistedStorageType === "extras" && storageType !== "test" && created?.id) {
+          const currentExtras = getSortedItems("extras").filter((fi) => fi.id !== created.id);
+          const { ordered, nextDividerAfterId } = placeNewExtraAboveDivider(
+            currentExtras,
+            { id: created.id },
+            extrasDividerAfterId,
+          );
+          reorderItems.mutate(ordered.map((item, i) => ({ id: item.id, sort_order: i })));
+          setExtrasDividerAfterId(nextDividerAfterId);
+          resetFoodSortToManual("extras");
         }
         setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewManualMacroFields({}); setNewFoodType(null); setNewIsIndivisible(false); setNewMealMode("off"); setNewExpiration(undefined);
         setPendingName(""); setPendingQuantity(""); setPendingGrams(""); setPendingCalories(""); setPendingProtein(""); setPendingFiber(""); setPendingManualMacroFields({}); setPendingFoodType(null); setPendingIsIndivisible(false); setPendingMealMode("off"); setPendingExpiration(null);
