@@ -51,6 +51,7 @@ import {
   getPortionDeduction,
   hasPortionDeductionMeta,
   stripPortionDeductionMeta,
+  toFoodItemInsertPayload,
 } from "@/lib/stockDeductionSnapshot";
 import {
   DESSERT_FOOD_PREF_KEY,
@@ -1048,9 +1049,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       else if (deltaGrams < 0) {
         const toAdd = -deltaGrams;
         const snapshotFi = snapshots?.find(s => strictNameMatch(s.name, ingName));
-        const fi = snapshotFi
-          ? (currentFoodItems.find(f => f.id === snapshotFi.id) ?? null)
-          : (matchingItems.find((f) => !deletedIds.has(f.id)) ?? null);
+        // Préférer l'id snapshot, sinon une fiche homonyme encore en stock.
+        const fi =
+          (snapshotFi
+            ? currentFoodItems.find((f) => f.id === snapshotFi.id && !deletedIds.has(f.id))
+            : null) ??
+          matchingItems.find((f) => !deletedIds.has(f.id)) ??
+          null;
 
         if (fi && !deletedIds.has(fi.id)) {
           const liveFi = authoritativeById.get(fi.id) ?? fi;
@@ -1073,24 +1078,27 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             });
           }
         } else if (snapshotFi) {
-          // Item entièrement consommé et supprimé → le recréer depuis le snapshot
-          const { created_at, quantity, grams, ...rest } = snapshotFi as Record<string, any>;
+          // Item entièrement consommé et supprimé → le recréer depuis le snapshot (sans méta client).
           const perUnit = parseQty(snapshotFi.grams);
           if (snapshotFi.quantity !== null && snapshotFi.quantity >= 1 && perUnit > 0) {
             const fullUnits = Math.floor(toAdd / perUnit);
             const rem = Math.round((toAdd - fullUnits * perUnit) * 10) / 10;
-            await persistStockInsert("Ajustement stock (recréation)", {
-              ...rest,
-              quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
-              grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
-              counter_start_date: snapshotFi.counter_start_date,
-            });
+            await persistStockInsert(
+              "Ajustement stock (recréation)",
+              toFoodItemInsertPayload(snapshotFi, {
+                quantity: rem > 0 ? fullUnits + 1 : Math.max(1, fullUnits),
+                grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+                counter_start_date: snapshotFi.counter_start_date,
+              }),
+            );
           } else {
-            await persistStockInsert("Ajustement stock (recréation)", {
-              ...rest,
-              grams: formatNumeric(toAdd),
-              counter_start_date: snapshotFi.counter_start_date,
-            });
+            await persistStockInsert(
+              "Ajustement stock (recréation)",
+              toFoodItemInsertPayload(snapshotFi, {
+                grams: formatNumeric(toAdd),
+                counter_start_date: snapshotFi.counter_start_date,
+              }),
+            );
           }
         }
       }
@@ -1135,9 +1143,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       else if (deltaCount < 0) {
         const toAdd = -deltaCount;
         const snapshotFi = snapshots?.find(s => strictNameMatch(s.name, ingName));
-        const fi = snapshotFi
-          ? (currentFoodItems.find(f => f.id === snapshotFi.id) ?? null)
-          : (matchingItems.find((f) => !deletedIds.has(f.id)) ?? null);
+        // Préférer l'id snapshot, sinon une fiche homonyme encore en stock (ex. œufs rachetés).
+        const fi =
+          (snapshotFi
+            ? currentFoodItems.find((f) => f.id === snapshotFi.id && !deletedIds.has(f.id))
+            : null) ??
+          matchingItems.find((f) => !deletedIds.has(f.id)) ??
+          null;
 
         if (fi && !deletedIds.has(fi.id)) {
           const liveFi = authoritativeById.get(fi.id) ?? fi;
@@ -1145,13 +1157,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             quantity: (liveFi.quantity ?? 1) + toAdd,
           });
         } else if (snapshotFi) {
-          const { created_at, quantity, grams, ...rest } = snapshotFi as Record<string, any>;
-          await persistStockInsert("Ajustement stock (recréation count)", {
-            ...rest,
-            quantity: toAdd,
-            grams: grams,
-            counter_start_date: snapshotFi.counter_start_date,
-          });
+          await persistStockInsert(
+            "Ajustement stock (recréation count)",
+            toFoodItemInsertPayload(snapshotFi, {
+              quantity: toAdd,
+              grams: snapshotFi.grams,
+              counter_start_date: snapshotFi.counter_start_date,
+            }),
+          );
         }
       }
     }

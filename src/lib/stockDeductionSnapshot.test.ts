@@ -3,8 +3,11 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import {
   attachPortionDeduction,
   mergeDeductionSnapshotMaps,
+  PORTION_GRAMS_KEY,
+  PORTION_QUANTITY_KEY,
   remapDessertFoodPreferenceIds,
   remapMorningMealPreferenceIds,
+  toFoodItemInsertPayload,
   wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "./stockDeductionSnapshot";
@@ -78,8 +81,25 @@ describe("stockDeductionSnapshot", () => {
     const local = {
       "pm-aujourdhui": [makeFoodItem({ id: "poulet-1", name: "Poulet" })],
     };
-    const merged = mergeDeductionSnapshotMaps(persisted, local);
-    expect(Object.keys(merged).sort()).toEqual(["pm-aujourdhui", "pm-hier"]);
-    expect(merged["pm-hier"][0].counter_start_date).toBe("2026-07-08T10:00:00.000Z");
+    expect(mergeDeductionSnapshotMaps(persisted, local)).toEqual({
+      ...persisted,
+      ...local,
+    });
+  });
+
+  it("prépare un INSERT sans id ni métadonnées _portion*", () => {
+    const snap = attachPortionDeduction(
+      makeFoodItem({ id: "egg-old", name: "Oeufs", quantity: 6, grams: null }),
+      { grams: 0, quantity: 4 },
+      { wasMorningMeal: true },
+    );
+    const payload = toFoodItemInsertPayload(snap, { quantity: 1 });
+    expect(payload).not.toHaveProperty("id");
+    expect(payload).not.toHaveProperty("created_at");
+    expect(payload).not.toHaveProperty(PORTION_GRAMS_KEY);
+    expect(payload).not.toHaveProperty(PORTION_QUANTITY_KEY);
+    expect(payload).not.toHaveProperty("_wasMorningMeal");
+    expect(payload.quantity).toBe(1);
+    expect(payload.name).toBe("Oeufs");
   });
 });

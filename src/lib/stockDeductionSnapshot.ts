@@ -133,6 +133,19 @@ export function stripPortionDeductionMeta(fi: FoodItem): FoodItem {
 }
 
 /**
+ * Prépare un snapshot pour un INSERT `food_items` :
+ * retire id / created_at et les clés client (`_portionGrams`, etc.).
+ */
+export function toFoodItemInsertPayload(
+  snapshot: FoodItem,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const clean = stripPortionDeductionMeta(snapshot) as Record<string, unknown>;
+  const { id: _id, created_at: _createdAt, ...rest } = clean;
+  return { ...rest, ...overrides };
+}
+
+/**
  * Fusionne les snapshots persistés et l'état local (le local écrase les clés communes).
  * Évite de perdre des snapshots au retour Possible → Au choix.
  */

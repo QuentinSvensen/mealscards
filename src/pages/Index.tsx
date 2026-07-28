@@ -85,6 +85,7 @@ import {
   mergeDeductionSnapshotMaps,
   remapDessertFoodPreferenceIds,
   remapMorningMealPreferenceIds,
+  toFoodItemInsertPayload,
   wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
@@ -1663,7 +1664,14 @@ const Index = () => {
                                 const delta = oldGrams - newGrams;
                                 if (delta !== 0) {
                                   const snapshots = effectiveDeductionSnapshots[pm.id];
-                                  let matchingFi = foodItems.find(fi => snapshots?.[0] ? fi.id === snapshots[0].id : strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
+                                  let matchingFi =
+                                    (snapshots?.[0]
+                                      ? foodItems.find((fi) => fi.id === snapshots[0]!.id)
+                                      : undefined) ??
+                                    foodItems.find(
+                                      (fi) =>
+                                        strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite,
+                                    );
                                   if (matchingFi) {
                                     const perUnit = parseQty(matchingFi.grams);
                                     if (delta > 0) {
@@ -1693,21 +1701,22 @@ const Index = () => {
                                   } else if (delta > 0 && snapshots?.[0]) {
                                     // Item was deleted entirely. Recreate it with returned delta
                                     const sn = snapshots[0];
-                                    const { id: _id, created_at, quantity, grams, ...rest } = sn as Record<string, any>;
                                     const perUnit = parseQty(sn.grams);
                                     if (sn.quantity !== null && sn.quantity >= 1 && perUnit > 0) {
                                       const fullUnits = Math.floor(delta / perUnit);
                                       const rem = Math.round((delta - fullUnits * perUnit) * 10) / 10;
-                                      await supabase.from("food_items").insert({
-                                        ...rest,
-                                        quantity: rem > 0 ? fullUnits + 1 : fullUnits,
-                                        grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null)
-                                      } as any);
+                                      await supabase.from("food_items").insert(
+                                        toFoodItemInsertPayload(sn, {
+                                          quantity: rem > 0 ? fullUnits + 1 : fullUnits,
+                                          grams: encodeStoredGrams(perUnit, rem > 0 ? rem : null),
+                                        }) as any,
+                                      );
                                     } else {
-                                      await supabase.from("food_items").insert({
-                                        ...rest,
-                                        grams: formatNumeric(delta)
-                                      } as any);
+                                      await supabase.from("food_items").insert(
+                                        toFoodItemInsertPayload(sn, {
+                                          grams: formatNumeric(delta),
+                                        }) as any,
+                                      );
                                     }
                                     qc.invalidateQueries({ queryKey: ["food_items"] });
                                     await syncFoodItemRolePrefsAfterRecreate([sn]);
@@ -1755,7 +1764,14 @@ const Index = () => {
                                 const delta = oldQty - qty;
                                 if (delta !== 0) {
                                   const snapshots = effectiveDeductionSnapshots[pm.id];
-                                  let matchingFi = foodItems.find(fi => snapshots?.[0] ? fi.id === snapshots[0].id : strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite);
+                                  let matchingFi =
+                                    (snapshots?.[0]
+                                      ? foodItems.find((fi) => fi.id === snapshots[0]!.id)
+                                      : undefined) ??
+                                    foodItems.find(
+                                      (fi) =>
+                                        strictNameMatch(fi.name, pm.meals.name) && !fi.is_infinite,
+                                    );
                                   if (matchingFi) {
                                     if (delta > 0) {
                                       const newStockQty = (matchingFi.quantity ?? 0) + delta;
@@ -1775,11 +1791,9 @@ const Index = () => {
                                   } else if (delta > 0 && snapshots?.[0]) {
                                     // Recreate deleted item
                                     const sn = snapshots[0];
-                                    const { id: _id, created_at, quantity, ...rest } = sn as Record<string, any>;
-                                    await supabase.from("food_items").insert({
-                                      ...rest,
-                                      quantity: delta
-                                    } as any);
+                                    await supabase.from("food_items").insert(
+                                      toFoodItemInsertPayload(sn, { quantity: delta }) as any,
+                                    );
                                     qc.invalidateQueries({ queryKey: ["food_items"] });
                                     await syncFoodItemRolePrefsAfterRecreate([sn]);
                                   } else if (delta < 0) {
