@@ -229,55 +229,56 @@ export function OptionalIngredientsMoveDialog({
         if (!nextOpen) onCancel();
       }}
     >
-      <DialogContent className="max-w-md" aria-describedby={undefined}>
-        <DialogHeader>
-          <div className="flex items-center justify-between gap-2 pr-6">
-            <DialogTitle className="text-left flex items-center gap-1.5 min-w-0">
-              <span className="truncate">{mealName || "Sélection"}</span>
-              <NutritionScoreBadge score={nutritionScore} />
-              <SatietyIndexBadge
-                index={satietyDetails?.index ?? null}
-                totalGrams={satietyDetails?.totalGrams}
-                hideWhenMissing
-                onMealCard
-                recipeTotal
-              />
-            </DialogTitle>
-            <div className="flex items-center gap-1.5 shrink-0 text-[11px] font-bold leading-none">
-              {hideDayCalorieTotals ? (
-                <span
-                  className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/15 px-1.5 py-0.5 border border-orange-500/25"
-                  title={`${Math.round(thresholdDayCalorieInfo.calories + totals.cal)} kcal (jour + sélection) · obj ${thresholdDayCalorieInfo.goalLow || "—"}–${thresholdDayCalorieInfo.goalHigh || "—"}`}
-                >
-                  <Flame className="h-3 w-3 text-orange-500" />
-                  <span style={{ color: calorieWordColor }}>Calories</span>
+      <DialogContent
+        className="max-w-md w-[calc(100%-1.5rem)] max-h-[min(85vh,720px)] overflow-hidden flex flex-col gap-3 p-4 sm:p-5"
+        aria-describedby={undefined}
+      >
+        <DialogHeader className="shrink-0 space-y-2 text-left pr-6">
+          <DialogTitle className="text-left text-base sm:text-lg leading-snug break-words">
+            {mealName || "Sélection"}
+          </DialogTitle>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <NutritionScoreBadge score={nutritionScore} />
+            <SatietyIndexBadge
+              index={satietyDetails?.index ?? null}
+              totalGrams={satietyDetails?.totalGrams}
+              hideWhenMissing
+              onMealCard
+              recipeTotal
+            />
+            {hideDayCalorieTotals ? (
+              <span
+                className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/15 px-1.5 py-0.5 border border-orange-500/25 text-[11px] font-bold leading-none"
+                title={`${Math.round(thresholdDayCalorieInfo.calories + totals.cal)} kcal (jour + sélection) · obj ${thresholdDayCalorieInfo.goalLow || "—"}–${thresholdDayCalorieInfo.goalHigh || "—"}`}
+              >
+                <Flame className="h-3 w-3 text-orange-500 shrink-0" />
+                <span style={{ color: calorieWordColor }}>Calories</span>
+              </span>
+            ) : (
+              totals.cal > 0 && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/15 text-orange-500 px-1.5 py-0.5 border border-orange-500/25 text-[11px] font-bold leading-none">
+                  <Flame className="h-3 w-3 shrink-0" />
+                  {totals.cal}
                 </span>
-              ) : (
-                totals.cal > 0 && (
-                  <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/15 text-orange-500 px-1.5 py-0.5 border border-orange-500/25">
-                    <Flame className="h-3 w-3" />
-                    {totals.cal}
-                  </span>
-                )
-              )}
-              {totals.pro > 0 && (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-500/15 text-blue-400 px-1.5 py-0.5 border border-blue-500/25">
-                  <span className="text-[10px]">🍗</span>
-                  {totals.pro}
-                </span>
-              )}
-              {totals.fiber > 0 && (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 text-emerald-500 px-1.5 py-0.5 border border-emerald-500/25">
-                  <Wheat className="h-3 w-3" />
-                  {totals.fiber}
-                </span>
-              )}
-            </div>
+              )
+            )}
+            {totals.pro > 0 && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-500/15 text-blue-400 px-1.5 py-0.5 border border-blue-500/25 text-[11px] font-bold leading-none">
+                <span className="text-[10px]">🍗</span>
+                {totals.pro}
+              </span>
+            )}
+            {totals.fiber > 0 && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 text-emerald-500 px-1.5 py-0.5 border border-emerald-500/25 text-[11px] font-bold leading-none">
+                <Wheat className="h-3 w-3 shrink-0" />
+                {totals.fiber}
+              </span>
+            )}
           </div>
         </DialogHeader>
-        <ul className="flex flex-col gap-1 max-h-[60vh] overflow-y-auto py-0.5">
+        <ul className="flex flex-col gap-1 min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-0.5 -mx-0.5 px-0.5">
           {groups.map((group, groupIndex) => (
-            <li key={`group-${groupIndex}`} className="flex flex-col gap-0">
+            <li key={`group-${groupIndex}`} className="flex flex-col gap-0 min-w-0">
               {group.alternatives.map((alt, altIndex) => (
                 <Fragment key={`alt-${groupIndex}-${altIndex}`}>
                   {altIndex > 0 && (
@@ -300,7 +301,7 @@ export function OptionalIngredientsMoveDialog({
                     const expIsToday = !!expDate && expDate.slice(0, 10) === todayIso;
                     const stockBubbles = getIngredientStockBubbles(stockLots);
                     return (
-                      <div key={opt.key}>
+                      <div key={opt.key} className="min-w-0">
                         {alt.isBundle && itemIndex > 0 && (
                           <div className="flex items-center justify-center py-px" aria-hidden>
                             <span className="text-[9px] font-bold uppercase tracking-wide text-amber-500/90 bg-amber-500/10 border border-amber-500/25 rounded-full px-1.5 leading-none">
@@ -308,7 +309,7 @@ export function OptionalIngredientsMoveDialog({
                             </span>
                           </div>
                         )}
-                        <div className="flex items-center gap-1.5 rounded-lg border bg-muted/30 px-2 py-1 hover:bg-muted/50 transition-colors">
+                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-lg border bg-muted/30 px-2 py-1 hover:bg-muted/50 transition-colors min-w-0">
                           <Checkbox
                             checked={checked}
                             onCheckedChange={() => onToggleKey(opt.key)}
@@ -343,7 +344,7 @@ export function OptionalIngredientsMoveDialog({
                           <button
                             type="button"
                             onClick={() => onToggleKey(opt.key)}
-                            className="text-[12px] font-medium text-foreground leading-tight flex-1 min-w-0 text-left whitespace-normal break-normal [overflow-wrap:normal] [word-break:normal]"
+                            className="text-[12px] font-medium text-foreground leading-tight flex-1 min-w-0 basis-[6rem] text-left whitespace-normal break-words"
                           >
                             {opt.name}
                           </button>
@@ -360,7 +361,7 @@ export function OptionalIngredientsMoveDialog({
                               📅 {expLabel}
                             </span>
                           )}
-                          <div className="flex items-center gap-0.5 shrink-0">
+                          <div className="flex items-center gap-0.5 shrink-0 flex-wrap justify-end max-w-full">
                             {stockBubbles.map((bubble) => (
                               <span
                                 key={`${opt.key}-${bubble.kind}`}
@@ -394,7 +395,7 @@ export function OptionalIngredientsMoveDialog({
             </li>
           ))}
         </ul>
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex justify-end gap-2 pt-1 shrink-0">
           <Button type="button" variant="ghost" className="rounded-xl" onClick={onCancel}>
             Annuler
           </Button>
