@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   googleAgendaEventStyle,
+  googleAgendaPastEventStyle,
+  mixCssColorTowardCanvas,
   GCAL_DARK_BY_EVENT_COLOR_ID,
   GCAL_DARK_BY_CALENDAR_COLOR_ID,
   GCAL_API_CALENDAR_COLORS,
@@ -75,5 +77,26 @@ describe("googleAgendaEventStyle", () => {
     expect(style).toEqual(GCAL_DARK_BY_EVENT_COLOR_ID["6"]);
     expect(style.bg).not.toBe(GCAL_CANONICAL_DARK_RED.bg);
     expect(style.bg).not.toBe(GCAL_CANONICAL_DARK_MUSTARD.bg);
+  });
+
+  it("événement passé : fond plus sombre (mix canvas), pas juste transparent", () => {
+    const live = GCAL_CANONICAL_DARK_RED;
+    const past = googleAgendaPastEventStyle(live);
+    const liveRgb = live.bg.match(/(\d+)/g)!.map(Number);
+    const pastRgb = past.bg.match(/(\d+)/g)!.map(Number);
+    expect(pastRgb[0]).toBeLessThan(liveRgb[0]);
+    expect(past.bg).not.toBe(live.bg);
+    // Texte aussi atténué
+    expect(past.text).not.toBe(live.text);
+  });
+
+  it("assombrit aussi les couleurs HSL des repas (colorFromName)", () => {
+    const hsl = "hsl(45, 50%, 30%)";
+    const past = mixCssColorTowardCanvas(hsl, 0.7);
+    expect(past).toMatch(/^rgb\(/);
+    expect(past).not.toBe(hsl);
+    const rgb = past.match(/(\d+)/g)!.map(Number);
+    // Plus proche du canvas sombre que du jaune d’origine
+    expect(rgb[0]).toBeLessThan(90);
   });
 });

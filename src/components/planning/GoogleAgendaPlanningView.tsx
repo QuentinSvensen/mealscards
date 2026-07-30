@@ -25,7 +25,7 @@ import {
   resolveAgendaMinutesForMeal,
 } from "@/domain/planning/agendaTimeUtils";
 import { expandGoogleEventPlacements, layoutAllDaySpans } from "@/domain/planning/googleEventPlacement";
-import { GCAL_AGENDA_CANVAS, googleAgendaEventStyle } from "@/domain/planning/googleAgendaColors";
+import { GCAL_AGENDA_CANVAS, googleAgendaEventStyle, googleAgendaPastEventStyle, mixCssColorTowardCanvas } from "@/domain/planning/googleAgendaColors";
 import {
   layoutOverlappingBlocks,
   agendaOverlapGeometryForBlock,
@@ -54,8 +54,6 @@ const DAY_HEADER_BASE_PX = 58;
 const DAY_HEADER_BASE_COMPACT_PX = 48;
 /** Hauteur d’une ligne all-day. */
 const ALL_DAY_ROW_PX = 18;
-/** Opacité des events passés (jours précédents ou déjà finis aujourd’hui). */
-const PAST_EVENT_OPACITY = 0.4;
 /** Sous ce seuil (px), carte trop basse pour un vrai wrap multi-lignes. */
 const THIN_LAYOUT_MAX_HEIGHT_PX = 26;
 /** Durée max (min) pour le texte ultra-compact (inclut les créneaux de 15 min). */
@@ -503,35 +501,34 @@ function formatAgendaWeekRangeLabel(weekDates: PlanningWeekDayInfo[]): string {
 }
 
 /**
- * Facteur d’opacité : jours passés, ou créneaux déjà terminés aujourd’hui (au-dessus du trait rouge).
+ * Indique si un créneau horaire est déjà passé (jour passé, ou terminé aujourd’hui).
  */
-function agendaPastEventFade(
+function isAgendaEventPast(
   dayIso: string,
   todayIso: string,
   eventEndMin: number,
   nowMin: number,
-): number {
-  if (dayIso < todayIso) return PAST_EVENT_OPACITY;
-  if (dayIso === todayIso && eventEndMin <= nowMin) return PAST_EVENT_OPACITY;
-  return 1;
+): boolean {
+  if (dayIso < todayIso) return true;
+  if (dayIso === todayIso && eventEndMin <= nowMin) return true;
+  return false;
 }
 
 /**
- * Opacité des barres all-day : jours passés, ou événement « journée » uniquement aujourd’hui.
- * Les plages multi-jours encore en cours (Vacance…) restent normales.
+ * Indique si une barre all-day est entièrement dans le passé.
  */
-function agendaAllDaySpanFade(
+function isAgendaAllDaySpanPast(
   weekIsos: string[],
   startCol: number,
   endCol: number,
   todayIso: string,
-): number {
+): boolean {
   const firstDay = weekIsos[startCol];
   const lastDay = weekIsos[endCol];
-  if (!firstDay || !lastDay) return 1;
-  if (lastDay < todayIso) return PAST_EVENT_OPACITY;
-  if (firstDay === todayIso && lastDay === todayIso) return PAST_EVENT_OPACITY;
-  return 1;
+  if (!firstDay || !lastDay) return false;
+  if (lastDay < todayIso) return true;
+  if (firstDay === todayIso && lastDay === todayIso) return true;
+  return false;
 }
 
 /**
@@ -802,7 +799,6 @@ export function GoogleAgendaPlanningView({
     dragPayloadRef.current = null;
   };
 
-  const googleOpacity = 1;
   const nowTop = ((nowMinutes - AGENDA_HOUR_START * 60) / 60) * hourHeightPx;
   const weekRangeLabel = formatAgendaWeekRangeLabel(weekDates);
   const showWeekNav = typeof onWeekOffsetChange === "function";
@@ -938,12 +934,15 @@ export function GoogleAgendaPlanningView({
               const widthPct = ((span.endCol - span.startCol + 1) / n) * 100;
               const radiusLeft = span.continuesBefore ? 0 : 4;
               const radiusRight = span.continuesAfter ? 0 : 4;
-              const allDayFade = agendaAllDaySpanFade(
+              const isAllDayPast = isAgendaAllDaySpanPast(
                 weekDates.map((d) => d.iso),
                 span.startCol,
                 span.endCol,
                 todayIsoStr,
               );
+              const displayPalette = isAllDayPast
+                ? googleAgendaPastEventStyle(palette)
+                : palette;
               return (
                 <div
                   key={`allday-span-${span.eventId}`}
@@ -955,9 +954,8 @@ export function GoogleAgendaPlanningView({
                     width: `calc(${widthPct}% - 2px)`,
                     top: span.row * ALL_DAY_ROW_PX + 1,
                     height: ALL_DAY_ROW_PX - 2,
-                    backgroundColor: palette.bg,
-                    color: palette.text,
-                    opacity: googleOpacity * allDayFade,
+                    backgroundColor: displayPalette.bg,
+                    color: displayPalette.text,
                     borderTopLeftRadius: radiusLeft,
                     borderBottomLeftRadius: radiusLeft,
                     borderTopRightRadius: radiusRight,
@@ -1040,12 +1038,15 @@ export function GoogleAgendaPlanningView({
                     );
                   const startClock = formatAgendaClock(ev.startMin);
                   const endClock = formatAgendaClock(ev.startMin + ev.durationMin);
-                  const eventFade = agendaPastEventFade(
+                  const eventPast = isAgendaEventPast(
                     day.iso,
                     todayIsoStr,
                     ev.endMin,
                     nowMinutes,
                   );
+                  const displayPalette = eventPast
+                    ? googleAgendaPastEventStyle(palette)
+                    : palette;
                   const timeLayout = agendaTimeLayout(ev.durationMin, hourHeightPx);
                   const endClockTopPx = hostEndClockTopPx(ev, clusterBlocks, hourHeightPx);
                   const pos = blockStyle(ev.startMin, ev.durationMin, hourHeightPx);
@@ -1195,9 +1196,8 @@ export function GoogleAgendaPlanningView({
                         height: pos.height,
                         left: `calc(${geom.leftPct}% + ${ev.col > 0 ? 0 : 0}px)`,
                         width: `calc(${geom.widthPct}% - ${edgePx}px)`,
-                        backgroundColor: palette.bg,
-                        color: palette.text,
-                        opacity: googleOpacity * eventFade,
+                        backgroundColor: displayPalette.bg,
+                        color: displayPalette.text,
                         // Au-dessus des repas/extras (z-10) ; pointer-events-none laisse le drag repas
                         zIndex: 20 + geom.zIndex,
                         boxShadow: ev.col > 0 ? "-2px 0 6px rgba(0,0,0,0.18)" : undefined,
@@ -1231,12 +1231,13 @@ export function GoogleAgendaPlanningView({
                       ? pm.meals.ingredients
                       : pm.ingredients_override;
                     const color = getMealColor(colorIngredients ?? null, pm.meals?.name || "Repas");
-                    const mealFade = agendaPastEventFade(
+                    const mealPast = isAgendaEventPast(
                       day.iso,
                       todayIsoStr,
                       minutes + AGENDA_EVENT_DURATION_MIN,
                       nowMinutes,
                     );
+                    const mealBg = mealPast ? mixCssColorTowardCanvas(color, 0.7) : color;
                     return (
                       <div
                         key={`meal-${pm.id}`}
@@ -1255,15 +1256,23 @@ export function GoogleAgendaPlanningView({
                         className="absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing shadow-md border border-white/25 overflow-hidden"
                         style={{
                           ...blockStyle(minutes, AGENDA_EVENT_DURATION_MIN, hourHeightPx),
-                          backgroundColor: color,
-                          opacity: 0.92 * mealFade,
+                          backgroundColor: mealBg,
+                          opacity: 0.92,
                         }}
                         title={`${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)}`}
                       >
-                        <div className="text-[9px] sm:text-[10px] font-bold text-white/95 leading-tight truncate">
+                        <div
+                          className={`text-[9px] sm:text-[10px] font-bold leading-tight truncate ${
+                            mealPast ? "text-white/65" : "text-white/95"
+                          }`}
+                        >
                           {getCategoryEmoji(pm.meals?.category)} {pm.meals?.name || "Repas"}
                         </div>
-                        <div className="text-[8px] sm:text-[9px] text-white/75">
+                        <div
+                          className={`text-[8px] sm:text-[9px] ${
+                            mealPast ? "text-white/45" : "text-white/75"
+                          }`}
+                        >
                           {formatAgendaClock(minutes)} · {pm.meal_time}
                         </div>
                       </div>
@@ -1277,7 +1286,7 @@ export function GoogleAgendaPlanningView({
                       ex.slot,
                       extraAgendaTimes,
                     );
-                    const extraFade = agendaPastEventFade(
+                    const extraPast = isAgendaEventPast(
                       day.iso,
                       todayIsoStr,
                       minutes + 30,
@@ -1298,7 +1307,13 @@ export function GoogleAgendaPlanningView({
                           setDragOverDay(null);
                         }}
                         className="absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing border border-amber-300/40 bg-amber-500/85 overflow-hidden shadow-md"
-                        style={{ ...blockStyle(minutes, 30, hourHeightPx), opacity: 0.92 * extraFade }}
+                        style={{
+                          ...blockStyle(minutes, 30, hourHeightPx),
+                          opacity: 0.92,
+                          ...(extraPast
+                            ? { backgroundColor: mixCssColorTowardCanvas("#f59e0b", 0.62) }
+                            : {}),
+                        }}
                         title={`${ex.label} · ${formatAgendaClock(minutes)}`}
                       >
                         <div className="text-[9px] sm:text-[10px] font-bold text-white leading-tight truncate">

@@ -435,3 +435,73 @@ export function googleAgendaEventStyle(
 
   return GCAL_DARK_BY_CALENDAR_COLOR_ID["3"];
 }
+
+/** Parse #hex ou rgb(r,g,b) / rgba(...). */
+function parseCssColor(css: string): { r: number; g: number; b: number } | null {
+  const trimmed = css.trim();
+  if (trimmed.startsWith("#")) return parseHex(trimmed);
+  const rgbMatch = trimmed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return { r: Number(rgbMatch[1]), g: Number(rgbMatch[2]), b: Number(rgbMatch[3]) };
+  }
+  // Repas : colorFromName renvoie hsl(h, s%, l%)
+  const hslMatch = trimmed.match(
+    /hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/i,
+  );
+  if (hslMatch) {
+    return hslToRgb(Number(hslMatch[1]), Number(hslMatch[2]) / 100, Number(hslMatch[3]) / 100);
+  }
+  return null;
+}
+
+/** Convertit HSL (h 0–360, s/l 0–1) → RGB 0–255. */
+function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
+  const hue = ((h % 360) + 360) % 360;
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return { r: v, g: v, b: v };
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hk = hue / 360;
+  const channel = (t: number) => {
+    let x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  };
+  return {
+    r: Math.round(channel(hk + 1 / 3) * 255),
+    g: Math.round(channel(hk) * 255),
+    b: Math.round(channel(hk - 1 / 3) * 255),
+  };
+}
+
+/**
+ * Mélange une couleur CSS vers le fond Agenda (effet passé Google : plus sombre, pas transparent).
+ */
+export function mixCssColorTowardCanvas(css: string, towardCanvas: number = 0.62): string {
+  const rgb = parseCssColor(css);
+  if (!rgb) return css;
+  const t = Math.max(0, Math.min(1, towardCanvas));
+  const r = Math.round(rgb.r * (1 - t) + CANVAS_RGB.r * t);
+  const g = Math.round(rgb.g * (1 - t) + CANVAS_RGB.g * t);
+  const b = Math.round(rgb.b * (1 - t) + CANVAS_RGB.b * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
+ * Style événement passé façon Google Agenda sombre :
+ * fond assombri / désaturé vers le canvas, texte atténué — sans baisser l’opacité.
+ */
+export function googleAgendaPastEventStyle(
+  style: GoogleAgendaColorStyle,
+  towardCanvas: number = 0.62,
+): GoogleAgendaColorStyle {
+  const bg = mixCssColorTowardCanvas(style.bg, towardCanvas);
+  const text = mixCssColorTowardCanvas(style.text, 0.42);
+  return { bg, border: bg, text };
+}
