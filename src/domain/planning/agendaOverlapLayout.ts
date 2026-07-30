@@ -196,6 +196,22 @@ export function guestContentMinWidthPx(
 }
 
 /**
+ * Largeur min invitée quand on priorise le titre hôte : titre tronqué, sans horaires.
+ * Évite que « Séance : corde… » + heures n’écrasent « Pain + fuet ».
+ */
+export function guestTruncatedMinWidthPx(
+  summary: string,
+  fontSizePx: number = AGENDA_TITLE_FONT_PX,
+): number {
+  const trimmed = summary.trim();
+  const stub = trimmed.length <= 14 ? trimmed : `${trimmed.slice(0, 12)}…`;
+  return CARD_PAD_LEFT_PX + measureAgendaTextWidthPx(stub || "M", fontSizePx) + 4;
+}
+
+/** Hôte plus court que ça → priorité titre gauche (pas horaires / largeur invité). */
+export const HOST_TITLE_PRIORITY_MAX_MIN = 60;
+
+/**
  * Indique si une carte invitée fine (1 ligne) a assez de largeur pour les horaires.
  * Le titre peut être tronqué : on ne exige plus titre + horaires en entier.
  */
@@ -291,10 +307,13 @@ export function resolveGuestOverflowLeftPct(
   const colW = Math.max(48, dayColumnWidthPx);
   const singleLeft = estimateTitleOnlyWidthPct(hostSummary, dayColumnWidthPx);
   const wrappedLeft = hostTitleWrappedReserveLeftPct(hostSummary, dayColumnWidthPx);
-  const neededPx = guestContentMinWidthPx(guestSummary, guestShowsTimes);
+  // Sans horaires : ne pas exiger tout le titre invité (sinon Séance écrase Pain)
+  const neededPx = guestShowsTimes
+    ? guestContentMinWidthPx(guestSummary, true)
+    : guestTruncatedMinWidthPx(guestSummary);
   /** leftPct max pour que la largeur invitée ≥ neededPx */
   const leftForFullGuest = Math.max(0, 100 - (neededPx / colW) * 100);
-  // Toujours protéger le titre hôte sur une ligne (même si l’invité commence plus tard)
+  // Toujours protéger le titre hôte sur une ligne
   const hostMinLeft = sameRowStart
     ? singleLeft
     : Math.max(wrappedLeft, singleLeft * 0.85);
@@ -306,7 +325,12 @@ export function resolveGuestOverflowLeftPct(
   if ((colW * (100 - idealLeft)) / 100 < neededPx) {
     idealLeft = Math.max(hostMinLeft, Math.min(idealLeft, leftForFullGuest));
   }
-  return Math.max(hostMinLeft, Math.min(idealLeft, 82));
+  let left = Math.max(hostMinLeft, Math.min(idealLeft, 82));
+  // Plafond invité ~48 % si on priorise le titre (sans horaires)
+  if (!guestShowsTimes) {
+    left = Math.max(left, singleLeft, 100 - 48);
+  }
+  return Math.min(82, left);
 }
 
 /**
@@ -340,13 +364,12 @@ export function hostTitleTextMaxWidthPct<T extends LaidOutBlock>(
   // Colonnes égales : le titre est déjà borné par la largeur de la carte
   if (hostGeom.widthPct <= 50.5) return null;
 
-  // Invités imbriqués / bas (5 %–95 %) : le titre garde toute la largeur en haut
+  // Invités en débord titre (pas nest) : borne le titre avant leur bord gauche
   const sideGuests = clusterBlocks.filter(
     (g) =>
       g.id !== host.id &&
       g.col > host.col &&
       blocksOverlap(host, g) &&
-      !areEqualPeerBlocks(host, g) &&
       !canNestInHostEmptySpace(host, g, hourHeightPx) &&
       !guestAtHostBottomLevel(host, g, hourHeightPx),
   );
@@ -357,10 +380,8 @@ export function hostTitleTextMaxWidthPct<T extends LaidOutBlock>(
       agendaOverlapGeometryForBlock(g, clusterBlocks, hourHeightPx, dayColumnWidthPx).leftPct,
   );
   const guestEdge = Math.min(...guestLefts);
-  // maxWidth % est relatif à la carte (déjà paddée) : retirer le pad gauche
-  // pour que le titre s’arrête avant le bord de l’invité (pas dessous).
-  const padPct = (CARD_PAD_LEFT_PX / Math.max(48, dayColumnWidthPx)) * 100;
-  return Math.max(8, guestEdge - padPct - 1);
+  // Légère marge avant l’invité (le pad carte est déjà hors du flux titre)
+  return Math.max(8, guestEdge - 2);
 }
 
 /**
@@ -541,8 +562,11 @@ function hostBackgroundWidthPct<T extends LaidOutBlock>(
     return 100 / Math.max(1, colCount);
   }
 
-  // Même début + durée proche → moitié / moitié (pas largeur titre)
+  // Même début + durée proche → moitié / moitié (sauf hôte court : titre prioritaire)
   if (overlappingRight.every((other) => areEqualPeerBlocks(block, other))) {
+    if (blockDurationMin(block) < HOST_TITLE_PRIORITY_MAX_MIN) {
+      return 100;
+    }
     return 100 / Math.max(1, colCount);
   }
 
@@ -584,7 +608,11 @@ function guestOverflowLeftPct(
   hourHeightPx: number,
   dayColumnWidthPx: number,
 ): number {
-  if (areEqualPeerBlocks(host, guest)) {
+  // Pairs longs → 50/50 ; pairs courts → overflow titre (ci-dessous)
+  if (
+    areEqualPeerBlocks(host, guest) &&
+    blockDurationMin(host) >= HOST_TITLE_PRIORITY_MAX_MIN
+  ) {
     return (col / Math.max(1, colCount)) * 100;
   }
 
@@ -593,22 +621,13 @@ function guestOverflowLeftPct(
   }
 
   const hostDur = blockDurationMin(host);
-  if (hostDur < AGENDA_THIN_BLOCK_MIN) {
-    // Style Google : indent après le titre (1 ligne ou wrap si l’invité manque de place)
-    return resolveGuestOverflowLeftPct(
-      host.summary ?? "",
-      guest.summary ?? "",
-      dayColumnWidthPx,
-      true,
-      startsSameRow(host, guest),
-    );
-  }
-
+  // Priorité titre hôte (< 1 h) : invité sans horaires + largeur plafonnée
+  const guestShowsTimes = hostDur >= HOST_TITLE_PRIORITY_MAX_MIN;
   return resolveGuestOverflowLeftPct(
     host.summary ?? "",
     guest.summary ?? "",
     dayColumnWidthPx,
-    true,
+    guestShowsTimes,
     startsSameRow(host, guest),
   );
 }
@@ -774,6 +793,24 @@ export function hostEndClockTopPx<T extends LaidOutBlock>(
 }
 
 /**
+ * Indique si l’invité doit masquer ses horaires pour laisser de la place au titre hôte.
+ * Vrai pour débord sur un hôte < 1 h (Pain + fuet + Séance), pas sur Escalade longue.
+ */
+export function guestHidesTimesForThinHostTitle<T extends LaidOutBlock>(
+  guest: T,
+  clusterBlocks: T[],
+  hourHeightPx: number = AGENDA_HOUR_HEIGHT_PX,
+): boolean {
+  if (guest.col <= 0) return false;
+  const host = clusterBlocks
+    .filter((h) => h.id !== guest.id && h.col < guest.col && blocksOverlap(h, guest))
+    .sort((a, b) => a.col - b.col || a.startMin - b.startMin)[0];
+  if (!host) return false;
+  if (guestNestsInHost(host, guest, hourHeightPx)) return false;
+  return blockDurationMin(host) < HOST_TITLE_PRIORITY_MAX_MIN;
+}
+
+/**
  * L’hôte a-t-il un invité à droite qui occupe le bas du bloc (heure de fin à remonter) ?
  */
 export function hostHasBottomLevelGuest<T extends LaidOutBlock>(
@@ -839,9 +876,12 @@ export function agendaOverlapGeometryForBlock<T extends LaidOutBlock>(
     return equalColumnGeometry(c, n);
   }
 
-  // Pairs hôte/invité même taille → partage égal de toute la colonne
+  // Pairs hôte/invité même taille → 50/50 sauf hôte court (titre prioritaire)
   if (areEqualPeerBlocks(host, block)) {
-    return equalColumnGeometry(c, n);
+    if (blockDurationMin(host) >= HOST_TITLE_PRIORITY_MAX_MIN) {
+      return equalColumnGeometry(c, n);
+    }
+    // Pain + Séance (même durée) : overflow après titre, pas 50/50
   }
 
   // Imbriqué / bas d’hôte : bande 95 % (partagée seulement entre colonnes nest)
@@ -853,8 +893,7 @@ export function agendaOverlapGeometryForBlock<T extends LaidOutBlock>(
     return guestWideOverlapGeometry(c);
   }
 
-  // Overflow titre (Heures creuses…) : après le titre, jamais bande nest à 5 %
-  // qui écraserait le titre hôte via hostTitleTextMaxWidthPct.
+  // Overflow titre (Heures creuses / Séance sur Pain…) : après le titre
   let leftPct = guestOverflowLeftPct(host, block, c, n, hourHeightPx, dayColumnWidthPx);
 
   return {

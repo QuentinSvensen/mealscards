@@ -16,6 +16,7 @@ import {
   guestCardShowsTimes,
   agendaCardHasRoomForTimes,
   guestContentMinWidthPx,
+  guestHidesTimesForThinHostTitle,
   blockHeightPx,
   blockHeaderHeightPx,
 } from "./agendaOverlapLayout";
@@ -142,10 +143,40 @@ describe("agendaOverlapGeometryForBlock", () => {
     const colW = 180;
     const hostGeom = agendaOverlapGeometryForBlock(host, cluster, 52, colW);
     const guestGeom = agendaOverlapGeometryForBlock(guest, cluster, 52, colW);
-    const expectedLeft = resolveGuestOverflowLeftPct("Pain + fuet", "Séance : Minions", colW);
+    const expectedLeft = resolveGuestOverflowLeftPct("Pain + fuet", "Séance : Minions", colW, false);
     expect(hostGeom.widthPct).toBe(100);
     expect(guestGeom.leftPct).toBeCloseTo(expectedLeft, 5);
-    expect(guestGeom.widthPct).toBeCloseTo(100 - expectedLeft, 5);
+    expect(guestGeom.widthPct).toBeLessThanOrEqual(48.01);
+    expect(guestHidesTimesForThinHostTitle(guest, cluster, 52)).toBe(true);
+  });
+
+  it("Pain + Séance même durée → pas 50/50, Séance sans horaires et plus étroite", () => {
+    const cluster = layoutOverlappingBlocks([
+      {
+        id: "pain",
+        summary: "Pain + fuet",
+        durationMin: 20,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 20,
+      },
+      {
+        id: "seance",
+        summary: "Séance : corde à sauter + doigts",
+        durationMin: 20,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 20,
+      },
+    ]);
+    const pain = cluster.find((x) => x.id === "pain")!;
+    const seance = cluster.find((x) => x.id === "seance")!;
+    const colW = 160;
+    const painGeom = agendaOverlapGeometryForBlock(pain, cluster, 52, colW);
+    const seanceGeom = agendaOverlapGeometryForBlock(seance, cluster, 52, colW);
+    expect(pain.col).toBe(0);
+    expect(painGeom.widthPct).toBe(100);
+    expect(seanceGeom.widthPct).toBeLessThanOrEqual(48.01);
+    expect(seanceGeom.leftPct).toBeGreaterThanOrEqual(52);
+    expect(guestHidesTimesForThinHostTitle(seance, cluster, 52)).toBe(true);
   });
 
   it("deux cartes même début + durée proche → 50/50", () => {
@@ -201,7 +232,7 @@ describe("agendaOverlapGeometryForBlock", () => {
       "Fin photo Familio",
       "Séance : corde à sauter",
       colW,
-      true,
+      false,
       true,
     );
     expect(hostGeom.widthPct).toBe(100);

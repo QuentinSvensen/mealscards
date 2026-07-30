@@ -35,6 +35,7 @@ import {
   hostShouldWrapTitleForGuest,
   guestCardShowsTimes,
   agendaCardHasRoomForTimes,
+  guestHidesTimesForThinHostTitle,
 } from "@/domain/planning/agendaOverlapLayout";
 import type { ExtraDaySlot } from "@/domain/planning/extraSlotOps";
 
@@ -1090,14 +1091,22 @@ export function GoogleAgendaPlanningView({
                     dayColumnWidthPx,
                   );
                   // Hôte fin en débord : pas d’horaires ; invité : selon largeur (≥ 50 %)
+                  // sauf overflow sur hôte fin (Pain + fuet) → titre gauche prioritaire
                   const hideTimesForHalfOverflow =
                     titleMaxWidthPct != null &&
                     ev.col === 0 &&
                     (timeLayout === "thin" || isShortEvent);
-                  // Cartes de droite : horaires seulement si largeur ≥ 50 %
                   const hideTimesForNarrowGuest = ev.col > 0 && geom.widthPct < 50;
+                  const hideTimesForThinHostGuest = guestHidesTimesForThinHostTitle(
+                    ev,
+                    clusterBlocks,
+                    hourHeightPx,
+                  );
                   const showEventTimes =
-                    hasRoomForTimes && !hideTimesForHalfOverflow && !hideTimesForNarrowGuest;
+                    hasRoomForTimes &&
+                    !hideTimesForHalfOverflow &&
+                    !hideTimesForNarrowGuest &&
+                    !hideTimesForThinHostGuest;
                   const titleClampStyle =
                     titleMaxWidthPct != null
                       ? { maxWidth: `${titleMaxWidthPct}%` }
@@ -1118,6 +1127,7 @@ export function GoogleAgendaPlanningView({
                   const sideGuestShowsTimes =
                     sideGuest != null &&
                     sideGuestGeom != null &&
+                    !guestHidesTimesForThinHostTitle(sideGuest, clusterBlocks, hourHeightPx) &&
                     guestCardShowsTimes(
                       sideGuest.summary ?? "",
                       (dayColumnWidthPx * sideGuestGeom.widthPct) / 100,
