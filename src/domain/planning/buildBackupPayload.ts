@@ -7,6 +7,7 @@ import {
   asStringArrayRecord,
   asStringRecord,
 } from "./jsonCoerce";
+import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
 
 /** Sérialise les repas possibles pour la clé `possible_meals_backup` (sans jointure `meals`). */
 export function serializePossibleMealsForBackup(freshPossible: PossibleMeal[]): PossibleMealBackupCard[] {
@@ -66,5 +67,11 @@ export function buildFullBackupPayload(
     fiber_goal: readGoalNumber(prefMap, "planning_fiber_goal"),
     weekStartISO: weekRange?.startISO ?? null,
     weekEndISO: weekRange?.endISO ?? null,
+    extrasDividerAfterId:
+      typeof prefMap[FOOD_EXTRAS_DIVIDER_PREF_KEY] === "string"
+        ? (prefMap[FOOD_EXTRAS_DIVIDER_PREF_KEY] as string)
+        : prefMap[FOOD_EXTRAS_DIVIDER_PREF_KEY] === null
+          ? null
+          : undefined,
   };
 }

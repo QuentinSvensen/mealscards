@@ -21,6 +21,7 @@ import {
 } from "@/lib/possibleOnlyMeals";
 import {
   MASTER_SOURCE_PM_IDS_PREF_KEY,
+  addMasterSourcePmIds,
   filterStockAffectingPossibleMeals,
 } from "@/lib/masterSourcePossibleMeals";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
@@ -1168,7 +1169,7 @@ const Index = () => {
         onCancel={() => finishOptionalMoveDialog(null)}
       />
 
-      <main className={`max-w-6xl mx-auto px-3 pb-3 sm:px-4 sm:pb-4 ${mainPage === "repas" ? "pt-2 sm:pt-3" : "pt-3 sm:pt-4"}`}>
+      <main className={`${mainPage === "planning" ? "max-w-none w-full" : "max-w-6xl"} mx-auto px-2 pb-3 sm:px-4 sm:pb-4 ${mainPage === "repas" ? "pt-2 sm:pt-3" : "pt-3 sm:pt-4"}`}>
         <Suspense fallback={<div className="flex justify-center py-8 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>}>
           {mainPage === "aliments" && (
             <ErrorBoundary section="Aliments">
@@ -1418,7 +1419,24 @@ const Index = () => {
                             // Retour Tous : pas de synchro Prog. (jamais déduit).
                           }}
                           onSplitQuantity={(id, ratio, baseIng) => {
-                            splitPossibleMealQuantity.mutate({ id, ratio, baseIngredients: baseIng });
+                            const fromMaster = masterSourcePmIds.has(id);
+                            splitPossibleMealQuantity.mutate(
+                              { id, ratio, baseIngredients: baseIng },
+                              {
+                                onSuccess: (result) => {
+                                  if (fromMaster && result?.newIds?.length) {
+                                    setMasterSourcePmIds((prev) =>
+                                      addMasterSourcePmIds(prev, result.newIds),
+                                    );
+                                  }
+                                  if (result?.newIds?.length) {
+                                    for (const newId of result.newIds) {
+                                      copyFrozenPossibleBadgeCounter(id, newId);
+                                    }
+                                  }
+                                },
+                              },
+                            );
                             updateSnapshots(prev => { const next = { ...prev }; delete next[id]; return next; });
                           }}
                           onDelete={(id) => {

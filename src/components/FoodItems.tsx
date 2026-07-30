@@ -37,7 +37,9 @@ import {
   placeNewExtraAboveDivider,
   resolveExtrasDividerAfterId,
   splitSortedExtrasByDivider,
+  syncLocalExtrasDividerBackup,
 } from "@/lib/extrasDividerUtils";
+import { useExtrasDividerRecovery } from "@/hooks/useExtrasDividerRecovery";
 import { ExtrasMovableDivider } from "@/components/planning/ExtrasMovableDivider";
 import { getFoodItemDefaultTotalGrams, resolveFoodItemBaselineTotalGrams, parseMacroDisplay } from "@/lib/stockUtils";
 import { resolveFoodItemCounterStartForDisplay, useMealTransfers } from "@/hooks/useMealTransfers";
@@ -888,8 +890,15 @@ export function FoodItems() {
   const testItemIds = getPreference<string[]>("food_test_ids", []);
   const extrasDividerAfterId = getPreference<string | null>(FOOD_EXTRAS_DIVIDER_PREF_KEY, null);
 
+  /** Persiste le trait extras (Supabase + miroir local pour recovery après incident). */
   const setExtrasDividerAfterId = useCallback(
-    (id: string | null) => {
+    (id: string | null, sortedExtrasForMirror?: { id: string }[]) => {
+      if (sortedExtrasForMirror && sortedExtrasForMirror.length > 0) {
+        syncLocalExtrasDividerBackup(sortedExtrasForMirror, id);
+      } else if (id) {
+        // Fallback : au moins l’id, aboveCount inconnu → 0 (ne bloque pas une future recovery plus riche)
+        syncLocalExtrasDividerBackup([{ id }], id);
+      }
       setPreference.mutate({ key: FOOD_EXTRAS_DIVIDER_PREF_KEY, value: id });
     },
     [setPreference],
@@ -1229,6 +1238,29 @@ export function FoodItems() {
     );
   };
 
+  const sortedExtrasForDivider = useMemo(
+    () => getSortedItems("extras"),
+    // getSortedItems dépend de items / tris / recherche / baselines
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- aligné sur le rendu liste extras
+    [
+      items,
+      testItemIds,
+      foodSortModes,
+      sortDirections,
+      searchQuery,
+      stockAffectingPossibleMeals,
+      foodStockBaselines,
+      foodLibraryAmountMemory,
+    ],
+  );
+
+  useExtrasDividerRecovery(
+    sortedExtrasForDivider,
+    extrasDividerAfterId,
+    !isLoading && !prefsLoading,
+    setPreference,
+  );
+
   const handleAdd = () => {
     const result = foodItemSchema.safeParse({ name: newName });
     if (!result.success) {
@@ -1344,7 +1376,7 @@ export function FoodItems() {
             extrasDividerAfterId,
           );
           reorderItems.mutate(ordered.map((item, i) => ({ id: item.id, sort_order: i })));
-          setExtrasDividerAfterId(nextDividerAfterId);
+          setExtrasDividerAfterId(nextDividerAfterId, ordered);
           resetFoodSortToManual("extras");
         }
         setNewName(""); setNewQuantity(""); setNewGrams(""); setNewCalories(""); setNewProtein(""); setNewFiber(""); setNewManualMacroFields({}); setNewFoodType(null); setNewIsIndivisible(false); setNewMealMode("off"); setNewExpiration(undefined);
@@ -1766,7 +1798,10 @@ export function FoodItems() {
               if (resolveExtrasDividerAfterId(extrasItems, extrasDividerAfterId) === id) {
                 const remaining = extrasItems.filter((item) => item.id !== id);
                 setExtrasDividerAfterId(
-                  remaining.length > 0 ? resolveExtrasDividerAfterId(remaining, null) : null,
+                  remaining.length > 0
+                    ? resolveExtrasDividerAfterId(remaining, null, { useLocalBackup: false })
+                    : null,
+                  remaining,
                 );
               }
               handleDeleteFoodItem(id);
@@ -1808,7 +1843,10 @@ export function FoodItems() {
                 if (resolveExtrasDividerAfterId(extrasItems, extrasDividerAfterId) === id) {
                   const remaining = extrasItems.filter((item) => item.id !== id);
                   setExtrasDividerAfterId(
-                    remaining.length > 0 ? resolveExtrasDividerAfterId(remaining, null) : null,
+                    remaining.length > 0
+                      ? resolveExtrasDividerAfterId(remaining, null, { useLocalBackup: false })
+                      : null,
+                    remaining,
                   );
                 }
                 handleDeleteFoodItem(id);
@@ -1833,7 +1871,11 @@ export function FoodItems() {
               foodStockBaselines={foodStockBaselines}
               foodLibraryAmountMemory={foodLibraryAmountMemory}
               extrasDividerAfterId={section.type === "extras" ? extrasDividerAfterId : undefined}
-              onSetExtrasDividerAfterId={section.type === "extras" ? setExtrasDividerAfterId : undefined}
+              onSetExtrasDividerAfterId={
+                section.type === "extras"
+                  ? (id) => setExtrasDividerAfterId(id, getSortedItems("extras"))
+                  : undefined
+              }
             />
           ))}
         </div>

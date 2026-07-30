@@ -125,6 +125,8 @@ export interface PlanningExtraColumnProps {
   remainingDayCalories: number;
   /** True si le badge kcal du jour est vert (objectif atteint) — bloque l’ajout d’extras. */
   dayCaloriesGoalMet: boolean;
+  /** Retire complètement un extra du jour (sélections + créneaux). */
+  onDeselectExtra: (extraId: string, iso: string, key: string) => void;
 }
 
 /**
@@ -195,6 +197,7 @@ export function PlanningExtraColumn({
   hideDayCalorieTotals,
   remainingDayCalories,
   dayCaloriesGoalMet,
+  onDeselectExtra,
 }: PlanningExtraColumnProps) {
 const extraDropKey = `extra-${iso}`;
                   const isExtraDragOver = dragOverSlot === extraDropKey;
@@ -1068,9 +1071,20 @@ const extraDropKey = `extra-${iso}`;
                               setDraggedSelectedExtraOrigin(null);
                             }}
                             title={`${name} — glisser vers matin, midi, soir ou goûter`}
-                            className="max-w-full truncate px-1 py-0.5 rounded-full text-[7px] sm:text-[8px] leading-tight font-semibold text-center text-orange-600 bg-orange-500/15 border border-orange-500/25 cursor-grab active:cursor-grabbing"
+                            className="inline-flex items-center gap-0.5 max-w-full px-1 py-0.5 rounded-full text-[7px] sm:text-[8px] leading-tight font-semibold text-orange-600 bg-orange-500/15 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                           >
-                            {name}
+                            <span className="truncate min-w-0">{name}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeselectExtra(id, iso, key);
+                              }}
+                              className="opacity-60 hover:opacity-100 font-bold shrink-0"
+                              title="Retirer des extras du jour"
+                            >
+                              ×
+                            </button>
                           </span>
                         ))}
                       </div>

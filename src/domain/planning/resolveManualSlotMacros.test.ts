@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clearManualSlotMacroPreferences,
   resolveManualSlotMacros,
+  resolveNextWeekManualSlotMacros,
   syncNextWeekManualSlotMacro,
   writeManualSlotMacroPreference,
 } from "./resolveManualSlotMacros";
@@ -98,6 +99,38 @@ describe("writeManualSlotMacroPreference", () => {
   it("écrit une valeur positive sur la clé ISO", () => {
     const out = writeManualSlotMacroPreference({}, "2026-07-26", "dimanche", "midi", 900);
     expect(out).toEqual({ "2026-07-26-midi": 900 });
+  });
+});
+
+describe("resolveNextWeekManualSlotMacros", () => {
+  it("affiche snapshot 💾 sans lire les clés jour next_week (brouillon blur)", () => {
+    const out = resolveNextWeekManualSlotMacros(
+      {
+        calories: { "samedi-midi": 1500 },
+        proteins: { "samedi-midi": 35 },
+        fibers: {},
+      },
+      {},
+      "2026-08-08",
+      "samedi",
+      "midi",
+    );
+    expect(out).toEqual({ cal: 0, prot: 0, fiber: 0 });
+  });
+
+  it("affiche snapshot 💾 et saisie ISO directe en semaine pro", () => {
+    const out = resolveNextWeekManualSlotMacros(
+      {
+        calories: { "2026-08-08-midi": 800 },
+        proteins: {},
+        fibers: {},
+      },
+      { "manual-samedi-midi": { cal: 1500, prot: 35, fiber: 0 } },
+      "2026-08-08",
+      "samedi",
+      "midi",
+    );
+    expect(out).toEqual({ cal: 800, prot: 35, fiber: 0 });
   });
 });
 

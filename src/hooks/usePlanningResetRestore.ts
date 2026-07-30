@@ -185,6 +185,12 @@ export function usePlanningResetRestore({
           prefEntries.push({ key: "planning_fiber_goal", value: raw.fiber_goal });
           prefEntries.push({ key: "next_week_fiber_goal", value: raw.fiber_goal });
         }
+        if (raw.extrasDividerAfterId !== undefined) {
+          prefEntries.push({
+            key: "food_extras_divider_after_id",
+            value: raw.extrasDividerAfterId,
+          });
+        }
         if (prefEntries.length > 0) setPreferencesBatch.mutate(prefEntries);
       }
 

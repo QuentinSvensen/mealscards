@@ -7,9 +7,15 @@ export interface PlanningHeaderBackupTotals {
   archivedFiberGoal: number;
 }
 
+export type PlanningViewMode = "week" | "google-agenda";
+
 export interface PlanningHeaderProps {
   weekOffset: number;
   onWeekOffsetChange: (offset: number) => void;
+  /** Mode d’affichage : grille semaine classique ou vue Google Agenda. */
+  planningMode: PlanningViewMode;
+  /** Bascule entre grille semaine et sous-onglet Google Agenda. */
+  onPlanningModeChange: (mode: PlanningViewMode) => void;
   manualResetBusy: boolean;
   onManualReset: () => void;
   restoreBusy: boolean;
@@ -27,12 +33,25 @@ export interface PlanningHeaderProps {
   onGlobalProtBlur: (value: number) => void;
   onGlobalFiberBlur: (value: number) => void;
   backupTotals: PlanningHeaderBackupTotals | null;
+  /** Masquer les cartes repas sur la vue agenda (checkbox). */
+  hideMealCards?: boolean;
+  onHideMealCardsChange?: (hide: boolean) => void;
+  /** Statut connexion Google Agenda (lecture seule). */
+  googleAgendaConnected?: boolean;
+  googleAgendaStatusLoading?: boolean;
+  googleAgendaEventsLoading?: boolean;
+  googleAgendaConnecting?: boolean;
+  googleAgendaDisconnecting?: boolean;
+  onGoogleAgendaConnect?: () => void;
+  onGoogleAgendaDisconnect?: () => void;
 }
 
 /** Barre supérieure du planning : reset, restauration, objectifs globaux, navigation de semaine. */
 export function PlanningHeader({
   weekOffset,
   onWeekOffsetChange,
+  planningMode,
+  onPlanningModeChange,
   manualResetBusy,
   onManualReset,
   restoreBusy,
@@ -50,12 +69,28 @@ export function PlanningHeader({
   onGlobalProtBlur,
   onGlobalFiberBlur,
   backupTotals,
+  hideMealCards = false,
+  onHideMealCardsChange,
+  googleAgendaConnected = false,
+  googleAgendaStatusLoading = false,
+  googleAgendaEventsLoading = false,
+  googleAgendaConnecting = false,
+  googleAgendaDisconnecting = false,
+  onGoogleAgendaConnect,
+  onGoogleAgendaDisconnect,
 }: PlanningHeaderProps) {
   // Borne basse affichée selon la semaine (courante ou suivante).
   const displayedGoalLow = weekOffset === 1 ? nextDailyGoalLow : dailyGoalLow;
+  const weekTabActive = planningMode === "week";
+  const agendaTabActive = planningMode === "google-agenda";
+  /** Passe en grille semaine classique avec le décalage demandé. */
+  const selectWeekOffset = (offset: number) => {
+    onPlanningModeChange("week");
+    onWeekOffsetChange(offset);
+  };
   return (
-    <div className="rounded-2xl bg-card/80 backdrop-blur-sm p-3 flex items-center gap-3 flex-wrap">
-      {weekOffset === 0 && (
+    <div className="rounded-xl bg-card/80 backdrop-blur-sm px-2.5 py-1 flex items-center gap-2 flex-wrap">
+      {weekOffset === 0 && weekTabActive && (
         <>
           <button
             type="button"
@@ -77,7 +112,7 @@ export function PlanningHeader({
           </button>
         </>
       )}
-      {(weekOffset === 0 || weekOffset === 1) && (
+      {((weekOffset === 0 || weekOffset === 1) && weekTabActive) && (
         <>
           <div className="flex items-center gap-1">
             <Flame className="h-3 w-3 text-orange-500" />
@@ -153,7 +188,7 @@ export function PlanningHeader({
           </div>
         </>
       )}
-      {weekOffset === -1 && backupTotals && (
+      {weekOffset === -1 && weekTabActive && backupTotals && (
         <>
           <div className="flex items-center gap-1">
             <Flame className="h-3 w-3 text-orange-500" />
@@ -186,28 +221,83 @@ export function PlanningHeader({
           </div>
         </>
       )}
-      <div className="flex-1" />
-      <div className="flex items-center bg-muted/50 rounded-full p-0.5 gap-0.5">
+      {agendaTabActive && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {googleAgendaStatusLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : googleAgendaConnected ? (
+            <>
+              <span className="text-[10px] font-medium text-emerald-500">Connecté</span>
+              {googleAgendaEventsLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              ) : null}
+              <button
+                type="button"
+                disabled={googleAgendaDisconnecting}
+                onClick={() => onGoogleAgendaDisconnect?.()}
+                className="text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+              >
+                {googleAgendaDisconnecting ? "…" : "Déconnecter"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={googleAgendaConnecting}
+              onClick={() => onGoogleAgendaConnect?.()}
+              className="text-xs font-semibold bg-primary text-primary-foreground rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+            >
+              {googleAgendaConnecting ? "Redirection…" : "Connecter Google"}
+            </button>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 ml-auto">
+        {agendaTabActive && (
+          <label
+            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground cursor-pointer select-none px-2 py-1 rounded-lg bg-muted/60 hover:bg-muted/80"
+          >
+            <input
+              type="checkbox"
+              checked={hideMealCards}
+              onChange={(e) => onHideMealCardsChange?.(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-border accent-primary"
+            />
+            Masquer les repas
+          </label>
+        )}
+        <div className="flex items-center bg-muted/50 rounded-full p-0.5 gap-0.5">
+          <button
+            type="button"
+            onClick={() => selectWeekOffset(-1)}
+            className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekTabActive && weekOffset === -1 ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
+          >
+            ◀ Préc.
+          </button>
+          <button
+            type="button"
+            onClick={() => selectWeekOffset(0)}
+            className={`h-7 px-3 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekTabActive && weekOffset === 0 ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
+          >
+            Actuelle
+          </button>
+          <button
+            type="button"
+            onClick={() => selectWeekOffset(1)}
+            className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekTabActive && weekOffset === 1 ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
+          >
+            Suiv. ▶
+          </button>
+        </div>
         <button
           type="button"
-          onClick={() => onWeekOffsetChange(-1)}
-          className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekOffset === -1 ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
+          onClick={() => {
+            onPlanningModeChange("google-agenda");
+            onWeekOffsetChange(0);
+          }}
+          className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${planningMode === "google-agenda" ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
         >
-          ◀ Préc.
-        </button>
-        <button
-          type="button"
-          onClick={() => onWeekOffsetChange(0)}
-          className={`h-7 px-3 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekOffset === 0 ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
-        >
-          Actuelle
-        </button>
-        <button
-          type="button"
-          onClick={() => onWeekOffsetChange(1)}
-          className={`h-7 px-2.5 flex items-center justify-center rounded-full text-[10px] font-bold transition-all ${weekOffset === 1 ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-muted/80"}`}
-        >
-          Suiv. ▶
+          Google Agenda
         </button>
       </div>
     </div>

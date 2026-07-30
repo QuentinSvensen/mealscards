@@ -62,9 +62,10 @@ import { StructuredIngredientInline } from "@/components/StructuredIngredientInl
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO, differenceInCalendarDays, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
-import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
-import { useSortModes } from "@/hooks/useSortModes";
 import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
+import { useExtrasDividerRecovery } from "@/hooks/useExtrasDividerRecovery";
+import { useSortModes } from "@/hooks/useSortModes";
+import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
 import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, shouldSuppressFrozenPossibleCounterBadge, hasNoFoodCounterEvidenceWhileStockRemains, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
@@ -115,7 +116,7 @@ import {
   supplementFoodDessertExtrasFromSnapshots,
 } from "@/lib/foodDessertUtils";
 import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
-import { buildWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX, DAY_LABELS, JS_DAY_TO_KEY } from "@/lib/planningWeekUtils";
+import { buildWeekDates, buildAgendaWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX, DAY_LABELS, JS_DAY_TO_KEY } from "@/lib/planningWeekUtils";
 import { parseCalories, parseProtein, parsePositiveMacroOverride } from "@/domain/planning/macroParsers";
 import {
   computeRollingDayCalorieAverage,
@@ -126,6 +127,7 @@ import {
 import {
   aggregateExtraSelectionMacros,
   getAssignedExtraIdsForDay,
+  parsePlanningCustomExtraId,
 } from "@/lib/planningExtraMacros";
 import {
   clearManualSlotMacroPreferences,
@@ -136,7 +138,20 @@ import {
 import { usePlanningWeek } from "@/hooks/usePlanningWeek";
 import { usePlanningResetRestore } from "@/hooks/usePlanningResetRestore";
 import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
-import { PlanningHeader } from "@/components/planning/PlanningHeader";
+import { PlanningHeader, type PlanningViewMode } from "@/components/planning/PlanningHeader";
+import {
+  GoogleAgendaPlanningView,
+  type AgendaExtraOccurrence,
+} from "@/components/planning/GoogleAgendaPlanningView";
+import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
+import {
+  PLANNING_AGENDA_TIMES_KEY,
+  PLANNING_EXTRA_AGENDA_TIMES_KEY,
+  resolveMealTimeAfterAgendaMove,
+  resolveExtraSlotAfterAgendaMove,
+  snapMinutes,
+  buildExtraAgendaOccurrenceKey,
+} from "@/domain/planning/agendaTimeUtils";
 import {
   buildLiveBreakfastBreakdownItems,
   isBackupBreakfastPmAlreadyInMatinSlot,
@@ -211,6 +226,9 @@ export function WeeklyPlanning({
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
   const foodMacroIndex = useMemo(() => buildFoodItemIndex(foodItems), [foodItems]);
   const { weekOffset, setWeekOffset, weekDates, todayISO } = usePlanningWeek();
+  const [planningMode, setPlanningMode] = useState<PlanningViewMode>("week");
+  const [agendaWeekOffset, setAgendaWeekOffset] = useState(0);
+  const [hideAgendaMealCards, setHideAgendaMealCards] = useState(false);
   useSyncPlanningQueriesOnResume(qc);
 
   const isAvailableCb = useCallback((name: string) => {
@@ -941,9 +959,23 @@ export function WeeklyPlanning({
   const testItemIds = getPreference<string[]>('food_test_ids', []);
   const extrasDividerAfterId = getPreference<string | null>(FOOD_EXTRAS_DIVIDER_PREF_KEY, null);
   const testItemIdSet = new Set(testItemIds);
+  const sortedExtrasForDivider = useMemo(() => {
+    const testSet = new Set(testItemIds);
+    return foodItems
+      .filter((fi) => fi.storage_type === "extras" && !testSet.has(fi.id))
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  }, [foodItems, testItemIds]);
+  useExtrasDividerRecovery(
+    sortedExtrasForDivider,
+    extrasDividerAfterId,
+    !prefsLoading,
+    setPreference,
+  );
   // Assignation visuelle d’un extra à un créneau (matin/midi/soir) d’un jour donné.
   // Clé = `${iso}-${slot}`, valeur = liste d’ids d’aliments (pas de customExtra ici).
   const extraSlotAssignments = getPreference<Record<string, string[]>>('planning_extra_slot_assignments', {});
+  const agendaTimes = getPreference<Record<string, number>>(PLANNING_AGENDA_TIMES_KEY, {});
+  const extraAgendaTimes = getPreference<Record<string, number>>(PLANNING_EXTRA_AGENDA_TIMES_KEY, {});
 
   const savedSnapshots = getPreference<Record<string, PlanningSnapshotEntry>>('planning_saved_snapshots', {});
   /**
@@ -1407,6 +1439,54 @@ export function WeeklyPlanning({
     );
     setPreference.mutate({ key: 'planning_extra_selections', value: nextSelections });
     setPreference.mutate({ key: 'planning_extra_slot_assignments', value: nextAssignments });
+  };
+
+  /**
+   * Déplace un repas depuis la vue Google Agenda : met à jour jour + créneau sticky
+   * et persiste l’heure (minutes) dans les préférences.
+   */
+  const handleAgendaMoveMeal = (pmId: string, dayIso: string, _dayKey: string, minutes: number) => {
+    const pm = possibleMeals.find((p) => p.id === pmId);
+    if (!pm) return;
+    const snapped = snapMinutes(minutes);
+    const nextTime = resolveMealTimeAfterAgendaMove(pm.meal_time, snapped);
+    assignPmToPlanningSlot(pmId, dayIso, nextTime);
+    setPreference.mutate({
+      key: PLANNING_AGENDA_TIMES_KEY,
+      value: { ...agendaTimes, [pmId]: snapped },
+    });
+  };
+
+  /**
+   * Déplace un extra depuis la vue Google Agenda : sync créneau Planning + heure agenda.
+   */
+  const handleAgendaMoveExtra = (
+    occurrence: AgendaExtraOccurrence,
+    dayIso: string,
+    dayKey: string,
+    minutes: number,
+  ) => {
+    const snapped = snapMinutes(minutes);
+    const nextSlot = resolveExtraSlotAfterAgendaMove(occurrence.slot, snapped);
+    if (occurrence.dayIso === dayIso && occurrence.dayKey === dayKey) {
+      assignExtraToDaySlot(occurrence.extraId, dayIso, dayKey, nextSlot);
+    } else {
+      moveExtraBetweenDaysToSlot(
+        occurrence.extraId,
+        occurrence.dayIso,
+        occurrence.dayKey,
+        dayIso,
+        dayKey,
+        nextSlot,
+      );
+    }
+    const nextKey = buildExtraAgendaOccurrenceKey(dayIso, occurrence.extraId, occurrence.occurrenceIndex);
+    const updatedTimes = { ...extraAgendaTimes };
+    if (occurrence.occurrenceKey !== nextKey) {
+      delete updatedTimes[occurrence.occurrenceKey];
+    }
+    updatedTimes[nextKey] = snapped;
+    setPreference.mutate({ key: PLANNING_EXTRA_AGENDA_TIMES_KEY, value: updatedTimes });
   };
 
   // Garantit qu'un extra est sélectionné pour un jour de la semaine suivante.
@@ -1942,8 +2022,80 @@ export function WeeklyPlanning({
     }
   };
 
+  const agendaWeekDates = useMemo(() => buildAgendaWeekDates(agendaWeekOffset), [agendaWeekOffset, todayISO]);
+  const agendaTimeMin = useMemo(() => {
+    if (!agendaWeekDates[0]) return null;
+    return new Date(`${agendaWeekDates[0].iso}T00:00:00`).toISOString();
+  }, [agendaWeekDates]);
+  const agendaTimeMax = useMemo(() => {
+    if (!agendaWeekDates[6]) return null;
+    const end = new Date(`${agendaWeekDates[6].iso}T00:00:00`);
+    end.setDate(end.getDate() + 1);
+    return end.toISOString();
+  }, [agendaWeekDates]);
+
+  const googleCalendar = useGoogleCalendar(
+    agendaTimeMin,
+    agendaTimeMax,
+    planningMode === "google-agenda",
+  );
+
+  // Ouvre automatiquement le sous-onglet Google Agenda après retour OAuth.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google_calendar")) {
+      setPlanningMode("google-agenda");
+      setAgendaWeekOffset(0);
+    }
+  }, []);
+
+  /** Construit les occurrences d’extras assignées pour la vue agenda (semaine courante). */
+  const agendaExtraOccurrences = useMemo((): AgendaExtraOccurrence[] => {
+    const foodById = new Map(foodItems.map((f) => [f.id, f]));
+    const result: AgendaExtraOccurrence[] = [];
+    for (const day of agendaWeekDates) {
+      for (const slot of EXTRA_DAY_SLOTS) {
+        const ids =
+          extraSlotAssignments[`${day.iso}-${slot}`] ??
+          extraSlotAssignments[`${day.key}-${slot}`] ??
+          [];
+        const indexByExtra = new Map<string, number>();
+        for (const extraId of ids) {
+          const occurrenceIndex = indexByExtra.get(extraId) ?? 0;
+          indexByExtra.set(extraId, occurrenceIndex + 1);
+          const custom = parsePlanningCustomExtraId(extraId);
+          const dessert = singleIngredientDessertById.get(extraId);
+          const food = foodById.get(extraId);
+          const dessertFoodId = parseFoodDessertExtraId(extraId);
+          const dessertFood = dessertFoodId ? foodById.get(dessertFoodId) : undefined;
+          const label =
+            custom?.name ||
+            dessert?.name ||
+            food?.name ||
+            dessertFood?.name ||
+            extraId;
+          result.push({
+            occurrenceKey: buildExtraAgendaOccurrenceKey(day.iso, extraId, occurrenceIndex),
+            extraId,
+            label,
+            dayIso: day.iso,
+            dayKey: day.key,
+            slot,
+            occurrenceIndex,
+          });
+        }
+      }
+    }
+    return result;
+  }, [
+    agendaWeekDates,
+    extraSlotAssignments,
+    foodItems,
+    singleIngredientDessertById,
+  ]);
+
   return (
-    <div className={`max-w-4xl mx-auto space-y-3 overflow-x-hidden planning-responsive ${touchDragActive ? "touch-none" : ""}`}>
+    <div className={`${planningMode === "google-agenda" ? "w-full max-w-none" : "max-w-4xl mx-auto"} ${planningMode === "google-agenda" ? "space-y-2" : "space-y-3"} ${planningMode === "google-agenda" ? "overflow-x-auto" : "overflow-x-hidden"} planning-responsive ${touchDragActive ? "touch-none" : ""}`}>
       {(touchPressPending || touchDragActive || touchCancelHint) && (
         <div
           className="fixed bottom-4 left-1/2 z-[10000] -translate-x-1/2 pointer-events-none px-3 py-1.5 rounded-full text-[11px] font-semibold shadow-lg border backdrop-blur-sm"
@@ -1968,6 +2120,8 @@ export function WeeklyPlanning({
       <PlanningHeader
         weekOffset={weekOffset}
         onWeekOffsetChange={setWeekOffset}
+        planningMode={planningMode}
+        onPlanningModeChange={setPlanningMode}
         manualResetBusy={manualResetBusy}
         onManualReset={handleManualReset}
         restoreBusy={restoreBusy}
@@ -1985,9 +2139,33 @@ export function WeeklyPlanning({
         onGlobalProtBlur={handleGlobalProtBlur}
         onGlobalFiberBlur={handleGlobalFiberBlur}
         backupTotals={backupTotals}
+        hideMealCards={hideAgendaMealCards}
+        onHideMealCardsChange={setHideAgendaMealCards}
+        googleAgendaConnected={googleCalendar.connected}
+        googleAgendaStatusLoading={googleCalendar.statusLoading}
+        googleAgendaEventsLoading={googleCalendar.eventsLoading}
+        googleAgendaConnecting={googleCalendar.connecting}
+        googleAgendaDisconnecting={googleCalendar.disconnecting}
+        onGoogleAgendaConnect={googleCalendar.connect}
+        onGoogleAgendaDisconnect={googleCalendar.disconnect}
       />
 
-      {weekOffset === 0 ? (<>
+      {planningMode === "google-agenda" ? (
+        <GoogleAgendaPlanningView
+          weekDates={agendaWeekDates}
+          meals={planningMeals}
+          agendaTimes={agendaTimes}
+          extraAgendaTimes={extraAgendaTimes}
+          extras={agendaExtraOccurrences}
+          googleEvents={googleCalendar.events}
+          connected={googleCalendar.connected}
+          hideMealCards={hideAgendaMealCards}
+          onMoveMeal={handleAgendaMoveMeal}
+          onMoveExtra={handleAgendaMoveExtra}
+          weekOffset={agendaWeekOffset}
+          onWeekOffsetChange={setAgendaWeekOffset}
+        />
+      ) : weekOffset === 0 ? (<>
         {weekDates.map(({ key, iso, display }) => {
           const isToday_ = iso === todayISO;
           const dayCalories = getDayCalories(key, iso);
@@ -2270,40 +2448,22 @@ export function WeeklyPlanning({
                         setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                       }}
                       onSaveManualCalories={(val) => {
-                        setPreferencesBatch.mutate([
-                          {
-                            key: 'planning_manual_calories',
-                            value: writeManualSlotMacroPreference(manualCalories, iso, key, time, val),
-                          },
-                          {
-                            key: 'next_week_manual_calories',
-                            value: syncNextWeekManualSlotMacro(nextManualCalories, iso, key, time, val),
-                          },
-                        ]);
+                        setPreference.mutate({
+                          key: 'planning_manual_calories',
+                          value: writeManualSlotMacroPreference(manualCalories, iso, key, time, val),
+                        });
                       }}
                       onSaveManualProteins={(val) => {
-                        setPreferencesBatch.mutate([
-                          {
-                            key: 'planning_manual_proteins',
-                            value: writeManualSlotMacroPreference(manualProteins, iso, key, time, val),
-                          },
-                          {
-                            key: 'next_week_manual_proteins',
-                            value: syncNextWeekManualSlotMacro(nextManualProteins, iso, key, time, val),
-                          },
-                        ]);
+                        setPreference.mutate({
+                          key: 'planning_manual_proteins',
+                          value: writeManualSlotMacroPreference(manualProteins, iso, key, time, val),
+                        });
                       }}
                       onSaveManualFibers={(val) => {
-                        setPreferencesBatch.mutate([
-                          {
-                            key: 'planning_manual_fibers',
-                            value: writeManualSlotMacroPreference(manualFibers, iso, key, time, val),
-                          },
-                          {
-                            key: 'next_week_manual_fibers',
-                            value: syncNextWeekManualSlotMacro(nextManualFibers, iso, key, time, val),
-                          },
-                        ]);
+                        setPreference.mutate({
+                          key: 'planning_manual_fibers',
+                          value: writeManualSlotMacroPreference(manualFibers, iso, key, time, val),
+                        });
                       }}
                       onSaveSnapshot={() => {
                         const snapKeyIso = `manual-${iso}-${time}`;
@@ -2465,6 +2625,7 @@ export function WeeklyPlanning({
                   hideDayCalorieTotals={hideDayCalorieTotals}
                   remainingDayCalories={getRemainingDayCalories(DAILY_GOAL, dayCalories)}
                   dayCaloriesGoalMet={isDayCaloriesGoalMet(dayCalories, DAILY_GOAL_LOW, DAILY_GOAL)}
+                  onDeselectExtra={deselectExtraForDay}
                 />
               </div>
               )}
@@ -2517,40 +2678,22 @@ export function WeeklyPlanning({
                     setPreference.mutate({ key: 'planning_drink_checks', value: updated });
                   }}
                   onSaveManualCalories={(val) => {
-                    setPreferencesBatch.mutate([
-                      {
-                        key: 'planning_manual_calories',
-                        value: writeManualSlotMacroPreference(manualCalories, iso, key, 'gouter', val),
-                      },
-                      {
-                        key: 'next_week_manual_calories',
-                        value: syncNextWeekManualSlotMacro(nextManualCalories, iso, key, 'gouter', val),
-                      },
-                    ]);
+                    setPreference.mutate({
+                      key: 'planning_manual_calories',
+                      value: writeManualSlotMacroPreference(manualCalories, iso, key, 'gouter', val),
+                    });
                   }}
                   onSaveManualProteins={(val) => {
-                    setPreferencesBatch.mutate([
-                      {
-                        key: 'planning_manual_proteins',
-                        value: writeManualSlotMacroPreference(manualProteins, iso, key, 'gouter', val),
-                      },
-                      {
-                        key: 'next_week_manual_proteins',
-                        value: syncNextWeekManualSlotMacro(nextManualProteins, iso, key, 'gouter', val),
-                      },
-                    ]);
+                    setPreference.mutate({
+                      key: 'planning_manual_proteins',
+                      value: writeManualSlotMacroPreference(manualProteins, iso, key, 'gouter', val),
+                    });
                   }}
                   onSaveManualFibers={(val) => {
-                    setPreferencesBatch.mutate([
-                      {
-                        key: 'planning_manual_fibers',
-                        value: writeManualSlotMacroPreference(manualFibers, iso, key, 'gouter', val),
-                      },
-                      {
-                        key: 'next_week_manual_fibers',
-                        value: syncNextWeekManualSlotMacro(nextManualFibers, iso, key, 'gouter', val),
-                      },
-                    ]);
+                    setPreference.mutate({
+                      key: 'planning_manual_fibers',
+                      value: writeManualSlotMacroPreference(manualFibers, iso, key, 'gouter', val),
+                    });
                   }}
                   onDeselectExtra={deselectExtraForDay}
                   onDragStartExtra={(extraId, dayIso, dayKey, e) => {

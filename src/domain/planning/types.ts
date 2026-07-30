@@ -65,6 +65,8 @@ export interface PossibleMealsFullBackup {
   weekEndISO?: string | null;
   /** Snapshots 💾 de la semaine archivée (extras / créneaux manuels). */
   savedSnapshots?: Record<string, PlanningSnapshotEntry>;
+  /** Position du trait extras (dernier id au-dessus) au moment de l’archivage. */
+  extrasDividerAfterId?: string | null;
 }
 
 /** Clés de préférences lues avant un reset (saisie planning + objectifs). */
@@ -92,6 +94,7 @@ export const PLANNING_RESET_PREF_KEYS = [
   "planning_fiber_goal",
   "next_week_fiber_goal",
   "planning_daily_calorie_history",
+  "food_extras_divider_after_id",
 ] as const;
 
 /** Brouillon semaine suivante : chargé en base avant le reset auto pour promotion vers le planning courant. */

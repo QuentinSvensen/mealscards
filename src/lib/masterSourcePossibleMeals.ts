@@ -4,6 +4,20 @@ import type { PossibleMeal } from "@/types/meals";
 export const MASTER_SOURCE_PM_IDS_PREF_KEY = "possible_master_source_pm_ids";
 
 /**
+ * Ajoute des ids à la liste des cartes Possible issues de « Tous ».
+ */
+export function addMasterSourcePmIds(
+  current: ReadonlySet<string>,
+  ids: readonly string[],
+): Set<string> {
+  const next = new Set(current);
+  for (const id of ids) {
+    if (id?.trim()) next.add(id);
+  }
+  return next;
+}
+
+/**
  * Indique si une carte Possible vient de la section « Tous ».
  */
 export function isMasterSourcePossibleMeal(

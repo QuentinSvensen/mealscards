@@ -39,6 +39,28 @@ export function resolveManualSlotMacros(
 }
 
 /**
+ * Résout les macros manuelles pour l’aperçu « semaine pro » :
+ * saisie directe (clé ISO next_week) ou snapshot 💾 — pas les clés jour
+ * brouillon issues d’une saisie non sauvegardée en semaine courante.
+ */
+export function resolveNextWeekManualSlotMacros(
+  nextPrefs: ManualSlotMacroMaps,
+  snapshots: Record<string, PlanningSnapshotEntry>,
+  iso: string,
+  dayKey: string,
+  slot: string,
+): ManualSlotMacros {
+  const isoKey = `${iso}-${slot}`;
+  const snap =
+    snapshots[`manual-${iso}-${slot}`] || snapshots[`manual-${dayKey}-${slot}`];
+  return {
+    cal: nextPrefs.calories[isoKey] ?? snap?.cal ?? 0,
+    prot: nextPrefs.proteins[isoKey] ?? snap?.prot ?? 0,
+    fiber: nextPrefs.fibers[isoKey] ?? snap?.fiber ?? 0,
+  };
+}
+
+/**
  * Enregistre une macro manuelle de créneau (kcal / prot / fib).
  * Écrit 0 en cas de clear au lieu de supprimer la clé, pour que
  * resolveManualSlotMacros ne retombe pas sur le snapshot 💾 pendant l’édition.

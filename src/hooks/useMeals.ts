@@ -386,7 +386,15 @@ export function useMeals(options?: { enabled?: boolean }) {
   });
 
   const splitPossibleMealQuantity = useMutation({
-    mutationFn: async ({ id, ratio, baseIngredients }: { id: string; ratio: number; baseIngredients: string | null }) => {
+    mutationFn: async ({
+      id,
+      ratio,
+      baseIngredients,
+    }: {
+      id: string;
+      ratio: number;
+      baseIngredients: string | null;
+    }): Promise<{ sourceId: string; newIds: string[] }> => {
       const pm = possibleMeals.find(p => p.id === id);
       if (!pm) throw new Error("Possible meal not found");
 
@@ -414,12 +422,16 @@ export function useMeals(options?: { enabled?: boolean }) {
         });
       }
 
+      let newIds: string[] = [];
       if (copiesToInsert.length > 0) {
-        const { error: insertError } = await supabase
+        const { data: inserted, error: insertError } = await supabase
           .from("possible_meals")
-          .insert(copiesToInsert);
+          .insert(copiesToInsert)
+          .select("id");
         if (insertError) throw insertError;
+        newIds = (inserted ?? []).map((row) => row.id);
       }
+      return { sourceId: id, newIds };
     },
     onSuccess: invalidatePM,
     onError: onMutationError,

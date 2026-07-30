@@ -88,6 +88,33 @@ export function buildWeekDates(weekOffset: number, ref: Date = new Date()): Plan
   });
 }
 
+/** Clés dimanche → samedi (ordre Google Agenda US / réglage dimanche). */
+const AGENDA_DAY_KEYS: PlanningDayKey[] = [
+  "dimanche",
+  "lundi",
+  "mardi",
+  "mercredi",
+  "jeudi",
+  "vendredi",
+  "samedi",
+];
+
+/**
+ * Semaine Google Agenda : dimanche → samedi (comme calendar.google.com en réglage dimanche).
+ */
+export function buildAgendaWeekDates(weekOffset: number = 0, ref: Date = new Date()): PlanningWeekDayInfo[] {
+  const now = addWeeks(ref, weekOffset);
+  const sunday = startOfWeek(now, { weekStartsOn: 0 });
+  return AGENDA_DAY_KEYS.map((key, i) => {
+    const date = addDays(sunday, i);
+    return {
+      key,
+      iso: format(date, "yyyy-MM-dd"),
+      display: format(date, "EEEE d/MM", { locale: fr }).toUpperCase(),
+    };
+  });
+}
+
 /**
  * Construit les 14 jours utiles pour le sélecteur de seuil « Au choix » :
  * semaine courante (7) + semaine suivante (7).

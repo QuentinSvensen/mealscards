@@ -35,7 +35,7 @@ import {
   mergeExtraDaySelectionIds,
   scaleExtraDisplayMacrosByCount,
 } from "@/lib/planningExtraMacros";
-import { writeManualSlotMacroPreference } from "@/domain/planning/resolveManualSlotMacros";
+import { writeManualSlotMacroPreference, resolveNextWeekManualSlotMacros } from "@/domain/planning/resolveManualSlotMacros";
 import { canAcceptPlanningSlotDrag } from "@/lib/planningDnD";
 import {
   pickDayExtraSelections,
@@ -358,15 +358,20 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
               0,
             );
             const hasGouterMeals = gouterMeals.length > 0;
-            const gouterManualSnap = (savedSnapshots[`manual-${gouterKIso}`] || savedSnapshots[`manual-${gouterKKey}`]) as
-              | { cal?: number; prot?: number; fiber?: number }
-              | undefined;
-            const gouterManualCal =
-              nextManualCalories[gouterKIso] ?? nextManualCalories[gouterKKey] ?? gouterManualSnap?.cal ?? 0;
-            const gouterManualPro =
-              nextManualProteins[gouterKIso] ?? nextManualProteins[gouterKKey] ?? gouterManualSnap?.prot ?? 0;
-            const gouterManualFiber =
-              nextManualFibers[gouterKIso] ?? nextManualFibers[gouterKKey] ?? gouterManualSnap?.fiber ?? 0;
+            const gouterManualResolved = resolveNextWeekManualSlotMacros(
+              {
+                calories: nextManualCalories,
+                proteins: nextManualProteins,
+                fibers: nextManualFibers,
+              },
+              savedSnapshots,
+              iso,
+              key,
+              "gouter",
+            );
+            const gouterManualCal = gouterManualResolved.cal;
+            const gouterManualPro = gouterManualResolved.prot;
+            const gouterManualFiber = gouterManualResolved.fiber;
             const effectiveGouterManualCal = hasGouterMeals ? 0 : gouterManualCal;
             const effectiveGouterManualPro = hasGouterMeals ? 0 : gouterManualPro;
             const effectiveGouterManualFiber = hasGouterMeals ? 0 : gouterManualFiber;
@@ -611,9 +616,20 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                     const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
                     const slotAssigned = sumDayExtras(slotAssignedIds);
                     const slotDrink = Boolean(nextDrinkChecks[kIso] || nextDrinkChecks[kKey]);
-                    const manualCal = nextManualCalories[kIso] ?? nextManualCalories[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.cal ?? 0;
-                    const manualPro = nextManualProteins[kIso] ?? nextManualProteins[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.prot ?? 0;
-                    const manualFiber = nextManualFibers[kIso] ?? nextManualFibers[kKey] ?? (savedSnapshots[`manual-${kIso}`] || savedSnapshots[`manual-${kKey}`] as any)?.fiber ?? 0;
+                    const slotManualResolved = resolveNextWeekManualSlotMacros(
+                      {
+                        calories: nextManualCalories,
+                        proteins: nextManualProteins,
+                        fibers: nextManualFibers,
+                      },
+                      savedSnapshots,
+                      iso,
+                      key,
+                      time,
+                    );
+                    const manualCal = slotManualResolved.cal;
+                    const manualPro = slotManualResolved.prot;
+                    const manualFiber = slotManualResolved.fiber;
                     // Sans carte : total = inputs manuels + extras (+ boisson).
                     const hasSlotMeals = slotMeals.length > 0;
                     const slotManualCal = hasSlotMeals ? 0 : manualCal;
@@ -693,13 +709,28 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                           {slotMeals.length === 0 && (
                             <div className="flex flex-col items-start gap-0.5">
                               <PlanningInput storageKey={`next-mc-${iso}-${time}`} currentValue={manualCal}
-                                onSave={(val) => { const u = { ...nextManualCalories }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_calories', value: u }); }}
+                                onSave={(val) => {
+                                  setPreference.mutate({
+                                    key: 'next_week_manual_calories',
+                                    value: writeManualSlotMacroPreference(nextManualCalories, iso, key, time, val),
+                                  });
+                                }}
                                 placeholder="kcal" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-muted-foreground/20 rounded px-1 text-muted-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40 text-center" />
                               <PlanningInput storageKey={`next-mp-${iso}-${time}`} currentValue={manualPro}
-                                onSave={(val) => { const u = { ...nextManualProteins }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_proteins', value: u }); }}
+                                onSave={(val) => {
+                                  setPreference.mutate({
+                                    key: 'next_week_manual_proteins',
+                                    value: writeManualSlotMacroPreference(nextManualProteins, iso, key, time, val),
+                                  });
+                                }}
                                 placeholder="prot" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 placeholder:text-blue-400/30 focus:outline-none focus:border-blue-400/40 text-center" />
                               <PlanningInput storageKey={`next-mf-${iso}-${time}`} currentValue={manualFiber}
-                                onSave={(val) => { const u = { ...nextManualFibers }; u[kIso] = Math.max(0, val); setPreference.mutate({ key: 'next_week_manual_fibers', value: u }); }}
+                                onSave={(val) => {
+                                  setPreference.mutate({
+                                    key: 'next_week_manual_fibers',
+                                    value: writeManualSlotMacroPreference(nextManualFibers, iso, key, time, val),
+                                  });
+                                }}
                                 placeholder="fib" className="w-14 h-5 text-[10px] bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 placeholder:text-emerald-400/30 focus:outline-none focus:border-emerald-400/40 text-center" />
                             </div>
                           )}
@@ -1220,9 +1251,20 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                                 setDraggedSelectedExtraOrigin(null);
                               }}
                               title={`${name} — glisser vers matin, midi, soir ou goûter`}
-                              className="max-w-full truncate px-1 py-0.5 rounded-full text-[7px] sm:text-[8px] leading-tight font-semibold text-center text-orange-600 bg-orange-500/15 border border-orange-500/25 cursor-grab active:cursor-grabbing"
+                              className="inline-flex items-center gap-0.5 max-w-full px-1 py-0.5 rounded-full text-[7px] sm:text-[8px] leading-tight font-semibold text-orange-600 bg-orange-500/15 border border-orange-500/25 cursor-grab active:cursor-grabbing"
                             >
-                              {name}
+                              <span className="truncate min-w-0">{name}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deselectNextExtraForDay(id, iso, key);
+                                }}
+                                className="opacity-60 hover:opacity-100 font-bold shrink-0"
+                                title="Retirer des extras du jour"
+                              >
+                                ×
+                              </button>
                             </span>
                           ))}
                         </div>
