@@ -331,6 +331,47 @@ describe("hostTitleTextMaxWidthPct", () => {
     expect(agendaOverlapGeometryForBlock(guest, cluster, 40, colW).widthPct).toBe(50);
   });
 
+  it("Escalade + Heures creuses + Séance : titre hôte pas écrasé à ~5 %", () => {
+    const cluster = layoutOverlappingBlocks([
+      {
+        id: "escalade",
+        summary: "Escalade de Man de la 14",
+        durationMin: 240,
+        startMin: 14 * 60,
+        endMin: 18 * 60,
+      },
+      {
+        id: "creuses",
+        summary: "Heures creuses",
+        durationMin: 30,
+        startMin: 14 * 60,
+        endMin: 14 * 60 + 30,
+      },
+      {
+        id: "seance",
+        summary: "Séance : corde à sauter + doigts",
+        durationMin: 20,
+        startMin: 17 * 60 + 30,
+        endMin: 17 * 60 + 50,
+      },
+    ]);
+    const host = cluster.find((x) => x.id === "escalade")!;
+    const creuses = cluster.find((x) => x.id === "creuses")!;
+    const seance = cluster.find((x) => x.id === "seance")!;
+    const colW = 160;
+    const hostGeom = agendaOverlapGeometryForBlock(host, cluster, 52, colW);
+    const creusesGeom = agendaOverlapGeometryForBlock(creuses, cluster, 52, colW);
+    const seanceGeom = agendaOverlapGeometryForBlock(seance, cluster, 52, colW);
+    const titleMax = hostTitleTextMaxWidthPct(host, cluster, hostGeom, 52, colW);
+
+    // Overflow titre : pas la bande nest à 5 %
+    expect(creusesGeom.leftPct).toBeGreaterThan(20);
+    // Séance imbriquée seule → ~95 %
+    expect(seanceGeom.widthPct).toBeGreaterThanOrEqual(90);
+    expect(titleMax).not.toBeNull();
+    expect(titleMax!).toBeGreaterThan(18);
+  });
+
   it("grand écran : pas de wrap forcé si l’invité a la place", () => {
     expect(
       hostShouldWrapTitleForGuest("Balade Anakin", "Upload", 280, false),
@@ -724,8 +765,8 @@ describe("canNestInHostEmptySpace", () => {
 });
 
 describe("Arkose + Séance + baguette", () => {
-  // Trois événements qui se chevauchent : colonnes égales, aucun nest qui en masque un
-  it("garde les 3 événements visibles (colonnes, pas nest plein)", () => {
+  // Hôte plein fond + invités en colonnes côte à côte (pas nest 95 % qui se masquent)
+  it("garde les 3 événements visibles (hôte fond + colonnes invitées)", () => {
     const cluster = layoutOverlappingBlocks([
       {
         id: "arkose",
@@ -763,14 +804,74 @@ describe("Arkose + Séance + baguette", () => {
     const seanceGeom = agendaOverlapGeometryForBlock(seance, cluster, 52, colW);
     const arkoseGeom = agendaOverlapGeometryForBlock(arkose, cluster, 52, colW);
 
-    expect(arkoseGeom.widthPct).toBeCloseTo(100 / 3, 5);
-    expect(baguetteGeom.widthPct).toBeCloseTo(100 / 3, 5);
-    expect(seanceGeom.widthPct).toBeCloseTo(100 / 3, 5);
-    expect(Math.abs(seanceGeom.leftPct - baguetteGeom.leftPct)).toBeGreaterThan(20);
+    expect(arkoseGeom.widthPct).toBeCloseTo(100, 5);
+    // 2 colonnes invitées → bande nest 95 % / 2 (même si 3 events se touchent)
+    expect(baguetteGeom.widthPct).toBeCloseTo(95 / 2, 5);
+    expect(seanceGeom.widthPct).toBeCloseTo(95 / 2, 5);
+    expect(Math.min(seanceGeom.leftPct, baguetteGeom.leftPct)).toBeCloseTo(5, 5);
+    expect(Math.abs(seanceGeom.leftPct - baguetteGeom.leftPct)).toBeCloseTo(95 / 2, 5);
   });
 
-  // Invité « bas d’hôte » + pair concurrent → pas de nest 95 %
-  it("bas d’hôte + 2 invités → colonnes égales", () => {
+  // Style Google : Arkose fond pleine largeur, invités en 2 colonnes de 47,5 %
+  it("Arkose + 3 invités → hôte plein fond + invités en colonnes", () => {
+    const cluster = layoutOverlappingBlocks([
+      {
+        id: "arkose",
+        summary: "Arkose (récupérer sac)",
+        durationMin: 180,
+        startMin: 15 * 60,
+        endMin: 18 * 60,
+      },
+      {
+        id: "seance",
+        summary: "Séance : corde à sauter",
+        durationMin: 20,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 20,
+      },
+      {
+        id: "baguette",
+        summary: "Baguette ?",
+        durationMin: 15,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 15,
+      },
+      {
+        id: "envoyer",
+        summary: "Envoyer message pour",
+        durationMin: 15,
+        startMin: 17 * 60 + 15,
+        endMin: 17 * 60 + 30,
+      },
+    ]);
+
+    const arkose = cluster.find((x) => x.id === "arkose")!;
+    const seance = cluster.find((x) => x.id === "seance")!;
+    const baguette = cluster.find((x) => x.id === "baguette")!;
+    const envoyer = cluster.find((x) => x.id === "envoyer")!;
+    expect(arkose.col).toBe(0);
+    expect(arkose.colCount).toBe(3);
+    expect(seance.col).toBe(1);
+    expect(baguette.col).toBe(2);
+    expect(envoyer.col).toBe(2);
+
+    const colW = 160;
+    const arkoseGeom = agendaOverlapGeometryForBlock(arkose, cluster, 52, colW);
+    const seanceGeom = agendaOverlapGeometryForBlock(seance, cluster, 52, colW);
+    const baguetteGeom = agendaOverlapGeometryForBlock(baguette, cluster, 52, colW);
+    const envoyerGeom = agendaOverlapGeometryForBlock(envoyer, cluster, 52, colW);
+
+    expect(arkoseGeom.widthPct).toBeCloseTo(100, 5);
+    expect(seanceGeom.widthPct).toBeCloseTo(47.5, 5);
+    expect(seanceGeom.leftPct).toBeCloseTo(5, 5);
+    expect(baguetteGeom.widthPct).toBeCloseTo(47.5, 5);
+    expect(baguetteGeom.leftPct).toBeCloseTo(52.5, 5);
+    expect(envoyerGeom.widthPct).toBeCloseTo(47.5, 5);
+    expect(envoyerGeom.leftPct).toBeCloseTo(52.5, 5);
+  });
+
+  // Invité « bas d’hôte » + pair concurrent → bande 95 % partagée
+  it("bas d’hôte + 2 invités → bande nest partagée", () => {
     const cluster = layoutOverlappingBlocks([
       {
         id: "long",
@@ -797,7 +898,7 @@ describe("Arkose + Séance + baguette", () => {
     const guests = cluster.filter((x) => x.col > 0);
     expect(guests.length).toBe(2);
     const geoms = guests.map((g) => agendaOverlapGeometryForBlock(g, cluster, 52, 160));
-    expect(geoms.every((g) => g.widthPct <= 50 + 0.01)).toBe(true);
-    expect(Math.abs(geoms[0].leftPct - geoms[1].leftPct)).toBeGreaterThan(20);
+    expect(geoms.every((g) => Math.abs(g.widthPct - 95 / 2) < 0.01)).toBe(true);
+    expect(Math.abs(geoms[0].leftPct - geoms[1].leftPct)).toBeGreaterThan(40);
   });
 });

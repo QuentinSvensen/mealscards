@@ -392,7 +392,7 @@ export const GUEST_OVERLAP_WIDTH_PCT = 95;
 export const GUEST_OVERLAP_LEFT_PCT = 100 - GUEST_OVERLAP_WIDTH_PCT;
 
 /**
- * Géométrie 90 % pour carte invitée à l’intérieur d’une carte hôte.
+ * Géométrie ~95 % pour carte invitée seule à l’intérieur d’une carte hôte.
  */
 function guestWideOverlapGeometry(col: number): AgendaOverlapGeometry {
   const extraIndent = Math.max(0, col - 1) * 2;
@@ -400,6 +400,70 @@ function guestWideOverlapGeometry(col: number): AgendaOverlapGeometry {
   return {
     leftPct,
     widthPct: 100 - leftPct,
+    zIndex: 2 + col * 2,
+  };
+}
+
+/**
+ * Indique si l’invité s’imbrique sous le titre / en bas de l’hôte (pas overflow titre).
+ */
+function guestNestsInHost(
+  host: TimedBlock,
+  guest: TimedBlock,
+  hourHeightPx: number,
+): boolean {
+  return (
+    canNestInHostEmptySpace(host, guest, hourHeightPx) ||
+    guestAtHostBottomLevel(host, guest, hourHeightPx)
+  );
+}
+
+/**
+ * Colonnes distinctes des seuls invités imbriqués (ignore overflow type Heures creuses).
+ */
+function nestGuestColumnsSorted<T extends LaidOutBlock>(
+  host: T,
+  clusterBlocks: T[],
+  hourHeightPx: number,
+): number[] {
+  const cols = new Set<number>();
+  for (const g of clusterBlocks) {
+    if (g.id === host.id || g.col <= host.col) continue;
+    if (!blocksOverlap(host, g)) continue;
+    if (!guestNestsInHost(host, g, hourHeightPx)) continue;
+    cols.add(g.col);
+  }
+  return [...cols].sort((a, b) => a - b);
+}
+
+/**
+ * Géométrie bande nest pour un invité imbriqué, partagée seulement entre colonnes nest.
+ */
+function guestNestBandGeometryAmongNestCols(
+  col: number,
+  nestCols: number[],
+): AgendaOverlapGeometry {
+  const n = Math.max(1, nestCols.length);
+  const idx = nestCols.indexOf(col);
+  const peerIndex = idx >= 0 ? idx : Math.max(0, Math.min(n - 1, col - 1));
+  return guestNestBandSplitGeometry(col, peerIndex, n);
+}
+
+/**
+ * Répartit la bande nest (95 %) entre invités concurrents sur un hôte plein fond.
+ * Ex. 2 invités → 95 % / 2 chacun, décalés à partir de 5 % (pas des colonnes ⅓).
+ */
+function guestNestBandSplitGeometry(
+  col: number,
+  peerIndex: number,
+  peerCount: number,
+): AgendaOverlapGeometry {
+  const n = Math.max(1, peerCount);
+  const i = Math.max(0, Math.min(n - 1, peerIndex));
+  const widthPct = GUEST_OVERLAP_WIDTH_PCT / n;
+  return {
+    leftPct: GUEST_OVERLAP_LEFT_PCT + i * widthPct,
+    widthPct,
     zIndex: 2 + col * 2,
   };
 }
@@ -462,16 +526,6 @@ function rightGuestsOverlapEachOther<T extends TimedBlock>(overlappingRight: T[]
   return false;
 }
 
-/**
- * Autres invités (col > 0) qui se chevauchent avec ce bloc.
- * Sert à interdire nest / overflow plein qui masquerait un pair.
- */
-function overlappingGuestPeers<T extends LaidOutBlock>(block: T, clusterBlocks: T[]): T[] {
-  return clusterBlocks.filter(
-    (other) => other.id !== block.id && other.col > 0 && blocksOverlap(block, other),
-  );
-}
-
 /** Largeur de l’hôte (col 0) : plein fond sauf cartes fines simultanées. */
 function hostBackgroundWidthPct<T extends LaidOutBlock>(
   block: T,
@@ -487,14 +541,15 @@ function hostBackgroundWidthPct<T extends LaidOutBlock>(
     return 100 / Math.max(1, colCount);
   }
 
-  // Plusieurs invités concurrents → colonnes égales (aucun event masqué)
-  if (rightGuestsOverlapEachOther(overlappingRight)) {
-    return 100 / Math.max(1, colCount);
-  }
-
   // Même début + durée proche → moitié / moitié (pas largeur titre)
   if (overlappingRight.every((other) => areEqualPeerBlocks(block, other))) {
     return 100 / Math.max(1, colCount);
+  }
+
+  // Plusieurs invités (Arkose + Séance + …) : hôte = fond pleine largeur,
+  // les invités se partagent la droite en colonnes (géométrie invitée).
+  if (overlappingRight.length >= 2 || rightGuestsOverlapEachOther(overlappingRight)) {
+    return 100;
   }
 
   const allNest = overlappingRight.every((other) =>
@@ -766,7 +821,8 @@ export function agendaOverlapGeometryForBlock<T extends LaidOutBlock>(
 
   const hosts = clusterBlocks
     .filter((other) => other.id !== block.id && other.col < c && blocksOverlap(block, other))
-    .sort((a, b) => b.col - a.col);
+    // Hôte visuel = plus à gauche (fond), pas le voisin immédiat (évite 50/50 Séance/Baguette)
+    .sort((a, b) => a.col - b.col || a.startMin - b.startMin);
   const host = hosts[0];
 
   if (!host) {
@@ -783,23 +839,22 @@ export function agendaOverlapGeometryForBlock<T extends LaidOutBlock>(
     return equalColumnGeometry(c, n);
   }
 
-  // Autre invité concurrent → colonnes égales (jamais nest/overflow qui masque un event)
-  if (overlappingGuestPeers(block, clusterBlocks).length > 0) {
-    return equalColumnGeometry(c, n);
-  }
-
+  // Pairs hôte/invité même taille → partage égal de toute la colonne
   if (areEqualPeerBlocks(host, block)) {
     return equalColumnGeometry(c, n);
   }
 
-  if (guestAtHostBottomLevel(host, block, hourHeightPx)) {
+  // Imbriqué / bas d’hôte : bande 95 % (partagée seulement entre colonnes nest)
+  if (guestNestsInHost(host, block, hourHeightPx)) {
+    const nestCols = nestGuestColumnsSorted(host, clusterBlocks, hourHeightPx);
+    if (nestCols.length >= 2) {
+      return guestNestBandGeometryAmongNestCols(c, nestCols);
+    }
     return guestWideOverlapGeometry(c);
   }
 
-  if (canNestInHostEmptySpace(host, block, hourHeightPx)) {
-    return guestWideOverlapGeometry(c);
-  }
-
+  // Overflow titre (Heures creuses…) : après le titre, jamais bande nest à 5 %
+  // qui écraserait le titre hôte via hostTitleTextMaxWidthPct.
   let leftPct = guestOverflowLeftPct(host, block, c, n, hourHeightPx, dayColumnWidthPx);
 
   return {

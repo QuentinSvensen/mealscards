@@ -1,4 +1,4 @@
-import { Flame, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Flame, Loader2 } from "lucide-react";
 
 export interface PlanningHeaderBackupTotals {
   archivedDailyGoal: number;
@@ -226,7 +226,7 @@ export function PlanningHeader({
           {googleAgendaStatusLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : googleAgendaConnected ? (
-            <>
+            <div className="hidden sm:flex items-center gap-2">
               <span className="text-[10px] font-medium text-emerald-500">Connecté</span>
               {googleAgendaEventsLoading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -239,7 +239,7 @@ export function PlanningHeader({
               >
                 {googleAgendaDisconnecting ? "…" : "Déconnecter"}
               </button>
-            </>
+            </div>
           ) : (
             <button
               type="button"
@@ -254,19 +254,27 @@ export function PlanningHeader({
       )}
       <div className="flex items-center gap-1.5 ml-auto">
         {agendaTabActive && (
-          <label
-            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground cursor-pointer select-none px-2 py-1 rounded-lg bg-muted/60 hover:bg-muted/80"
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hideMealCards}
+            onClick={() => onHideMealCardsChange?.(!hideMealCards)}
+            title={hideMealCards ? "Afficher les repas" : "Masquer les repas"}
+            className={`h-7 px-2.5 inline-flex items-center gap-1.5 rounded-full text-[10px] font-bold transition-all border ${
+              hideMealCards
+                ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                : "bg-muted/50 text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/80"
+            }`}
           >
-            <input
-              type="checkbox"
-              checked={hideMealCards}
-              onChange={(e) => onHideMealCardsChange?.(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-border accent-primary"
-            />
-            Masquer les repas
-          </label>
+            {hideMealCards ? (
+              <EyeOff className="h-3 w-3 shrink-0 opacity-90" aria-hidden />
+            ) : (
+              <Eye className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+            )}
+            <span className="whitespace-nowrap">Masquer les repas</span>
+          </button>
         )}
-        <div className="flex items-center bg-muted/50 rounded-full p-0.5 gap-0.5">
+        <div className="flex items-center bg-muted/50 rounded-full p-0.5">
           <button
             type="button"
             onClick={() => selectWeekOffset(-1)}
@@ -274,6 +282,7 @@ export function PlanningHeader({
           >
             ◀ Préc.
           </button>
+          <span className="mx-0.5 h-3.5 w-px shrink-0 bg-white/20" aria-hidden />
           <button
             type="button"
             onClick={() => selectWeekOffset(0)}
@@ -281,6 +290,7 @@ export function PlanningHeader({
           >
             Actuelle
           </button>
+          <span className="mx-0.5 h-3.5 w-px shrink-0 bg-white/20" aria-hidden />
           <button
             type="button"
             onClick={() => selectWeekOffset(1)}

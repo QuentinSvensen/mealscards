@@ -1019,7 +1019,7 @@ export function GoogleAgendaPlanningView({
 
                 {today && nowMinutes >= AGENDA_HOUR_START * 60 && nowMinutes < AGENDA_HOUR_END * 60 ? (
                   <div
-                    className="absolute left-0 right-0 z-[5] pointer-events-none flex items-center"
+                    className="absolute left-0 right-0 z-[40] pointer-events-none flex items-center"
                     style={{ top: nowTop }}
                   >
                     <div className="h-2.5 w-2.5 -ml-1 rounded-full bg-[#f28b82] shrink-0" />
@@ -1089,8 +1089,15 @@ export function GoogleAgendaPlanningView({
                     hourHeightPx,
                     dayColumnWidthPx,
                   );
-                  // Hôte « déborde à moitié » (invité à droite) → pas d’horaires, place au titre
-                  const showEventTimes = hasRoomForTimes && titleMaxWidthPct == null;
+                  // Hôte fin en débord : pas d’horaires ; invité : selon largeur (≥ 50 %)
+                  const hideTimesForHalfOverflow =
+                    titleMaxWidthPct != null &&
+                    ev.col === 0 &&
+                    (timeLayout === "thin" || isShortEvent);
+                  // Cartes de droite : horaires seulement si largeur ≥ 50 %
+                  const hideTimesForNarrowGuest = ev.col > 0 && geom.widthPct < 50;
+                  const showEventTimes =
+                    hasRoomForTimes && !hideTimesForHalfOverflow && !hideTimesForNarrowGuest;
                   const titleClampStyle =
                     titleMaxWidthPct != null
                       ? { maxWidth: `${titleMaxWidthPct}%` }
