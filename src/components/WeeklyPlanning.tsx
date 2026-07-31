@@ -743,22 +743,25 @@ export function WeeklyPlanning({
   const [customExtraFiber, setCustomExtraFiber] = useState('');
   const backupCardTapRef = useRef<{ key: string; at: number } | null>(null);
 
-  // Aligne la vue sur le jour courant au montage ; cleanup pour éviter que le scroll « fuite » vers un autre onglet.
+  /**
+   * Scroll jusqu’au jour courant quand on affiche la semaine actuelle
+   * (montage, ou retour depuis Google Agenda / autre offset via « Actuelle »).
+   */
   useEffect(() => {
-    if (!todayRef.current) return;
+    if (planningMode !== "week" || weekOffset !== 0) return;
     const timerId = window.setTimeout(() => {
       const el = todayRef.current;
       if (!el) return;
       const headerHeight = 112;
       const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
-      window.scrollTo({ top, behavior: "smooth" });
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     }, 200);
     return () => {
       window.clearTimeout(timerId);
-      // Interrompt un smooth scroll en cours au démontage (changement d’onglet).
+      // Interrompt un smooth scroll en cours (changement d’onglet / de semaine).
       window.scrollTo({ top: window.scrollY, left: 0, behavior: "auto" });
     };
-  }, []);
+  }, [planningMode, weekOffset]);
 
   // Auto-consommation du petit déjeuner pour les jours passés
   const autoConsumedDays = getPreference<Record<string, boolean>>('planning_auto_consumed_days', {});
@@ -1471,7 +1474,10 @@ export function WeeklyPlanning({
     const snapped = snapMinutes(minutes);
     const nextSlot = resolveExtraSlotAfterAgendaMove(occurrence.slot, snapped);
     if (occurrence.dayIso === dayIso && occurrence.dayKey === dayKey) {
-      assignExtraToDaySlot(occurrence.extraId, dayIso, dayKey, nextSlot);
+      // Même jour + même créneau : ne pas réécrire l’ordre Planning (évite de pousser l’extra en fin de liste)
+      if (occurrence.slot !== nextSlot) {
+        assignExtraToDaySlot(occurrence.extraId, dayIso, dayKey, nextSlot);
+      }
     } else {
       moveExtraBetweenDaysToSlot(
         occurrence.extraId,
@@ -1495,7 +1501,7 @@ export function WeeklyPlanning({
 
   /**
    * Déplace la carte « Goûter » (extras seuls) : même heure pour toutes les occurrences,
-   * en une seule écriture des préférences agenda.
+   * en conservant l’ordre gauche→droite du Planning (haut→bas sur la carte).
    */
   const handleAgendaMoveGouterExtras = (
     occurrences: AgendaExtraOccurrence[],
@@ -1505,31 +1511,66 @@ export function WeeklyPlanning({
   ) => {
     if (occurrences.length === 0) return;
     const snapped = snapMinutes(minutes);
+    // Ordre des pastilles = ordre Planning (ids dans le créneau goûter)
+    const orderedIds = occurrences.map((o) => o.extraId);
     const updatedTimes = { ...extraAgendaTimes };
 
-    for (const occurrence of occurrences) {
-      const nextSlot = resolveExtraSlotAfterAgendaMove(occurrence.slot, snapped);
-      if (occurrence.dayIso === dayIso && occurrence.dayKey === dayKey) {
-        assignExtraToDaySlot(occurrence.extraId, dayIso, dayKey, nextSlot);
-      } else {
-        moveExtraBetweenDaysToSlot(
-          occurrence.extraId,
-          occurrence.dayIso,
-          occurrence.dayKey,
-          dayIso,
-          dayKey,
-          nextSlot,
-        );
+    /** Persiste les heures agenda en suivant l’ordre / index d’origine. */
+    const writeAgendaTimes = () => {
+      for (const occurrence of occurrences) {
+        const nextIndex = occurrence.slot === "extra" ? 0 : occurrence.occurrenceIndex;
+        const nextKey = buildExtraAgendaOccurrenceKey(dayIso, occurrence.extraId, nextIndex);
+        if (occurrence.occurrenceKey !== nextKey) {
+          delete updatedTimes[occurrence.occurrenceKey];
+        }
+        updatedTimes[nextKey] = snapped;
       }
-      const nextIndex = occurrence.slot === "extra" ? 0 : occurrence.occurrenceIndex;
-      const nextKey = buildExtraAgendaOccurrenceKey(dayIso, occurrence.extraId, nextIndex);
-      if (occurrence.occurrenceKey !== nextKey) {
-        delete updatedTimes[occurrence.occurrenceKey];
-      }
-      updatedTimes[nextKey] = snapped;
+      setPreference.mutate({ key: PLANNING_EXTRA_AGENDA_TIMES_KEY, value: updatedTimes });
+    };
+
+    const sameDay = occurrences.every(
+      (o) => o.dayIso === dayIso && o.dayKey === dayKey,
+    );
+    const nextSlot = resolveExtraSlotAfterAgendaMove(
+      occurrences[0]?.slot ?? "gouter",
+      snapped,
+    );
+
+    // Même jour : on ne touche pas aux assignations → ordre Planning intact
+    if (sameDay && nextSlot === "gouter") {
+      writeAgendaTimes();
+      return;
     }
 
-    setPreference.mutate({ key: PLANNING_EXTRA_AGENDA_TIMES_KEY, value: updatedTimes });
+    // Changement de jour : une seule écriture, puis on impose l’ordre d’origine
+    let workingSelections = { ...extraSelections };
+    let workingAssignments = { ...extraSlotAssignments };
+    for (const occurrence of occurrences) {
+      if (occurrence.dayIso === dayIso && occurrence.dayKey === dayKey) continue;
+      const moved = moveExtraBetweenDaysToSlotMaps(
+        workingSelections,
+        workingAssignments,
+        occurrence.extraId,
+        occurrence.dayIso,
+        occurrence.dayKey,
+        dayIso,
+        dayKey,
+        nextSlot,
+      );
+      workingSelections = moved.selections;
+      workingAssignments = moved.assignments;
+    }
+    const isoSlotKey = `${dayIso}-${nextSlot}`;
+    const keySlotKey = `${dayKey}-${nextSlot}`;
+    workingAssignments[isoSlotKey] = [...orderedIds];
+    if (keySlotKey !== isoSlotKey) delete workingAssignments[keySlotKey];
+
+    setPreference.mutate({ key: "planning_extra_selections", value: workingSelections });
+    setPreference.mutate({
+      key: "planning_extra_slot_assignments",
+      value: workingAssignments,
+    });
+    writeAgendaTimes();
   };
 
   // Garantit qu'un extra est sélectionné pour un jour de la semaine suivante.

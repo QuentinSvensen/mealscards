@@ -2,14 +2,13 @@
  * Vue Planning « Google Agenda » : grille horaire hebdo style Google Calendar
  * en légère transparence, avec cartes repas/extras déplaçables synchronisées.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { format, parseISO, isToday } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import type { PlanningWeekDayInfo } from "@/lib/planningWeekUtils";
 import type { GoogleCalendarEvent } from "@/hooks/useGoogleCalendar";
-import { getMealColor } from "@/lib/ingredientUtils";
 import { getCategoryEmoji } from "@/components/planning/PlanningMiniCard";
 import {
   AGENDA_EVENT_DURATION_MIN,
@@ -17,13 +16,14 @@ import {
   AGENDA_HOUR_START,
   AGENDA_INITIAL_SCROLL_HOUR,
   AGENDA_DEFAULT_VISIBLE_HOURS,
+  AGENDA_SNAP_MINUTES,
   buildExtraAgendaOccurrenceKey,
   formatAgendaClock,
   hasExtraAgendaCustomTime,
   isCompactAgendaColumn,
-  offsetYToAgendaMinutes,
   resolveAgendaMinutesForExtra,
   resolveAgendaMinutesForMeal,
+  snapMinutes,
 } from "@/domain/planning/agendaTimeUtils";
 import {
   addDaysToIsoDate,
@@ -48,10 +48,26 @@ import type { ExtraDaySlot } from "@/domain/planning/extraSlotOps";
 
 /** Alpha du fond des cartes repas hors « Manger » (laisse lire les events dessous). */
 const MEAL_CARD_BG_ALPHA = 0.36;
+/**
+ * Couleur unique des cartes repas agenda (matin / midi / goûter / soir).
+ * Note test ultérieur : le marron « matin passé » observé était `#5f432d`
+ * (mix canvas 0.62 sur cette teinte) — à réessayer sur toutes les cartes si demandé.
+ */
+const AGENDA_MEAL_CARD_COLOR = "#c2783f";
 /** z-index de base des repas (au-dessus des events Google ≈ 20+). */
 const MEAL_CARD_Z_INDEX = 30;
-/** Couleur de fond de la carte synthétique « Goûter ». */
-const GOUTER_CARD_COLOR = "#c2783f";
+
+/**
+ * Marron opaque équivalent au rendu transparent sur le fond agenda
+ * (même aspect que les cartes matin hors « Manger »).
+ */
+function opaqueMealColorMatchingTransparency(
+  mealCss: string,
+  alpha: number = MEAL_CARD_BG_ALPHA,
+): string {
+  // alpha*couleur + (1-alpha)*canvas ≡ mix vers canvas avec t = 1 - alpha
+  return mixCssColorTowardCanvas(mealCss, 1 - Math.max(0, Math.min(1, alpha)));
+}
 
 type MealCardChip = { id: string; label: string; count: number };
 
@@ -83,8 +99,11 @@ const CHIP_ROW_MAX_PX = 18;
  * + horaires en opacity-80 — les repas paraissaient encore trop « brillants ».
  */
 const MEAL_PAST_CONTENT_OPACITY = 0.42;
-/** Mélange fond repas passé → canvas (même ratio que googleAgendaPastEventStyle). */
-const MEAL_PAST_BG_TOWARD_CANVAS = 0.62;
+/**
+ * Assombrit le fond des repas passés (évite le marron trop orange).
+ * Les à venir gardent `AGENDA_MEAL_CARD_COLOR` intact.
+ */
+const MEAL_PAST_BG_TOWARD_CANVAS = 0.5;
 /** Encadré repas passé (discret) vs à venir (un peu plus visible). */
 const MEAL_CARD_BORDER_PAST = "border border-white/[0.08]";
 const MEAL_CARD_BORDER_UPCOMING = "border border-white/20";
@@ -750,6 +769,8 @@ export function GoogleAgendaPlanningView({
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const dragPayloadRef = useRef<DragPayload | null>(null);
+  /** Décalage Y (px) entre le curseur et le haut de la carte au dragstart. */
+  const dragGrabOffsetYRef = useRef(0);
   const [dayColumnWidthPx, setDayColumnWidthPx] = useState(() => {
     if (typeof window === "undefined") return 160;
     // Estimation initiale : (viewport − colonne heures − chrome) / 7 jours
@@ -1009,13 +1030,36 @@ export function GoogleAgendaPlanningView({
     });
   }, [hourHeightPx]);
 
-  /** Calcule le drop (jour + minutes) depuis la position Y dans la colonne. */
+  /**
+   * Mémorise où l’utilisateur a saisi la carte (haut → curseur),
+   * pour que le drop place le haut de carte sous le doigt / curseur.
+   */
+  const captureAgendaDragGrabOffset = (e: DragEvent) => {
+    const el = e.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    dragGrabOffsetYRef.current = Math.max(0, e.clientY - rect.top);
+  };
+
+  /** Remet à zéro le payload + offset de saisie après un drag. */
+  const clearAgendaDragState = () => {
+    dragPayloadRef.current = null;
+    dragGrabOffsetYRef.current = 0;
+    setDragOverDay(null);
+  };
+
+  /** Calcule le drop (jour + minutes snappées 15) depuis la position de relâchement. */
   const resolveDropTarget = (dayIso: string, clientY: number) => {
     const col = columnRefs.current[dayIso];
     if (!col) return null;
     const rect = col.getBoundingClientRect();
-    const offsetY = clientY - rect.top;
-    const minutes = offsetYToAgendaMinutes(offsetY, gridHeightPx);
+    // Haut de carte = curseur − point de saisie (sinon la carte « saute » au drop)
+    const offsetY = clientY - rect.top - dragGrabOffsetYRef.current;
+    // Même formule que blockStyle : minutes ↔ pixels via hourHeightPx
+    const rawMinutes =
+      AGENDA_HOUR_START * 60 + (offsetY / Math.max(1, hourHeightPx)) * 60;
+    const minBound = AGENDA_HOUR_START * 60;
+    const maxBound = AGENDA_HOUR_END * 60 - AGENDA_SNAP_MINUTES;
+    const minutes = snapMinutes(Math.max(minBound, Math.min(maxBound, rawMinutes)));
     const day = weekDates.find((d) => d.iso === dayIso);
     if (!day) return null;
     return { dayIso, dayKey: day.key, minutes };
@@ -1036,7 +1080,7 @@ export function GoogleAgendaPlanningView({
       (payload?.kind === "meal" ? payload.pmId : "");
     if (pmId) {
       onMoveMeal(pmId, target.dayIso, target.dayKey, target.minutes);
-      dragPayloadRef.current = null;
+      clearAgendaDragState();
       return;
     }
 
@@ -1051,7 +1095,7 @@ export function GoogleAgendaPlanningView({
       if (occurrences.length > 0) {
         onMoveGouterExtras(occurrences, target.dayIso, target.dayKey, target.minutes);
       }
-      dragPayloadRef.current = null;
+      clearAgendaDragState();
       return;
     }
 
@@ -1064,7 +1108,7 @@ export function GoogleAgendaPlanningView({
         onMoveExtra(occurrence, target.dayIso, target.dayKey, target.minutes);
       }
     }
-    dragPayloadRef.current = null;
+    clearAgendaDragState();
   };
 
   const nowTop = ((nowMinutes - AGENDA_HOUR_START * 60) / 60) * hourHeightPx;
@@ -1236,6 +1280,7 @@ export function GoogleAgendaPlanningView({
                     draggable={!hideMealCards}
                     onDragStart={(e) => {
                       if (hideMealCards) return;
+                      captureAgendaDragGrabOffset(e);
                       dragPayloadRef.current = {
                         kind: "extra",
                         occurrenceKey: ex.occurrenceKey,
@@ -1248,8 +1293,7 @@ export function GoogleAgendaPlanningView({
                       e.dataTransfer.setData("text/plain", ex.extraId);
                     }}
                     onDragEnd={() => {
-                      dragPayloadRef.current = null;
-                      setDragOverDay(null);
+                      clearAgendaDragState();
                     }}
                     className={`absolute flex items-center overflow-hidden font-semibold truncate border ${textCls} ${
                       hideMealCards
@@ -1342,6 +1386,7 @@ export function GoogleAgendaPlanningView({
                 onDragOver={(e) => {
                   if (hideMealCards) return;
                   e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
                   setDragOverDay(day.iso);
                 }}
                 onDragLeave={() => setDragOverDay((cur) => (cur === day.iso ? null : cur))}
@@ -1625,22 +1670,19 @@ export function GoogleAgendaPlanningView({
                             )
                           : [];
                       const chips = groupExtrasAsChips(slotExtrasForChips);
-                      const colorIngredients = pm.meals?.ingredients?.trim()
-                        ? pm.meals.ingredients
-                        : pm.ingredients_override;
-                      const color = getMealColor(
-                        colorIngredients ?? null,
-                        pm.meals?.name || "Repas",
-                      );
                       const mealPast = isAgendaEventPast(
                         day.iso,
                         todayIsoStr,
                         minutes + durationMin,
                         nowMinutes,
                       );
+                      // Passé : marron un peu plus sombre ; à venir : teinte pleine
                       const mealBg = mealPast
-                        ? mixCssColorTowardCanvas(color, MEAL_PAST_BG_TOWARD_CANVAS)
-                        : color;
+                        ? mixCssColorTowardCanvas(
+                            AGENDA_MEAL_CARD_COLOR,
+                            MEAL_PAST_BG_TOWARD_CANVAS,
+                          )
+                        : AGENDA_MEAL_CARD_COLOR;
                       const pos = blockStyle(minutes, durationMin, hourHeightPx);
                       let leftStyle: string | undefined;
                       let widthStyle: string | undefined;
@@ -1668,6 +1710,7 @@ export function GoogleAgendaPlanningView({
                           key={`meal-${pm.id}`}
                           draggable
                           onDragStart={(e) => {
+                            captureAgendaDragGrabOffset(e);
                             dragPayloadRef.current = { kind: "meal", pmId: pm.id };
                             e.dataTransfer.effectAllowed = "move";
                             e.dataTransfer.setData("pmId", pm.id);
@@ -1675,8 +1718,7 @@ export function GoogleAgendaPlanningView({
                             e.dataTransfer.setData("mealId", pm.meal_id);
                           }}
                           onDragEnd={() => {
-                            dragPayloadRef.current = null;
-                            setDragOverDay(null);
+                            clearAgendaDragState();
                           }}
                           className={`absolute flex flex-col rounded-md px-0.5 py-px cursor-grab active:cursor-grabbing overflow-hidden ${
                             mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING
@@ -1689,7 +1731,7 @@ export function GoogleAgendaPlanningView({
                               ? { left: leftStyle, width: widthStyle }
                               : {}),
                             backgroundColor: onManger
-                              ? mealBg
+                              ? opaqueMealColorMatchingTransparency(mealBg)
                               : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
                           }}
                           title={
@@ -1728,8 +1770,11 @@ export function GoogleAgendaPlanningView({
                         nowMinutes,
                       );
                       const mealBg = mealPast
-                        ? mixCssColorTowardCanvas(GOUTER_CARD_COLOR, MEAL_PAST_BG_TOWARD_CANVAS)
-                        : GOUTER_CARD_COLOR;
+                        ? mixCssColorTowardCanvas(
+                            AGENDA_MEAL_CARD_COLOR,
+                            MEAL_PAST_BG_TOWARD_CANVAS,
+                          )
+                        : AGENDA_MEAL_CARD_COLOR;
                       const pos = blockStyle(minutes, durationMin, hourHeightPx);
                       const occurrenceKeys = gouterExtras.map((ex) => ex.occurrenceKey);
 
@@ -1738,6 +1783,7 @@ export function GoogleAgendaPlanningView({
                           key={`gouter-extras-${day.iso}`}
                           draggable
                           onDragStart={(e) => {
+                            captureAgendaDragGrabOffset(e);
                             dragPayloadRef.current = {
                               kind: "gouter-extras",
                               occurrenceKeys,
@@ -1750,8 +1796,7 @@ export function GoogleAgendaPlanningView({
                             e.dataTransfer.setData("text/plain", "gouter-extras");
                           }}
                           onDragEnd={() => {
-                            dragPayloadRef.current = null;
-                            setDragOverDay(null);
+                            clearAgendaDragState();
                           }}
                           className={`absolute left-px right-px flex flex-col rounded-md px-0.5 py-px cursor-grab active:cursor-grabbing overflow-hidden ${
                             mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING
@@ -1837,14 +1882,14 @@ export function GoogleAgendaPlanningView({
                         key={ex.occurrenceKey}
                         draggable
                         onDragStart={(e) => {
+                          captureAgendaDragGrabOffset(e);
                           dragPayloadRef.current = { kind: "extra", occurrenceKey: ex.occurrenceKey };
                           e.dataTransfer.effectAllowed = "move";
                           e.dataTransfer.setData("application/x-agenda-extra", ex.occurrenceKey);
                           e.dataTransfer.setData("text/plain", ex.extraId);
                         }}
                         onDragEnd={() => {
-                          dragPayloadRef.current = null;
-                          setDragOverDay(null);
+                          clearAgendaDragState();
                         }}
                         className="absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing border border-amber-300/40 bg-amber-500/85 overflow-hidden shadow-md"
                         style={{
