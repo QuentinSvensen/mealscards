@@ -131,6 +131,7 @@ serve(async (req) => {
       }
     }
 
+    type ReminderEntry = { method?: string; minutes?: number };
     type CalMeta = {
       id: string;
       backgroundColor: string | null;
@@ -138,19 +139,52 @@ serve(async (req) => {
       colorId: string | null;
       /** Labels modernes (sélecteur 24 couleurs / catégories) → hex. */
       labelColors: Record<string, string>;
+      /** Rappels par défaut de l’agenda (si l’event utilise useDefault). */
+      defaultReminders: ReminderEntry[];
     };
+
+    /** Choisit le délai de notif (minutes avant) : max popup, sinon max tous méthodes. */
+    function resolveReminderMinutesBefore(
+      reminders: { useDefault?: boolean; overrides?: ReminderEntry[] } | undefined,
+      calendarDefaults: ReminderEntry[],
+    ): number | null {
+      const pickMax = (entries: ReminderEntry[] | undefined): number | null => {
+        if (!entries?.length) return null;
+        const popup = entries.filter((e) => (e.method || "").toLowerCase() === "popup");
+        const pool = popup.length > 0 ? popup : entries;
+        let max: number | null = null;
+        for (const e of pool) {
+          const m = Number(e.minutes);
+          if (!Number.isFinite(m) || m < 0) continue;
+          max = max == null ? m : Math.max(max, m);
+        }
+        return max;
+      };
+      if (reminders?.overrides && reminders.overrides.length > 0) {
+        return pickMax(reminders.overrides);
+      }
+      if (reminders?.useDefault !== false) {
+        return pickMax(calendarDefaults);
+      }
+      return null;
+    }
+
     const calendars: CalMeta[] = [];
     if (calListRes.ok) {
       const calListJson = await calListRes.json();
       for (const cal of (calListJson.items || []) as Array<Record<string, unknown>>) {
         if (cal.selected === false) continue;
         if (!cal.id) continue;
+        const defaults = Array.isArray(cal.defaultReminders)
+          ? (cal.defaultReminders as ReminderEntry[])
+          : [];
         calendars.push({
           id: String(cal.id),
           backgroundColor: cal.backgroundColor ? String(cal.backgroundColor) : null,
           foregroundColor: cal.foregroundColor ? String(cal.foregroundColor) : null,
           colorId: cal.colorId ? String(cal.colorId) : null,
           labelColors: {},
+          defaultReminders: defaults,
         });
       }
     }
@@ -161,6 +195,7 @@ serve(async (req) => {
         foregroundColor: null,
         colorId: null,
         labelColors: {},
+        defaultReminders: [],
       });
     }
 
@@ -206,16 +241,31 @@ serve(async (req) => {
           `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?${query}`,
           { headers: authH },
         );
-        if (!res.ok) return { cal, items: [] as Record<string, unknown>[] };
+        if (!res.ok) {
+          return {
+            cal,
+            items: [] as Record<string, unknown>[],
+            listDefaultReminders: [] as ReminderEntry[],
+          };
+        }
         const json = await res.json();
-        return { cal, items: (json.items || []) as Record<string, unknown>[] };
+        // defaultReminders est renvoyé au niveau de events.list (souvent plus fiable
+        // que calendarList pour résoudre reminders.useDefault === true)
+        const listDefaults = Array.isArray(json.defaultReminders)
+          ? (json.defaultReminders as ReminderEntry[])
+          : [];
+        return {
+          cal,
+          items: (json.items || []) as Record<string, unknown>[],
+          listDefaultReminders: listDefaults,
+        };
       }),
     );
 
     const seen = new Set<string>();
     const events: Array<Record<string, unknown>> = [];
 
-    for (const { cal, items } of eventResponses) {
+    for (const { cal, items, listDefaultReminders } of eventResponses) {
       for (const item of items) {
         const id = String(item.id || "");
         if (!id || seen.has(id)) continue;
@@ -249,6 +299,17 @@ serve(async (req) => {
           foregroundColor = cal.foregroundColor;
         }
 
+        const reminders = item.reminders as
+          | { useDefault?: boolean; overrides?: ReminderEntry[] }
+          | undefined;
+        // Priorité : défauts de events.list, sinon ceux de calendarList
+        const calendarDefaults =
+          listDefaultReminders.length > 0 ? listDefaultReminders : cal.defaultReminders;
+        const reminderMinutesBefore = resolveReminderMinutesBefore(
+          reminders,
+          calendarDefaults,
+        );
+
         events.push({
           id,
           summary: String(item.summary || "(Sans titre)"),
@@ -262,6 +323,9 @@ serve(async (req) => {
           backgroundColor,
           foregroundColor,
           calendarId: cal.id,
+          reminderMinutesBefore,
+          // Debug / secours client
+          reminders: reminders ?? null,
         });
       }
     }

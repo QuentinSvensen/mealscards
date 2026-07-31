@@ -162,6 +162,7 @@ import {
   buildDessertExtraId,
   resolveDessertCatalogId,
   findStoredSelectionIdForDessert,
+  getUnassignedExtraSelectionIds,
 } from "@/domain/planning/extraDisplay";
 
 const DEFAULT_DAILY_GOAL = 2750;
@@ -1481,7 +1482,9 @@ export function WeeklyPlanning({
         nextSlot,
       );
     }
-    const nextKey = buildExtraAgendaOccurrenceKey(dayIso, occurrence.extraId, occurrence.occurrenceIndex);
+    // Depuis la colonne EXTRA, l’index agenda repasse à 0 (créneau)
+    const nextIndex = occurrence.slot === "extra" ? 0 : occurrence.occurrenceIndex;
+    const nextKey = buildExtraAgendaOccurrenceKey(dayIso, occurrence.extraId, nextIndex);
     const updatedTimes = { ...extraAgendaTimes };
     if (occurrence.occurrenceKey !== nextKey) {
       delete updatedTimes[occurrence.occurrenceKey];
@@ -2068,6 +2071,23 @@ export function WeeklyPlanning({
   const agendaExtraOccurrences = useMemo((): AgendaExtraOccurrence[] => {
     const foodById = new Map(foodItems.map((f) => [f.id, f]));
     const result: AgendaExtraOccurrence[] = [];
+
+    /** Résout le libellé affichable d’un id d’extra. */
+    const resolveExtraLabel = (extraId: string): string => {
+      const custom = parsePlanningCustomExtraId(extraId);
+      const dessert = singleIngredientDessertById.get(extraId);
+      const food = foodById.get(extraId);
+      const dessertFoodId = parseFoodDessertExtraId(extraId);
+      const dessertFood = dessertFoodId ? foodById.get(dessertFoodId) : undefined;
+      return (
+        custom?.name ||
+        dessert?.name ||
+        food?.name ||
+        dessertFood?.name ||
+        extraId
+      );
+    };
+
     for (const day of agendaWeekDates) {
       for (const slot of EXTRA_DAY_SLOTS) {
         const ids =
@@ -2078,21 +2098,10 @@ export function WeeklyPlanning({
         for (const extraId of ids) {
           const occurrenceIndex = indexByExtra.get(extraId) ?? 0;
           indexByExtra.set(extraId, occurrenceIndex + 1);
-          const custom = parsePlanningCustomExtraId(extraId);
-          const dessert = singleIngredientDessertById.get(extraId);
-          const food = foodById.get(extraId);
-          const dessertFoodId = parseFoodDessertExtraId(extraId);
-          const dessertFood = dessertFoodId ? foodById.get(dessertFoodId) : undefined;
-          const label =
-            custom?.name ||
-            dessert?.name ||
-            food?.name ||
-            dessertFood?.name ||
-            extraId;
           result.push({
             occurrenceKey: buildExtraAgendaOccurrenceKey(day.iso, extraId, occurrenceIndex),
             extraId,
-            label,
+            label: resolveExtraLabel(extraId),
             dayIso: day.iso,
             dayKey: day.key,
             slot,
@@ -2100,11 +2109,39 @@ export function WeeklyPlanning({
           });
         }
       }
+
+      // Extras encore dans la colonne EXTRA (non placés sur un créneau) → event journée
+      const unassignedIds = getUnassignedExtraSelectionIds(
+        extraSelections,
+        extraSlotAssignments,
+        day.iso,
+        day.key,
+      );
+      const indexByUnassigned = new Map<string, number>();
+      for (const extraId of unassignedIds) {
+        const occurrenceIndex = indexByUnassigned.get(extraId) ?? 0;
+        indexByUnassigned.set(extraId, occurrenceIndex + 1);
+        result.push({
+          occurrenceKey: buildExtraAgendaOccurrenceKey(
+            day.iso,
+            extraId,
+            // Décale l’index pour ne pas collisionner avec les occurrences créneau
+            1000 + occurrenceIndex,
+          ),
+          extraId,
+          label: resolveExtraLabel(extraId),
+          dayIso: day.iso,
+          dayKey: day.key,
+          slot: "extra",
+          occurrenceIndex: 1000 + occurrenceIndex,
+        });
+      }
     }
     return result;
   }, [
     agendaWeekDates,
     extraSlotAssignments,
+    extraSelections,
     foodItems,
     singleIngredientDessertById,
   ]);

@@ -2,7 +2,7 @@
  * Vue Planning « Google Agenda » : grille horaire hebdo style Google Calendar
  * en légère transparence, avec cartes repas/extras déplaçables synchronisées.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { format, parseISO, isToday } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -19,13 +19,18 @@ import {
   AGENDA_DEFAULT_VISIBLE_HOURS,
   buildExtraAgendaOccurrenceKey,
   formatAgendaClock,
+  hasExtraAgendaCustomTime,
   isCompactAgendaColumn,
   offsetYToAgendaMinutes,
   resolveAgendaMinutesForExtra,
   resolveAgendaMinutesForMeal,
 } from "@/domain/planning/agendaTimeUtils";
-import { expandGoogleEventPlacements, layoutAllDaySpans } from "@/domain/planning/googleEventPlacement";
-import { GCAL_AGENDA_CANVAS, googleAgendaEventStyle, googleAgendaPastEventStyle, mixCssColorTowardCanvas } from "@/domain/planning/googleAgendaColors";
+import {
+  addDaysToIsoDate,
+  expandGoogleEventPlacements,
+  layoutAllDaySpans,
+} from "@/domain/planning/googleEventPlacement";
+import { GCAL_AGENDA_CANVAS, googleAgendaEventStyle, googleAgendaPastEventStyle, mixCssColorTowardCanvas, withCssAlpha } from "@/domain/planning/googleAgendaColors";
 import {
   layoutOverlappingBlocks,
   agendaOverlapGeometryForBlock,
@@ -37,17 +42,216 @@ import {
   agendaCardHasRoomForTimes,
   guestHidesTimesForThinHostTitle,
 } from "@/domain/planning/agendaOverlapLayout";
+import { assignMealsToMangerEvents, resolveReminderMinutesBefore } from "@/domain/planning/mangerEventAlignment";
+import { resolveGouterAgendaMode } from "@/domain/planning/gouterAgendaCard";
 import type { ExtraDaySlot } from "@/domain/planning/extraSlotOps";
+
+/** Alpha du fond des cartes repas hors « Manger » (laisse lire les events dessous). */
+const MEAL_CARD_BG_ALPHA = 0.48;
+/** z-index de base des repas (au-dessus des events Google ≈ 20+). */
+const MEAL_CARD_Z_INDEX = 30;
+/** Couleur de fond de la carte synthétique « Goûter ». */
+const GOUTER_CARD_COLOR = "#c2783f";
+
+type MealCardChip = { id: string; label: string; count: number };
+
+/**
+ * Regroupe les extras d’un créneau (label + occurrences) pour les pastilles.
+ */
+function groupExtrasAsChips(
+  extras: AgendaExtraOccurrence[],
+): MealCardChip[] {
+  const groups: MealCardChip[] = [];
+  for (const ex of extras) {
+    const existing = groups.find((g) => g.id === ex.extraId);
+    if (existing) existing.count += 1;
+    else groups.push({ id: ex.extraId, label: ex.label, count: 1 });
+  }
+  return groups;
+}
+
+/** Hauteur (px) sous laquelle titre + heure ne tiennent plus empilés → heure à droite. */
+const MEAL_CARD_STACK_MIN_HEIGHT_PX = 28;
+
+/** Tailles de pastilles extras (du plus grand au plus petit). */
+const CHIP_TIER_CLASS = [
+  "text-[6px] px-0.5 py-0 leading-[1.2]",
+  "text-[8px] px-1 py-0 leading-tight",
+  "text-[9px] sm:text-[10px] px-1 py-px leading-tight",
+] as const;
+
+/**
+ * Contenu d’une carte repas / goûter agenda.
+ * Les bords de la carte sont des « murs » : titres complets (wrap), extras plus gros,
+ * et réduction progressive des pastilles seulement s’il n’y a plus assez de place.
+ */
+function AgendaMealCardBody({
+  title,
+  timeLabel,
+  chips = [],
+  mealPast,
+  cardHeightPx,
+}: {
+  title: string;
+  timeLabel: string;
+  chips?: MealCardChip[];
+  mealPast: boolean;
+  /** Hauteur utile de la carte (px) pour choisir le layout. */
+  cardHeightPx?: number;
+}) {
+  const hasChips = chips.length > 0;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const [chipTier, setChipTier] = useState(2); // 2 = grand, 0 = mini
+  const [chipsFit, setChipsFit] = useState(true);
+
+  const titleCls = `text-[9px] sm:text-[10px] font-bold leading-tight drop-shadow-sm break-words ${
+    mealPast ? "text-white/80" : "text-white"
+  }`;
+  const timeCls = `text-[8px] sm:text-[9px] font-semibold leading-tight drop-shadow-sm shrink-0 ${
+    mealPast ? "text-white/70" : "text-white"
+  }`;
+  const tooShortToStack =
+    typeof cardHeightPx === "number" && cardHeightPx < MEAL_CARD_STACK_MIN_HEIGHT_PX;
+
+  const chipsKey = chips.map((c) => `${c.id}:${c.count}:${c.label}`).join("|");
+
+  // Remet le palier max quand le contenu change, puis re-mesure
+  useLayoutEffect(() => {
+    setChipTier(2);
+    setChipsFit(true);
+  }, [title, timeLabel, chipsKey, cardHeightPx]);
+
+  /**
+   * Hauteur naturelle du contenu extras (indépendante du justify-center / overflow).
+   */
+  const measureChipsContentHeight = (chipsEl: HTMLElement): number => {
+    let h = 0;
+    const children = chipsEl.children;
+    for (let i = 0; i < children.length; i++) {
+      h += (children[i] as HTMLElement).offsetHeight;
+    }
+    // gap-px ≈ 1px entre pastilles
+    if (children.length > 1) h += children.length - 1;
+    return h;
+  };
+
+  /**
+   * Vérifie que les extras tiennent dans leur colonne (murs) ;
+   * sinon baisse d’un palier de taille.
+   */
+  useLayoutEffect(() => {
+    if (!hasChips) return;
+    const chipsEl = chipsRef.current;
+    const root = rootRef.current;
+    if (!chipsEl || !root) return;
+
+    const chipsOverflow =
+      measureChipsContentHeight(chipsEl) > chipsEl.clientHeight + 1 ||
+      chipsEl.scrollWidth > chipsEl.clientWidth + 1;
+    const rootOverflow =
+      root.scrollHeight > root.clientHeight + 1 ||
+      root.scrollWidth > root.clientWidth + 1;
+
+    if ((chipsOverflow || rootOverflow) && chipTier > 0) {
+      setChipTier((t) => Math.max(0, t - 1));
+      return;
+    }
+    setChipsFit(!chipsOverflow && !rootOverflow);
+  }, [hasChips, chipTier, title, timeLabel, chipsKey, cardHeightPx]);
+
+  useLayoutEffect(() => {
+    if (!hasChips) return;
+    const chipsEl = chipsRef.current;
+    const root = rootRef.current;
+    if (!chipsEl || !root) return;
+
+    const check = () => {
+      const chipsOverflow =
+        measureChipsContentHeight(chipsEl) > chipsEl.clientHeight + 1 ||
+        chipsEl.scrollWidth > chipsEl.clientWidth + 1;
+      const rootOverflow =
+        root.scrollHeight > root.clientHeight + 1 ||
+        root.scrollWidth > root.clientWidth + 1;
+      if ((chipsOverflow || rootOverflow) && chipTier > 0) {
+        setChipTier((t) => Math.max(0, t - 1));
+      } else {
+        setChipsFit(!chipsOverflow && !rootOverflow);
+      }
+    };
+
+    const ro = new ResizeObserver(check);
+    ro.observe(root);
+    ro.observe(chipsEl);
+    return () => ro.disconnect();
+  }, [hasChips, chipTier]);
+
+  const chipEls = chips.map((chip) => {
+    const label = chip.count > 1 ? `${chip.label} ×${chip.count}` : chip.label;
+    return (
+      <span
+        key={chip.id}
+        className={`inline-flex max-w-full rounded font-semibold bg-black/45 text-amber-100 border border-amber-200/35 drop-shadow-sm text-right ${CHIP_TIER_CLASS[chipTier]} ${
+          chipTier === 0 ? "truncate" : "whitespace-normal break-words"
+        }`}
+        title={label}
+      >
+        {label}
+      </span>
+    );
+  });
+
+  if (hasChips) {
+    return (
+      <div ref={rootRef} className="flex h-full min-h-0 w-full gap-0.5 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col justify-start gap-px overflow-hidden">
+          <div className={`min-w-0 ${titleCls}`}>{title}</div>
+          <div className={timeCls}>{timeLabel}</div>
+        </div>
+        <div
+          ref={chipsRef}
+          className={`flex max-w-[58%] min-h-0 h-full shrink-0 flex-col items-end gap-px overflow-hidden ${
+            chipsFit ? "justify-center" : "justify-start"
+          }`}
+        >
+          {chipEls}
+        </div>
+      </div>
+    );
+  }
+
+  if (tooShortToStack) {
+    return (
+      <div className="flex h-full min-h-0 w-full items-center gap-0.5 overflow-hidden">
+        <div className={`min-w-0 flex-1 ${titleCls}`}>{title}</div>
+        <div className={`max-w-[45%] shrink-0 text-right ${timeCls}`}>{timeLabel}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex h-full min-h-0 w-full flex-col justify-start gap-px overflow-hidden">
+      <div className={`min-w-0 ${titleCls}`}>{title}</div>
+      <div className={timeCls}>{timeLabel}</div>
+    </div>
+  );
+}
+
+/** Hauteur pixel d’un bloc agenda à partir de sa durée. */
+function agendaBlockHeightPx(durationMin: number, hourHeightPx: number): number {
+  return Math.max(4, (Math.max(5, durationMin) / 60) * hourHeightPx - 1);
+}
 
 const TOTAL_HOURS = AGENDA_HOUR_END - AGENDA_HOUR_START;
 /** Largeur colonne horaires (desktop). */
 const TIME_COL_PX = 44;
 /** Largeur colonne horaires (mobile compact). */
 const TIME_COL_COMPACT_PX = 32;
-/** Hauteur minimale d’une heure (px) pour garder les titres lisibles. */
-const MIN_HOUR_HEIGHT_PX = 40;
-/** Hauteur minimale d’heure en mode compact (densité Agenda mobile). */
-const MIN_HOUR_HEIGHT_COMPACT_PX = 32;
+/**
+ * Plancher absolu si le bandeau journée mange beaucoup de viewport :
+ * on compresse pour garder 7h→23h59 visible.
+ */
+const ABSOLUTE_MIN_HOUR_HEIGHT_PX = 12;
 /** Hauteur sticky jours (sans all-day) — chip + paddings réels. */
 const DAY_HEADER_BASE_PX = 58;
 /** Hauteur sticky jours compacte. */
@@ -67,7 +271,8 @@ export interface AgendaExtraOccurrence {
   label: string;
   dayIso: string;
   dayKey: string;
-  slot: ExtraDaySlot;
+  /** Créneau repas, ou `"extra"` si encore dans la colonne EXTRA (journée). */
+  slot: ExtraDaySlot | "extra";
   occurrenceIndex: number;
 }
 
@@ -515,7 +720,8 @@ function isAgendaEventPast(
 }
 
 /**
- * Indique si une barre all-day est entièrement dans le passé.
+ * Indique si une barre all-day est entièrement dans le passé
+ * (dernier jour de la barre &lt; aujourd’hui).
  */
 function isAgendaAllDaySpanPast(
   weekIsos: string[],
@@ -523,12 +729,9 @@ function isAgendaAllDaySpanPast(
   endCol: number,
   todayIso: string,
 ): boolean {
-  const firstDay = weekIsos[startCol];
   const lastDay = weekIsos[endCol];
-  if (!firstDay || !lastDay) return false;
-  if (lastDay < todayIso) return true;
-  if (firstDay === todayIso && lastDay === todayIso) return true;
-  return false;
+  if (!lastDay) return false;
+  return lastDay < todayIso;
 }
 
 /**
@@ -571,7 +774,6 @@ export function GoogleAgendaPlanningView({
   );
   const isCompactAgenda = isCompactAgendaColumn(dayColumnWidthPx);
   const timeColPx = isCompactAgenda ? TIME_COL_COMPACT_PX : TIME_COL_PX;
-  const minHourHeightPx = isCompactAgenda ? MIN_HOUR_HEIGHT_COMPACT_PX : MIN_HOUR_HEIGHT_PX;
   const dayHeaderBasePx = isCompactAgenda ? DAY_HEADER_BASE_COMPACT_PX : DAY_HEADER_BASE_PX;
   const gridHeightPx = TOTAL_HOURS * hourHeightPx;
 
@@ -689,16 +891,70 @@ export function GoogleAgendaPlanningView({
     return map;
   }, [googleEvents, weekDates, weekIsoSet]);
 
-  /** Barres all-day continues (style Google : un trait sur plusieurs jours). */
-  const allDaySpanLayout = useMemo(
-    () =>
-      layoutAllDaySpans(
-        googleEvents,
-        weekDates.map((d) => d.iso),
-        isGoogleWeekNumberLabel,
-      ),
-    [googleEvents, weekDates],
-  );
+  /** Barres all-day : events Google + extras non déplacés (événement journée). */
+  const allDaySpanLayout = useMemo(() => {
+    type AllDaySource =
+      | {
+          id: string;
+          summary: string;
+          start: string;
+          end: string;
+          allDay: true;
+          kind: "google";
+          google: GoogleCalendarEvent;
+        }
+      | {
+          id: string;
+          summary: string;
+          start: string;
+          end: string;
+          allDay: true;
+          kind: "extra";
+          occurrence: AgendaExtraOccurrence;
+        };
+
+    const weekIsos = weekDates.map((d) => d.iso);
+    const sources: AllDaySource[] = [];
+
+    for (const ev of googleEvents) {
+      if (!ev.allDay) continue;
+      if (isGoogleWeekNumberLabel(ev.summary)) continue;
+      sources.push({
+        id: `g-${ev.id}`,
+        summary: ev.summary,
+        start: ev.start,
+        end: ev.end,
+        allDay: true,
+        kind: "google",
+        google: ev,
+      });
+    }
+
+    for (const ex of extras) {
+      // Goûter : absorbé par la carte « Goûter »
+      if (ex.slot === "gouter") continue;
+      if (hasExtraAgendaCustomTime(ex.occurrenceKey, extraAgendaTimes)) continue;
+      // matin/midi/soir avec une carte repas du créneau → pastilles sur la carte (pas journée)
+      if (ex.slot === "matin" || ex.slot === "midi" || ex.slot === "soir") {
+        const hasMealForSlot = meals.some((pm) => {
+          if (pm.meal_time !== ex.slot) return false;
+          return resolveMealDayIso(pm.day_of_week, weekDates) === ex.dayIso;
+        });
+        if (hasMealForSlot) continue;
+      }
+      sources.push({
+        id: `extra-${ex.occurrenceKey}`,
+        summary: ex.label,
+        start: ex.dayIso,
+        end: addDaysToIsoDate(ex.dayIso, 1),
+        allDay: true,
+        kind: "extra",
+        occurrence: ex,
+      });
+    }
+
+    return layoutAllDaySpans(sources, weekIsos);
+  }, [googleEvents, weekDates, extras, extraAgendaTimes, meals]);
 
   /** Événements horaires disposés (colonnes si vrai chevauchement). */
   const laidOutGoogleByDay = useMemo(() => {
@@ -735,16 +991,18 @@ export function GoogleAgendaPlanningView({
   const allDayLaneHeightPx = Math.max(2, maxAllDayRows * ALL_DAY_ROW_PX);
   const stickyHeaderHeightPx = dayHeaderBasePx + allDayLaneHeightPx;
 
-  // Hauteur d’heure : 7h→23h59 tient pile dans le viewport (scroll haut = avant 7h).
+  // Hauteur d’heure : 7h→23h59 tient toujours sous le bandeau (jours + extras journée).
+  // Plus le bandeau grandit, plus on compresse — plus de plancher « confort » qui forçait le scroll.
   useEffect(() => {
     const available =
       agendaViewportHeightPx - stickyHeaderHeightPx - VISIBLE_RANGE_FUDGE_PX;
-    const next = Math.max(
-      minHourHeightPx,
-      available / AGENDA_DEFAULT_VISIBLE_HOURS,
-    );
-    setHourHeightPx(next);
-  }, [agendaViewportHeightPx, stickyHeaderHeightPx, minHourHeightPx]);
+    if (available <= 0) {
+      setHourHeightPx(ABSOLUTE_MIN_HOUR_HEIGHT_PX);
+      return;
+    }
+    const fitted = available / AGENDA_DEFAULT_VISIBLE_HOURS;
+    setHourHeightPx(Math.max(ABSOLUTE_MIN_HOUR_HEIGHT_PX, fitted));
+  }, [agendaViewportHeightPx, stickyHeaderHeightPx]);
 
   // Positionne le scroll sur 7h (les heures avant restent accessibles en scrollant).
   useEffect(() => {
@@ -921,14 +1179,6 @@ export function GoogleAgendaPlanningView({
             }}
           >
             {allDaySpanLayout.spans.map((span) => {
-              const ev = span.event;
-              const palette = googleAgendaEventStyle(
-                ev.backgroundColor,
-                ev.foregroundColor,
-                ev.colorId,
-                ev.calendarColorId,
-                ev.colorSource,
-              );
               const n = weekDates.length;
               const leftPct = (span.startCol / n) * 100;
               const widthPct = ((span.endCol - span.startCol + 1) / n) * 100;
@@ -940,26 +1190,105 @@ export function GoogleAgendaPlanningView({
                 span.endCol,
                 todayIsoStr,
               );
+              const barStyle = {
+                left: `calc(${leftPct}% + 1px)`,
+                width: `calc(${widthPct}% - 2px)`,
+                top: span.row * ALL_DAY_ROW_PX + 1,
+                height: ALL_DAY_ROW_PX - 2,
+                borderTopLeftRadius: radiusLeft,
+                borderBottomLeftRadius: radiusLeft,
+                borderTopRightRadius: radiusRight,
+                borderBottomRightRadius: radiusRight,
+              } as const;
+              const textCls = isCompactAgenda
+                ? "text-[8px] px-0.5"
+                : "text-[9px] sm:text-[10px] px-1";
+
+              if (span.event.kind === "extra") {
+                const ex = span.event.occurrence;
+                const extraPalette = isAllDayPast
+                  ? googleAgendaPastEventStyle(
+                      {
+                        bg: "#f59e0b",
+                        border: "#f59e0b",
+                        text: "#ffffff",
+                      },
+                      0.68,
+                    )
+                  : {
+                      bg: "rgba(245, 158, 11, 0.88)",
+                      border: "rgba(253, 230, 138, 0.35)",
+                      text: "#ffffff",
+                    };
+                return (
+                  <div
+                    key={`allday-span-${span.eventId}`}
+                    draggable={!hideMealCards}
+                    onDragStart={(e) => {
+                      if (hideMealCards) return;
+                      dragPayloadRef.current = {
+                        kind: "extra",
+                        occurrenceKey: ex.occurrenceKey,
+                      };
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData(
+                        "application/x-agenda-extra",
+                        ex.occurrenceKey,
+                      );
+                      e.dataTransfer.setData("text/plain", ex.extraId);
+                    }}
+                    onDragEnd={() => {
+                      dragPayloadRef.current = null;
+                      setDragOverDay(null);
+                    }}
+                    className={`absolute flex items-center overflow-hidden font-semibold truncate border ${textCls} ${
+                      hideMealCards
+                        ? "pointer-events-none"
+                        : "cursor-grab active:cursor-grabbing pointer-events-auto"
+                    }`}
+                    style={{
+                      ...barStyle,
+                      backgroundColor: extraPalette.bg,
+                      borderColor: extraPalette.border,
+                      color: extraPalette.text,
+                      zIndex: 2,
+                    }}
+                    title={
+                      ex.slot === "extra"
+                        ? `⭐ ${ex.label} (journée — glisse pour horodater)`
+                        : `⭐ ${ex.label} · ${ex.slot} (journée — glisse pour horodater)`
+                    }
+                  >
+                    <span
+                      className={isAllDayPast ? "opacity-40 grayscale" : undefined}
+                      aria-hidden
+                    >
+                      ⭐
+                    </span>{" "}
+                    {span.summary}
+                  </div>
+                );
+              }
+
+              const ev = span.event.google;
+              const palette = googleAgendaEventStyle(
+                ev.backgroundColor,
+                ev.foregroundColor,
+                ev.colorId,
+                ev.calendarColorId,
+                ev.colorSource,
+              );
               const displayPalette = isAllDayPast
                 ? googleAgendaPastEventStyle(palette)
                 : palette;
               return (
                 <div
                   key={`allday-span-${span.eventId}`}
-                  className={`absolute flex items-center overflow-hidden font-semibold truncate pointer-events-none ${
-                    isCompactAgenda ? "text-[8px] px-0.5" : "text-[9px] sm:text-[10px] px-1"
-                  }`}
+                  className={`absolute flex items-center overflow-hidden font-semibold truncate pointer-events-none ${textCls}`}
                   style={{
-                    left: `calc(${leftPct}% + 1px)`,
-                    width: `calc(${widthPct}% - 2px)`,
-                    top: span.row * ALL_DAY_ROW_PX + 1,
-                    height: ALL_DAY_ROW_PX - 2,
+                    ...barStyle,
                     backgroundColor: displayPalette.bg,
                     color: displayPalette.text,
-                    borderTopLeftRadius: radiusLeft,
-                    borderBottomLeftRadius: radiusLeft,
-                    borderTopRightRadius: radiusRight,
-                    borderBottomRightRadius: radiusRight,
                   }}
                   title={span.summary}
                 >
@@ -1198,7 +1527,7 @@ export function GoogleAgendaPlanningView({
                         width: `calc(${geom.widthPct}% - ${edgePx}px)`,
                         backgroundColor: displayPalette.bg,
                         color: displayPalette.text,
-                        // Au-dessus des repas/extras (z-10) ; pointer-events-none laisse le drag repas
+                        // Sous les repas (z-30+) ; pointer-events-none laisse le drag repas
                         zIndex: 20 + geom.zIndex,
                         boxShadow: ev.col > 0 ? "-2px 0 6px rgba(0,0,0,0.18)" : undefined,
                       }}
@@ -1225,62 +1554,285 @@ export function GoogleAgendaPlanningView({
                 })}
 
                 {!hideMealCards &&
-                  (mealsByDay[day.iso] || []).map((pm) => {
-                    const minutes = resolveAgendaMinutesForMeal(pm.id, pm.meal_time, agendaTimes);
-                    const colorIngredients = pm.meals?.ingredients?.trim()
-                      ? pm.meals.ingredients
-                      : pm.ingredients_override;
-                    const color = getMealColor(colorIngredients ?? null, pm.meals?.name || "Repas");
-                    const mealPast = isAgendaEventPast(
-                      day.iso,
-                      todayIsoStr,
-                      minutes + AGENDA_EVENT_DURATION_MIN,
-                      nowMinutes,
+                  (() => {
+                    const dayLaidOut = laidOutGoogleByDay[day.iso] || [];
+                    const dayMeals = mealsByDay[day.iso] || [];
+                    const dayExtras = extrasByDay[day.iso] || [];
+                    const gouterMeals = dayMeals.filter((pm) => pm.meal_time === "gouter");
+                    const gouterExtras = dayExtras.filter((ex) => ex.slot === "gouter");
+                    const gouterMode = resolveGouterAgendaMode(
+                      gouterMeals.length,
+                      gouterExtras.length,
                     );
-                    const mealBg = mealPast ? mixCssColorTowardCanvas(color, 0.7) : color;
-                    return (
-                      <div
-                        key={`meal-${pm.id}`}
-                        draggable
-                        onDragStart={(e) => {
-                          dragPayloadRef.current = { kind: "meal", pmId: pm.id };
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("pmId", pm.id);
-                          e.dataTransfer.setData("application/x-planning-pmid", pm.id);
-                          e.dataTransfer.setData("mealId", pm.meal_id);
-                        }}
-                        onDragEnd={() => {
-                          dragPayloadRef.current = null;
-                          setDragOverDay(null);
-                        }}
-                        className="absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing shadow-md border border-white/25 overflow-hidden"
-                        style={{
-                          ...blockStyle(minutes, AGENDA_EVENT_DURATION_MIN, hourHeightPx),
-                          backgroundColor: mealBg,
-                          opacity: 0.92,
-                        }}
-                        title={`${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)}`}
-                      >
-                        <div
-                          className={`text-[9px] sm:text-[10px] font-bold leading-tight truncate ${
-                            mealPast ? "text-white/65" : "text-white/95"
-                          }`}
-                        >
-                          {getCategoryEmoji(pm.meals?.category)} {pm.meals?.name || "Repas"}
-                        </div>
-                        <div
-                          className={`text-[8px] sm:text-[9px] ${
-                            mealPast ? "text-white/45" : "text-white/75"
-                          }`}
-                        >
-                          {formatAgendaClock(minutes)} · {pm.meal_time}
-                        </div>
-                      </div>
+                    const nonGouterMeals = dayMeals.filter((pm) => pm.meal_time !== "gouter");
+                    const mangerAlignments = assignMealsToMangerEvents(
+                      nonGouterMeals,
+                      dayLaidOut.map((ev) => ({
+                        id: ev.id,
+                        summary: ev.summary ?? "",
+                        startMin: ev.startMin,
+                        durationMin: ev.durationMin,
+                        reminderMinutesBefore:
+                          ev.reminderMinutesBefore ??
+                          resolveReminderMinutesBefore(ev.reminders) ??
+                          null,
+                        col: ev.col,
+                        colCount: ev.colCount,
+                        clusterId: ev.clusterId,
+                      })),
                     );
-                  })}
+
+                    /** Rend une carte repas classique (hors goûter combiné). */
+                    const renderMealCard = (pm: PossibleMeal) => {
+                      const alignment = mangerAlignments.get(pm.id);
+                      const minutes =
+                        alignment?.startMin ??
+                        resolveAgendaMinutesForMeal(pm.id, pm.meal_time, agendaTimes);
+                      let durationMin =
+                        alignment?.durationMin ?? AGENDA_EVENT_DURATION_MIN;
+                      const onManger = alignment != null;
+                      // Hors « Manger » : toujours 1 h (pas d’agrandissement selon les extras)
+                      if (!onManger) {
+                        durationMin = AGENDA_EVENT_DURATION_MIN;
+                      }
+                      // Extras du créneau (sans heure perso) → pastilles sur la 1re carte du créneau
+                      const slotKey = pm.meal_time;
+                      const mealsOfSlot = slotKey
+                        ? nonGouterMeals
+                            .filter((m) => m.meal_time === slotKey)
+                            .sort((a, b) => a.id.localeCompare(b.id))
+                        : [];
+                      const isPrimaryOfSlot = mealsOfSlot[0]?.id === pm.id;
+                      const slotExtrasForChips =
+                        isPrimaryOfSlot && slotKey
+                          ? dayExtras.filter(
+                              (ex) =>
+                                ex.slot === slotKey &&
+                                !hasExtraAgendaCustomTime(
+                                  ex.occurrenceKey,
+                                  extraAgendaTimes,
+                                ),
+                            )
+                          : [];
+                      const chips = groupExtrasAsChips(slotExtrasForChips);
+                      const colorIngredients = pm.meals?.ingredients?.trim()
+                        ? pm.meals.ingredients
+                        : pm.ingredients_override;
+                      const color = getMealColor(
+                        colorIngredients ?? null,
+                        pm.meals?.name || "Repas",
+                      );
+                      const mealPast = isAgendaEventPast(
+                        day.iso,
+                        todayIsoStr,
+                        minutes + durationMin,
+                        nowMinutes,
+                      );
+                      const mealBg = mealPast
+                        ? mixCssColorTowardCanvas(color, 0.7)
+                        : color;
+                      const pos = blockStyle(minutes, durationMin, hourHeightPx);
+                      let leftStyle: string | undefined;
+                      let widthStyle: string | undefined;
+                      let zIndex = MEAL_CARD_Z_INDEX;
+                      if (onManger && alignment) {
+                        const clusterBlocks = dayLaidOut.filter(
+                          (e) => e.clusterId === alignment.clusterId,
+                        );
+                        const hostEv = dayLaidOut.find((e) => e.id === alignment.eventId);
+                        if (hostEv) {
+                          const geom = agendaOverlapGeometryForBlock(
+                            hostEv,
+                            clusterBlocks,
+                            hourHeightPx,
+                            dayColumnWidthPx,
+                          );
+                          const edgePx = isCompactAgenda ? 1 : 2;
+                          leftStyle = `calc(${geom.leftPct}% + 0px)`;
+                          widthStyle = `calc(${geom.widthPct}% - ${edgePx}px)`;
+                          zIndex = MEAL_CARD_Z_INDEX + geom.zIndex;
+                        }
+                      }
+                      return (
+                        <div
+                          key={`meal-${pm.id}`}
+                          draggable
+                          onDragStart={(e) => {
+                            dragPayloadRef.current = { kind: "meal", pmId: pm.id };
+                            e.dataTransfer.effectAllowed = "move";
+                            e.dataTransfer.setData("pmId", pm.id);
+                            e.dataTransfer.setData("application/x-planning-pmid", pm.id);
+                            e.dataTransfer.setData("mealId", pm.meal_id);
+                          }}
+                          onDragEnd={() => {
+                            dragPayloadRef.current = null;
+                            setDragOverDay(null);
+                          }}
+                          className={
+                            onManger
+                              ? "absolute flex flex-col rounded-md px-0.5 py-px cursor-grab active:cursor-grabbing border border-white/20 overflow-hidden"
+                              : "absolute left-px right-px flex flex-col rounded-md px-0.5 py-px cursor-grab active:cursor-grabbing border border-white/20 overflow-hidden"
+                          }
+                          style={{
+                            top: pos.top,
+                            height: pos.height,
+                            zIndex,
+                            ...(onManger && leftStyle != null
+                              ? { left: leftStyle, width: widthStyle }
+                              : {}),
+                            backgroundColor: onManger
+                              ? mealBg
+                              : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
+                          }}
+                          title={
+                            onManger
+                              ? `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} (${durationMin} min, sur Manger)`
+                              : `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)}`
+                          }
+                        >
+                          <AgendaMealCardBody
+                            title={`${getCategoryEmoji(pm.meals?.category)} ${pm.meals?.name || "Repas"}`}
+                            timeLabel={formatAgendaClock(minutes)}
+                            chips={chips}
+                            mealPast={mealPast}
+                            cardHeightPx={Math.max(
+                              0,
+                              agendaBlockHeightPx(durationMin, hourHeightPx) - 2,
+                            )}
+                          />
+                        </div>
+                      );
+                    };
+
+                    /** Carte synthétique « Goûter » (extras seuls ou repas + extras). */
+                    const renderGouterCompositeCard = () => {
+                      const anchorMeal = gouterMeals[0];
+                      const minutes = anchorMeal
+                        ? resolveAgendaMinutesForMeal(
+                            anchorMeal.id,
+                            "gouter",
+                            agendaTimes,
+                          )
+                        : resolveAgendaMinutesForExtra(
+                            gouterExtras[0]?.occurrenceKey ?? "gouter",
+                            "gouter",
+                            extraAgendaTimes,
+                          );
+                      const mealChips: MealCardChip[] =
+                        gouterMode === "combined"
+                          ? gouterMeals.map((pm) => ({
+                              id: `meal-${pm.id}`,
+                              label: pm.meals?.name || "Repas",
+                              count: 1,
+                            }))
+                          : [];
+                      const extraChips = groupExtrasAsChips(gouterExtras);
+                      const chips = [...mealChips, ...extraChips];
+                      // Goûter hors Manger : hauteur fixe 1 h
+                      const durationMin = AGENDA_EVENT_DURATION_MIN;
+                      const mealPast = isAgendaEventPast(
+                        day.iso,
+                        todayIsoStr,
+                        minutes + durationMin,
+                        nowMinutes,
+                      );
+                      const color = anchorMeal
+                        ? getMealColor(
+                            (anchorMeal.meals?.ingredients?.trim()
+                              ? anchorMeal.meals.ingredients
+                              : anchorMeal.ingredients_override) ?? null,
+                            anchorMeal.meals?.name || "Goûter",
+                          )
+                        : GOUTER_CARD_COLOR;
+                      const mealBg = mealPast
+                        ? mixCssColorTowardCanvas(color, 0.7)
+                        : color;
+                      const pos = blockStyle(minutes, durationMin, hourHeightPx);
+
+                      return (
+                        <div
+                          key={`gouter-composite-${day.iso}`}
+                          draggable={Boolean(anchorMeal)}
+                          onDragStart={
+                            anchorMeal
+                              ? (e) => {
+                                  dragPayloadRef.current = {
+                                    kind: "meal",
+                                    pmId: anchorMeal.id,
+                                  };
+                                  e.dataTransfer.effectAllowed = "move";
+                                  e.dataTransfer.setData("pmId", anchorMeal.id);
+                                  e.dataTransfer.setData(
+                                    "application/x-planning-pmid",
+                                    anchorMeal.id,
+                                  );
+                                  e.dataTransfer.setData("mealId", anchorMeal.meal_id);
+                                }
+                              : undefined
+                          }
+                          onDragEnd={() => {
+                            dragPayloadRef.current = null;
+                            setDragOverDay(null);
+                          }}
+                          className={`absolute left-px right-px flex flex-col rounded-md px-0.5 py-px border border-white/25 overflow-hidden ${
+                            anchorMeal
+                              ? "cursor-grab active:cursor-grabbing"
+                              : "cursor-default"
+                          }`}
+                          style={{
+                            top: pos.top,
+                            height: pos.height,
+                            zIndex: MEAL_CARD_Z_INDEX,
+                            backgroundColor: withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
+                          }}
+                          title={`Goûter · ${formatAgendaClock(minutes)}`}
+                        >
+                          <AgendaMealCardBody
+                            title="Goûter"
+                            timeLabel={formatAgendaClock(minutes)}
+                            chips={chips}
+                            mealPast={mealPast}
+                            cardHeightPx={Math.max(
+                              0,
+                              agendaBlockHeightPx(durationMin, hourHeightPx) - 2,
+                            )}
+                          />
+                        </div>
+                      );
+                    };
+
+                    const nodes: ReactNode[] = [];
+
+                    if (gouterMode === "extras-only" || gouterMode === "combined") {
+                      nodes.push(renderGouterCompositeCard());
+                    }
+                    if (gouterMode === "meals-only") {
+                      for (const pm of gouterMeals) nodes.push(renderMealCard(pm));
+                    }
+                    for (const pm of nonGouterMeals) nodes.push(renderMealCard(pm));
+
+                    return nodes;
+                  })()}
 
                 {!hideMealCards &&
-                  (extrasByDay[day.iso] || []).map((ex) => {
+                  (extrasByDay[day.iso] || [])
+                    .filter((ex) => {
+                      // Goûter : déjà sur la carte « Goûter »
+                      if (ex.slot === "gouter") return false;
+                      // matin/midi/soir sans heure perso : déjà pastille sur la carte repas
+                      if (
+                        (ex.slot === "matin" ||
+                          ex.slot === "midi" ||
+                          ex.slot === "soir") &&
+                        !hasExtraAgendaCustomTime(ex.occurrenceKey, extraAgendaTimes)
+                      ) {
+                        return !(mealsByDay[day.iso] || []).some(
+                          (pm) => pm.meal_time === ex.slot,
+                        );
+                      }
+                      return hasExtraAgendaCustomTime(ex.occurrenceKey, extraAgendaTimes);
+                    })
+                    .map((ex) => {
                     const minutes = resolveAgendaMinutesForExtra(
                       ex.occurrenceKey,
                       ex.slot,

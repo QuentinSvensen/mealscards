@@ -494,6 +494,17 @@ export function mixCssColorTowardCanvas(css: string, towardCanvas: number = 0.62
 }
 
 /**
+ * Applique une transparence alpha à une couleur CSS (hex / rgb / hsl)
+ * pour laisser voir le contenu sous la carte repas.
+ */
+export function withCssAlpha(css: string, alpha: number): string {
+  const rgb = parseCssColor(css);
+  if (!rgb) return css;
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`;
+}
+
+/**
  * Style événement passé façon Google Agenda sombre :
  * fond assombri / désaturé vers le canvas, texte atténué — sans baisser l’opacité.
  */

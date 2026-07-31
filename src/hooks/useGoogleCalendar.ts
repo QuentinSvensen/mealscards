@@ -25,6 +25,16 @@ export interface GoogleCalendarEvent {
   backgroundColor: string | null;
   /** Couleur de texte (optionnelle). */
   foregroundColor: string | null;
+  /**
+   * Minutes avant le début de l’événement où part la notification
+   * (rappel popup/email Google), ou null s’il n’y en a pas.
+   */
+  reminderMinutesBefore?: number | null;
+  /** Rappels bruts Google (secours si reminderMinutesBefore absente). */
+  reminders?: {
+    useDefault?: boolean;
+    overrides?: Array<{ method?: string; minutes?: number }>;
+  } | null;
 }
 
 async function getAccessToken(): Promise<string | null> {

@@ -115,7 +115,12 @@ export function resolveExtraSlotAfterAgendaMove(
   previousSlot: string | null | undefined,
   minutes: number,
 ): ExtraDaySlot {
-  return resolveMealTimeAfterAgendaMove(previousSlot, minutes);
+  const next = resolveMealTimeAfterAgendaMove(previousSlot, minutes);
+  // « extra » (colonne EXTRA) n’est pas un créneau repas : on dérive de l’heure
+  if (next === "gouter" || next === "matin" || next === "midi" || next === "soir") {
+    return next;
+  }
+  return mealTimeFromMinutesOnly(minutes);
 }
 
 /**
@@ -158,6 +163,18 @@ export function resolveAgendaMinutesForExtra(
     return snapMinutes(stored);
   }
   return defaultMinutesForMealTime(slot);
+}
+
+/**
+ * Indique si un extra a une heure agenda personnalisée
+ * (déplacé sur la grille) ; sinon il s’affiche en événement journée.
+ */
+export function hasExtraAgendaCustomTime(
+  occurrenceKey: string,
+  agendaTimes: Record<string, number>,
+): boolean {
+  const stored = agendaTimes[occurrenceKey];
+  return typeof stored === "number" && Number.isFinite(stored);
 }
 
 /**
