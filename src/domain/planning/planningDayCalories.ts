@@ -114,12 +114,19 @@ export function computePlanningDayTotalCalories(
     dessertExtraStockSnapshots,
   );
 
-  const getMealsForSlot = (time: string) =>
-    planningMeals.filter(
-      (pm) =>
-        (pm.day_of_week === dayKey || (isoDate && pm.day_of_week === isoDate)) &&
-        pm.meal_time === time,
+  const getMealsForSlot = (time: string) => {
+    // Priorité ISO (comme filterBackupCardsForDisplayDay) — évite de compter
+    // deux fois la même carte si elle existe en ISO et en clé « lundi ».
+    if (isoDate) {
+      const byIso = planningMeals.filter(
+        (pm) => pm.day_of_week === isoDate && pm.meal_time === time,
+      );
+      if (byIso.length > 0) return byIso;
+    }
+    return planningMeals.filter(
+      (pm) => pm.day_of_week === dayKey && pm.meal_time === time,
     );
+  };
 
   const slotTimes = [...PLANNING_DAY_SLOTS] as string[];
   const mealCals = slotTimes.reduce((total, time) => {
@@ -141,17 +148,14 @@ export function computePlanningDayTotalCalories(
   if (selId?.startsWith("pm:")) {
     const pmId = selId.slice(3);
     const possiblePdj = possibleMeals.find((pm) => pm.id === pmId);
-    if (
-      possiblePdj &&
-      (possiblePdj.day_of_week === dayKey || (isoDate && possiblePdj.day_of_week === isoDate)) &&
-      possiblePdj.meal_time === "matin"
-    ) {
-      breakfastCal = 0;
-    } else {
-      breakfastCal = possiblePdj
+    // Évite le double compte si la carte est déjà dans le créneau matin
+    const alreadyInMatin = possiblePdj
+      ? getMealsForSlot("matin").some((pm) => pm.id === possiblePdj.id)
+      : false;
+    breakfastCal =
+      possiblePdj && !alreadyInMatin
         ? cardDisplayCalories(possiblePdj, undefined, isAvailable)
         : 0;
-    }
   } else if (selId?.startsWith("meal:")) {
     const mealId = selId.slice(5);
     const breakfast =

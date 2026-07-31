@@ -125,17 +125,21 @@ export function resolveArchivedIsoForDisplay(
   return displayToArchivedIso[displayIso] ?? displayIso;
 }
 
-/** Filtre les cartes d’un jour affiché (ISO archivé en priorité ; clé jour seulement en repli). */
+/** Filtre les cartes d’un jour affiché (ISO affiché / récupéré en priorité ; sinon archivé ; clé jour en repli). */
 export function filterBackupCardsForDisplayDay(
   cards: PossibleMealBackupCard[],
   displayIso: string,
   displayKey: string,
   archivedIso: string,
 ): PossibleMealBackupCard[] {
-  const isoMatches = cards.filter(
-    (c) => c.day_of_week === archivedIso || c.day_of_week === displayIso,
-  );
-  if (isoMatches.length > 0) return isoMatches;
+  // Ne jamais unionner display + archived : les deux semaines peuvent
+  // coexister après prepareBackup et doubler les kcal du jour.
+  if (displayIso !== archivedIso) {
+    const byDisplay = cards.filter((c) => c.day_of_week === displayIso);
+    if (byDisplay.length > 0) return byDisplay;
+  }
+  const byArchived = cards.filter((c) => c.day_of_week === archivedIso);
+  if (byArchived.length > 0) return byArchived;
   return cards.filter((c) => c.day_of_week === displayKey);
 }
 

@@ -469,11 +469,18 @@ export function useCalorieBalance(isAvailable?: (name: string) => boolean) {
   const getDayCalories = (dayKey: string, isoDate?: string): number =>
     computePlanningDayTotalCalories(resolveCalorieStateForIso(isoDate), dayKey, isoDate);
 
-  const getMealsForSlot = (dayKey: string, time: string, isoDate?: string) =>
-    planningMeals.filter((pm) =>
-      (pm.day_of_week === dayKey || (isoDate && pm.day_of_week === isoDate)) &&
-      pm.meal_time === time,
+  const getMealsForSlot = (dayKey: string, time: string, isoDate?: string) => {
+    // Priorité ISO pour éviter de compter deux fois ISO + clé jour
+    if (isoDate) {
+      const byIso = planningMeals.filter(
+        (pm) => pm.day_of_week === isoDate && pm.meal_time === time,
+      );
+      if (byIso.length > 0) return byIso;
+    }
+    return planningMeals.filter(
+      (pm) => pm.day_of_week === dayKey && pm.meal_time === time,
     );
+  };
 
   /**
    * Résout un ID de sélection de petit-déjeuner en un objet Meal,

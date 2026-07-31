@@ -63,6 +63,7 @@ export async function diagPlanning(): Promise<Record<string, unknown>> {
     nextExtraCal,
     goalsHistory,
     lastResetReport,
+    calorieHistory,
   ] = await Promise.all([
     fetchPref(userId, "possible_meals_backup"),
     fetchPref(userId, "planning_saved_snapshots"),
@@ -76,6 +77,7 @@ export async function diagPlanning(): Promise<Record<string, unknown>> {
     fetchPref(userId, "next_week_extra_calories"),
     fetchPref(userId, PLANNING_WEEKLY_GOALS_HISTORY_KEY),
     fetchPref(userId, PLANNING_LAST_RESET_REPORT_KEY),
+    fetchPref(userId, "planning_daily_calorie_history"),
   ]);
 
   const { data: livePossible, error: pmError } = await supabase

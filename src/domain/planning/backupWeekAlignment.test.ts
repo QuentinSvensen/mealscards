@@ -104,6 +104,36 @@ describe("backupWeekAlignment", () => {
     expect(dayCards).toHaveLength(1);
   });
 
+  it("ne fusionne pas ISO affiché et ISO archivé (évite le double compte)", () => {
+    const cards = [
+      {
+        id: "a",
+        meal_id: "m1",
+        day_of_week: "2026-07-14",
+        meal_time: "midi",
+      },
+      {
+        id: "b",
+        meal_id: "m2",
+        day_of_week: "2026-07-20",
+        meal_time: "midi",
+      },
+    ] as any[];
+    // Priorité à l'ISO affiché quand il diffère de l'archivé
+    expect(
+      filterBackupCardsForDisplayDay(cards, "2026-07-20", "lundi", "2026-07-14").map((c) => c.id),
+    ).toEqual(["b"]);
+    // Sans carte display → archivé seul (pas l'union)
+    expect(
+      filterBackupCardsForDisplayDay(
+        cards.filter((c) => c.id === "a"),
+        "2026-07-20",
+        "lundi",
+        "2026-07-14",
+      ).map((c) => c.id),
+    ).toEqual(["a"]);
+  });
+
   it("remappe les extras et saisies manuelles sur les ISO de la semaine affichée", () => {
     const backup = emptyBackup({
       weekStartISO: "2026-07-14",

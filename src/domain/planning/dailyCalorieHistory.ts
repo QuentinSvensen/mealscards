@@ -28,7 +28,8 @@ export function isIsoWithinRange(iso: string, startISO: string, endISO: string):
 
 /**
  * Fusionne de nouveaux totaux journaliers dans l'historique existant.
- * Avec `overwrite`, remplace les valeurs déjà présentes (reset hebdomadaire).
+ * Avec `overwrite`, remplace les valeurs déjà présentes (y compris à la baisse
+ * pour corriger un historique surévalué). Sans overwrite, ne remplit que les trous.
  */
 export function mergeDailyCalorieHistory(
   history: Record<string, number>,
@@ -39,7 +40,7 @@ export function mergeDailyCalorieHistory(
   for (const [iso, cal] of Object.entries(dayTotals)) {
     if (!isIsoDateString(iso) || cal <= 0) continue;
     if (options?.overwrite) {
-      next[iso] = Math.max(next[iso] ?? 0, cal);
+      next[iso] = cal;
     } else if (next[iso] == null || next[iso] <= 0) {
       next[iso] = cal;
     }

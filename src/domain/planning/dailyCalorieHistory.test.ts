@@ -34,9 +34,9 @@ describe("dailyCalorieHistory", () => {
     expect(merged["2026-07-07"]).toBe(2315);
   });
 
-  it("écrase l'historique avec la valeur la plus haute quand overwrite est demandé", () => {
+  it("écrase l'historique avec la valeur recalculée quand overwrite est demandé", () => {
     const merged = mergeDailyCalorieHistory(
-      { "2026-07-06": 1970 },
+      { "2026-07-06": 9000 },
       { "2026-07-06": 2305 },
       { overwrite: true },
     );
@@ -71,7 +71,7 @@ describe("dailyCalorieHistory", () => {
     });
   });
 
-  it("recalcule la semaine archivée et réhausse l'historique sous-évalué", () => {
+  it("recalcule la semaine archivée et remplace l'historique (même surévalué)", () => {
     const backup: PossibleMealsFullBackup = {
       cards: [],
       manualCalories: { "2026-07-12-soir": 2305 },
@@ -95,7 +95,7 @@ describe("dailyCalorieHistory", () => {
     };
 
     const filled = backfillDailyCalorieHistoryFromBackup(
-      { "2026-07-12": 1970 },
+      { "2026-07-12": 9000 },
       backup,
       { ...emptyCtx, manualCalories: backup.manualCalories },
       new Map(),

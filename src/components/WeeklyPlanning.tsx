@@ -71,6 +71,7 @@ import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import {
   ensurePreviousWeekCalorieHistory,
+  mergeDailyCalorieHistory,
   PLANNING_DAILY_CALORIE_HISTORY_KEY,
   resolveBackupWeekRange,
 } from "@/domain/planning/dailyCalorieHistory";
@@ -121,8 +122,8 @@ import { parseCalories, parseProtein, parsePositiveMacroOverride } from "@/domai
 import {
   computeRollingDayCalorieAverage,
   ROLLING_WINDOW_14_DAYS,
-  ROLLING_WINDOW_7_DAYS,
   parseBackupCalorieContext,
+  buildPreviousWeekBackupCalorieMap,
 } from "@/domain/planning/rollingCalorieAverage";
 import {
   aggregateExtraSelectionMacros,
@@ -1883,7 +1884,7 @@ export function WeeklyPlanning({
       backupRaw && typeof backupRaw === "object" && !Array.isArray(backupRaw)
         ? (backupRaw as PossibleMealsFullBackup)
         : null;
-    return ensurePreviousWeekCalorieHistory(
+    const base = ensurePreviousWeekCalorieHistory(
       asNumberRecord(getPreference<unknown>(PLANNING_DAILY_CALORIE_HISTORY_KEY, null)),
       backupFull,
       backupCtx,
@@ -1895,6 +1896,27 @@ export function WeeklyPlanning({
       ingredientMacroLibrary,
       isAvailableCb,
     );
+    // Écrase avec les totaux alignés (même logique que le footer semaine précédente)
+    const alignedPrev = buildPreviousWeekBackupCalorieMap(
+      backupFull,
+      backupCtx,
+      allMealsById,
+      foodItems,
+      isAvailableCb,
+      foodMacroIndex,
+      {
+        dessertFoodItemIds,
+        dessertExtraStockSnapshots,
+        macroLibrary: ingredientMacroLibrary,
+      },
+      new Date(),
+      possibleMeals,
+    );
+    const alignedTotals: Record<string, number> = {};
+    alignedPrev.forEach((cal, iso) => {
+      alignedTotals[iso] = cal;
+    });
+    return mergeDailyCalorieHistory(base, alignedTotals, { overwrite: true });
   }, [
     getPreference,
     calOverrides,
@@ -1905,6 +1927,8 @@ export function WeeklyPlanning({
     dessertExtraStockSnapshots,
     ingredientMacroLibrary,
     isAvailableCb,
+    foodMacroIndex,
+    possibleMeals,
   ]);
 
   useEffect(() => {
@@ -1927,30 +1951,25 @@ export function WeeklyPlanning({
       currentWeekIsos,
       dailyCalorieHistory: repairedDailyCalorieHistory,
       backupCtx,
+      backupFull,
       backupWeekRange: resolveBackupWeekRange(backupFull),
       mealsById: allMealsById,
       foodItems,
       isAvailable: isAvailableCb,
       foodMacroIndex,
+      possibleMeals,
       extraMacroParams: {
         dessertFoodItemIds,
         dessertExtraStockSnapshots,
         macroLibrary: ingredientMacroLibrary,
       },
     };
-    const rolling7 = computeRollingDayCalorieAverage({
-      ...rollingParams,
-      rollingDays: ROLLING_WINDOW_7_DAYS,
-    });
     const rolling14 = computeRollingDayCalorieAverage({
       ...rollingParams,
       rollingDays: ROLLING_WINDOW_14_DAYS,
     });
     return {
-      rolling7DayAvg: rolling7.average,
-      rolling7DaysCounted: rolling7.daysCounted,
       rolling14DayAvg: rolling14.average,
-      rolling14DaysCounted: rolling14.daysCounted,
     };
   }, [
     getDayCalories,
@@ -1964,15 +1983,11 @@ export function WeeklyPlanning({
     dessertFoodItemIds,
     dessertExtraStockSnapshots,
     ingredientMacroLibrary,
+    possibleMeals,
     repairedDailyCalorieHistory,
   ]);
 
-  const {
-    rolling7DayAvg,
-    rolling7DaysCounted,
-    rolling14DayAvg,
-    rolling14DaysCounted,
-  } = rollingCalorieStats;
+  const { rolling14DayAvg } = rollingCalorieStats;
 
   const handleGlobalCalBlur = (val: number) => {
     if (weekOffset === 1) setPreference.mutate({ key: "next_week_daily_goal", value: val });
@@ -2729,10 +2744,7 @@ export function WeeklyPlanning({
               displayGoalHigh={WEEKLY_GOAL}
               hideDayCalorieTotals={hideDayCalorieTotals}
               weekDayScale={DEFAULT_WEEKLY_MULTIPLIER}
-              rolling7DayAvg={rolling7DayAvg}
-              rolling7DaysCounted={rolling7DaysCounted}
               rolling14DayAvg={rolling14DayAvg}
-              rolling14DaysCounted={rolling14DaysCounted}
             />
           );
         })()}
