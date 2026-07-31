@@ -1493,6 +1493,45 @@ export function WeeklyPlanning({
     setPreference.mutate({ key: PLANNING_EXTRA_AGENDA_TIMES_KEY, value: updatedTimes });
   };
 
+  /**
+   * Déplace la carte « Goûter » (extras seuls) : même heure pour toutes les occurrences,
+   * en une seule écriture des préférences agenda.
+   */
+  const handleAgendaMoveGouterExtras = (
+    occurrences: AgendaExtraOccurrence[],
+    dayIso: string,
+    dayKey: string,
+    minutes: number,
+  ) => {
+    if (occurrences.length === 0) return;
+    const snapped = snapMinutes(minutes);
+    const updatedTimes = { ...extraAgendaTimes };
+
+    for (const occurrence of occurrences) {
+      const nextSlot = resolveExtraSlotAfterAgendaMove(occurrence.slot, snapped);
+      if (occurrence.dayIso === dayIso && occurrence.dayKey === dayKey) {
+        assignExtraToDaySlot(occurrence.extraId, dayIso, dayKey, nextSlot);
+      } else {
+        moveExtraBetweenDaysToSlot(
+          occurrence.extraId,
+          occurrence.dayIso,
+          occurrence.dayKey,
+          dayIso,
+          dayKey,
+          nextSlot,
+        );
+      }
+      const nextIndex = occurrence.slot === "extra" ? 0 : occurrence.occurrenceIndex;
+      const nextKey = buildExtraAgendaOccurrenceKey(dayIso, occurrence.extraId, nextIndex);
+      if (occurrence.occurrenceKey !== nextKey) {
+        delete updatedTimes[occurrence.occurrenceKey];
+      }
+      updatedTimes[nextKey] = snapped;
+    }
+
+    setPreference.mutate({ key: PLANNING_EXTRA_AGENDA_TIMES_KEY, value: updatedTimes });
+  };
+
   // Garantit qu'un extra est sélectionné pour un jour de la semaine suivante.
   const ensureNextExtraSelectedForDay = (extraId: string, iso: string, key: string) => {
     if (!extraId) return;
@@ -2214,6 +2253,7 @@ export function WeeklyPlanning({
           hideMealCards={hideAgendaMealCards}
           onMoveMeal={handleAgendaMoveMeal}
           onMoveExtra={handleAgendaMoveExtra}
+          onMoveGouterExtras={handleAgendaMoveGouterExtras}
           weekOffset={agendaWeekOffset}
           onWeekOffsetChange={setAgendaWeekOffset}
         />

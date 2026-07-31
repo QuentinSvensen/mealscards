@@ -1,7 +1,7 @@
 /**
  * Modes d’affichage du créneau Goûter dans la vue Google Agenda :
- * extras seuls → carte « Goûter » ; repas seuls → cartes classiques ;
- * repas + extras → une carte « Goûter » avec titres repas en pastilles.
+ * extras seuls → carte « Goûter » déplaçable ;
+ * repas (seuls ou + extras) → cartes repas classiques déplaçables (extras en pastilles).
  */
 
 export type GouterAgendaMode = "none" | "extras-only" | "meals-only" | "combined";
