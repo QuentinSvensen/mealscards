@@ -2,7 +2,7 @@
  * Vue Planning « Google Agenda » : grille horaire hebdo style Google Calendar
  * en légère transparence, avec cartes repas/extras déplaçables synchronisées.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
 import { format, parseISO, isToday } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -86,13 +86,43 @@ function groupExtrasAsChips(
   return groups;
 }
 
+/**
+ * Affiche le titre repas avec l’emoji collé au 1er mot (même ligne au wrap).
+ * Ex. « 🍽️ Cookie maison » → « 🍽️ Cookie » ensemble, « maison » peut passer en dessous.
+ */
+function MealCardTitleLabel({ title }: { title: string }) {
+  const trimmed = title.trim();
+  const parts = trimmed.split(/\s+/);
+  if (parts.length < 2) return <>{trimmed}</>;
+  const [emojiOrFirst, firstWord, ...rest] = parts;
+  const glued = `${emojiOrFirst}\u00A0${firstWord}`;
+  const tail = rest.length > 0 ? ` ${rest.join(" ")}` : "";
+  return (
+    <>
+      <span className="whitespace-nowrap">{glued}</span>
+      {tail}
+    </>
+  );
+}
+
 /** Hauteur (px) sous laquelle titre + heure ne tiennent plus empilés → heure à droite. */
 const MEAL_CARD_STACK_MIN_HEIGHT_PX = 28;
 /** Taille min / max (px) du texte des pastilles extras. */
-const CHIP_FONT_MIN_PX = 7;
+const CHIP_FONT_MIN_PX = 6;
 const CHIP_FONT_MAX_PX = 9;
+/** Plafond pastilles en colonne agenda étroite (mobile). */
+const CHIP_FONT_MAX_COMPACT_PX = 11;
 /** Hauteur max (px) d’une pastille extra (évite qu’une seule pastille mange toute la carte). */
 const CHIP_ROW_MAX_PX = 18;
+const CHIP_ROW_MAX_COMPACT_PX = 16;
+/** Police min du titre repas (mobile, fit dans la carte). */
+const MEAL_TITLE_FONT_MIN_PX = 5;
+/**
+ * Plafond titre repas mobile.
+ * Évite que les cartes hautes (ex. « Pain », « Avant grimpe ») paraissent
+ * beaucoup plus grosses que les cartes plus basses / titres longs.
+ */
+const MEAL_TITLE_FONT_MAX_COMPACT_PX = 9;
 /**
  * Opacité du contenu (texte + emoji) des repas passés.
  * Plus basse que 0.58 : les events passés mélangent le texte vers le canvas (0.42)
@@ -109,9 +139,69 @@ const MEAL_CARD_BORDER_PAST = "border border-white/[0.08]";
 const MEAL_CARD_BORDER_UPCOMING = "border border-white/20";
 
 /**
+ * Trouve la plus grande police (px) pour laquelle le contenu tient
+ * entièrement dans maxWidth × maxHeight (les bords de la carte = murs).
+ */
+function fitTextFontPx(
+  el: HTMLElement,
+  minPx: number,
+  maxPx: number,
+  maxWidth: number,
+  maxHeight: number,
+  singleLine: boolean,
+): number {
+  if (maxWidth <= 1 || maxHeight <= 1) return minPx;
+  const prev = {
+    fontSize: el.style.fontSize,
+    lineHeight: el.style.lineHeight,
+    whiteSpace: el.style.whiteSpace,
+    width: el.style.width,
+    maxWidth: el.style.maxWidth,
+    height: el.style.height,
+    maxHeight: el.style.maxHeight,
+    overflow: el.style.overflow,
+    wordBreak: el.style.wordBreak,
+  };
+  el.style.width = `${Math.floor(maxWidth)}px`;
+  el.style.maxWidth = `${Math.floor(maxWidth)}px`;
+  el.style.height = "auto";
+  el.style.maxHeight = "none";
+  el.style.overflow = "visible";
+  el.style.whiteSpace = singleLine ? "nowrap" : "pre-wrap";
+  el.style.wordBreak = singleLine ? "normal" : "break-word";
+  let lo = minPx;
+  let hi = maxPx;
+  let best = minPx;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    el.style.fontSize = `${mid}px`;
+    el.style.lineHeight = singleLine ? "1.05" : "1.15";
+    const fits =
+      el.scrollWidth <= maxWidth + 1 && el.scrollHeight <= maxHeight + 1;
+    if (fits) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  el.style.fontSize = prev.fontSize;
+  el.style.lineHeight = prev.lineHeight;
+  el.style.whiteSpace = prev.whiteSpace;
+  el.style.width = prev.width;
+  el.style.maxWidth = prev.maxWidth;
+  el.style.height = prev.height;
+  el.style.maxHeight = prev.maxHeight;
+  el.style.overflow = prev.overflow;
+  el.style.wordBreak = prev.wordBreak;
+  return best;
+}
+
+/**
  * Contenu d’une carte repas / goûter agenda.
- * Les bords sont des murs : titre wrap à gauche, extras à droite qui se partagent
- * toute la hauteur (taille de police calculée pour être la plus grande possible).
+ * Desktop : titre à gauche, extras en pastilles à droite.
+ * Mobile : texte le plus grand possible sans dépasser ; avec extras =
+ * titre (wrap si besoin) puis pastilles en dessous.
  */
 function AgendaMealCardBody({
   title,
@@ -119,6 +209,7 @@ function AgendaMealCardBody({
   chips = [],
   mealPast,
   cardHeightPx,
+  compact = false,
 }: {
   title: string;
   timeLabel: string;
@@ -126,13 +217,22 @@ function AgendaMealCardBody({
   mealPast: boolean;
   /** Hauteur utile de la carte (px) pour choisir le layout. */
   cardHeightPx?: number;
+  /** Colonnes étroites (mobile) : fit texte + pas d’heure. */
+  compact?: boolean;
 }) {
   const hasChips = chips.length > 0;
   const chipsRef = useRef<HTMLDivElement>(null);
-  const [chipFontPx, setChipFontPx] = useState(CHIP_FONT_MAX_PX);
-  const [chipRowPx, setChipRowPx] = useState(CHIP_ROW_MAX_PX);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
+  const chipFontMax = compact ? CHIP_FONT_MAX_COMPACT_PX : CHIP_FONT_MAX_PX;
+  const chipRowMax = compact ? CHIP_ROW_MAX_COMPACT_PX : CHIP_ROW_MAX_PX;
+  const [chipFontPx, setChipFontPx] = useState(chipFontMax);
+  const [chipRowPx, setChipRowPx] = useState(chipRowMax);
+  const [titleFontPx, setTitleFontPx] = useState(
+    compact ? MEAL_TITLE_FONT_MIN_PX : 10,
+  );
 
-  const titleCls = `text-[9px] sm:text-[10px] font-bold leading-tight break-words text-white ${
+  const titleClsDesktop = `text-[9px] sm:text-[10px] font-bold leading-tight break-words text-white ${
     mealPast ? "" : "drop-shadow-sm"
   }`;
   const timeCls = `text-[8px] sm:text-[9px] font-semibold leading-tight shrink-0 text-white ${
@@ -148,11 +248,74 @@ function AgendaMealCardBody({
   const chipsKey = chips.map((c) => `${c.id}:${c.count}:${c.label}`).join("|");
 
   /**
-   * Calcule police + hauteur des pastilles extras (plafonnées pour ne pas
-   * devenir énormes quand une seule pastille a toute la hauteur).
+   * Mobile : calcule la plus grande police pour titre (+ extras) dans les murs de la carte.
    */
   useLayoutEffect(() => {
-    if (!hasChips) return;
+    if (!compact) return;
+    const body = bodyRef.current;
+    const titleEl = titleRef.current;
+    if (!body || !titleEl) return;
+
+    const update = () => {
+      const w = body.clientWidth;
+      const h =
+        typeof cardHeightPx === "number" && cardHeightPx > 0
+          ? cardHeightPx
+          : body.clientHeight;
+      if (w <= 0 || h <= 0) return;
+
+      if (hasChips) {
+        // Titre peut wrap ; extras sur la bande du bas (~42 % de la hauteur)
+        const gap = 1;
+        const extraBand = Math.max(9, Math.min(chipRowMax, Math.floor(h * 0.42)));
+        const titleBand = Math.max(8, h - extraBand - gap);
+        const titlePx = fitTextFontPx(
+          titleEl,
+          MEAL_TITLE_FONT_MIN_PX,
+          MEAL_TITLE_FONT_MAX_COMPACT_PX,
+          w,
+          titleBand,
+          false,
+        );
+        setTitleFontPx(titlePx);
+        const chipPx = Math.max(
+          CHIP_FONT_MIN_PX,
+          Math.min(chipFontMax, Math.floor(extraBand * 0.62), titlePx),
+        );
+        setChipRowPx(extraBand);
+        setChipFontPx(chipPx);
+      } else {
+        const titlePx = fitTextFontPx(
+          titleEl,
+          MEAL_TITLE_FONT_MIN_PX,
+          MEAL_TITLE_FONT_MAX_COMPACT_PX,
+          w,
+          h,
+          false,
+        );
+        setTitleFontPx(titlePx);
+      }
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(body);
+    return () => ro.disconnect();
+  }, [
+    compact,
+    hasChips,
+    chipsKey,
+    cardHeightPx,
+    title,
+    chipFontMax,
+    chipRowMax,
+  ]);
+
+  /**
+   * Desktop : calcule police + hauteur des pastilles extras (plafonnées).
+   */
+  useLayoutEffect(() => {
+    if (compact || !hasChips) return;
     const el = chipsRef.current;
     if (!el) return;
 
@@ -162,10 +325,10 @@ function AgendaMealCardBody({
       if (n <= 0 || avail <= 0) return;
       const gapPx = 2;
       const shareH = (avail - gapPx * (n - 1)) / n;
-      const rowH = Math.max(10, Math.min(CHIP_ROW_MAX_PX, Math.floor(shareH)));
+      const rowH = Math.max(8, Math.min(chipRowMax, Math.floor(shareH)));
       const font = Math.max(
         CHIP_FONT_MIN_PX,
-        Math.min(CHIP_FONT_MAX_PX, Math.floor(rowH * 0.55)),
+        Math.min(chipFontMax, Math.floor(rowH * 0.55)),
       );
       setChipRowPx(rowH);
       setChipFontPx(font);
@@ -175,43 +338,89 @@ function AgendaMealCardBody({
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [hasChips, chipsKey, cardHeightPx, chips.length]);
+  }, [compact, hasChips, chipsKey, cardHeightPx, chips.length, chipFontMax, chipRowMax]);
 
-  if (hasChips) {
-    const padY = Math.max(0, Math.round(chipFontPx * 0.12));
-    const padX = Math.max(3, Math.round(chipFontPx * 0.35));
+  /** Rendu d’une pastille extra. */
+  const renderChip = (chip: MealCardChip, opts?: { fullWidth?: boolean }) => {
+    const label = chip.count > 1 ? `${chip.label} ×${chip.count}` : chip.label;
+    const padY = Math.max(0, Math.round(chipFontPx * 0.1));
+    const padX = Math.max(2, Math.round(chipFontPx * 0.3));
+    return (
+      <span
+        key={chip.id}
+        className={`flex shrink-0 items-center justify-start overflow-hidden rounded font-semibold bg-black/45 text-amber-100 border border-amber-200/35 drop-shadow-sm ${
+          opts?.fullWidth ? "max-w-full" : ""
+        }`}
+        style={{
+          fontSize: chipFontPx,
+          lineHeight: 1.1,
+          height: chipRowPx,
+          maxHeight: chipRowMax,
+          padding: `${padY}px ${padX}px`,
+          maxWidth: opts?.fullWidth ? "100%" : undefined,
+        }}
+        title={label}
+      >
+        <span className="max-w-full truncate text-left">{label}</span>
+      </span>
+    );
+  };
+
+  // —— Mobile compact ——
+  if (compact) {
+    const titleStyle: CSSProperties = {
+      fontSize: titleFontPx,
+      lineHeight: 1.15,
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+      overflow: "hidden",
+    };
     return (
       <div
-        className="flex h-full min-h-0 w-full gap-0.5 overflow-hidden"
+        ref={bodyRef}
+        className="flex h-full min-h-0 w-full flex-col overflow-hidden gap-px"
+        style={pastContentStyle}
+      >
+        <div
+          ref={titleRef}
+          className={`min-w-0 min-h-0 flex-1 font-bold text-white ${
+            mealPast ? "" : "drop-shadow-sm"
+          }`}
+          style={titleStyle}
+        >
+          <MealCardTitleLabel title={title} />
+        </div>
+        {hasChips && (
+          <div
+            ref={chipsRef}
+            className="flex min-h-0 w-full shrink-0 items-center gap-px overflow-hidden"
+            style={{ height: chipRowPx, maxHeight: chipRowMax }}
+          >
+            {chips.map((chip) => renderChip(chip, { fullWidth: chips.length === 1 }))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // —— Desktop / large : titre | pastilles ——
+  if (hasChips) {
+    return (
+      <div
+        className="flex h-full min-h-0 w-full overflow-hidden gap-0.5"
         style={pastContentStyle}
       >
         <div className="flex min-w-0 flex-1 flex-col justify-start gap-px overflow-hidden">
-          <div className={`min-w-0 ${titleCls}`}>{title}</div>
+          <div className={`min-w-0 ${titleClsDesktop}`}>
+            <MealCardTitleLabel title={title} />
+          </div>
           <div className={timeCls}>{timeLabel}</div>
         </div>
         <div
           ref={chipsRef}
-          className="flex max-w-[62%] min-h-0 h-full w-auto shrink-0 flex-col justify-center gap-0.5 overflow-hidden"
+          className="flex min-h-0 h-full w-auto max-w-[62%] shrink-0 flex-col justify-center gap-0.5 overflow-hidden"
         >
-          {chips.map((chip) => {
-            const label = chip.count > 1 ? `${chip.label} ×${chip.count}` : chip.label;
-            return (
-              <span
-                key={chip.id}
-                className="flex shrink-0 items-center justify-start overflow-hidden rounded font-semibold bg-black/45 text-amber-100 border border-amber-200/35 drop-shadow-sm"
-                style={{
-                  fontSize: chipFontPx,
-                  lineHeight: 1.15,
-                  height: chipRowPx,
-                  maxHeight: CHIP_ROW_MAX_PX,
-                  padding: `${padY}px ${padX}px`,
-                }}
-                title={label}
-              >
-                <span className="max-w-full truncate text-left">{label}</span>
-              </span>
-            );
-          })}
+          {chips.map((chip) => renderChip(chip))}
         </div>
       </div>
     );
@@ -220,10 +429,12 @@ function AgendaMealCardBody({
   if (tooShortToStack) {
     return (
       <div
-        className="flex h-full min-h-0 w-full items-center gap-0.5 overflow-hidden"
+        className="flex h-full min-h-0 w-full items-center overflow-hidden gap-0.5"
         style={pastContentStyle}
       >
-        <div className={`min-w-0 flex-1 ${titleCls}`}>{title}</div>
+        <div className={`min-w-0 flex-1 ${titleClsDesktop}`}>
+          <MealCardTitleLabel title={title} />
+        </div>
         <div className={`max-w-[45%] shrink-0 text-right ${timeCls}`}>{timeLabel}</div>
       </div>
     );
@@ -234,7 +445,9 @@ function AgendaMealCardBody({
       className="relative flex h-full min-h-0 w-full flex-col justify-start gap-px overflow-hidden"
       style={pastContentStyle}
     >
-      <div className={`min-w-0 ${titleCls}`}>{title}</div>
+      <div className={`min-w-0 ${titleClsDesktop}`}>
+        <MealCardTitleLabel title={title} />
+      </div>
       <div className={timeCls}>{timeLabel}</div>
     </div>
   );
@@ -494,13 +707,13 @@ function AgendaEventCardContent({
   // Compact + carte assez haute
   if (isCompact && (timeLayout === "tall" || thinTitleWrap || googleStackLeft)) {
     const lines = Math.max(1, Math.max(thinTitleLines, titleMaxLines));
-    // Fin repositionnée (bande étroite sous invité) → début en bas, fin absolute
+    // Fin repositionnée (bande étroite sous invité) → fin en absolute
     const splitEndClock = showEventTimes && endClockRepositioned;
 
     return (
       <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
         <div
-          className={`min-w-0 font-semibold leading-[1.05] ${
+          className={`min-w-0 shrink-0 font-semibold leading-[1.05] ${
             lines <= 1
               ? "truncate"
               : "break-words [overflow-wrap:anywhere] [word-break:break-word]"
@@ -510,31 +723,37 @@ function AgendaEventCardContent({
             ...(lines > 1
               ? {
                   display: "-webkit-box",
-                  WebkitLineClamp: showEventTimes ? Math.max(1, lines - 1) : lines,
+                  WebkitLineClamp: lines,
                   WebkitBoxOrient: "vertical" as const,
                   overflow: "hidden",
                 }
               : {}),
-            flex: "1 1 auto",
-            minHeight: 0,
           }}
         >
           {summary}
         </div>
+        {/* Heure de début : haut à gauche, sous le titre (espace vide). */}
+        {showEventTimes ? (
+          <div
+            className={`shrink-0 truncate ${clockClass}`}
+            style={titleClampStyle}
+          >
+            {startClock}
+          </div>
+        ) : null}
+        <div className="min-h-0 flex-1" aria-hidden />
         {showEventTimes ? (
           splitEndClock ? (
-            <>
-              <div className={`mt-auto shrink-0 truncate ${clockClass}`}>{startClock}</div>
-              <span className={endClockAbsClass} style={{ top: `${endClockTopPx}px` }}>
-                {endClock}
-              </span>
-            </>
-          ) : (
-            <div className={`mt-auto shrink-0 truncate ${clockClass}`}>
-              {startClock}
-              <span className="opacity-50 mx-px">|</span>
+            <span className={endClockAbsClass} style={{ top: `${endClockTopPx}px` }}>
               {endClock}
-            </div>
+            </span>
+          ) : (
+            <span
+              className={endClockBottomClass}
+              style={{ bottom: HOST_END_CLOCK_BOTTOM_PAD_PX }}
+            >
+              {endClock}
+            </span>
           )
         ) : null}
       </div>
@@ -771,6 +990,14 @@ export function GoogleAgendaPlanningView({
   const dragPayloadRef = useRef<DragPayload | null>(null);
   /** Décalage Y (px) entre le curseur et le haut de la carte au dragstart. */
   const dragGrabOffsetYRef = useRef(0);
+  /**
+   * Dernière position pointeur connue (touch/pointer).
+   * Sur mobile, DragEvent.clientY est souvent 0 ou faux au dragstart / drop.
+   */
+  const lastPointerClientYRef = useRef(0);
+  const lastPointerClientXRef = useRef(0);
+  /** Carte saisie (pour recalculer l’offset si le DragEvent est invalide). */
+  const dragCardElRef = useRef<HTMLElement | null>(null);
   const [dayColumnWidthPx, setDayColumnWidthPx] = useState(() => {
     if (typeof window === "undefined") return 160;
     // Estimation initiale : (viewport − colonne heures − chrome) / 7 jours
@@ -1031,19 +1258,46 @@ export function GoogleAgendaPlanningView({
   }, [hourHeightPx]);
 
   /**
+   * Mémorise la position réelle du doigt / souris avant le drag HTML5
+   * (indispensable sur mobile où dragstart.clientY est souvent invalide).
+   */
+  const rememberAgendaPointerPosition = (
+    clientX: number,
+    clientY: number,
+    cardEl?: HTMLElement | null,
+  ) => {
+    if (Number.isFinite(clientX)) lastPointerClientXRef.current = clientX;
+    if (Number.isFinite(clientY) && clientY > 0) lastPointerClientYRef.current = clientY;
+    if (cardEl) dragCardElRef.current = cardEl;
+  };
+
+  /**
+   * Choisit un clientY fiable : DragEvent si valide, sinon dernier pointeur connu.
+   */
+  const resolveAgendaClientY = (eventClientY: number): number => {
+    if (Number.isFinite(eventClientY) && eventClientY > 0) return eventClientY;
+    return lastPointerClientYRef.current;
+  };
+
+  /**
    * Mémorise où l’utilisateur a saisi la carte (haut → curseur),
    * pour que le drop place le haut de carte sous le doigt / curseur.
    */
   const captureAgendaDragGrabOffset = (e: DragEvent) => {
-    const el = e.currentTarget as HTMLElement;
+    const el = (dragCardElRef.current || e.currentTarget) as HTMLElement;
     const rect = el.getBoundingClientRect();
-    dragGrabOffsetYRef.current = Math.max(0, e.clientY - rect.top);
+    const y = resolveAgendaClientY(e.clientY);
+    // Clamp dans la carte : évite un offset absurde si les coords sont foireuses
+    const raw = y - rect.top;
+    dragGrabOffsetYRef.current = Math.max(0, Math.min(Math.max(1, rect.height - 1), raw));
+    rememberAgendaPointerPosition(e.clientX, y, el);
   };
 
   /** Remet à zéro le payload + offset de saisie après un drag. */
   const clearAgendaDragState = () => {
     dragPayloadRef.current = null;
     dragGrabOffsetYRef.current = 0;
+    dragCardElRef.current = null;
     setDragOverDay(null);
   };
 
@@ -1052,8 +1306,9 @@ export function GoogleAgendaPlanningView({
     const col = columnRefs.current[dayIso];
     if (!col) return null;
     const rect = col.getBoundingClientRect();
-    // Haut de carte = curseur − point de saisie (sinon la carte « saute » au drop)
-    const offsetY = clientY - rect.top - dragGrabOffsetYRef.current;
+    const y = resolveAgendaClientY(clientY);
+    // Haut de carte = doigt − point de saisie (sinon la carte « saute » au drop)
+    const offsetY = y - rect.top - dragGrabOffsetYRef.current;
     // Même formule que blockStyle : minutes ↔ pixels via hourHeightPx
     const rawMinutes =
       AGENDA_HOUR_START * 60 + (offsetY / Math.max(1, hourHeightPx)) * 60;
@@ -1070,7 +1325,7 @@ export function GoogleAgendaPlanningView({
     e.preventDefault();
     setDragOverDay(null);
     if (hideMealCards) return;
-    const target = resolveDropTarget(dayIso, e.clientY);
+    const target = resolveDropTarget(dayIso, resolveAgendaClientY(e.clientY));
     if (!target) return;
 
     const payload = dragPayloadRef.current;
@@ -1115,6 +1370,21 @@ export function GoogleAgendaPlanningView({
   const weekRangeLabel = formatAgendaWeekRangeLabel(weekDates);
   const showWeekNav = typeof onWeekOffsetChange === "function";
 
+  /**
+   * Props pointeur sur les cartes déplaçables : enregistre le doigt avant dragstart
+   * (clientY HTML5 souvent invalide sur mobile).
+   */
+  const agendaDraggablePointerProps = {
+    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+      rememberAgendaPointerPosition(e.clientX, e.clientY, e.currentTarget);
+    },
+    onTouchStart: (e: ReactTouchEvent<HTMLDivElement>) => {
+      const t = e.touches[0];
+      if (!t) return;
+      rememberAgendaPointerPosition(t.clientX, t.clientY, e.currentTarget);
+    },
+  };
+
   return (
     <div className="w-full min-h-0">
       <div
@@ -1124,6 +1394,11 @@ export function GoogleAgendaPlanningView({
           backgroundColor: GCAL_AGENDA_CANVAS,
           height: `${agendaViewportHeightPx}px`,
           WebkitOverflowScrolling: "touch",
+        }}
+        onDragOver={(e) => {
+          if (hideMealCards) return;
+          // Garde la position à jour même hors colonne (scroll / bords)
+          rememberAgendaPointerPosition(e.clientX, e.clientY);
         }}
       >
         <div
@@ -1278,6 +1553,7 @@ export function GoogleAgendaPlanningView({
                   <div
                     key={`allday-span-${span.eventId}`}
                     draggable={!hideMealCards}
+                    {...agendaDraggablePointerProps}
                     onDragStart={(e) => {
                       if (hideMealCards) return;
                       captureAgendaDragGrabOffset(e);
@@ -1387,6 +1663,7 @@ export function GoogleAgendaPlanningView({
                   if (hideMealCards) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
+                  rememberAgendaPointerPosition(e.clientX, e.clientY);
                   setDragOverDay(day.iso);
                 }}
                 onDragLeave={() => setDragOverDay((cur) => (cur === day.iso ? null : cur))}
@@ -1709,6 +1986,7 @@ export function GoogleAgendaPlanningView({
                         <div
                           key={`meal-${pm.id}`}
                           draggable
+                          {...agendaDraggablePointerProps}
                           onDragStart={(e) => {
                             captureAgendaDragGrabOffset(e);
                             dragPayloadRef.current = { kind: "meal", pmId: pm.id };
@@ -1720,9 +1998,11 @@ export function GoogleAgendaPlanningView({
                           onDragEnd={() => {
                             clearAgendaDragState();
                           }}
-                          className={`absolute flex flex-col rounded-md px-0.5 py-px cursor-grab active:cursor-grabbing overflow-hidden ${
-                            mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING
-                          } ${onManger ? "" : "left-px right-px"}`}
+                          className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden ${
+                            isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
+                          } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
+                            onManger ? "" : "left-px right-px"
+                          }`}
                           style={{
                             top: pos.top,
                             height: pos.height,
@@ -1745,6 +2025,7 @@ export function GoogleAgendaPlanningView({
                             timeLabel={formatAgendaClock(minutes)}
                             chips={chips}
                             mealPast={mealPast}
+                            compact={isCompactAgenda}
                             cardHeightPx={Math.max(
                               0,
                               agendaBlockHeightPx(durationMin, hourHeightPx) - 2,
@@ -1782,6 +2063,7 @@ export function GoogleAgendaPlanningView({
                         <div
                           key={`gouter-extras-${day.iso}`}
                           draggable
+                          {...agendaDraggablePointerProps}
                           onDragStart={(e) => {
                             captureAgendaDragGrabOffset(e);
                             dragPayloadRef.current = {
@@ -1798,9 +2080,9 @@ export function GoogleAgendaPlanningView({
                           onDragEnd={() => {
                             clearAgendaDragState();
                           }}
-                          className={`absolute left-px right-px flex flex-col rounded-md px-0.5 py-px cursor-grab active:cursor-grabbing overflow-hidden ${
-                            mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING
-                          }`}
+                          className={`absolute left-px right-px flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden ${
+                            isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
+                          } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING}`}
                           style={{
                             top: pos.top,
                             height: pos.height,
@@ -1814,6 +2096,7 @@ export function GoogleAgendaPlanningView({
                             timeLabel={formatAgendaClock(minutes)}
                             chips={chips}
                             mealPast={mealPast}
+                            compact={isCompactAgenda}
                             cardHeightPx={Math.max(
                               0,
                               agendaBlockHeightPx(durationMin, hourHeightPx) - 2,
@@ -1881,6 +2164,7 @@ export function GoogleAgendaPlanningView({
                       <div
                         key={ex.occurrenceKey}
                         draggable
+                        {...agendaDraggablePointerProps}
                         onDragStart={(e) => {
                           captureAgendaDragGrabOffset(e);
                           dragPayloadRef.current = { kind: "extra", occurrenceKey: ex.occurrenceKey };
@@ -1901,10 +2185,20 @@ export function GoogleAgendaPlanningView({
                         }}
                         title={`${ex.label} · ${formatAgendaClock(minutes)}`}
                       >
-                        <div className="text-[9px] sm:text-[10px] font-bold text-white leading-tight truncate">
+                        <div
+                          className={cn(
+                            "font-bold text-white leading-tight truncate",
+                            isCompactAgenda ? "text-[7px]" : "text-[9px] sm:text-[10px]",
+                          )}
+                        >
                           ⭐ {ex.label}
                         </div>
-                        <div className="text-[8px] sm:text-[9px] text-white/80">
+                        <div
+                          className={cn(
+                            "text-white/80 truncate",
+                            isCompactAgenda ? "text-[6px]" : "text-[8px] sm:text-[9px]",
+                          )}
+                        >
                           {formatAgendaClock(minutes)} · {ex.slot}
                         </div>
                       </div>
