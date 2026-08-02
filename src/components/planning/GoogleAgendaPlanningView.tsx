@@ -2,7 +2,7 @@
  * Vue Planning « Google Agenda » : grille horaire hebdo style Google Calendar
  * en légère transparence, avec cartes repas/extras déplaçables synchronisées.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { format, parseISO, isToday } from "date-fns";
 import { fr } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -11,19 +11,21 @@ import type { PlanningWeekDayInfo } from "@/lib/planningWeekUtils";
 import type { GoogleCalendarEvent } from "@/hooks/useGoogleCalendar";
 import { getCategoryEmoji } from "@/components/planning/PlanningMiniCard";
 import {
+  useAgendaCardPointerDrag,
+  type AgendaCardDragPayload,
+} from "@/hooks/useAgendaCardPointerDrag";
+import {
   AGENDA_EVENT_DURATION_MIN,
   AGENDA_HOUR_END,
   AGENDA_HOUR_START,
   AGENDA_INITIAL_SCROLL_HOUR,
   AGENDA_DEFAULT_VISIBLE_HOURS,
-  AGENDA_SNAP_MINUTES,
   buildExtraAgendaOccurrenceKey,
   formatAgendaClock,
   hasExtraAgendaCustomTime,
   isCompactAgendaColumn,
   resolveAgendaMinutesForExtra,
   resolveAgendaMinutesForMeal,
-  snapMinutes,
 } from "@/domain/planning/agendaTimeUtils";
 import {
   addDaysToIsoDate,
@@ -523,11 +525,6 @@ export interface GoogleAgendaPlanningViewProps {
   onWeekOffsetChange?: (offset: number) => void;
 }
 
-type DragPayload =
-  | { kind: "meal"; pmId: string }
-  | { kind: "extra"; occurrenceKey: string }
-  | { kind: "gouter-extras"; occurrenceKeys: string[] };
-
 /** Positionne un bloc dans la colonne jour selon minutes depuis minuit.
  * Hauteur = durée réelle (pas de min 20px) pour éviter de chevaucher l’événement suivant.
  */
@@ -986,18 +983,6 @@ export function GoogleAgendaPlanningView({
 }: GoogleAgendaPlanningViewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
-  const dragPayloadRef = useRef<DragPayload | null>(null);
-  /** Décalage Y (px) entre le curseur et le haut de la carte au dragstart. */
-  const dragGrabOffsetYRef = useRef(0);
-  /**
-   * Dernière position pointeur connue (touch/pointer).
-   * Sur mobile, DragEvent.clientY est souvent 0 ou faux au dragstart / drop.
-   */
-  const lastPointerClientYRef = useRef(0);
-  const lastPointerClientXRef = useRef(0);
-  /** Carte saisie (pour recalculer l’offset si le DragEvent est invalide). */
-  const dragCardElRef = useRef<HTMLElement | null>(null);
   const [dayColumnWidthPx, setDayColumnWidthPx] = useState(() => {
     if (typeof window === "undefined") return 160;
     // Estimation initiale : (viewport − colonne heures − chrome) / 7 jours
@@ -1258,132 +1243,44 @@ export function GoogleAgendaPlanningView({
   }, [hourHeightPx]);
 
   /**
-   * Mémorise la position réelle du doigt / souris avant le drag HTML5
-   * (indispensable sur mobile où dragstart.clientY est souvent invalide).
+   * Applique un dépôt agenda (repas / extra / goûter) au créneau snappé.
    */
-  const rememberAgendaPointerPosition = (
-    clientX: number,
-    clientY: number,
-    cardEl?: HTMLElement | null,
+  const applyAgendaPointerDrop = (
+    payload: AgendaCardDragPayload,
+    target: { dayIso: string; dayKey: string; minutes: number },
   ) => {
-    if (Number.isFinite(clientX)) lastPointerClientXRef.current = clientX;
-    if (Number.isFinite(clientY) && clientY > 0) lastPointerClientYRef.current = clientY;
-    if (cardEl) dragCardElRef.current = cardEl;
-  };
-
-  /**
-   * Choisit un clientY fiable : DragEvent si valide, sinon dernier pointeur connu.
-   */
-  const resolveAgendaClientY = (eventClientY: number): number => {
-    if (Number.isFinite(eventClientY) && eventClientY > 0) return eventClientY;
-    return lastPointerClientYRef.current;
-  };
-
-  /**
-   * Mémorise où l’utilisateur a saisi la carte (haut → curseur),
-   * pour que le drop place le haut de carte sous le doigt / curseur.
-   */
-  const captureAgendaDragGrabOffset = (e: DragEvent) => {
-    const el = (dragCardElRef.current || e.currentTarget) as HTMLElement;
-    const rect = el.getBoundingClientRect();
-    const y = resolveAgendaClientY(e.clientY);
-    // Clamp dans la carte : évite un offset absurde si les coords sont foireuses
-    const raw = y - rect.top;
-    dragGrabOffsetYRef.current = Math.max(0, Math.min(Math.max(1, rect.height - 1), raw));
-    rememberAgendaPointerPosition(e.clientX, y, el);
-  };
-
-  /** Remet à zéro le payload + offset de saisie après un drag. */
-  const clearAgendaDragState = () => {
-    dragPayloadRef.current = null;
-    dragGrabOffsetYRef.current = 0;
-    dragCardElRef.current = null;
-    setDragOverDay(null);
-  };
-
-  /** Calcule le drop (jour + minutes snappées 15) depuis la position de relâchement. */
-  const resolveDropTarget = (dayIso: string, clientY: number) => {
-    const col = columnRefs.current[dayIso];
-    if (!col) return null;
-    const rect = col.getBoundingClientRect();
-    const y = resolveAgendaClientY(clientY);
-    // Haut de carte = doigt − point de saisie (sinon la carte « saute » au drop)
-    const offsetY = y - rect.top - dragGrabOffsetYRef.current;
-    // Même formule que blockStyle : minutes ↔ pixels via hourHeightPx
-    const rawMinutes =
-      AGENDA_HOUR_START * 60 + (offsetY / Math.max(1, hourHeightPx)) * 60;
-    const minBound = AGENDA_HOUR_START * 60;
-    const maxBound = AGENDA_HOUR_END * 60 - AGENDA_SNAP_MINUTES;
-    const minutes = snapMinutes(Math.max(minBound, Math.min(maxBound, rawMinutes)));
-    const day = weekDates.find((d) => d.iso === dayIso);
-    if (!day) return null;
-    return { dayIso, dayKey: day.key, minutes };
-  };
-
-  /** Gère le dépôt d’une carte repas ou d’un extra sur une colonne jour. */
-  const handleColumnDrop = (e: React.DragEvent, dayIso: string) => {
-    e.preventDefault();
-    setDragOverDay(null);
     if (hideMealCards) return;
-    const target = resolveDropTarget(dayIso, resolveAgendaClientY(e.clientY));
-    if (!target) return;
-
-    const payload = dragPayloadRef.current;
-    const pmId =
-      e.dataTransfer.getData("pmId") ||
-      e.dataTransfer.getData("application/x-planning-pmid") ||
-      (payload?.kind === "meal" ? payload.pmId : "");
-    if (pmId) {
-      onMoveMeal(pmId, target.dayIso, target.dayKey, target.minutes);
-      clearAgendaDragState();
+    if (payload.kind === "meal") {
+      onMoveMeal(payload.pmId, target.dayIso, target.dayKey, target.minutes);
       return;
     }
-
-    const gouterKeysRaw =
-      e.dataTransfer.getData("application/x-agenda-gouter-extras") ||
-      (payload?.kind === "gouter-extras" ? payload.occurrenceKeys.join("\n") : "");
-    if (gouterKeysRaw) {
-      const keys = gouterKeysRaw.split("\n").filter(Boolean);
-      const occurrences = keys
+    if (payload.kind === "gouter-extras") {
+      const occurrences = payload.occurrenceKeys
         .map((k) => extras.find((x) => x.occurrenceKey === k))
         .filter((x): x is AgendaExtraOccurrence => Boolean(x));
       if (occurrences.length > 0) {
         onMoveGouterExtras(occurrences, target.dayIso, target.dayKey, target.minutes);
       }
-      clearAgendaDragState();
       return;
     }
-
-    const occurrenceKey =
-      e.dataTransfer.getData("application/x-agenda-extra") ||
-      (payload?.kind === "extra" ? payload.occurrenceKey : "");
-    if (occurrenceKey) {
-      const occurrence = extras.find((x) => x.occurrenceKey === occurrenceKey);
-      if (occurrence) {
-        onMoveExtra(occurrence, target.dayIso, target.dayKey, target.minutes);
-      }
+    const occurrence = extras.find((x) => x.occurrenceKey === payload.occurrenceKey);
+    if (occurrence) {
+      onMoveExtra(occurrence, target.dayIso, target.dayKey, target.minutes);
     }
-    clearAgendaDragState();
   };
+
+  const { dragOverDay, draggingKey, onCardPointerDown, payloadKey } = useAgendaCardPointerDrag({
+    weekDates,
+    columnRefs,
+    scrollRef,
+    hourHeightPx,
+    disabled: hideMealCards,
+    onDrop: applyAgendaPointerDrop,
+  });
 
   const nowTop = ((nowMinutes - AGENDA_HOUR_START * 60) / 60) * hourHeightPx;
   const weekRangeLabel = formatAgendaWeekRangeLabel(weekDates);
   const showWeekNav = typeof onWeekOffsetChange === "function";
-
-  /**
-   * Props pointeur sur les cartes déplaçables : enregistre le doigt avant dragstart
-   * (clientY HTML5 souvent invalide sur mobile).
-   */
-  const agendaDraggablePointerProps = {
-    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
-      rememberAgendaPointerPosition(e.clientX, e.clientY, e.currentTarget);
-    },
-    onTouchStart: (e: ReactTouchEvent<HTMLDivElement>) => {
-      const t = e.touches[0];
-      if (!t) return;
-      rememberAgendaPointerPosition(t.clientX, t.clientY, e.currentTarget);
-    },
-  };
 
   return (
     <div className="w-full min-h-0">
@@ -1394,11 +1291,6 @@ export function GoogleAgendaPlanningView({
           backgroundColor: GCAL_AGENDA_CANVAS,
           height: `${agendaViewportHeightPx}px`,
           WebkitOverflowScrolling: "touch",
-        }}
-        onDragOver={(e) => {
-          if (hideMealCards) return;
-          // Garde la position à jour même hors colonne (scroll / bords)
-          rememberAgendaPointerPosition(e.clientX, e.clientY);
         }}
       >
         <div
@@ -1552,29 +1444,27 @@ export function GoogleAgendaPlanningView({
                 return (
                   <div
                     key={`allday-span-${span.eventId}`}
-                    draggable={!hideMealCards}
-                    {...agendaDraggablePointerProps}
-                    onDragStart={(e) => {
+                    onPointerDown={(e) => {
                       if (hideMealCards) return;
-                      captureAgendaDragGrabOffset(e);
-                      dragPayloadRef.current = {
+                      onCardPointerDown(e, {
                         kind: "extra",
                         occurrenceKey: ex.occurrenceKey,
-                      };
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData(
-                        "application/x-agenda-extra",
-                        ex.occurrenceKey,
-                      );
-                      e.dataTransfer.setData("text/plain", ex.extraId);
-                    }}
-                    onDragEnd={() => {
-                      clearAgendaDragState();
+                        startMinutes: resolveAgendaMinutesForExtra(
+                          ex.occurrenceKey,
+                          ex.slot,
+                          extraAgendaTimes,
+                        ),
+                      });
                     }}
                     className={`absolute flex items-center overflow-hidden font-semibold truncate border ${textCls} ${
                       hideMealCards
                         ? "pointer-events-none"
                         : "cursor-grab active:cursor-grabbing pointer-events-auto"
+                    } ${
+                      draggingKey ===
+                      payloadKey({ kind: "extra", occurrenceKey: ex.occurrenceKey })
+                        ? "opacity-35"
+                        : ""
                     }`}
                     style={{
                       ...barStyle,
@@ -1659,15 +1549,6 @@ export function GoogleAgendaPlanningView({
                   dragOverDay === day.iso && !hideMealCards ? "bg-white/[0.03]" : ""
                 } ${isPastDay ? "opacity-90" : ""}`}
                 style={{ height: gridHeightPx }}
-                onDragOver={(e) => {
-                  if (hideMealCards) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  rememberAgendaPointerPosition(e.clientX, e.clientY);
-                  setDragOverDay(day.iso);
-                }}
-                onDragLeave={() => setDragOverDay((cur) => (cur === day.iso ? null : cur))}
-                onDrop={(e) => handleColumnDrop(e, day.iso)}
               >
                 {hours.map((h) => (
                   <div
@@ -1985,23 +1866,21 @@ export function GoogleAgendaPlanningView({
                       return (
                         <div
                           key={`meal-${pm.id}`}
-                          draggable
-                          {...agendaDraggablePointerProps}
-                          onDragStart={(e) => {
-                            captureAgendaDragGrabOffset(e);
-                            dragPayloadRef.current = { kind: "meal", pmId: pm.id };
-                            e.dataTransfer.effectAllowed = "move";
-                            e.dataTransfer.setData("pmId", pm.id);
-                            e.dataTransfer.setData("application/x-planning-pmid", pm.id);
-                            e.dataTransfer.setData("mealId", pm.meal_id);
-                          }}
-                          onDragEnd={() => {
-                            clearAgendaDragState();
-                          }}
+                          onPointerDown={(e) =>
+                            onCardPointerDown(e, {
+                              kind: "meal",
+                              pmId: pm.id,
+                              startMinutes: minutes,
+                            })
+                          }
                           className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
                             onManger ? "" : "left-px right-px"
+                          } ${
+                            draggingKey === payloadKey({ kind: "meal", pmId: pm.id })
+                              ? "opacity-35"
+                              : ""
                           }`}
                           style={{
                             top: pos.top,
@@ -2062,27 +1941,21 @@ export function GoogleAgendaPlanningView({
                       return (
                         <div
                           key={`gouter-extras-${day.iso}`}
-                          draggable
-                          {...agendaDraggablePointerProps}
-                          onDragStart={(e) => {
-                            captureAgendaDragGrabOffset(e);
-                            dragPayloadRef.current = {
+                          onPointerDown={(e) =>
+                            onCardPointerDown(e, {
                               kind: "gouter-extras",
                               occurrenceKeys,
-                            };
-                            e.dataTransfer.effectAllowed = "move";
-                            e.dataTransfer.setData(
-                              "application/x-agenda-gouter-extras",
-                              occurrenceKeys.join("\n"),
-                            );
-                            e.dataTransfer.setData("text/plain", "gouter-extras");
-                          }}
-                          onDragEnd={() => {
-                            clearAgendaDragState();
-                          }}
+                              startMinutes: minutes,
+                            })
+                          }
                           className={`absolute left-px right-px flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
-                          } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING}`}
+                          } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
+                            draggingKey ===
+                            payloadKey({ kind: "gouter-extras", occurrenceKeys })
+                              ? "opacity-35"
+                              : ""
+                          }`}
                           style={{
                             top: pos.top,
                             height: pos.height,
@@ -2163,22 +2036,26 @@ export function GoogleAgendaPlanningView({
                     return (
                       <div
                         key={ex.occurrenceKey}
-                        draggable
-                        {...agendaDraggablePointerProps}
-                        onDragStart={(e) => {
-                          captureAgendaDragGrabOffset(e);
-                          dragPayloadRef.current = { kind: "extra", occurrenceKey: ex.occurrenceKey };
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("application/x-agenda-extra", ex.occurrenceKey);
-                          e.dataTransfer.setData("text/plain", ex.extraId);
-                        }}
-                        onDragEnd={() => {
-                          clearAgendaDragState();
-                        }}
-                        className="absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing border border-amber-300/40 bg-amber-500/85 overflow-hidden shadow-md"
+                        onPointerDown={(e) =>
+                          onCardPointerDown(e, {
+                            kind: "extra",
+                            occurrenceKey: ex.occurrenceKey,
+                            startMinutes: minutes,
+                          })
+                        }
+                        className={`absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing border border-amber-300/40 bg-amber-500/85 overflow-hidden shadow-md ${
+                          draggingKey ===
+                          payloadKey({ kind: "extra", occurrenceKey: ex.occurrenceKey })
+                            ? "opacity-35"
+                            : ""
+                        }`}
                         style={{
                           ...blockStyle(minutes, 30, hourHeightPx),
-                          opacity: 0.92,
+                          opacity:
+                            draggingKey ===
+                            payloadKey({ kind: "extra", occurrenceKey: ex.occurrenceKey })
+                              ? 0.35
+                              : 0.92,
                           ...(extraPast
                             ? { backgroundColor: mixCssColorTowardCanvas("#f59e0b", 0.62) }
                             : {}),
