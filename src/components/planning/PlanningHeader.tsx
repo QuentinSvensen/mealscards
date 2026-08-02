@@ -114,8 +114,8 @@ export function PlanningHeader({
       )}
       {((weekOffset === 0 || weekOffset === 1) && weekTabActive) && (
         <>
-          <div className="flex items-center gap-1">
-            <Flame className="h-3 w-3 text-orange-500" />
+          <div className="flex w-full sm:w-auto items-center gap-0.5 sm:gap-1 flex-nowrap justify-start">
+            <Flame className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-orange-500 shrink-0" />
             <input
               type="number"
               inputMode="numeric"
@@ -130,9 +130,9 @@ export function PlanningHeader({
               onKeyDown={e => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
-              className="w-14 h-6 text-xs bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-500/80 placeholder:text-orange-300/30 focus:outline-none focus:border-orange-400/50 text-center"
+              className="w-12 sm:w-14 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-orange-300/20 rounded px-0.5 sm:px-1 text-orange-500/80 placeholder:text-orange-300/30 focus:outline-none focus:border-orange-400/50 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
-            <span className="text-[9px] text-orange-400/50">–</span>
+            <span className="text-[8px] sm:text-[9px] text-orange-400/50 shrink-0">–</span>
             <input
               type="number"
               inputMode="numeric"
@@ -146,12 +146,10 @@ export function PlanningHeader({
               onKeyDown={e => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
-              className="w-16 h-6 text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 focus:outline-none focus:border-orange-400/50 text-center"
+              className="w-12 sm:w-16 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-0.5 sm:px-1 text-orange-500 focus:outline-none focus:border-orange-400/50 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
-            <span className="text-[9px] text-muted-foreground">kcal/j</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs">🍗</span>
+            <span className="text-[8px] sm:text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">kcal/j</span>
+            <span className="text-[10px] sm:text-xs shrink-0 ml-0.5">🍗</span>
             <input
               type="number"
               inputMode="numeric"
@@ -164,12 +162,10 @@ export function PlanningHeader({
               onKeyDown={e => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
-              className="w-14 h-6 text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 focus:outline-none focus:border-blue-400/50 text-center"
+              className="w-10 sm:w-14 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-0.5 sm:px-1 text-blue-400 focus:outline-none focus:border-blue-400/50 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
-            <span className="text-[9px] text-muted-foreground">prot/j</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs">🌾</span>
+            <span className="text-[8px] sm:text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">prot/j</span>
+            <span className="text-[10px] sm:text-xs shrink-0 ml-0.5">🌾</span>
             <input
               type="number"
               inputMode="numeric"
@@ -182,42 +178,38 @@ export function PlanningHeader({
               onKeyDown={e => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
-              className="w-14 h-6 text-xs bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 focus:outline-none focus:border-emerald-400/50 text-center"
+              className="w-9 sm:w-14 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-emerald-400/20 rounded px-0.5 sm:px-1 text-emerald-400 focus:outline-none focus:border-emerald-400/50 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
-            <span className="text-[9px] text-muted-foreground">fib/j</span>
+            <span className="text-[8px] sm:text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">fib/j</span>
           </div>
         </>
       )}
       {weekOffset === -1 && weekTabActive && backupTotals && (
         <>
-          <div className="flex items-center gap-1">
-            <Flame className="h-3 w-3 text-orange-500" />
+          <div className="flex w-full sm:w-auto items-center gap-0.5 sm:gap-1 flex-nowrap justify-start">
+            <Flame className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-orange-500 shrink-0" />
             {backupTotals.archivedDailyGoalLow > 0 && (
               <>
-                <div className="w-14 h-6 text-xs bg-transparent border border-dashed border-orange-300/20 rounded px-1 text-orange-500/80 flex items-center justify-center font-bold">
+                <div className="w-12 sm:w-14 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-orange-300/20 rounded px-0.5 sm:px-1 text-orange-500/80 flex items-center justify-center font-bold">
                   {Math.round(backupTotals.archivedDailyGoalLow)}
                 </div>
-                <span className="text-[9px] text-orange-400/50">–</span>
+                <span className="text-[8px] sm:text-[9px] text-orange-400/50 shrink-0">–</span>
               </>
             )}
-            <div className="w-16 h-6 text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-1 text-orange-500 flex items-center justify-center font-bold">
+            <div className="w-12 sm:w-16 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-orange-300/30 rounded px-0.5 sm:px-1 text-orange-500 flex items-center justify-center font-bold">
               {Math.round(backupTotals.archivedDailyGoal)}
             </div>
-            <span className="text-[9px] text-muted-foreground">kcal/j</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs">🍗</span>
-            <div className="w-14 h-6 text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-1 text-blue-400 flex items-center justify-center font-bold">
+            <span className="text-[8px] sm:text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">kcal/j</span>
+            <span className="text-[10px] sm:text-xs shrink-0 ml-0.5">🍗</span>
+            <div className="w-10 sm:w-14 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-blue-400/20 rounded px-0.5 sm:px-1 text-blue-400 flex items-center justify-center font-bold">
               {Math.round(backupTotals.archivedProteinGoal)}
             </div>
-            <span className="text-[9px] text-muted-foreground">prot/j</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs">🌾</span>
-            <div className="w-14 h-6 text-xs bg-transparent border border-dashed border-emerald-400/20 rounded px-1 text-emerald-400 flex items-center justify-center font-bold">
+            <span className="text-[8px] sm:text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">prot/j</span>
+            <span className="text-[10px] sm:text-xs shrink-0 ml-0.5">🌾</span>
+            <div className="w-9 sm:w-14 h-5 sm:h-6 text-[11px] sm:text-xs bg-transparent border border-dashed border-emerald-400/20 rounded px-0.5 sm:px-1 text-emerald-400 flex items-center justify-center font-bold">
               {Math.round(backupTotals.archivedFiberGoal)}
             </div>
-            <span className="text-[9px] text-muted-foreground">fib/j</span>
+            <span className="text-[8px] sm:text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">fib/j</span>
           </div>
         </>
       )}
