@@ -1,8 +1,8 @@
 /**
  * Drag & drop pointeur pour les cartes repas/extras de la vue Google Agenda.
  * Déplacement par delta (doigt) depuis l’heure d’origine de la carte.
- * Fantôme en `absolute` dans la colonne jour (même repère que les cartes) —
- * évite le décalage dû au `zoom` CSS si le fantôme est sur `document.body`.
+ * Fantôme en `absolute` dans la colonne jour (même repère que les cartes).
+ * Sur mobile, long-press → scroll figé pour déplacer la carte sans faire défiler.
  */
 import {
   useCallback,
@@ -139,12 +139,54 @@ export function useAgendaCardPointerDrag({
   const hourHeightRef = useRef(hourHeightPx);
   const weekDatesRef = useRef(weekDates);
   const onDropRef = useRef(onDrop);
+  /** Styles scroll à restaurer après le drag (fige la grille sur mobile). */
+  const scrollLockRef = useRef<{
+    overflow: string;
+    touchAction: string;
+    overscrollBehavior: string;
+  } | null>(null);
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
 
   hourHeightRef.current = hourHeightPx;
   weekDatesRef.current = weekDates;
   onDropRef.current = onDrop;
+
+  /**
+   * Fige le scroll de la grille agenda (évite que le doigt fasse défiler pendant le drag).
+   */
+  const lockAgendaScroll = useCallback(() => {
+    const sc = scrollRef.current;
+    if (!sc || scrollLockRef.current) return;
+    scrollLockRef.current = {
+      overflow: sc.style.overflow,
+      touchAction: sc.style.touchAction,
+      overscrollBehavior: sc.style.overscrollBehavior,
+    };
+    sc.style.overflow = "hidden";
+    sc.style.touchAction = "none";
+    sc.style.overscrollBehavior = "none";
+    document.body.style.touchAction = "none";
+    document.body.style.userSelect = "none";
+    document.body.style.overflow = "hidden";
+  }, [scrollRef]);
+
+  /**
+   * Restaure le scroll de la grille après drop / annulation.
+   */
+  const unlockAgendaScroll = useCallback(() => {
+    const sc = scrollRef.current;
+    const prev = scrollLockRef.current;
+    if (sc && prev) {
+      sc.style.overflow = prev.overflow;
+      sc.style.touchAction = prev.touchAction;
+      sc.style.overscrollBehavior = prev.overscrollBehavior;
+    }
+    scrollLockRef.current = null;
+    document.body.style.touchAction = "";
+    document.body.style.userSelect = "";
+    document.body.style.overflow = "";
+  }, [scrollRef]);
 
   /**
    * Clé stable pour l’opacité de la carte source pendant le drag
@@ -235,29 +277,20 @@ export function useAgendaCardPointerDrag({
     [findDayColumnAtX, scrollRef],
   );
 
-  /** Scroll auto près des bords + recentrage fantôme. */
+  /**
+   * Boucle rAF : recentre le fantôme (scroll volontairement figé pendant le drag).
+   */
   const tickDragFrame = useCallback(() => {
     const active = activeRef.current;
     if (!active) {
       rafRef.current = null;
       return;
     }
-    const sc = scrollRef.current;
-    if (sc) {
-      const r = sc.getBoundingClientRect();
-      const edge = 56;
-      const y = active.lastY;
-      if (y < r.top + edge) {
-        sc.scrollTop -= Math.max(6, (r.top + edge - y) * 0.4);
-      } else if (y > r.bottom - edge) {
-        sc.scrollTop += Math.max(6, (y - (r.bottom - edge)) * 0.4);
-      }
-    }
     const target = placeGhostByDelta(active, active.lastX, active.lastY);
     active.lastTarget = target;
     setDragOverDay(target?.dayIso ?? null);
     rafRef.current = requestAnimationFrame(tickDragFrame);
-  }, [placeGhostByDelta, scrollRef]);
+  }, [placeGhostByDelta]);
 
   /** Démarre la boucle rAF (scroll + fantôme). */
   const ensureDragLoop = useCallback(() => {
@@ -284,6 +317,7 @@ export function useAgendaCardPointerDrag({
     if (active) {
       active.ghost.remove();
       active.card.style.opacity = "";
+      active.card.style.touchAction = "";
       try {
         active.card.releasePointerCapture(active.pointerId);
       } catch {
@@ -294,9 +328,8 @@ export function useAgendaCardPointerDrag({
     pendingRef.current = null;
     setDragOverDay(null);
     setDraggingKey(null);
-    document.body.style.touchAction = "";
-    document.body.style.userSelect = "";
-  }, [stopDragLoop]);
+    unlockAgendaScroll();
+  }, [stopDragLoop, unlockAgendaScroll]);
 
   /**
    * Active le drag : fantôme cloné dans la colonne, calé sur l’heure d’origine.
@@ -342,8 +375,8 @@ export function useAgendaCardPointerDrag({
       } catch {
         /* ignore */
       }
-      document.body.style.touchAction = "none";
-      document.body.style.userSelect = "none";
+      // Fige la grille : le doigt déplace la carte, pas le scroll
+      lockAgendaScroll();
       if (navigator.vibrate) navigator.vibrate(28);
 
       const active: ActivePointerDrag = {
@@ -374,7 +407,7 @@ export function useAgendaCardPointerDrag({
       active.lastTarget = placeGhostByDelta(active, pending.lastX, pending.lastY);
       ensureDragLoop();
     },
-    [ensureDragLoop, findDayColumnAtX, placeGhostByDelta, scrollRef],
+    [ensureDragLoop, findDayColumnAtX, lockAgendaScroll, placeGhostByDelta, scrollRef],
   );
 
   /**
@@ -399,6 +432,8 @@ export function useAgendaCardPointerDrag({
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       const isCoarse = e.pointerType === "touch" || e.pointerType === "pen";
       if (isCoarse) {
+        // Empêche le navigateur de démarrer un scroll pendant l’appui
+        card.style.touchAction = "none";
         longPressTimerRef.current = setTimeout(() => {
           const p = pendingRef.current;
           if (p && p.pointerId === e.pointerId) activateDrag(p);
@@ -410,6 +445,15 @@ export function useAgendaCardPointerDrag({
 
   // Écoute globale move / up pendant pending ou active
   useEffect(() => {
+    /**
+     * Bloque le scroll natif tant qu’un drag agenda est actif (surtout iOS).
+     */
+    const onTouchMoveBlock = (e: TouchEvent) => {
+      if (activeRef.current || scrollLockRef.current) {
+        e.preventDefault();
+      }
+    };
+
     /**
      * Suit le doigt : active le drag souris, mémorise la position pour le fantôme.
      */
@@ -430,6 +474,7 @@ export function useAgendaCardPointerDrag({
                 clearTimeout(longPressTimerRef.current);
                 longPressTimerRef.current = null;
               }
+              pending.card.style.touchAction = "";
               pendingRef.current = null;
               return;
             }
@@ -457,6 +502,7 @@ export function useAgendaCardPointerDrag({
           clearTimeout(longPressTimerRef.current);
           longPressTimerRef.current = null;
         }
+        pending.card.style.touchAction = "";
         pendingRef.current = null;
       }
 
@@ -477,14 +523,17 @@ export function useAgendaCardPointerDrag({
         (active && active.pointerId === e.pointerId) ||
         (pending && pending.pointerId === e.pointerId)
       ) {
+        if (pending) pending.card.style.touchAction = "";
         cancelPointerDrag();
       }
     };
 
+    window.addEventListener("touchmove", onTouchMoveBlock, { passive: false });
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
     return () => {
+      window.removeEventListener("touchmove", onTouchMoveBlock);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
