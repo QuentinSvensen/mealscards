@@ -33,7 +33,26 @@ export function applyNextWeekPromotionOnTop(
     planning_drink_checks: { ...merged.planning_drink_checks },
   };
 
-  const overlayNumbers = (next: Record<string, number>, target: Record<string, number>) => {
+  /**
+   * Overlay numériques : valeurs > 0 écrasent ; 0 explicites sont écrits (bloquent un
+   * fallback 💾 après clear en semaine pro). Les zéros sont appliqués en 2ᵉ passe
+   * pour gagner sur une clé jour positive remappée vers le même ISO.
+   */
+  const overlayManualNumbers = (next: Record<string, number>, target: Record<string, number>) => {
+    const explicitZeros: string[] = [];
+    for (const [k, v] of Object.entries(next)) {
+      const targetKey = remapPlanningKeyToTargetWeek(k, targetWeek);
+      if (typeof v !== "number" || Number.isNaN(v)) continue;
+      if (v > 0) target[targetKey] = v;
+      else explicitZeros.push(targetKey);
+    }
+    for (const targetKey of explicitZeros) {
+      target[targetKey] = 0;
+    }
+  };
+
+  /** Overlay extras / petit-déj : 0 = suppression de la clé (pas de total fantôme). */
+  const overlayClearableNumbers = (next: Record<string, number>, target: Record<string, number>) => {
     for (const [k, v] of Object.entries(next)) {
       const targetKey = remapPlanningKeyToTargetWeek(k, targetWeek);
       if (typeof v !== "number" || Number.isNaN(v)) continue;
@@ -42,12 +61,12 @@ export function applyNextWeekPromotionOnTop(
     }
   };
 
-  overlayNumbers(asNumberRecord(prefMap["next_week_manual_calories"]), out.planning_manual_calories);
-  overlayNumbers(asNumberRecord(prefMap["next_week_manual_proteins"]), out.planning_manual_proteins);
-  overlayNumbers(asNumberRecord(prefMap["next_week_manual_fibers"]), out.planning_manual_fibers);
-  overlayNumbers(asNumberRecord(prefMap["next_week_extra_calories"]), out.planning_extra_calories);
-  overlayNumbers(asNumberRecord(prefMap["next_week_extra_proteins"]), out.planning_extra_proteins);
-  overlayNumbers(asNumberRecord(prefMap["next_week_extra_fibers"]), out.planning_extra_fibers);
+  overlayManualNumbers(asNumberRecord(prefMap["next_week_manual_calories"]), out.planning_manual_calories);
+  overlayManualNumbers(asNumberRecord(prefMap["next_week_manual_proteins"]), out.planning_manual_proteins);
+  overlayManualNumbers(asNumberRecord(prefMap["next_week_manual_fibers"]), out.planning_manual_fibers);
+  overlayClearableNumbers(asNumberRecord(prefMap["next_week_extra_calories"]), out.planning_extra_calories);
+  overlayClearableNumbers(asNumberRecord(prefMap["next_week_extra_proteins"]), out.planning_extra_proteins);
+  overlayClearableNumbers(asNumberRecord(prefMap["next_week_extra_fibers"]), out.planning_extra_fibers);
 
   const nES = remapPlanningRecordToTargetWeek(
     asStringArrayRecord(prefMap["next_week_extra_selections"]),
@@ -63,11 +82,11 @@ export function applyNextWeekPromotionOnTop(
     else delete out.planning_breakfast[k];
   }
 
-  overlayNumbers(
+  overlayClearableNumbers(
     asNumberRecord(prefMap["next_week_breakfast_manual_calories"]),
     out.planning_breakfast_manual_calories,
   );
-  overlayNumbers(
+  overlayClearableNumbers(
     asNumberRecord(prefMap["next_week_breakfast_manual_proteins"]),
     out.planning_breakfast_manual_proteins,
   );

@@ -6,6 +6,7 @@ import {
   syncNextWeekManualSlotMacro,
   writeManualSlotMacroPreference,
 } from "./resolveManualSlotMacros";
+import { applyNextWeekPromotionOnTop } from "./applyNextWeekPromotion";
 
 describe("resolveManualSlotMacros", () => {
   it("préfère la préférence ISO au snapshot", () => {
@@ -25,7 +26,7 @@ describe("resolveManualSlotMacros", () => {
     expect(out).toEqual({ cal: 900, prot: 20, fiber: 4 });
   });
 
-  it("lit la préférence jour si l’ISO est absente", () => {
+  it("ignore les clés jour live (évite fuite inter-semaines)", () => {
     const out = resolveManualSlotMacros(
       {
         calories: { "dimanche-midi": 1500 },
@@ -37,10 +38,10 @@ describe("resolveManualSlotMacros", () => {
       "dimanche",
       "midi",
     );
-    expect(out).toEqual({ cal: 1500, prot: 35, fiber: 0 });
+    expect(out).toEqual({ cal: 0, prot: 0, fiber: 0 });
   });
 
-  it("retombe sur le snapshot 💾 quand les prefs sont vides (cas post-reset)", () => {
+  it("n’utilise pas le snapshot weekday (réservé au merge reset)", () => {
     const out = resolveManualSlotMacros(
       { calories: {}, proteins: {}, fibers: {} },
       {
@@ -50,7 +51,7 @@ describe("resolveManualSlotMacros", () => {
       "dimanche",
       "midi",
     );
-    expect(out).toEqual({ cal: 1500, prot: 35, fiber: 0 });
+    expect(out).toEqual({ cal: 0, prot: 0, fiber: 0 });
   });
 
   it("retombe sur le snapshot ISO du jour affiché", () => {
@@ -132,6 +133,21 @@ describe("resolveNextWeekManualSlotMacros", () => {
     );
     expect(out).toEqual({ cal: 800, prot: 35, fiber: 0 });
   });
+
+  it("respecte un clear ISO 0 même si un snapshot weekday existe", () => {
+    const out = resolveNextWeekManualSlotMacros(
+      {
+        calories: { "2026-08-09-midi": 0 },
+        proteins: { "2026-08-09-midi": 0 },
+        fibers: { "2026-08-09-midi": 0 },
+      },
+      { "manual-dimanche-midi": { cal: 1500, prot: 35, fiber: 0 } },
+      "2026-08-09",
+      "dimanche",
+      "midi",
+    );
+    expect(out).toEqual({ cal: 0, prot: 0, fiber: 0 });
+  });
 });
 
 describe("syncNextWeekManualSlotMacro", () => {
@@ -165,5 +181,71 @@ describe("clearManualSlotMacroPreferences", () => {
     expect(out.calories).toEqual({ "2026-08-01-midi": 0 });
     expect(out.proteins).toEqual({ "2026-08-01-midi": 0 });
     expect(out.fibers).toEqual({ "2026-08-01-midi": 0 });
+  });
+});
+
+describe("applyNextWeekPromotionOnTop — clear explicite", () => {
+  it("conserve un 0 saisi en semaine pro (ne laisse pas le snapshot 💾 revenir)", () => {
+    const targetWeek = [
+      { key: "lundi", iso: "2026-08-03", display: "" },
+      { key: "mardi", iso: "2026-08-04", display: "" },
+      { key: "mercredi", iso: "2026-08-05", display: "" },
+      { key: "jeudi", iso: "2026-08-06", display: "" },
+      { key: "vendredi", iso: "2026-08-07", display: "" },
+      { key: "samedi", iso: "2026-08-08", display: "" },
+      { key: "dimanche", iso: "2026-08-09", display: "" },
+    ] as any;
+
+    const out = applyNextWeekPromotionOnTop(
+      {
+        planning_manual_calories: { "2026-08-09-midi": 1500 },
+        planning_manual_proteins: { "2026-08-09-midi": 35 },
+        planning_manual_fibers: {},
+        planning_extra_calories: {},
+        planning_extra_proteins: {},
+        planning_extra_fibers: {},
+        planning_extra_selections: {},
+        planning_breakfast_manual_calories: {},
+        planning_breakfast_manual_proteins: {},
+        planning_breakfast: {},
+        planning_drink_checks: {},
+      },
+      {
+        next_week_manual_calories: { "2026-08-09-midi": 0 },
+        next_week_manual_proteins: { "2026-08-09-midi": 0 },
+        next_week_manual_fibers: { "2026-08-09-midi": 0 },
+      },
+      {},
+      targetWeek,
+    );
+
+    expect(out.planning_manual_calories["2026-08-09-midi"]).toBe(0);
+    expect(out.planning_manual_proteins["2026-08-09-midi"]).toBe(0);
+    expect(out.planning_manual_fibers["2026-08-09-midi"]).toBe(0);
+    // Un 0 explicite doit aussi gagner sur une clé jour positive résiduelle
+    const out2 = applyNextWeekPromotionOnTop(
+      {
+        planning_manual_calories: { "2026-08-09-midi": 1500 },
+        planning_manual_proteins: {},
+        planning_manual_fibers: {},
+        planning_extra_calories: {},
+        planning_extra_proteins: {},
+        planning_extra_fibers: {},
+        planning_extra_selections: {},
+        planning_breakfast_manual_calories: {},
+        planning_breakfast_manual_proteins: {},
+        planning_breakfast: {},
+        planning_drink_checks: {},
+      },
+      {
+        next_week_manual_calories: {
+          "dimanche-midi": 1500,
+          "2026-08-09-midi": 0,
+        },
+      },
+      {},
+      targetWeek,
+    );
+    expect(out2.planning_manual_calories["2026-08-09-midi"]).toBe(0);
   });
 });

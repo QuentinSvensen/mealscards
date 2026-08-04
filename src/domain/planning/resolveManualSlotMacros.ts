@@ -1,4 +1,3 @@
-import { pickPlanningSlotValue } from "@/lib/planningExtraMacros";
 import type { PlanningSnapshotEntry } from "./types";
 
 /** Prefs manuelles kcal / prot / fib indexées par créneau. */
@@ -16,32 +15,46 @@ export type ManualSlotMacros = {
 };
 
 /**
- * Résout kcal / prot / fib d’un créneau manuel :
- * 1) préférences live (clé ISO puis clé jour, via pickPlanningSlotValue) ;
- * 2) sinon fallback sur le snapshot 💾 (même règle que PlanningNextWeekView).
- * Sert à préremplir les inputs après un reset (prefs absentes) ; un 0 explicite
- * en pref bloque ce fallback pour laisser un clear manuel vide.
+ * Lit une pref manuelle live : clé ISO uniquement (ignore `jeudi-midi`),
+ * pour éviter qu’une saisie d’une autre semaine fuite sur le même weekday.
+ * Un 0 explicite est conservé (bloque le fallback snapshot).
+ */
+function readLiveIsoManualMacro(
+  record: Record<string, number>,
+  iso: string,
+  slot: string,
+): number | undefined {
+  const isoKey = `${iso}-${slot}`;
+  if (!Object.prototype.hasOwnProperty.call(record, isoKey)) return undefined;
+  const n = record[isoKey];
+  return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Résout kcal / prot / fib d’un créneau manuel (semaine courante) :
+ * 1) préférence live clé ISO seulement ;
+ * 2) sinon snapshot 💾 clé ISO du jour affiché (pas le weekday générique).
+ * Les snapshots `manual-jeudi-midi` ne s’appliquent qu’au reset via mergeSnapshots.
  */
 export function resolveManualSlotMacros(
   prefs: ManualSlotMacroMaps,
   snapshots: Record<string, PlanningSnapshotEntry>,
   iso: string,
-  dayKey: string,
+  _dayKey: string,
   slot: string,
 ): ManualSlotMacros {
-  const snap =
-    snapshots[`manual-${iso}-${slot}`] || snapshots[`manual-${dayKey}-${slot}`];
+  const snap = snapshots[`manual-${iso}-${slot}`];
   return {
-    cal: pickPlanningSlotValue(prefs.calories, iso, dayKey, slot) ?? snap?.cal ?? 0,
-    prot: pickPlanningSlotValue(prefs.proteins, iso, dayKey, slot) ?? snap?.prot ?? 0,
-    fiber: pickPlanningSlotValue(prefs.fibers, iso, dayKey, slot) ?? snap?.fiber ?? 0,
+    cal: readLiveIsoManualMacro(prefs.calories, iso, slot) ?? snap?.cal ?? 0,
+    prot: readLiveIsoManualMacro(prefs.proteins, iso, slot) ?? snap?.prot ?? 0,
+    fiber: readLiveIsoManualMacro(prefs.fibers, iso, slot) ?? snap?.fiber ?? 0,
   };
 }
 
 /**
  * Résout les macros manuelles pour l’aperçu « semaine pro » :
- * saisie directe (clé ISO next_week) ou snapshot 💾 — pas les clés jour
- * brouillon issues d’une saisie non sauvegardée en semaine courante.
+ * saisie directe (clé ISO next_week) ou snapshot 💾 (ISO puis weekday pour prévisualiser le 💾).
+ * Pas les clés jour brouillon `jeudi-midi` dans next_week (issues d’un blur non voulu).
  */
 export function resolveNextWeekManualSlotMacros(
   nextPrefs: ManualSlotMacroMaps,
@@ -54,9 +67,15 @@ export function resolveNextWeekManualSlotMacros(
   const snap =
     snapshots[`manual-${iso}-${slot}`] || snapshots[`manual-${dayKey}-${slot}`];
   return {
-    cal: nextPrefs.calories[isoKey] ?? snap?.cal ?? 0,
-    prot: nextPrefs.proteins[isoKey] ?? snap?.prot ?? 0,
-    fiber: nextPrefs.fibers[isoKey] ?? snap?.fiber ?? 0,
+    cal: Object.prototype.hasOwnProperty.call(nextPrefs.calories, isoKey)
+      ? nextPrefs.calories[isoKey] ?? 0
+      : snap?.cal ?? 0,
+    prot: Object.prototype.hasOwnProperty.call(nextPrefs.proteins, isoKey)
+      ? nextPrefs.proteins[isoKey] ?? 0
+      : snap?.prot ?? 0,
+    fiber: Object.prototype.hasOwnProperty.call(nextPrefs.fibers, isoKey)
+      ? nextPrefs.fibers[isoKey] ?? 0
+      : snap?.fiber ?? 0,
   };
 }
 
