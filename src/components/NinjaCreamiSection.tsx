@@ -210,6 +210,7 @@ export function NinjaCreamiSection({
             count={testedMeals.length}
             collapsed={testedCollapsed}
             onToggleCollapse={onToggleTestedCollapse}
+            className="py-3 px-2"
             headerActions={
               <Button
                 size="sm"

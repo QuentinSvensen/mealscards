@@ -25,6 +25,8 @@ interface MealListProps {
   headerActions?: React.ReactNode;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Classes CSS additionnelles (ex. padding réduit pour listes imbriquées). */
+  className?: string;
 }
 
 export function MealList({
@@ -37,6 +39,7 @@ export function MealList({
   headerActions,
   collapsed,
   onToggleCollapse,
+  className,
 }: MealListProps) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -70,9 +73,9 @@ export function MealList({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className={`flex flex-col rounded-3xl bg-card/80 backdrop-blur-sm p-5 min-h-[80px] transition-all ${
-        dragOver ? "ring-4 ring-primary/40 bg-primary/5" : ""
-      }`}
+      className={`flex flex-col rounded-3xl bg-card/80 backdrop-blur-sm min-h-[80px] transition-all ${
+        className ?? "p-5"
+      } ${dragOver ? "ring-4 ring-primary/40 bg-primary/5" : ""}`}
     >
       <div className="flex items-center gap-2 mb-2">
         {onToggleCollapse && (
