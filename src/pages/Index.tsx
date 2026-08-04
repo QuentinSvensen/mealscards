@@ -65,6 +65,7 @@ import {
   formatExpirationLabel, compareExpirationWithCounter,
   sortStockDeductionPriority, buildScaledMealForRatio, scaleIngredientStringExact,
   getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, propagateIngredientMacros, resolveCounterStartForPossibleBadge,
+  getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber,
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
   computePossibleFrozenCounterDays,
@@ -95,19 +96,25 @@ import {
   NINJA_CREAMI_BASE_GROUPS_KEY,
   NINJA_CREAMI_BASE_LINES_KEY,
   NINJA_CREAMI_EXTRAS_LINES_KEY,
+  NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY,
   NINJA_CREAMI_MEAL_IDS_KEY,
   NINJA_CREAMI_TEST_PM_IDS_KEY,
   addNinjaCreamiMealId,
   addNinjaCreamiTestPmId,
+  applyNinjaCreamiMealDisplayNames,
   filterNinjaCreamiTestedMeals,
   filterOutNinjaCreamiMeals,
   flattenNinjaCreamiBaseGroups,
   loadNinjaCreamiBaseGroupsLocalBackup,
   normalizeNinjaCreamiBaseGroups,
   normalizeNinjaCreamiCatalogLines,
+  normalizeNinjaCreamiMealDisplayNames,
   ninjaCreamiBaseGroupsHaveContent,
+  removeNinjaCreamiMealDisplayName,
   removeNinjaCreamiMealId,
+  resolveIngredientsForNinjaCreamiTestedSave,
   saveNinjaCreamiBaseGroupsLocalBackup,
+  setNinjaCreamiMealDisplayName,
   syncNinjaCatalogLinesToMacroLibrary,
   upsertMacroLibraryFromNinjaLineName,
   type NinjaCreamiBaseGroup,
@@ -303,6 +310,11 @@ const Index = () => {
   );
   const ninjaCreamiMealIds = getPreference<string[]>(NINJA_CREAMI_MEAL_IDS_KEY, []);
   const ninjaCreamiTestPmIds = getPreference<string[]>(NINJA_CREAMI_TEST_PM_IDS_KEY, []);
+  const ninjaCreamiMealDisplayNamesRaw = getPreference(NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY, {});
+  const ninjaCreamiMealDisplayNames = useMemo(
+    () => normalizeNinjaCreamiMealDisplayNames(ninjaCreamiMealDisplayNamesRaw),
+    [ninjaCreamiMealDisplayNamesRaw],
+  );
   const ninjaCreamiBaseGroupsRaw = getPreference(NINJA_CREAMI_BASE_GROUPS_KEY, null);
   const ninjaCreamiBaseLinesRaw = getPreference(NINJA_CREAMI_BASE_LINES_KEY, []);
   const ninjaCreamiExtrasLinesRaw = getPreference(NINJA_CREAMI_EXTRAS_LINES_KEY, []);
@@ -1428,9 +1440,12 @@ const Index = () => {
                             onToggleTestedCollapse={() => toggleSectionCollapse("ninja-creami-tested")}
                             testsCollapsed={collapsedSections["ninja-creami-tests"] ?? false}
                             onToggleTestsCollapse={() => toggleSectionCollapse("ninja-creami-tests")}
-                            testedMeals={filterNinjaCreamiTestedMeals(
-                              getMealsByCategory("dessert"),
-                              ninjaCreamiMealIds,
+                            testedMeals={applyNinjaCreamiMealDisplayNames(
+                              filterNinjaCreamiTestedMeals(
+                                getMealsByCategory("dessert"),
+                                ninjaCreamiMealIds,
+                              ),
+                              ninjaCreamiMealDisplayNames,
                             )}
                             foodItems={foodItems}
                             baseGroups={ninjaCreamiBaseGroups}
@@ -1498,13 +1513,31 @@ const Index = () => {
                               );
                             }}
                             onMoveToPossible={(id) => handleMoveToPossibleGeneral(id, "master")}
-                            onRename={(id, name) => renameMeal.mutate({ id, name })}
+                            onRename={(id, name) => {
+                              // Nom local Recettes testées : ne pas renommer meals.name
+                              // (sinon la carte Possible liée change aussi).
+                              setPreference.mutate({
+                                key: NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY,
+                                value: setNinjaCreamiMealDisplayName(
+                                  ninjaCreamiMealDisplayNames,
+                                  id,
+                                  name,
+                                ),
+                              });
+                            }}
                             onDelete={(id) => {
                               // Retire uniquement de « Recettes testées » : ne pas supprimer le repas
                               // (sinon les cartes Possible liées disparaissent aussi).
                               setPreference.mutate({
                                 key: NINJA_CREAMI_MEAL_IDS_KEY,
                                 value: removeNinjaCreamiMealId(ninjaCreamiMealIds, id),
+                              });
+                              setPreference.mutate({
+                                key: NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY,
+                                value: removeNinjaCreamiMealDisplayName(
+                                  ninjaCreamiMealDisplayNames,
+                                  id,
+                                ),
                               });
                               setMealAvailable.mutate({ id, is_available: false });
                             }}
@@ -1615,18 +1648,64 @@ const Index = () => {
                           onSaveToNinjaTested={(pmId) => {
                             const pm = possibleMeals.find((p) => p.id === pmId);
                             if (!pm?.meal_id) return;
-                            setMealAvailable.mutate(
-                              { id: pm.meal_id, is_available: true },
-                              {
-                                onSuccess: () => {
-                                  setPreference.mutate({
-                                    key: NINJA_CREAMI_MEAL_IDS_KEY,
-                                    value: addNinjaCreamiMealId(ninjaCreamiMealIds, pm.meal_id),
-                                  });
-                                  toast({ title: "Enregistrée dans Recettes testées 🎉" });
+
+                            /** Finalise l’ajout dans Recettes testées (après sync des ingrédients). */
+                            const finishSaveToTested = () => {
+                              setMealAvailable.mutate(
+                                { id: pm.meal_id, is_available: true },
+                                {
+                                  onSuccess: () => {
+                                    setPreference.mutate({
+                                      key: NINJA_CREAMI_MEAL_IDS_KEY,
+                                      value: addNinjaCreamiMealId(ninjaCreamiMealIds, pm.meal_id),
+                                    });
+                                    toast({ title: "Enregistrée dans Recettes testées 🎉" });
+                                  },
                                 },
-                              },
-                            );
+                              );
+                            };
+
+                            // Copie les ingrédients Possible (override inclus) vers le meal catalogue.
+                            const ingredients = resolveIngredientsForNinjaCreamiTestedSave(pm);
+                            const mealIngredients = pm.meals?.ingredients ?? null;
+                            const ingredientsChanged =
+                              ingredients !== mealIngredients &&
+                              String(ingredients ?? "").trim() !== String(mealIngredients ?? "").trim();
+
+                            const cal = getDisplayedPMCalories(pm);
+                            const pro = getDisplayedPMProtein(pm, undefined, undefined, foodItems, foodItemIndex);
+                            const fiber = getDisplayedPMFiber(pm, undefined, undefined, foodItems, foodItemIndex);
+
+                            const syncMacrosThenFinish = () => {
+                              if (cal != null) {
+                                updateCalories.mutate({
+                                  id: pm.meal_id,
+                                  calories: String(Math.round(cal)),
+                                });
+                              }
+                              if (pro != null) {
+                                updateProtein.mutate({
+                                  id: pm.meal_id,
+                                  protein: String(Math.round(pro * 10) / 10),
+                                });
+                              }
+                              if (fiber != null) {
+                                updateFiber.mutate({
+                                  id: pm.meal_id,
+                                  fiber: String(Math.round(fiber * 10) / 10),
+                                });
+                              }
+                              finishSaveToTested();
+                            };
+
+                            if (ingredientsChanged) {
+                              updateIngredients.mutate(
+                                { id: pm.meal_id, ingredients },
+                                { onSuccess: syncMacrosThenFinish },
+                              );
+                            } else {
+                              syncMacrosThenFinish();
+                            }
                           }}
                           deductionSnapshots={effectiveDeductionSnapshots}
                           frozenCounterDaysByPmId={frozenCounterDaysByPmId}

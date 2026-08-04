@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addNinjaCreamiMealId,
+  applyNinjaCreamiMealDisplayNames,
   createEmptyNinjaCreamiCatalogLine,
   filterNinjaCreamiTestedMeals,
   filterOutNinjaCreamiMeals,
@@ -8,9 +9,13 @@ import {
   moveLineBetweenNinjaCreamiBaseGroups,
   normalizeNinjaCreamiBaseGroups,
   normalizeNinjaCreamiCatalogLines,
+  removeNinjaCreamiMealDisplayName,
   removeNinjaCreamiMealId,
   reorderNinjaCreamiBaseGroups,
+  resolveIngredientsForNinjaCreamiTestedSave,
+  resolveNinjaCreamiMealDisplayName,
   serializeSelectedNinjaCreamiIngredients,
+  setNinjaCreamiMealDisplayName,
   sumSelectedNinjaCreamiMacros,
   upsertMacroLibraryFromNinjaLineName,
   type NinjaCreamiCatalogLine,
@@ -103,6 +108,45 @@ describe("add/remove ninja meal ids", () => {
     expect(addNinjaCreamiMealId(["a"], "a")).toEqual(["a"]);
     expect(addNinjaCreamiMealId(["a"], "b")).toEqual(["a", "b"]);
     expect(removeNinjaCreamiMealId(["a", "b"], "a")).toEqual(["b"]);
+  });
+});
+
+describe("ninja cream meal display names", () => {
+  it("résout l’override puis le nom catalogue", () => {
+    expect(resolveNinjaCreamiMealDisplayName("a", "Pot #1", { a: "Lait daim" })).toBe("Lait daim");
+    expect(resolveNinjaCreamiMealDisplayName("a", "Pot #1", {})).toBe("Pot #1");
+  });
+
+  it("applique les noms sans muter les repas non concernés", () => {
+    const meals = [
+      { id: "a", name: "Pot #1" },
+      { id: "b", name: "Pot #2" },
+    ];
+    expect(applyNinjaCreamiMealDisplayNames(meals, { a: "Lait daim" })).toEqual([
+      { id: "a", name: "Lait daim" },
+      { id: "b", name: "Pot #2" },
+    ]);
+  });
+
+  it("set / remove mettent à jour la map", () => {
+    expect(setNinjaCreamiMealDisplayName({}, "a", "Lait")).toEqual({ a: "Lait" });
+    expect(removeNinjaCreamiMealDisplayName({ a: "Lait", b: "X" }, "a")).toEqual({ b: "X" });
+  });
+});
+
+describe("resolveIngredientsForNinjaCreamiTestedSave", () => {
+  it("priorise l’override Possible puis les ingrédients meal", () => {
+    expect(
+      resolveIngredientsForNinjaCreamiTestedSave({
+        ingredients_override: "20g Daim, 5g Stévia",
+        meals: { ingredients: "225g Lait" },
+      }),
+    ).toBe("20g Daim, 5g Stévia");
+    expect(
+      resolveIngredientsForNinjaCreamiTestedSave({
+        meals: { ingredients: "225g Lait" },
+      }),
+    ).toBe("225g Lait");
   });
 });
 

@@ -14,6 +14,8 @@ import {
 
 /** Clés de préférences Ninja Creami. */
 export const NINJA_CREAMI_MEAL_IDS_KEY = "ninja_creami_meal_ids";
+/** Noms d’affichage Recettes testées (indépendants du nom Possible / meals.name). */
+export const NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY = "ninja_creami_meal_display_names";
 export const NINJA_CREAMI_BASE_LINES_KEY = "ninja_creami_base_lines";
 export const NINJA_CREAMI_BASE_GROUPS_KEY = "ninja_creami_base_groups";
 export const NINJA_CREAMI_EXTRAS_LINES_KEY = "ninja_creami_extras_lines";
@@ -522,6 +524,22 @@ export function filterNinjaCreamiTestedMeals<T extends { id: string }>(
 }
 
 /**
+ * Ingrédients à persister sur le meal lors de « Enregistrer dans Recettes testées »
+ * (priorité à l’override Possible, sinon les ingrédients du meal).
+ */
+export function resolveIngredientsForNinjaCreamiTestedSave(pm: {
+  ingredients_override?: string | null;
+  meals?: { ingredients?: string | null } | null;
+}): string | null {
+  if (pm.ingredients_override != null) {
+    const trimmed = String(pm.ingredients_override).trim();
+    // Override volontairement vide : on le respecte.
+    return trimmed === "" ? "" : pm.ingredients_override;
+  }
+  return pm.meals?.ingredients ?? null;
+}
+
+/**
  * Ajoute un meal id à la liste Recettes testées (sans doublon).
  */
 export function addNinjaCreamiMealId(ids: string[], mealId: string): string[] {
@@ -534,6 +552,80 @@ export function addNinjaCreamiMealId(ids: string[], mealId: string): string[] {
  */
 export function removeNinjaCreamiMealId(ids: string[], mealId: string): string[] {
   return ids.filter((id) => id !== mealId);
+}
+
+/**
+ * Normalise la map des noms d’affichage Recettes testées.
+ */
+export function normalizeNinjaCreamiMealDisplayNames(
+  raw: unknown,
+): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [id, name] of Object.entries(raw as Record<string, unknown>)) {
+    if (!id || typeof name !== "string") continue;
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    out[id] = trimmed;
+  }
+  return out;
+}
+
+/**
+ * Nom affiché dans Recettes testées (override local, sinon meals.name).
+ */
+export function resolveNinjaCreamiMealDisplayName(
+  mealId: string,
+  mealName: string,
+  displayNames: Record<string, string> | null | undefined,
+): string {
+  const override = displayNames?.[mealId]?.trim();
+  return override || mealName;
+}
+
+/**
+ * Enregistre / met à jour le nom d’affichage d’une recette testée.
+ */
+export function setNinjaCreamiMealDisplayName(
+  displayNames: Record<string, string>,
+  mealId: string,
+  name: string,
+): Record<string, string> {
+  if (!mealId) return displayNames;
+  const trimmed = name.trim();
+  if (!trimmed) {
+    const next = { ...displayNames };
+    delete next[mealId];
+    return next;
+  }
+  return { ...displayNames, [mealId]: trimmed };
+}
+
+/**
+ * Retire le nom d’affichage d’une recette retirée de Recettes testées.
+ */
+export function removeNinjaCreamiMealDisplayName(
+  displayNames: Record<string, string>,
+  mealId: string,
+): Record<string, string> {
+  if (!mealId || !(mealId in displayNames)) return displayNames;
+  const next = { ...displayNames };
+  delete next[mealId];
+  return next;
+}
+
+/**
+ * Applique les noms d’affichage Recettes testées sur une liste de repas.
+ */
+export function applyNinjaCreamiMealDisplayNames<T extends { id: string; name: string }>(
+  meals: T[],
+  displayNames: Record<string, string> | null | undefined,
+): T[] {
+  if (!displayNames || Object.keys(displayNames).length === 0) return meals;
+  return meals.map((meal) => {
+    const name = resolveNinjaCreamiMealDisplayName(meal.id, meal.name, displayNames);
+    return name === meal.name ? meal : { ...meal, name };
+  });
 }
 
 /**
