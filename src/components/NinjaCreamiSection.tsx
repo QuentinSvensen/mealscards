@@ -199,7 +199,6 @@ export function NinjaCreamiSection({
           <Sparkles className="h-5 w-5 text-cyan-400" />
           Ninja Creami
         </h2>
-        <span className="text-sm font-normal text-muted-foreground">{testedMeals.length}</span>
       </div>
 
       {!collapsed && (

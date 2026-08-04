@@ -540,6 +540,30 @@ export function resolveIngredientsForNinjaCreamiTestedSave(pm: {
 }
 
 /**
+ * Indique si une carte Possible Ninja Creami ne doit pas toucher au stock
+ * (créée depuis Tests, ou meal déjà en Recettes testées).
+ */
+export function isNinjaCreamiStockExemptPossibleMeal(
+  pmId: string,
+  mealId: string | null | undefined,
+  testPmIds: ReadonlySet<string> | readonly string[] | null | undefined,
+  testedMealIds: ReadonlySet<string> | readonly string[] | null | undefined,
+): boolean {
+  if (!pmId?.trim()) return false;
+  const testSet =
+    testPmIds instanceof Set
+      ? testPmIds
+      : new Set(Array.isArray(testPmIds) ? testPmIds : []);
+  if (testSet.has(pmId)) return true;
+  if (!mealId?.trim() || !testedMealIds) return false;
+  const mealSet =
+    testedMealIds instanceof Set
+      ? testedMealIds
+      : new Set(Array.isArray(testedMealIds) ? testedMealIds : []);
+  return mealSet.has(mealId);
+}
+
+/**
  * Ajoute un meal id à la liste Recettes testées (sans doublon).
  */
 export function addNinjaCreamiMealId(ids: string[], mealId: string): string[] {
@@ -625,6 +649,32 @@ export function applyNinjaCreamiMealDisplayNames<T extends { id: string; name: s
   return meals.map((meal) => {
     const name = resolveNinjaCreamiMealDisplayName(meal.id, meal.name, displayNames);
     return name === meal.name ? meal : { ...meal, name };
+  });
+}
+
+/** Préfixe affiché dans « Au choix » pour les recettes Ninja Creami. */
+export const NINJA_CREAMI_AU_CHOIX_NAME_PREFIX = "Glace : ";
+
+/**
+ * Préfixe « Glace : » pour l’affichage Au choix des recettes Ninja Creami
+ * (sans modifier le nom stocké / Possible).
+ */
+export function applyNinjaCreamiAuChoixDisplayNames<T extends { id: string; name: string }>(
+  meals: T[],
+  ninjaMealIds: readonly string[] | Set<string>,
+  displayNames?: Record<string, string> | null,
+): T[] {
+  const idSet = ninjaMealIds instanceof Set ? ninjaMealIds : new Set(ninjaMealIds);
+  if (idSet.size === 0 && (!displayNames || Object.keys(displayNames).length === 0)) {
+    return meals;
+  }
+  const withDisplay = applyNinjaCreamiMealDisplayNames(meals, displayNames);
+  return withDisplay.map((meal) => {
+    if (!idSet.has(meal.id)) return meal;
+    const base = meal.name.trim();
+    if (!base) return meal;
+    if (base.startsWith(NINJA_CREAMI_AU_CHOIX_NAME_PREFIX)) return meal;
+    return { ...meal, name: `${NINJA_CREAMI_AU_CHOIX_NAME_PREFIX}${base}` };
   });
 }
 

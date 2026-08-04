@@ -30,6 +30,7 @@ import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import type { NinjaCreamiBaseGroup, NinjaCreamiCatalogLine } from "@/domain/ninjaCreami/ninjaCreami";
+import { isNinjaCreamiStockExemptPossibleMeal } from "@/domain/ninjaCreami/ninjaCreami";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -65,6 +66,7 @@ const MemoizedPossibleMealCard = React.memo(
       prevProps.mealsCatalog === nextProps.mealsCatalog &&
       prevProps.onReturnWithoutDeductionLabel === nextProps.onReturnWithoutDeductionLabel &&
       !!prevProps.onReturnToMaster === !!nextProps.onReturnToMaster &&
+      prevProps.onReturnToMasterLabel === nextProps.onReturnToMasterLabel &&
       !!prevProps.onReturnWithoutDeduction === !!nextProps.onReturnWithoutDeduction &&
       !!prevProps.onUpdateQuantity === !!nextProps.onUpdateQuantity &&
       !!prevProps.onRename === !!nextProps.onRename &&
@@ -129,6 +131,8 @@ interface PossibleListProps {
   /** Possible issus de Ninja Creami → Tests (option enregistrer Recettes testées). */
   ninjaCreamiTestPmIds?: Set<string> | string[];
   onSaveToNinjaTested?: (pmId: string) => void;
+  /** Meal ids déjà en Recettes testées (équivalent Tous : pas de lien stock). */
+  ninjaCreamiMealIds?: Set<string> | string[];
   /** Catalogue Base Tests pour l’option « Ajouter extras ». */
   ninjaCreamiBaseGroups?: NinjaCreamiBaseGroup[];
   /** Catalogue Extras Tests pour l’option « Ajouter extras ». */
@@ -150,6 +154,7 @@ export function PossibleList({
   possibleOnlyMealIds = [],
   ninjaCreamiTestPmIds,
   onSaveToNinjaTested,
+  ninjaCreamiMealIds,
   ninjaCreamiBaseGroups,
   ninjaCreamiExtrasLines,
 }: PossibleListProps) {
@@ -161,6 +166,12 @@ export function PossibleList({
       ? ninjaCreamiTestPmIds
       : new Set(ninjaCreamiTestPmIds);
   }, [ninjaCreamiTestPmIds]);
+  const ninjaMealIdSet = useMemo(() => {
+    if (!ninjaCreamiMealIds) return new Set<string>();
+    return ninjaCreamiMealIds instanceof Set
+      ? ninjaCreamiMealIds
+      : new Set(ninjaCreamiMealIds);
+  }, [ninjaCreamiMealIds]);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
   /**
@@ -235,11 +246,19 @@ export function PossibleList({
           const expiredIngs = analysis.expiredIngredientNames;
           const soonIngs = analysis.expiringSoonIngredientNames;
           const cardIngredients = pm.ingredients_override ?? meal.ingredients;
+          const stockExempt =
+            masterSourcePmIds.has(pm.id) ||
+            isNinjaCreamiStockExemptPossibleMeal(
+              pm.id,
+              pm.meal_id,
+              ninjaTestPmSet,
+              ninjaMealIdSet,
+            );
           const snapshotPastOpening = cardIngredients
             ? findEarliestActiveCounterDate(cardIngredients, deductionSnapshots[pm.id] ?? [], foodItemIndex)
             : undefined;
           const resolvedCounterStart =
-            masterSourcePmIds.has(pm.id) || unParUnSourcePmIds.has(pm.id)
+            stockExempt || unParUnSourcePmIds.has(pm.id)
               ? null
               : resolveCounterStartForPossibleBadge(
                   pm,
@@ -274,6 +293,12 @@ export function PossibleList({
           const showTopSeparator = isTodayPM && !isPrevToday && index > 0;
           const showBottomSeparator = isTodayPM && !isNextToday && index < visibleItemsWithAnalysis.length - 1;
 
+          const returnToMasterLabel = ninjaMealIdSet.has(pm.meal_id)
+            ? "Revenir dans Au choix"
+            : ninjaTestPmSet.has(pm.id)
+              ? "Retirer de Possible"
+              : "Revenir dans Tous";
+
           return (
             <React.Fragment key={pm.id}>
               {showTopSeparator && (
@@ -289,14 +314,15 @@ export function PossibleList({
                 <MemoizedPossibleMealCard pm={pm} stockMap={stockMap} foodItems={foodItems}
                   ingredientMacroSources={ingredientMacroAutofillSources}
                   mealsCatalog={mealsCatalog}
-                  fromMaster={masterSourcePmIds.has(pm.id)}
+                  fromMaster={stockExempt}
                   frozenCounterDays={frozenCounterDays}
                   expiredIngredientNames={expiredIngs}
                   expiringSoonIngredientNames={soonIngs}
                   onRemove={() => onRemove(pm.id)}
-                  onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
+                  onReturnWithoutDeduction={stockExempt ? undefined : () => onReturnWithoutDeduction(pm.id)}
                   onReturnWithoutDeductionLabel={unParUnSourcePmIds.has(pm.id) ? "Revenir dans Un par un" : undefined}
-                  onReturnToMaster={masterSourcePmIds.has(pm.id) ? () => onReturnToMaster(pm.id) : undefined}
+                  onReturnToMaster={stockExempt ? () => onReturnToMaster(pm.id) : undefined}
+                  onReturnToMasterLabel={returnToMasterLabel}
                   onSaveToNinjaTested={
                     ninjaTestPmSet.has(pm.id) && onSaveToNinjaTested
                       ? () => onSaveToNinjaTested(pm.id)

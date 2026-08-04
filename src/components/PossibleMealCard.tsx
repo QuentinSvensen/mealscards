@@ -110,6 +110,8 @@ interface PossibleMealCardProps {
   mealsCatalog?: Meal[];
   /** Carte issue de « Tous » : contour jaune pour la distinguer. */
   fromMaster?: boolean;
+  /** Libellé du retour sans stock (défaut : « Revenir dans Tous »). */
+  onReturnToMasterLabel?: string;
   /** Enregistre la recette dans Ninja Creami → Recettes testées (cartes issues de Tests). */
   onSaveToNinjaTested?: () => void;
   /** Catalogue Base (sous-catégories) de Ninja Creami → Tests pour « Ajouter extras ». */
@@ -244,6 +246,7 @@ export function PossibleMealCard({
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
   realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources, mealsCatalog,
   fromMaster = false,
+  onReturnToMasterLabel,
   onSaveToNinjaTested,
   ninjaCreamiBaseGroups,
   ninjaCreamiExtrasLines,
@@ -1037,7 +1040,7 @@ export function PossibleMealCard({
             <DropdownMenuContent align="end">
               {onReturnToMaster && (
                 <DropdownMenuItem onClick={onReturnToMaster}>
-                  <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
+                  <Undo2 className="mr-2 h-4 w-4" /> {onReturnToMasterLabel || "Revenir dans Tous"}
                 </DropdownMenuItem>
               )}
               {onSaveToNinjaTested && (

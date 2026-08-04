@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   addNinjaCreamiMealId,
+  applyNinjaCreamiAuChoixDisplayNames,
   applyNinjaCreamiMealDisplayNames,
   createEmptyNinjaCreamiCatalogLine,
   filterNinjaCreamiTestedMeals,
   filterOutNinjaCreamiMeals,
   formatNinjaCreamiTotalsForMeal,
+  isNinjaCreamiStockExemptPossibleMeal,
   moveLineBetweenNinjaCreamiBaseGroups,
   normalizeNinjaCreamiBaseGroups,
   normalizeNinjaCreamiCatalogLines,
@@ -147,6 +149,36 @@ describe("resolveIngredientsForNinjaCreamiTestedSave", () => {
         meals: { ingredients: "225g Lait" },
       }),
     ).toBe("225g Lait");
+  });
+});
+
+describe("applyNinjaCreamiAuChoixDisplayNames", () => {
+  it("préfixe Glace : pour les recettes Ninja uniquement", () => {
+    const meals = [
+      { id: "a", name: "Lait daim" },
+      { id: "b", name: "Cookie" },
+    ];
+    expect(applyNinjaCreamiAuChoixDisplayNames(meals, ["a"], { a: "Lait + Daim" })).toEqual([
+      { id: "a", name: "Glace : Lait + Daim" },
+      { id: "b", name: "Cookie" },
+    ]);
+  });
+
+  it("ne double pas le préfixe", () => {
+    expect(
+      applyNinjaCreamiAuChoixDisplayNames(
+        [{ id: "a", name: "Glace : Déjà" }],
+        ["a"],
+      ),
+    ).toEqual([{ id: "a", name: "Glace : Déjà" }]);
+  });
+});
+
+describe("isNinjaCreamiStockExemptPossibleMeal", () => {
+  it("exempt si pm Tests ou meal Recettes testées", () => {
+    expect(isNinjaCreamiStockExemptPossibleMeal("pm1", "m1", ["pm1"], [])).toBe(true);
+    expect(isNinjaCreamiStockExemptPossibleMeal("pm2", "m1", [], ["m1"])).toBe(true);
+    expect(isNinjaCreamiStockExemptPossibleMeal("pm3", "m2", ["pm1"], ["m1"])).toBe(false);
   });
 });
 

@@ -101,6 +101,7 @@ import {
   NINJA_CREAMI_TEST_PM_IDS_KEY,
   addNinjaCreamiMealId,
   addNinjaCreamiTestPmId,
+  applyNinjaCreamiAuChoixDisplayNames,
   applyNinjaCreamiMealDisplayNames,
   filterNinjaCreamiTestedMeals,
   filterOutNinjaCreamiMeals,
@@ -109,12 +110,14 @@ import {
   normalizeNinjaCreamiBaseGroups,
   normalizeNinjaCreamiCatalogLines,
   normalizeNinjaCreamiMealDisplayNames,
+  NINJA_CREAMI_AU_CHOIX_NAME_PREFIX,
   ninjaCreamiBaseGroupsHaveContent,
   removeNinjaCreamiMealDisplayName,
   removeNinjaCreamiMealId,
   resolveIngredientsForNinjaCreamiTestedSave,
   saveNinjaCreamiBaseGroupsLocalBackup,
   setNinjaCreamiMealDisplayName,
+  isNinjaCreamiStockExemptPossibleMeal,
   syncNinjaCatalogLinesToMacroLibrary,
   upsertMacroLibraryFromNinjaLineName,
   type NinjaCreamiBaseGroup,
@@ -917,7 +920,10 @@ const Index = () => {
   const { stickyChromeRef, stickyChromeHeight } = useStickyChromeHeight([mainPage]);
 
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
-    const defaults: Record<string, boolean> = {};
+    const defaults: Record<string, boolean> = {
+      "ninja-creami": true,
+      "ninja-creami-tests": true,
+    };
     for (const cat of CATEGORIES) {
       defaults[`master-${cat.value}`] = true;
       defaults[`unparun-${cat.value}`] = true;
@@ -1434,11 +1440,11 @@ const Index = () => {
 
                         {cat.value === "dessert" && (
                           <LazyNinjaCreamiSection
-                            collapsed={collapsedSections["ninja-creami"] ?? false}
+                            collapsed={collapsedSections["ninja-creami"] ?? true}
                             onToggleCollapse={() => toggleSectionCollapse("ninja-creami")}
                             testedCollapsed={collapsedSections["ninja-creami-tested"] ?? false}
                             onToggleTestedCollapse={() => toggleSectionCollapse("ninja-creami-tested")}
-                            testsCollapsed={collapsedSections["ninja-creami-tests"] ?? false}
+                            testsCollapsed={collapsedSections["ninja-creami-tests"] ?? true}
                             onToggleTestsCollapse={() => toggleSectionCollapse("ninja-creami-tests")}
                             testedMeals={applyNinjaCreamiMealDisplayNames(
                               filterNinjaCreamiTestedMeals(
@@ -1584,6 +1590,8 @@ const Index = () => {
                                         key: NINJA_CREAMI_TEST_PM_IDS_KEY,
                                         value: addNinjaCreamiTestPmId(ninjaCreamiTestPmIds, data.id),
                                       });
+                                      // Tests → Possible : pas de lien stock (comme Tous).
+                                      setMasterSourcePmIds((prev) => addMasterSourcePmIds(prev, [data.id]));
                                     }
                                     toast({ title: "Carte Possible créée depuis Tests 🎉" });
                                   },
@@ -1595,7 +1603,11 @@ const Index = () => {
 
                         <LazyAvailableList
                           category={cat}
-                          meals={getMealsByCategory(cat.value)}
+                          meals={applyNinjaCreamiAuChoixDisplayNames(
+                            getMealsByCategory(cat.value),
+                            ninjaCreamiMealIds,
+                            ninjaCreamiMealDisplayNames,
+                          )}
                           foodItems={foodItems}
                           ingredientMacroAutofillSources={ingredientMacroAutofillSources}
                           allMeals={meals}
@@ -1606,14 +1618,40 @@ const Index = () => {
                           onToggleSortDirection={() => toggleSortDirection(`available-${cat.value}`)}
                           collapsed={collapsedSections[`available-${cat.value}`] ?? false}
                           onToggleCollapse={() => toggleSectionCollapse(`available-${cat.value}`)}
-                          onMoveToPossible={(mealId) => handleMoveToPossibleGeneral(mealId, "available")}
+                          onMoveToPossible={(mealId) =>
+                            handleMoveToPossibleGeneral(
+                              mealId,
+                              // Recettes testées dans Au choix = équivalent Tous (pas de déduction stock).
+                              ninjaCreamiMealIds.includes(mealId) ? "master" : "available",
+                            )
+                          }
                           onMovePartialToPossible={(meal, ratio) => handleMovePartialToPossible(meal, ratio, cat.value)}
                           onMoveNameMatchToPossible={(meal, fi, ratio) =>
                             onMoveNameMatchToPossible(cat.value, meal, fi, ratio)
                           }
                           onMoveFoodItemToPossible={(fi) => onMoveFoodItemToPossible(cat.value, fi)}
                           onDeleteFoodItem={(id) => { deleteFoodItem(id); }}
-                          onRename={(id, name) => renameMeal.mutate({ id, name })}
+                          onRename={(id, name) => {
+                            // Recettes Ninja : nom d’affichage local (Possible garde meals.name).
+                            if (ninjaCreamiMealIds.includes(id)) {
+                              let cleaned = name.trim();
+                              if (cleaned.startsWith(NINJA_CREAMI_AU_CHOIX_NAME_PREFIX)) {
+                                cleaned = cleaned
+                                  .slice(NINJA_CREAMI_AU_CHOIX_NAME_PREFIX.length)
+                                  .trim();
+                              }
+                              setPreference.mutate({
+                                key: NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY,
+                                value: setNinjaCreamiMealDisplayName(
+                                  ninjaCreamiMealDisplayNames,
+                                  id,
+                                  cleaned,
+                                ),
+                              });
+                              return;
+                            }
+                            renameMeal.mutate({ id, name });
+                          }}
                           onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
                           onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
                           onUpdateIngredients={(id, ing) => updateIngredients.mutate({ id, ingredients: ing })}
@@ -1639,6 +1677,7 @@ const Index = () => {
                           mealsCatalog={meals}
                           possibleOnlyMealIds={getPreference<string[]>(POSSIBLE_ONLY_MEAL_IDS_PREF_KEY, [])}
                           ninjaCreamiTestPmIds={ninjaCreamiTestPmIds}
+                          ninjaCreamiMealIds={ninjaCreamiMealIds}
                           ninjaCreamiBaseGroups={
                             cat.value === "dessert" ? ninjaCreamiBaseGroups : undefined
                           }
@@ -1659,6 +1698,8 @@ const Index = () => {
                                       key: NINJA_CREAMI_MEAL_IDS_KEY,
                                       value: addNinjaCreamiMealId(ninjaCreamiMealIds, pm.meal_id),
                                     });
+                                    // Recettes testées = pas de lien stock (comme Tous).
+                                    setMasterSourcePmIds((prev) => addMasterSourcePmIds(prev, [pmId]));
                                     toast({ title: "Enregistrée dans Recettes testées 🎉" });
                                   },
                                 },
@@ -1719,6 +1760,25 @@ const Index = () => {
                           }}
                           onReturnWithoutDeduction={async (id) => {
                             const pm = getPossibleByCategory(cat.value).find(p => p.id === id);
+                            // Ninja Creami (Tests / Recettes testées) : jamais de restauration stock.
+                            if (
+                              pm &&
+                              isNinjaCreamiStockExemptPossibleMeal(
+                                id,
+                                pm.meal_id,
+                                ninjaCreamiTestPmIds,
+                                ninjaCreamiMealIds,
+                              )
+                            ) {
+                              clearFrozenPossibleBadgeCounter(id);
+                              removeFromPossible.mutate(id);
+                              setMasterSourcePmIds((prev) => {
+                                const next = new Set(prev);
+                                next.delete(id);
+                                return next;
+                              });
+                              return;
+                            }
                             const snapshots = effectiveDeductionSnapshots[id];
                             let restoredFoodItems: FoodItem[] = [];
                             if (snapshots && snapshots.length > 0) {
