@@ -339,9 +339,10 @@ export function collectIngredientMacroEntries(
     const key = item.key || normalizeKey(item.displayName);
     if (!key) continue;
     const entry = entries.get(key) ?? createMacroAccumulator(key, item.displayName);
-    entry.calories = item.calories?.trim() || entry.calories;
-    entry.protein = item.protein?.trim() || entry.protein;
-    entry.fiber = item.fiber?.trim() || entry.fiber;
+    // Le référentiel Macro est la source de vérité (sinon les fiches Aliments masquent la saisie OK).
+    entry.calories = (item.calories ?? "").trim();
+    entry.protein = (item.protein ?? "").trim();
+    entry.fiber = (item.fiber ?? "").trim();
     // Les entrées persistées seules viennent du référentiel Macro, dont les valeurs sont au 100 g.
     if (!entry.basisLabel) entry.basisLabel = "100g";
     entry.hasConflictingCalories = false;

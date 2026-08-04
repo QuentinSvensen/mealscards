@@ -17,6 +17,7 @@ import { ArrowRight, MoreVertical, Pencil, Trash2, Flame, Weight, List, Star, Th
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
+import { AutoGrowDescriptionTextarea } from "@/components/AutoGrowDescriptionTextarea";
 import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
@@ -429,16 +430,9 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
         <DialogHeader>
           <DialogTitle>Description — {meal.name}</DialogTitle>
         </DialogHeader>
-        <textarea
-          autoFocus
-          lang="fr"
-          spellCheck={false}
+        <AutoGrowDescriptionTextarea
           value={descriptionDraft}
-          onChange={(e) => setDescriptionDraft(e.target.value)}
-          onKeyDown={(e) => e.stopPropagation()}
-          placeholder="Consignes de préparation…"
-          rows={6}
-          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px]"
+          onChange={setDescriptionDraft}
         />
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" onClick={closeDescriptionEditor}>Annuler</Button>

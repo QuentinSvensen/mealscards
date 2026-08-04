@@ -91,6 +91,28 @@ import {
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
 import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import {
+  NINJA_CREAMI_BASE_GROUPS_KEY,
+  NINJA_CREAMI_BASE_LINES_KEY,
+  NINJA_CREAMI_EXTRAS_LINES_KEY,
+  NINJA_CREAMI_MEAL_IDS_KEY,
+  NINJA_CREAMI_TEST_PM_IDS_KEY,
+  addNinjaCreamiMealId,
+  addNinjaCreamiTestPmId,
+  filterNinjaCreamiTestedMeals,
+  filterOutNinjaCreamiMeals,
+  flattenNinjaCreamiBaseGroups,
+  loadNinjaCreamiBaseGroupsLocalBackup,
+  normalizeNinjaCreamiBaseGroups,
+  normalizeNinjaCreamiCatalogLines,
+  ninjaCreamiBaseGroupsHaveContent,
+  removeNinjaCreamiMealId,
+  saveNinjaCreamiBaseGroupsLocalBackup,
+  syncNinjaCatalogLinesToMacroLibrary,
+  upsertMacroLibraryFromNinjaLineName,
+  type NinjaCreamiBaseGroup,
+  type NinjaCreamiCatalogLine,
+} from "@/domain/ninjaCreami/ninjaCreami";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 
@@ -149,6 +171,9 @@ const importMasterList = () => import("@/components/MasterList").then((m) => ({ 
 const importPossibleList = () => import("@/components/PossibleList").then((m) => ({ default: m.PossibleList }));
 /** Import dynamique de la liste des repas disponibles. */
 const importAvailableList = () => import("@/components/AvailableList").then((m) => ({ default: m.AvailableList }));
+/** Import dynamique de la section Ninja Creami (Desserts). */
+const importNinjaCreamiSection = () =>
+  import("@/components/NinjaCreamiSection").then((m) => ({ default: m.NinjaCreamiSection }));
 /** Import dynamique de la section « un par un ». */
 const importUnParUnSection = () => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection }));
 /** Import dynamique du référentiel des macros d'ingrédients. */
@@ -163,6 +188,7 @@ const LazyWeeklyPlanning = lazyRetry(importWeeklyPlanning, "WeeklyPlanning");
 const LazyMasterList = lazyRetry(importMasterList, "MasterList");
 const LazyPossibleList = lazyRetry(importPossibleList, "PossibleList");
 const LazyAvailableList = lazyRetry(importAvailableList, "AvailableList");
+const LazyNinjaCreamiSection = lazyRetry(importNinjaCreamiSection, "NinjaCreamiSection");
 const LazyUnParUnSection = lazyRetry(importUnParUnSection, "UnParUnSection");
 const LazyMacroIngredients = lazyRetry(importMacroIngredients, "MacroIngredients");
 const LazyEnergyDrinksList = lazyRetry(importEnergyDrinksList, "EnergyDrinksList");
@@ -256,7 +282,7 @@ const Index = () => {
   const {
     isLoading,
     meals, possibleMeals,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
+    addMeal, addMealToPossibleDirectly, setMealAvailable, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
     updateOvenTemp, updateOvenMinutes, updateDescription,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, removeFromPossible,
@@ -275,6 +301,74 @@ const Index = () => {
     },
     [setPreference],
   );
+  const ninjaCreamiMealIds = getPreference<string[]>(NINJA_CREAMI_MEAL_IDS_KEY, []);
+  const ninjaCreamiTestPmIds = getPreference<string[]>(NINJA_CREAMI_TEST_PM_IDS_KEY, []);
+  const ninjaCreamiBaseGroupsRaw = getPreference(NINJA_CREAMI_BASE_GROUPS_KEY, null);
+  const ninjaCreamiBaseLinesRaw = getPreference(NINJA_CREAMI_BASE_LINES_KEY, []);
+  const ninjaCreamiExtrasLinesRaw = getPreference(NINJA_CREAMI_EXTRAS_LINES_KEY, []);
+  const ninjaCreamiBaseGroups = useMemo(
+    () =>
+      normalizeNinjaCreamiBaseGroups(
+        ninjaCreamiBaseGroupsRaw,
+        ninjaCreamiBaseLinesRaw,
+        loadNinjaCreamiBaseGroupsLocalBackup(),
+      ),
+    [ninjaCreamiBaseGroupsRaw, ninjaCreamiBaseLinesRaw],
+  );
+  const ninjaCreamiBaseLines = useMemo(
+    () => flattenNinjaCreamiBaseGroups(ninjaCreamiBaseGroups),
+    [ninjaCreamiBaseGroups],
+  );
+  const ninjaCreamiExtrasLines = useMemo(
+    () => normalizeNinjaCreamiCatalogLines(ninjaCreamiExtrasLinesRaw),
+    [ninjaCreamiExtrasLinesRaw],
+  );
+
+  // Migre / répare Base uniquement quand on a du contenu (jamais d’écriture vide qui wipe le cloud).
+  useEffect(() => {
+    if (isPreferencesLoading) return;
+    if (!ninjaCreamiBaseGroupsHaveContent(ninjaCreamiBaseGroups)) return;
+
+    saveNinjaCreamiBaseGroupsLocalBackup(ninjaCreamiBaseGroups);
+
+    const rawHasGroups =
+      Array.isArray(ninjaCreamiBaseGroupsRaw) && ninjaCreamiBaseGroupsRaw.length > 0;
+    const rawGroupsHaveContent =
+      rawHasGroups &&
+      ninjaCreamiBaseGroupsHaveContent(
+        normalizeNinjaCreamiBaseGroups(ninjaCreamiBaseGroupsRaw, [], null),
+      );
+
+    // Prefs cloud absentes ou vides alors que l’UI a récupéré legacy/backup → resynchroniser.
+    if (rawGroupsHaveContent) return;
+
+    setPreferencesBatch.mutate([
+      { key: NINJA_CREAMI_BASE_GROUPS_KEY, value: ninjaCreamiBaseGroups },
+      { key: NINJA_CREAMI_BASE_LINES_KEY, value: ninjaCreamiBaseLines },
+    ]);
+  }, [
+    isPreferencesLoading,
+    ninjaCreamiBaseGroups,
+    ninjaCreamiBaseGroupsRaw,
+    ninjaCreamiBaseLines,
+    setPreferencesBatch,
+  ]);
+
+  // Complète Macro ingrédients avec les macros déjà saisies dans Ninja Creami (vides/0 seulement).
+  useEffect(() => {
+    if (isPreferencesLoading) return;
+    const next = syncNinjaCatalogLinesToMacroLibrary(macroLibrary, [
+      ...ninjaCreamiBaseLines,
+      ...ninjaCreamiExtrasLines,
+    ]);
+    if (next !== macroLibrary) saveMacroLibrary(next);
+  }, [
+    isPreferencesLoading,
+    macroLibrary,
+    ninjaCreamiBaseLines,
+    ninjaCreamiExtrasLines,
+    saveMacroLibrary,
+  ]);
 
   // ─── Données dérivées (memoized) ────────────────────────────────────────
   const stockMap = useMemo(() => buildStockMap(foodItems), [foodItems]);
@@ -293,6 +387,7 @@ const Index = () => {
     importMasterList,
     importPossibleList,
     importAvailableList,
+    importNinjaCreamiSection,
     importUnParUnSection,
     importMacroIngredients,
     importEnergyDrinksList,
@@ -940,7 +1035,10 @@ const Index = () => {
   };
 
   const getSortedMaster = (cat: string): Meal[] => {
-    const items = getMealsByCategory(cat);
+    let items = getMealsByCategory(cat);
+    if (cat === "dessert") {
+      items = filterOutNinjaCreamiMeals(items, ninjaCreamiMealIds);
+    }
     const mode = masterSortModes[cat] || "manual";
     const asc = sortDirections[`master-${cat}`] !== false;
     if (mode === "calories") {
@@ -1322,6 +1420,146 @@ const Index = () => {
                           onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
                           ingredientMacroAutofillSources={ingredientMacroAutofillSources} />
 
+                        {cat.value === "dessert" && (
+                          <LazyNinjaCreamiSection
+                            collapsed={collapsedSections["ninja-creami"] ?? false}
+                            onToggleCollapse={() => toggleSectionCollapse("ninja-creami")}
+                            testedCollapsed={collapsedSections["ninja-creami-tested"] ?? false}
+                            onToggleTestedCollapse={() => toggleSectionCollapse("ninja-creami-tested")}
+                            testsCollapsed={collapsedSections["ninja-creami-tests"] ?? false}
+                            onToggleTestsCollapse={() => toggleSectionCollapse("ninja-creami-tests")}
+                            testedMeals={filterNinjaCreamiTestedMeals(
+                              getMealsByCategory("dessert"),
+                              ninjaCreamiMealIds,
+                            )}
+                            foodItems={foodItems}
+                            baseGroups={ninjaCreamiBaseGroups}
+                            extrasLines={ninjaCreamiExtrasLines}
+                            onBaseGroupsChange={(groups) => {
+                              // Refuse d’écraser une Base remplie par une sauvegarde vide (course prefs).
+                              if (
+                                !ninjaCreamiBaseGroupsHaveContent(groups) &&
+                                ninjaCreamiBaseGroupsHaveContent(ninjaCreamiBaseGroups)
+                              ) {
+                                return;
+                              }
+                              if (ninjaCreamiBaseGroupsHaveContent(groups)) {
+                                saveNinjaCreamiBaseGroupsLocalBackup(groups);
+                              }
+                              setPreferencesBatch.mutate([
+                                { key: NINJA_CREAMI_BASE_GROUPS_KEY, value: groups },
+                                {
+                                  key: NINJA_CREAMI_BASE_LINES_KEY,
+                                  value: flattenNinjaCreamiBaseGroups(groups),
+                                },
+                              ]);
+                            }}
+                            onExtrasLinesChange={(lines) =>
+                              setPreference.mutate({ key: NINJA_CREAMI_EXTRAS_LINES_KEY, value: lines })
+                            }
+                            onIngredientNameCommit={(line: NinjaCreamiCatalogLine) => {
+                              if (!line.name.trim()) return;
+                              const nextLib = upsertMacroLibraryFromNinjaLineName(
+                                macroLibrary,
+                                line.name,
+                                line.cal,
+                                line.pro,
+                                line.fiber,
+                                { overwrite: true },
+                              );
+                              if (nextLib !== macroLibrary) saveMacroLibrary(nextLib);
+                            }}
+                            ingredientMacroAutofillSources={ingredientMacroAutofillSources}
+                            onAddTestedRecipe={() => {
+                              const name = window.prompt("Nom de la recette testée");
+                              if (!name?.trim()) return;
+                              const validationError = validateMealName(name);
+                              if (validationError) {
+                                toast({
+                                  title: "Données invalides",
+                                  description: validationError,
+                                  variant: "destructive",
+                                });
+                                return;
+                              }
+                              addMeal.mutate(
+                                { name: name.trim(), category: "dessert" },
+                                {
+                                  onSuccess: (data) => {
+                                    if (data?.id) {
+                                      setPreference.mutate({
+                                        key: NINJA_CREAMI_MEAL_IDS_KEY,
+                                        value: addNinjaCreamiMealId(ninjaCreamiMealIds, data.id),
+                                      });
+                                    }
+                                    toast({ title: "Recette testée ajoutée 🎉" });
+                                  },
+                                },
+                              );
+                            }}
+                            onMoveToPossible={(id) => handleMoveToPossibleGeneral(id, "master")}
+                            onRename={(id, name) => renameMeal.mutate({ id, name })}
+                            onDelete={(id) => {
+                              // Retire uniquement de « Recettes testées » : ne pas supprimer le repas
+                              // (sinon les cartes Possible liées disparaissent aussi).
+                              setPreference.mutate({
+                                key: NINJA_CREAMI_MEAL_IDS_KEY,
+                                value: removeNinjaCreamiMealId(ninjaCreamiMealIds, id),
+                              });
+                              setMealAvailable.mutate({ id, is_available: false });
+                            }}
+                            onUpdateCalories={(id, cal) => updateCalories.mutate({ id, calories: cal })}
+                            onUpdateProtein={(id, prot) => updateProtein.mutate({ id, protein: prot })}
+                            onUpdateFiber={(id, fiber) => updateFiber.mutate({ id, fiber })}
+                            onUpdateGrams={(id, g) => updateGrams.mutate({ id, grams: g })}
+                            onUpdateIngredients={(id, ing) => {
+                              if (ing) {
+                                const { sourceIngredients, updates } = propagateIngredientMacros(id, ing, meals);
+                                updateIngredients.mutate({ id, ingredients: sourceIngredients });
+                                for (const u of updates) {
+                                  updateIngredients.mutate({ id: u.id, ingredients: u.ingredients });
+                                }
+                              } else {
+                                updateIngredients.mutate({ id, ingredients: ing });
+                              }
+                            }}
+                            onToggleFavorite={(id) => {
+                              const meal = meals.find((m) => m.id === id);
+                              if (meal) toggleFavorite.mutate({ id, is_favorite: !meal.is_favorite });
+                            }}
+                            onUpdateOvenTemp={(id, t) => updateOvenTemp.mutate({ id, oven_temp: t })}
+                            onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
+                            onUpdateDescription={(id, description) =>
+                              updateDescription.mutate({ id, description })
+                            }
+                            createBusy={addMealToPossibleDirectly.isPending}
+                            onCreateFromTests={({ name, ingredients, calories, protein, fiber }) => {
+                              addMealToPossibleDirectly.mutate(
+                                {
+                                  name,
+                                  category: "dessert",
+                                  ingredients,
+                                  calories,
+                                  protein,
+                                  fiber,
+                                },
+                                {
+                                  onSuccess: (data) => {
+                                    if (data?.id) {
+                                      freezePossibleBadgeCounter(data.id, null, null, null, undefined, foodItems);
+                                      setPreference.mutate({
+                                        key: NINJA_CREAMI_TEST_PM_IDS_KEY,
+                                        value: addNinjaCreamiTestPmId(ninjaCreamiTestPmIds, data.id),
+                                      });
+                                    }
+                                    toast({ title: "Carte Possible créée depuis Tests 🎉" });
+                                  },
+                                },
+                              );
+                            }}
+                          />
+                        )}
+
                         <LazyAvailableList
                           category={cat}
                           meals={getMealsByCategory(cat.value)}
@@ -1367,6 +1605,29 @@ const Index = () => {
                           allPossibleMeals={possibleMeals}
                           mealsCatalog={meals}
                           possibleOnlyMealIds={getPreference<string[]>(POSSIBLE_ONLY_MEAL_IDS_PREF_KEY, [])}
+                          ninjaCreamiTestPmIds={ninjaCreamiTestPmIds}
+                          ninjaCreamiBaseGroups={
+                            cat.value === "dessert" ? ninjaCreamiBaseGroups : undefined
+                          }
+                          ninjaCreamiExtrasLines={
+                            cat.value === "dessert" ? ninjaCreamiExtrasLines : undefined
+                          }
+                          onSaveToNinjaTested={(pmId) => {
+                            const pm = possibleMeals.find((p) => p.id === pmId);
+                            if (!pm?.meal_id) return;
+                            setMealAvailable.mutate(
+                              { id: pm.meal_id, is_available: true },
+                              {
+                                onSuccess: () => {
+                                  setPreference.mutate({
+                                    key: NINJA_CREAMI_MEAL_IDS_KEY,
+                                    value: addNinjaCreamiMealId(ninjaCreamiMealIds, pm.meal_id),
+                                  });
+                                  toast({ title: "Enregistrée dans Recettes testées 🎉" });
+                                },
+                              },
+                            );
+                          }}
                           deductionSnapshots={effectiveDeductionSnapshots}
                           frozenCounterDaysByPmId={frozenCounterDaysByPmId}
                           sortMode={sortModes[cat.value] || "manual"}

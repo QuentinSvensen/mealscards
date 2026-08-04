@@ -14,7 +14,12 @@
  * StructuredIngredientInline : affichage compact des ingrédients avec highlighting
  */
 import React, { useMemo, useRef, useState } from "react";
-import { ArrowLeft, Copy, MoreVertical, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, Copy, MoreVertical, Calendar, Timer, Flame, Weight, Hash, List, Undo2, Percent, Thermometer, SplitSquareHorizontal, Pin, FileText, Pencil, Sparkles, Plus } from "lucide-react";
+import {
+  NinjaCreamiTestsExtrasDialog,
+  serializeNinjaCreamiExtrasForPossible,
+} from "@/components/NinjaCreamiTestsExtrasDialog";
+import type { NinjaCreamiBaseGroup, NinjaCreamiCatalogLine } from "@/domain/ninjaCreami/ninjaCreami";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
@@ -46,6 +51,7 @@ import {
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
+import { AutoGrowDescriptionTextarea } from "@/components/AutoGrowDescriptionTextarea";
 import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, formatFrozenPossibleCounterTooltip, parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
@@ -104,6 +110,12 @@ interface PossibleMealCardProps {
   mealsCatalog?: Meal[];
   /** Carte issue de « Tous » : contour jaune pour la distinguer. */
   fromMaster?: boolean;
+  /** Enregistre la recette dans Ninja Creami → Recettes testées (cartes issues de Tests). */
+  onSaveToNinjaTested?: () => void;
+  /** Catalogue Base (sous-catégories) de Ninja Creami → Tests pour « Ajouter extras ». */
+  ninjaCreamiBaseGroups?: NinjaCreamiBaseGroup[];
+  /** Catalogue Extras de Ninja Creami → Tests pour « Ajouter extras ». */
+  ninjaCreamiExtrasLines?: NinjaCreamiCatalogLine[];
 }
 
 const DAY_LABELS: Record<string, string> = {
@@ -232,6 +244,9 @@ export function PossibleMealCard({
   onDrop, isHighlighted, expiredIngredientNames, expiringSoonIngredientNames, onSplitQuantity, onDoubleClick,
   realtimeCounterStartDate, frozenCounterDays, foodItems, ingredientMacroSources, mealsCatalog,
   fromMaster = false,
+  onSaveToNinjaTested,
+  ninjaCreamiBaseGroups,
+  ninjaCreamiExtrasLines,
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
@@ -243,6 +258,8 @@ export function PossibleMealCard({
   const [ingLines, setIngLines] = useState<IngLine[]>([]);
   const [descriptionEditorOpen, setDescriptionEditorOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  /** Pop-up de sélection des ingrédients Tests (Base + Extras). */
+  const [extrasDialogOpen, setExtrasDialogOpen] = useState(false);
   /** Contrôle du menu ⋮ : fermé avant d’ouvrir le Dialog description (évite le blocage Radix pointer-events). */
   const [menuOpen, setMenuOpen] = useState(false);
   /**
@@ -250,6 +267,10 @@ export function PossibleMealCard({
    * dans le même tick que onSelect → le Dialog ne s’ouvrait jamais.
    */
   const pendingDescriptionOpenRef = useRef(false);
+  /** Même pattern pour ouvrir « Ajouter extras » après fermeture du menu ⋮. */
+  const pendingExtrasOpenRef = useRef(false);
+  const canAddNinjaExtras =
+    Array.isArray(ninjaCreamiBaseGroups) && Array.isArray(ninjaCreamiExtrasLines);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const foodMacroIndex = useMemo(
@@ -372,6 +393,47 @@ export function PossibleMealCard({
     return firstRatio;
   };
   const detectedRatio = detectScaleRatio();
+
+  /** Macros actuelles de la carte Possible (pour le total de la pop-up « Ajouter extras »). */
+  const recipeMacrosForExtras = useMemo(() => {
+    const cal =
+      getFoodMealPortionMacro("calories") ??
+      getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb) ??
+      0;
+    const pro =
+      getFoodMealPortionMacro("protein") ??
+      getDisplayedPMProtein(
+        pm,
+        detectedRatio ?? undefined,
+        isAvailableCb,
+        foodItems,
+        foodMacroIndex,
+      ) ??
+      0;
+    const fib =
+      getFoodMealPortionMacro("fiber") ??
+      getDisplayedPMFiber(
+        pm,
+        detectedRatio ?? undefined,
+        undefined,
+        foodItems,
+        foodMacroIndex,
+      ) ??
+      getDisplayedPMFiber(
+        pm,
+        detectedRatio ?? undefined,
+        isAvailableCb,
+        foodItems,
+        foodMacroIndex,
+      ) ??
+      0;
+    return {
+      calories: Math.round(cal * 10) / 10,
+      protein: Math.round(pro * 10) / 10,
+      fiber: Math.round(fib * 10) / 10,
+    };
+  }, [pm, detectedRatio, isAvailableCb, foodItems, foodMacroIndex, meal?.grams, meal?.name]);
+
   // Facteur affiché : quantité # de la carte Possible, ou ratio détecté sur les ingrédients.
   const displayMultiplier = (() => {
     const qtyMul = pm.quantity >= 2 ? pm.quantity : null;
@@ -523,6 +585,16 @@ export function PossibleMealCard({
     setDescriptionEditorOpen(true);
   };
 
+  /** Ouvre la pop-up « Ajouter extras » après fermeture du menu ⋮. */
+  const launchExtrasDialog = () => {
+    if (!pendingExtrasOpenRef.current) return;
+    pendingExtrasOpenRef.current = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    document.body.style.removeProperty("pointer-events");
+    setExtrasDialogOpen(true);
+  };
+
   /**
    * Prépare l’ouverture de l’éditeur de consignes : ferme d’abord le menu ⋮.
    * Le Dialog s’ouvre via onMenuOpenChange ou le timeout de secours.
@@ -535,8 +607,15 @@ export function PossibleMealCard({
     window.setTimeout(launchDescriptionEditor, 0);
   };
 
+  /** Prépare l’ouverture de la pop-up extras Tests (ferme d’abord le menu ⋮). */
+  const openExtrasDialog = () => {
+    pendingExtrasOpenRef.current = true;
+    setMenuOpen(false);
+    window.setTimeout(launchExtrasDialog, 0);
+  };
+
   /**
-   * Gère l’ouverture/fermeture du menu ⋮ ; ouvre le Dialog description
+   * Gère l’ouverture/fermeture du menu ⋮ ; ouvre le Dialog description / extras
    * uniquement une fois le menu réellement fermé.
    */
   const onMenuOpenChange = (open: boolean) => {
@@ -546,7 +625,22 @@ export function PossibleMealCard({
       document.body.style.removeProperty("pointer-events");
       return;
     }
-    window.requestAnimationFrame(launchDescriptionEditor);
+    window.requestAnimationFrame(() => {
+      launchDescriptionEditor();
+      launchExtrasDialog();
+    });
+  };
+
+  /**
+   * Ajoute les lignes Tests sélectionnées aux ingrédients de la carte Possible.
+   */
+  const handleConfirmNinjaExtras = (lines: NinjaCreamiCatalogLine[]) => {
+    const extrasText = serializeNinjaCreamiExtrasForPossible(lines);
+    if (!extrasText || !onUpdatePossibleIngredients) return;
+    const current =
+      (pm.ingredients_override ?? meal?.ingredients ?? "").trim();
+    const merged = current ? `${current}, ${extrasText}` : extrasText;
+    onUpdatePossibleIngredients(merged);
   };
 
   /** Enregistre les consignes sur le repas lié à la carte Possible puis ferme l'éditeur. */
@@ -946,6 +1040,16 @@ export function PossibleMealCard({
                   <Undo2 className="mr-2 h-4 w-4" /> Revenir dans Tous
                 </DropdownMenuItem>
               )}
+              {onSaveToNinjaTested && (
+                <DropdownMenuItem onClick={onSaveToNinjaTested}>
+                  <Sparkles className="mr-2 h-4 w-4" /> Enregistrer dans Recettes testées
+                </DropdownMenuItem>
+              )}
+              {canAddNinjaExtras && (
+                <DropdownMenuItem onSelect={() => openExtrasDialog()}>
+                  <Plus className="mr-2 h-4 w-4" /> Ajouter extras
+                </DropdownMenuItem>
+              )}
               {onReturnWithoutDeduction && (
                 <DropdownMenuItem onClick={onReturnWithoutDeduction}>
                   <Undo2 className="mr-2 h-4 w-4" /> {onReturnWithoutDeductionLabel || 'Remettre au choix (sans déduire)'}
@@ -1034,16 +1138,9 @@ export function PossibleMealCard({
         <DialogHeader>
           <DialogTitle>Description — {meal.name}</DialogTitle>
         </DialogHeader>
-        <textarea
-          autoFocus
-          lang="fr"
-          spellCheck={false}
+        <AutoGrowDescriptionTextarea
           value={descriptionDraft}
-          onChange={(e) => setDescriptionDraft(e.target.value)}
-          onKeyDown={(e) => e.stopPropagation()}
-          placeholder="Consignes de préparation…"
-          rows={6}
-          className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px]"
+          onChange={setDescriptionDraft}
         />
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" onClick={closeDescriptionEditor}>Annuler</Button>
@@ -1051,6 +1148,17 @@ export function PossibleMealCard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {canAddNinjaExtras && (
+      <NinjaCreamiTestsExtrasDialog
+        open={extrasDialogOpen}
+        onOpenChange={setExtrasDialogOpen}
+        baseGroups={ninjaCreamiBaseGroups!}
+        extrasLines={ninjaCreamiExtrasLines!}
+        recipeMacros={recipeMacrosForExtras}
+        onConfirm={handleConfirmNinjaExtras}
+      />
+    )}
     </>
   );
 }

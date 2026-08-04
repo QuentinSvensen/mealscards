@@ -29,6 +29,7 @@ import type { FoodItem } from "@/hooks/useFoodItems";
 import { usePreferenceValue } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
+import type { NinjaCreamiBaseGroup, NinjaCreamiCatalogLine } from "@/domain/ninjaCreami/ninjaCreami";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -68,6 +69,9 @@ const MemoizedPossibleMealCard = React.memo(
       !!prevProps.onUpdateQuantity === !!nextProps.onUpdateQuantity &&
       !!prevProps.onRename === !!nextProps.onRename &&
       !!prevProps.fromMaster === !!nextProps.fromMaster &&
+      !!prevProps.onSaveToNinjaTested === !!nextProps.onSaveToNinjaTested &&
+      prevProps.ninjaCreamiBaseGroups === nextProps.ninjaCreamiBaseGroups &&
+      prevProps.ninjaCreamiExtrasLines === nextProps.ninjaCreamiExtrasLines &&
       (prevProps.expiredIngredientNames?.size ?? 0) === (nextProps.expiredIngredientNames?.size ?? 0) &&
       (prevProps.expiringSoonIngredientNames?.size ?? 0) === (nextProps.expiringSoonIngredientNames?.size ?? 0)
     );
@@ -122,6 +126,13 @@ interface PossibleListProps {
   mealsCatalog?: Meal[];
   /** Ids des repas créés via « Possibles uniquement » (seuls à pouvoir être renommés). */
   possibleOnlyMealIds?: string[];
+  /** Possible issus de Ninja Creami → Tests (option enregistrer Recettes testées). */
+  ninjaCreamiTestPmIds?: Set<string> | string[];
+  onSaveToNinjaTested?: (pmId: string) => void;
+  /** Catalogue Base Tests pour l’option « Ajouter extras ». */
+  ninjaCreamiBaseGroups?: NinjaCreamiBaseGroup[];
+  /** Catalogue Extras Tests pour l’option « Ajouter extras ». */
+  ninjaCreamiExtrasLines?: NinjaCreamiCatalogLine[];
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
@@ -137,9 +148,19 @@ export function PossibleList({
   frozenCounterDaysByPmId = {},
   mealsCatalog = [],
   possibleOnlyMealIds = [],
+  ninjaCreamiTestPmIds,
+  onSaveToNinjaTested,
+  ninjaCreamiBaseGroups,
+  ninjaCreamiExtrasLines,
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
+  const ninjaTestPmSet = useMemo(() => {
+    if (!ninjaCreamiTestPmIds) return new Set<string>();
+    return ninjaCreamiTestPmIds instanceof Set
+      ? ninjaCreamiTestPmIds
+      : new Set(ninjaCreamiTestPmIds);
+  }, [ninjaCreamiTestPmIds]);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [popupPm, setPopupPm] = useState<PossibleMeal | null>(null);
   /**
@@ -276,6 +297,13 @@ export function PossibleList({
                   onReturnWithoutDeduction={masterSourcePmIds.has(pm.id) ? undefined : () => onReturnWithoutDeduction(pm.id)}
                   onReturnWithoutDeductionLabel={unParUnSourcePmIds.has(pm.id) ? "Revenir dans Un par un" : undefined}
                   onReturnToMaster={masterSourcePmIds.has(pm.id) ? () => onReturnToMaster(pm.id) : undefined}
+                  onSaveToNinjaTested={
+                    ninjaTestPmSet.has(pm.id) && onSaveToNinjaTested
+                      ? () => onSaveToNinjaTested(pm.id)
+                      : undefined
+                  }
+                  ninjaCreamiBaseGroups={ninjaCreamiBaseGroups}
+                  ninjaCreamiExtrasLines={ninjaCreamiExtrasLines}
                   onDelete={() => onDelete(pm.id)}
                   onDuplicate={() => onDuplicate(pm.id)}
                   onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}

@@ -144,12 +144,27 @@ export function useMeals(options?: { enabled?: boolean }) {
   const addMeal = useMutation({
     mutationFn: async ({ name, category }: { name: string; category: string }) => {
       const maxOrder = meals.filter(m => m.category === category).reduce((max, m) => Math.max(max, m.sort_order), -1);
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("meals")
-        .insert({ name, category, sort_order: maxOrder + 1, is_available: true });
+        .insert({ name, category, sort_order: maxOrder + 1, is_available: true })
+        .select("id")
+        .single();
       if (error) throw error;
+      return data as { id: string };
     },
     onSuccess: invalidateMeals,
+    onError: onMutationError,
+  });
+
+  /**
+   * Rend un repas disponible au catalogue (Au choix / Recettes testées).
+   */
+  const setMealAvailable = useMutation({
+    mutationFn: async ({ id, is_available }: { id: string; is_available: boolean }) => {
+      const { error } = await supabase.from("meals").update({ is_available }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidateAll,
     onError: onMutationError,
   });
 
@@ -763,7 +778,7 @@ export function useMeals(options?: { enabled?: boolean }) {
 
   return {
     meals, possibleMeals, isLoading,
-    addMeal, addMealToPossibleDirectly, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
+    addMeal, addMealToPossibleDirectly, setMealAvailable, renameMeal, updateCalories, updateGrams, updateProtein, updateFiber, updateIngredients,
     updateOvenTemp, updateOvenMinutes, updateDescription,
     toggleFavorite, deleteMeal, reorderMeals,
     moveToPossible, duplicatePossibleMeal, splitPossibleMealQuantity, removeFromPossible,
