@@ -272,6 +272,8 @@ export function PossibleMealCard({
   const pendingDescriptionOpenRef = useRef(false);
   /** Même pattern pour ouvrir « Ajouter extras » après fermeture du menu ⋮. */
   const pendingExtrasOpenRef = useRef(false);
+  /** Ouvre l’éditeur d’ingrédients après fermeture du menu ⋮ (évite le blur → commit immédiat). */
+  const pendingIngredientsOpenRef = useRef(false);
   const canAddNinjaExtras =
     Array.isArray(ninjaCreamiBaseGroups) && Array.isArray(ninjaCreamiExtrasLines);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
@@ -558,7 +560,7 @@ export function PossibleMealCard({
     }));
   };
 
-  // Ouvre l'éditeur avec les marqueurs ou/? de la recette master si l'override Possible a été réduit.
+  // Prépare les lignes puis ouvre l'éditeur (marqueurs ou/? master si override réduit).
   const openIngredients = () => {
     let lines = buildPossibleEditorLines(
       meal.ingredients,
@@ -576,6 +578,23 @@ export function PossibleMealCard({
         : lines,
     );
     setEditingIngredients(true);
+  };
+
+  /** Ouvre l’éditeur d’ingrédients après fermeture du menu ⋮. */
+  const launchIngredientsEditor = () => {
+    if (!pendingIngredientsOpenRef.current) return;
+    pendingIngredientsOpenRef.current = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    document.body.style.removeProperty("pointer-events");
+    openIngredients();
+  };
+
+  /** Prépare l’ouverture depuis le menu ⋮ (ferme d’abord le dropdown). */
+  const openIngredientsFromMenu = () => {
+    pendingIngredientsOpenRef.current = true;
+    setMenuOpen(false);
+    window.setTimeout(launchIngredientsEditor, 0);
   };
 
   /** Ouvre le Dialog description après fermeture du menu ⋮ (blur + nettoyage pointer-events). */
@@ -618,7 +637,7 @@ export function PossibleMealCard({
   };
 
   /**
-   * Gère l’ouverture/fermeture du menu ⋮ ; ouvre le Dialog description / extras
+   * Gère l’ouverture/fermeture du menu ⋮ ; ouvre Dialog / éditeurs
    * uniquement une fois le menu réellement fermé.
    */
   const onMenuOpenChange = (open: boolean) => {
@@ -631,6 +650,7 @@ export function PossibleMealCard({
     window.requestAnimationFrame(() => {
       launchDescriptionEditor();
       launchExtrasDialog();
+      launchIngredientsEditor();
     });
   };
 
@@ -1105,7 +1125,7 @@ export function PossibleMealCard({
                   <FileText className="mr-2 h-4 w-4" /> Description
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={openIngredients}>
+              <DropdownMenuItem onSelect={() => openIngredientsFromMenu()}>
                 <List className="mr-2 h-4 w-4" /> Ingrédients
               </DropdownMenuItem>
             </DropdownMenuContent>

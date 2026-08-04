@@ -461,9 +461,11 @@ export function buildIngredientMacroUpdatePlan(
 }
 
 // Formate une valeur numérique de macro pour l'affichage dans l'éditeur d'ingrédients.
-// Autorise les négatifs (ajustement « Négatif » en base) ; 0 / NaN → chaîne vide.
-function formatLineMacroValue(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return "";
+// Autorise les négatifs (ajustement « Négatif » en base).
+// Par défaut 0 → "" ; avec allowZero (fibres) → "0".
+function formatLineMacroValue(value: number, options?: { allowZero?: boolean }): string {
+  if (!Number.isFinite(value)) return "";
+  if (value === 0) return options?.allowZero ? "0" : "";
   const rounded = Math.round(value * 10) / 10;
   if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
     return String(Math.round(rounded));
@@ -558,11 +560,17 @@ export function resolveIngredientLineMacros(
     const calRef = parseFoodMacroValue(ref.cal);
     const proRef = parseFoodMacroValue(ref.pro);
     const fiberRef = parseFoodMacroValue(ref.fiber);
-    if (hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef) || hasNonZeroMacro(fiberRef)) {
+    const hasCalOrPro = hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef);
+    if (hasCalOrPro || hasNonZeroMacro(fiberRef)) {
       return {
         cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
         pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
-        fiber: hasNonZeroMacro(fiberRef) ? formatLineMacroValue(fiberRef) : "",
+        // Fibres nulles / absentes : afficher « 0 » dès que cal ou prot sont connus.
+        fiber: hasNonZeroMacro(fiberRef)
+          ? formatLineMacroValue(fiberRef)
+          : hasCalOrPro
+            ? formatLineMacroValue(0, { allowZero: true })
+            : "",
       };
     }
   }
@@ -572,18 +580,29 @@ export function resolveIngredientLineMacros(
     const calRef = parseFoodMacroValue(libraryItem.calories);
     const proRef = parseFoodMacroValue(libraryItem.protein);
     const fiberRef = parseFoodMacroValue(libraryItem.fiber);
-    if (hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef) || hasNonZeroMacro(fiberRef)) {
+    const hasCalOrPro = hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef);
+    if (hasCalOrPro || hasNonZeroMacro(fiberRef)) {
       return {
         cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
         pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
-        fiber: hasNonZeroMacro(fiberRef) ? formatLineMacroValue(fiberRef) : "",
+        fiber: hasNonZeroMacro(fiberRef)
+          ? formatLineMacroValue(fiberRef)
+          : hasCalOrPro
+            ? formatLineMacroValue(0, { allowZero: true })
+            : "",
       };
     }
   }
 
   const mealMacro = findMealMacroForIngredientName(sources.mealMacros, line.name);
-  if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber)) {
-    return { cal: mealMacro.cal || "", pro: mealMacro.pro || "", fiber: mealMacro.fiber || "" };
+  if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber || mealMacro.fiber === "0")) {
+    const fiberRaw = (mealMacro.fiber ?? "").trim();
+    return {
+      cal: mealMacro.cal || "",
+      pro: mealMacro.pro || "",
+      // Ligne déjà connue sans fibres : afficher 0 plutôt que le placeholder « fib ».
+      fiber: fiberRaw === "" ? "0" : fiberRaw,
+    };
   }
 
   return { cal: "", pro: "", fiber: "" };

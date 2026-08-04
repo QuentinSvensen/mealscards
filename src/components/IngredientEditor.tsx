@@ -11,7 +11,7 @@
  * - Ajout automatique d'une ligne vide quand on tape dans la dernière
  * - Commit sur perte de focus (onBlur) ou bouton "✓ Valider"
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { normalizeForMatch, type IngLine } from "@/lib/ingredientUtils";
@@ -56,9 +56,30 @@ export function IngredientEditor({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const linesRef = useRef(lines);
   linesRef.current = lines;
+  /** Ignore le blur de fermeture du menu ⋮ juste après le montage. */
+  const ignoreBlurUntilRef = useRef(0);
+
+  useEffect(() => {
+    ignoreBlurUntilRef.current = Date.now() + 300;
+    // Place le focus dans l’éditeur une fois le menu ⋮ vraiment fermé.
+    const t = window.setTimeout(() => {
+      qtyRefs.current[0]?.focus();
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  /** Remplace une fibre vide par « 0 » quand la ligne a déjà des macros cal/prot. */
+  const withZeroFiberFallback = (source: IngLine[]): IngLine[] =>
+    source.map((line) => {
+      if (line.fiber?.trim()) return line;
+      if (line.name.trim() && (line.cal?.trim() || line.pro?.trim())) {
+        return { ...line, fiber: "0" };
+      }
+      return line;
+    });
 
   /** Valide avec la dernière version des lignes (synchrone ou via ref après blur mobile). */
-  const commitCurrentLines = () => onCommit(linesRef.current);
+  const commitCurrentLines = () => onCommit(withZeroFiberFallback(linesRef.current));
 
   const normalizedIngredientSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -116,6 +137,13 @@ export function IngredientEditor({
       pro: resolved.pro || line.pro,
       fiber: resolved.fiber || line.fiber,
     };
+  };
+
+  /** Affiche « 0 » pour les fibres quand cal/prot sont déjà connus mais le champ fibre est vide. */
+  const fiberInputValue = (line: IngLine): string => {
+    if (line.fiber?.trim()) return line.fiber;
+    if (line.name.trim() && (line.cal?.trim() || line.pro?.trim())) return "0";
+    return line.fiber ?? "";
   };
 
   const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "pro" | "fiber", value: string) => {
@@ -242,6 +270,7 @@ export function IngredientEditor({
       onBlur={() => {
         setTimeout(() => {
           if (handleRef.current) return;
+          if (Date.now() < ignoreBlurUntilRef.current) return;
           const container = containerRef.current;
           if (container && !container.contains(document.activeElement)) commitCurrentLines();
         }, 100);
@@ -401,7 +430,7 @@ export function IngredientEditor({
           <Input
             placeholder="fib"
             inputMode="text"
-            value={line.fiber}
+            value={fiberInputValue(line)}
             onChange={e => updateLine(idx, "fiber", e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
             className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-emerald-500/20 text-white placeholder:text-white/40 text-[10px] px-0.5"

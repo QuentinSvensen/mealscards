@@ -115,6 +115,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
    * dans le même tick que onSelect → le Dialog ne s’ouvrait jamais.
    */
   const pendingDescriptionOpenRef = useRef(false);
+  /** Ouvre l’éditeur d’ingrédients après fermeture du menu ⋮. */
+  const pendingIngredientsOpenRef = useRef(false);
   const hideCalorieDisplay = usePreferenceValue<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
 
   const handleSave = () => {
@@ -152,7 +154,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
   };
 
   /**
-   * Gère l’ouverture/fermeture du menu ⋮ et lance le Dialog description une fois fermé.
+   * Gère l’ouverture/fermeture du menu ⋮ et lance le Dialog / éditeurs une fois fermé.
    */
   const onMenuOpenChange = (open: boolean) => {
     setMenuOpen(open);
@@ -161,7 +163,10 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
       document.body.style.removeProperty("pointer-events");
       return;
     }
-    window.requestAnimationFrame(launchDescriptionEditor);
+    window.requestAnimationFrame(() => {
+      launchDescriptionEditor();
+      launchIngredientsEditor();
+    });
   };
 
   /** Enregistre les consignes puis ferme l'éditeur. */
@@ -186,6 +191,23 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
         : parsed,
     );
     setEditingIngredients(true);
+  };
+
+  /** Ouvre l’éditeur d’ingrédients après fermeture du menu ⋮. */
+  const launchIngredientsEditor = () => {
+    if (!pendingIngredientsOpenRef.current) return;
+    pendingIngredientsOpenRef.current = false;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    document.body.style.removeProperty("pointer-events");
+    openIngredients();
+  };
+
+  /** Prépare l’ouverture depuis le menu ⋮ (ferme d’abord le dropdown). */
+  const openIngredientsFromMenu = () => {
+    pendingIngredientsOpenRef.current = true;
+    setMenuOpen(false);
+    window.setTimeout(launchIngredientsEditor, 0);
   };
 
   // Persiste les ingrédients validés depuis l'éditeur (lignes passées = état le plus récent).
@@ -359,7 +381,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
                   <DropdownMenuItem onClick={() => { setEditValue(meal.grams || ""); setEditing("grams"); }}>
                     <Weight className="mr-2 h-4 w-4" /> Grammes
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={openIngredients}>
+                  <DropdownMenuItem onSelect={() => openIngredientsFromMenu()}>
                     <List className="mr-2 h-4 w-4" /> Ingrédients
                   </DropdownMenuItem>
                   {onUpdateOvenTemp && (

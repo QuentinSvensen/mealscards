@@ -342,13 +342,14 @@ describe("ingredientMacroDatabase", () => {
     expect(resolveIngredientLineMacros(line, { macroLibrary: library })).toEqual({
       cal: "-316",
       pro: "-11",
-      fiber: "",
+      fiber: "0",
     });
 
     // Resynchronise même si la ligne était déjà remplie en positif (bug historique).
     const filled = autofillIngredientLinesMacros([line], { macroLibrary: library });
     expect(filled[0].cal).toBe("-316");
     expect(filled[0].pro).toBe("-11");
+    expect(filled[0].fiber).toBe("0");
   });
 
   it("calcule l'affichage Un par un depuis le référentiel Macro ingrédients", () => {
