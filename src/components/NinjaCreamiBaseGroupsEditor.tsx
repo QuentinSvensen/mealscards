@@ -146,7 +146,7 @@ export function NinjaCreamiBaseGroupsEditor({
           key={group.id}
           onDragOver={(e) => handleGroupDragOver(e, idx)}
           onDrop={(e) => handleGroupDrop(e, idx)}
-          className={`flex items-stretch gap-1 transition-opacity ${
+          className={`transition-opacity ${
             dragGroupIdx === idx ? "opacity-40" : ""
           } ${
             dragOverGroupIdx === idx && dragGroupIdx !== idx
@@ -154,43 +154,42 @@ export function NinjaCreamiBaseGroupsEditor({
               : ""
           }`}
         >
-          {/* Poignée seule draggable : ne bloque plus le drag des lignes d’ingrédients. */}
-          <div
-            draggable
-            onDragStart={(e) => handleGroupDragStart(e, idx)}
-            onDragEnd={handleGroupDragEnd}
-            className="mt-2 shrink-0 h-7 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-white/35 hover:text-white/70"
-            title="Glisser pour réordonner la sous-catégorie"
-          >
-            <GripVertical className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <NinjaCreamiSelectableIngredientList
-              title={group.name}
-              titleEditable
-              groupId={group.id}
-              lines={group.lines}
-              selectedIds={selectedIds}
-              onLinesChange={(lines) =>
-                onGroupsChange(updateNinjaCreamiBaseGroupLines(groups, group.id, lines))
-              }
-              onSelectedIdsChange={onSelectedIdsChange}
-              onIngredientNameCommit={onIngredientNameCommit}
-              ingredientMacroSources={ingredientMacroSources}
-              ingredientSuggestions={ingredientSuggestions}
-              onTitleChange={(name) =>
-                onGroupsChange(renameNinjaCreamiBaseGroup(groups, group.id, name))
-              }
-              onDeleteGroup={
-                groups.length > 1
-                  ? () => onGroupsChange(removeNinjaCreamiBaseGroup(groups, group.id))
-                  : undefined
-              }
-              onExternalLineDrop={(payload, targetIdx) =>
-                handleExternalDrop(group.id, payload, targetIdx)
-              }
-            />
-          </div>
+          <NinjaCreamiSelectableIngredientList
+            title={group.name}
+            titleEditable
+            groupId={group.id}
+            lines={group.lines}
+            selectedIds={selectedIds}
+            onLinesChange={(lines) =>
+              onGroupsChange(updateNinjaCreamiBaseGroupLines(groups, group.id, lines))
+            }
+            onSelectedIdsChange={onSelectedIdsChange}
+            onIngredientNameCommit={onIngredientNameCommit}
+            ingredientMacroSources={ingredientMacroSources}
+            ingredientSuggestions={ingredientSuggestions}
+            onTitleChange={(name) =>
+              onGroupsChange(renameNinjaCreamiBaseGroup(groups, group.id, name))
+            }
+            onDeleteGroup={
+              groups.length > 1
+                ? () => onGroupsChange(removeNinjaCreamiBaseGroup(groups, group.id))
+                : undefined
+            }
+            onExternalLineDrop={(payload, targetIdx) =>
+              handleExternalDrop(group.id, payload, targetIdx)
+            }
+            groupReorderHandle={
+              <div
+                draggable
+                onDragStart={(e) => handleGroupDragStart(e, idx)}
+                onDragEnd={handleGroupDragEnd}
+                className="shrink-0 h-7 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-white/35 hover:text-white/70"
+                title="Glisser pour réordonner la sous-catégorie"
+              >
+                <GripVertical className="h-4 w-4" />
+              </div>
+            }
+          />
         </div>
       ))}
     </div>

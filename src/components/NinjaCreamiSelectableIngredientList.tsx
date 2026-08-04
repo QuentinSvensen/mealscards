@@ -4,7 +4,7 @@
  * autofill macros uniquement au blur, et seulement si match exact + champs vides ;
  * tri manuel par drag & drop (poignée), y compris entre sous-catégories Base.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GripVertical, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,7 +21,7 @@ import {
 import { normalizeForMatch, normalizeKey, type IngLine } from "@/lib/ingredientUtils";
 
 const GRID =
-  "grid grid-cols-[1rem_1.5rem_max-content_max-content_minmax(0,1fr)_max-content_max-content_max-content] gap-x-0.5 gap-y-0.5 items-center";
+  "grid grid-cols-[0.75rem_1.1rem_max-content_max-content_minmax(0,1fr)_1.9rem_1.65rem_1.65rem] gap-x-px gap-y-0.5 items-center";
 
 export interface NinjaCreamiSelectableIngredientListProps {
   title: string;
@@ -46,6 +46,8 @@ export interface NinjaCreamiSelectableIngredientListProps {
   onExternalLineDrop?: (payload: NinjaCreamiLineDragPayload, targetIdx: number) => void;
   /** Teinte de l’encadré (bordeaux pour Extras). */
   frameTone?: "default" | "bordeaux";
+  /** Poignée DnD de sous-catégorie (affichée dans l’en-tête de l’encadré). */
+  groupReorderHandle?: ReactNode;
 }
 
 /**
@@ -148,6 +150,7 @@ export function NinjaCreamiSelectableIngredientList({
   onDeleteGroup,
   onExternalLineDrop,
   frameTone = "default",
+  groupReorderHandle,
 }: NinjaCreamiSelectableIngredientListProps) {
   const [draftLines, setDraftLines] = useState<NinjaCreamiCatalogLine[]>(lines);
   const [draftTitle, setDraftTitle] = useState(title);
@@ -420,6 +423,7 @@ export function NinjaCreamiSelectableIngredientList({
       onDrop={handleGroupDrop}
     >
       <div className="flex items-center gap-1 px-0.5 min-w-0">
+        {groupReorderHandle}
         {titleEditable ? (
           <Input
             value={draftTitle}
@@ -476,7 +480,7 @@ export function NinjaCreamiSelectableIngredientList({
             data-ninja-line-row
             onDragOver={(e) => handleDragOver(e, idx)}
             onDrop={(e) => handleDrop(e, idx)}
-            className={`${GRID} rounded-md px-0.5 py-0.5 transition-opacity ${
+            className={`${GRID} rounded-md px-0 py-0.5 transition-opacity ${
               isCreateRow ? "opacity-55" : ""
             } ${dragIdx === idx ? "opacity-30" : ""} ${
               dragOverIdx === idx && dragIdx !== idx ? "border-t-2 border-cyan-300/70" : ""
@@ -487,16 +491,16 @@ export function NinjaCreamiSelectableIngredientList({
               draggable={canDrag}
               onDragStart={(e) => handleDragStart(e, idx)}
               onDragEnd={handleDragEnd}
-              className={`h-7 flex items-center justify-center text-white/30 hover:text-white/60 ${
+              className={`h-7 w-full flex items-center justify-center text-white/30 hover:text-white/60 ${
                 canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-default opacity-20"
               }`}
               title={canDrag ? "Glisser pour réordonner / changer de sous-catégorie" : undefined}
             >
-              <GripVertical className="h-3 w-3" />
+              <GripVertical className="h-3 w-3 shrink-0" />
             </div>
             <input
               type="checkbox"
-              className="h-3.5 w-3.5 accent-primary justify-self-center disabled:opacity-30"
+              className="h-3 w-3 accent-primary justify-self-center disabled:opacity-30"
               checked={checked}
               disabled={!selectable}
               onChange={() => toggleSelected(line.id, selectable)}
@@ -511,7 +515,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { qty: e.target.value })}
               onBlur={() => handleBlurLine(idx, "qty")}
-              className={`h-7 w-[2.25rem] min-w-0 text-xs px-1 ${inputBg}`}
+              className={`h-7 w-[2rem] min-w-0 text-[11px] px-0.5 ${inputBg}`}
             />
             <Input
               placeholder="#"
@@ -522,7 +526,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { count: e.target.value })}
               onBlur={() => handleBlurLine(idx, "count")}
-              className={`h-7 w-[1.35rem] min-w-0 text-xs px-0.5 ${inputBg}`}
+              className={`h-7 w-[1.2rem] min-w-0 text-[11px] px-0 ${inputBg}`}
             />
             <div className="relative min-w-0">
               <Input
@@ -576,7 +580,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { cal: e.target.value })}
               onBlur={() => handleBlurLine(idx, "cal")}
-              className={`h-7 w-[2.4rem] min-w-0 text-xs px-0.5 text-center text-orange-300 ${inputBg}`}
+              className={`h-7 w-full min-w-0 text-[10px] px-0 text-center text-orange-300 ${inputBg}`}
             />
             <Input
               placeholder="—"
@@ -587,7 +591,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { pro: e.target.value })}
               onBlur={() => handleBlurLine(idx, "pro")}
-              className={`h-7 w-[2.2rem] min-w-0 text-xs px-0.5 text-center text-blue-300 ${inputBg}`}
+              className={`h-7 w-full min-w-0 text-[10px] px-0 text-center text-blue-300 ${inputBg}`}
             />
             <Input
               placeholder="—"
@@ -598,7 +602,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { fiber: e.target.value })}
               onBlur={() => handleBlurLine(idx, "fiber")}
-              className={`h-7 w-[2.2rem] min-w-0 text-xs px-0.5 text-center text-emerald-300 ${inputBg}`}
+              className={`h-7 w-full min-w-0 text-[10px] px-0 text-center text-emerald-300 ${inputBg}`}
             />
           </div>
         );
