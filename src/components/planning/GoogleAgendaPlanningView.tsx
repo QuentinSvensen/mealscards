@@ -46,6 +46,10 @@ import {
 } from "@/domain/planning/agendaOverlapLayout";
 import { assignMealsToMangerEvents, resolveReminderMinutesBefore } from "@/domain/planning/mangerEventAlignment";
 import { resolveGouterAgendaMode } from "@/domain/planning/gouterAgendaCard";
+import {
+  formatGroupedMealAgendaTitle,
+  sortMealsForAgendaTitle,
+} from "@/domain/planning/groupedMealAgendaTitle";
 import type { ExtraDaySlot } from "@/domain/planning/extraSlotOps";
 
 /** Alpha du fond des cartes repas hors « Manger » (laisse lire les events dessous). */
@@ -416,7 +420,9 @@ function AgendaMealCardBody({
           <div className={`min-w-0 ${titleClsDesktop}`}>
             <MealCardTitleLabel title={title} />
           </div>
-          <div className={timeCls}>{timeLabel}</div>
+          <div className={timeCls} data-agenda-drag-time>
+            {timeLabel}
+          </div>
         </div>
         <div
           ref={chipsRef}
@@ -437,7 +443,9 @@ function AgendaMealCardBody({
         <div className={`min-w-0 flex-1 ${titleClsDesktop}`}>
           <MealCardTitleLabel title={title} />
         </div>
-        <div className={`max-w-[45%] shrink-0 text-right ${timeCls}`}>{timeLabel}</div>
+        <div className={`max-w-[45%] shrink-0 text-right ${timeCls}`} data-agenda-drag-time>
+          {timeLabel}
+        </div>
       </div>
     );
   }
@@ -450,7 +458,9 @@ function AgendaMealCardBody({
       <div className={`min-w-0 ${titleClsDesktop}`}>
         <MealCardTitleLabel title={title} />
       </div>
-      <div className={timeCls}>{timeLabel}</div>
+      <div className={timeCls} data-agenda-drag-time>
+        {timeLabel}
+      </div>
     </div>
   );
 }
@@ -502,6 +512,12 @@ export interface GoogleAgendaPlanningViewProps {
   extras: AgendaExtraOccurrence[];
   googleEvents: GoogleCalendarEvent[];
   connected: boolean;
+  /** Erreur de chargement des events Google (ex. token expiré). */
+  eventsError?: string | null;
+  /** True si une nouvelle autorisation OAuth est nécessaire. */
+  needsReauth?: boolean;
+  /** Relance Déconnecter + OAuth Google. */
+  onReconnectGoogle?: () => void;
   hideMealCards: boolean;
   onMoveMeal: (pmId: string, dayIso: string, dayKey: string, minutes: number) => void;
   onMoveExtra: (
@@ -974,6 +990,9 @@ export function GoogleAgendaPlanningView({
   extras,
   googleEvents,
   connected,
+  eventsError = null,
+  needsReauth = false,
+  onReconnectGoogle,
   hideMealCards,
   onMoveMeal,
   onMoveExtra,
@@ -1795,8 +1814,11 @@ export function GoogleAgendaPlanningView({
                       })),
                     );
 
-                    /** Rend une carte repas classique (hors goûter combiné). */
-                    const renderMealCard = (pm: PossibleMeal) => {
+                    /**
+                     * Rend une carte repas (une seule). Extras du créneau → pastilles
+                     * uniquement sur la 1re carte du créneau.
+                     */
+                    const renderMealCard = (pm: PossibleMeal, opts?: { chips?: MealCardChip[] }) => {
                       const alignment = mangerAlignments.get(pm.id);
                       const minutes =
                         alignment?.startMin ??
@@ -1808,26 +1830,28 @@ export function GoogleAgendaPlanningView({
                       if (!onManger) {
                         durationMin = AGENDA_EVENT_DURATION_MIN;
                       }
-                      // Extras du créneau (sans heure perso) → pastilles sur la 1re carte du créneau
                       const slotKey = pm.meal_time;
-                      const mealsOfSlot = slotKey
-                        ? dayMeals
-                            .filter((m) => m.meal_time === slotKey)
-                            .sort((a, b) => a.id.localeCompare(b.id))
-                        : [];
-                      const isPrimaryOfSlot = mealsOfSlot[0]?.id === pm.id;
-                      const slotExtrasForChips =
-                        isPrimaryOfSlot && slotKey
-                          ? dayExtras.filter(
-                              (ex) =>
-                                ex.slot === slotKey &&
-                                !hasExtraAgendaCustomTime(
-                                  ex.occurrenceKey,
-                                  extraAgendaTimes,
-                                ),
-                            )
+                      let chips = opts?.chips;
+                      if (chips == null) {
+                        const mealsOfSlot = slotKey
+                          ? dayMeals
+                              .filter((m) => m.meal_time === slotKey)
+                              .sort((a, b) => a.id.localeCompare(b.id))
                           : [];
-                      const chips = groupExtrasAsChips(slotExtrasForChips);
+                        const isPrimaryOfSlot = mealsOfSlot[0]?.id === pm.id;
+                        const slotExtrasForChips =
+                          isPrimaryOfSlot && slotKey
+                            ? dayExtras.filter(
+                                (ex) =>
+                                  ex.slot === slotKey &&
+                                  !hasExtraAgendaCustomTime(
+                                    ex.occurrenceKey,
+                                    extraAgendaTimes,
+                                  ),
+                              )
+                            : [];
+                        chips = groupExtrasAsChips(slotExtrasForChips);
+                      }
                       const mealPast = isAgendaEventPast(
                         day.iso,
                         todayIsoStr,
@@ -1863,6 +1887,7 @@ export function GoogleAgendaPlanningView({
                           zIndex = MEAL_CARD_Z_INDEX + geom.zIndex;
                         }
                       }
+                      const cardTitle = `${getCategoryEmoji(pm.meals?.category)} ${pm.meals?.name || "Repas"}`;
                       return (
                         <div
                           key={`meal-${pm.id}`}
@@ -1873,7 +1898,7 @@ export function GoogleAgendaPlanningView({
                               startMinutes: minutes,
                             })
                           }
-                          className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden ${
+                          className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
                             onManger ? "" : "left-px right-px"
@@ -1900,7 +1925,7 @@ export function GoogleAgendaPlanningView({
                           }
                         >
                           <AgendaMealCardBody
-                            title={`${getCategoryEmoji(pm.meals?.category)} ${pm.meals?.name || "Repas"}`}
+                            title={cardTitle}
                             timeLabel={formatAgendaClock(minutes)}
                             chips={chips}
                             mealPast={mealPast}
@@ -1912,6 +1937,148 @@ export function GoogleAgendaPlanningView({
                           />
                         </div>
                       );
+                    };
+
+                    /**
+                     * Carte unique pour plusieurs repas au même créneau / même heure :
+                     * titre « Hachis parmentier, Pot #4 ».
+                     */
+                    const renderGroupedMealCard = (group: PossibleMeal[]) => {
+                      const ordered = sortMealsForAgendaTitle(group);
+                      const firstPm = ordered[0];
+                      if (!firstPm) return null;
+                      if (ordered.length === 1) return renderMealCard(firstPm);
+
+                      const alignment = mangerAlignments.get(firstPm.id);
+                      const minutes =
+                        alignment?.startMin ??
+                        resolveAgendaMinutesForMeal(firstPm.id, firstPm.meal_time, agendaTimes);
+                      let durationMin =
+                        alignment?.durationMin ?? AGENDA_EVENT_DURATION_MIN;
+                      const onManger = alignment != null;
+                      if (!onManger) durationMin = AGENDA_EVENT_DURATION_MIN;
+
+                      const slotKey = firstPm.meal_time;
+                      const mealsOfSlot = slotKey
+                        ? dayMeals
+                            .filter((m) => m.meal_time === slotKey)
+                            .sort((a, b) => a.id.localeCompare(b.id))
+                        : [];
+                      const primaryId = mealsOfSlot[0]?.id;
+                      const showChips = Boolean(primaryId && group.some((m) => m.id === primaryId));
+                      const chips = showChips && slotKey
+                        ? groupExtrasAsChips(
+                            dayExtras.filter(
+                              (ex) =>
+                                ex.slot === slotKey &&
+                                !hasExtraAgendaCustomTime(ex.occurrenceKey, extraAgendaTimes),
+                            ),
+                          )
+                        : [];
+
+                      const mealPast = isAgendaEventPast(
+                        day.iso,
+                        todayIsoStr,
+                        minutes + durationMin,
+                        nowMinutes,
+                      );
+                      const mealBg = mealPast
+                        ? mixCssColorTowardCanvas(
+                            AGENDA_MEAL_CARD_COLOR,
+                            MEAL_PAST_BG_TOWARD_CANVAS,
+                          )
+                        : AGENDA_MEAL_CARD_COLOR;
+                      const pos = blockStyle(minutes, durationMin, hourHeightPx);
+                      let leftStyle: string | undefined;
+                      let widthStyle: string | undefined;
+                      let zIndex = MEAL_CARD_Z_INDEX;
+                      if (onManger && alignment) {
+                        const clusterBlocks = dayLaidOut.filter(
+                          (e) => e.clusterId === alignment.clusterId,
+                        );
+                        const hostEv = dayLaidOut.find((e) => e.id === alignment.eventId);
+                        if (hostEv) {
+                          const geom = agendaOverlapGeometryForBlock(
+                            hostEv,
+                            clusterBlocks,
+                            hourHeightPx,
+                            dayColumnWidthPx,
+                          );
+                          const edgePx = isCompactAgenda ? 1 : 2;
+                          leftStyle = `calc(${geom.leftPct}% + 0px)`;
+                          widthStyle = `calc(${geom.widthPct}% - ${edgePx}px)`;
+                          zIndex = MEAL_CARD_Z_INDEX + geom.zIndex;
+                        }
+                      }
+
+                      const combinedTitle = formatGroupedMealAgendaTitle(ordered);
+                      const groupKey = ordered.map((m) => m.id).join("+");
+
+                      return (
+                        <div
+                          key={`meal-group-${groupKey}`}
+                          onPointerDown={(e) =>
+                            onCardPointerDown(e, {
+                              kind: "meal",
+                              pmId: firstPm.id,
+                              startMinutes: minutes,
+                            })
+                          }
+                          className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
+                            isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
+                          } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
+                            onManger ? "" : "left-px right-px"
+                          } ${
+                            draggingKey === payloadKey({ kind: "meal", pmId: firstPm.id })
+                              ? "opacity-35"
+                              : ""
+                          }`}
+                          style={{
+                            top: pos.top,
+                            height: pos.height,
+                            zIndex,
+                            ...(onManger && leftStyle != null
+                              ? { left: leftStyle, width: widthStyle }
+                              : {}),
+                            backgroundColor: onManger
+                              ? opaqueMealColorMatchingTransparency(mealBg)
+                              : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
+                          }}
+                          title={`${combinedTitle} · ${formatAgendaClock(minutes)}`}
+                        >
+                          <AgendaMealCardBody
+                            title={combinedTitle}
+                            timeLabel={formatAgendaClock(minutes)}
+                            chips={chips}
+                            mealPast={mealPast}
+                            compact={isCompactAgenda}
+                            cardHeightPx={Math.max(
+                              0,
+                              agendaBlockHeightPx(durationMin, hourHeightPx) - 2,
+                            )}
+                          />
+                        </div>
+                      );
+                    };
+
+                    /**
+                     * Regroupe les repas par créneau Planning (matin/midi/soir/goûter) :
+                     * plusieurs cartes du même slot → une seule carte agenda combinée,
+                     * même si les heures individuelles diffèrent (évite le chevauchement).
+                     */
+                    const renderMealsGrouped = (meals: PossibleMeal[]) => {
+                      const buckets = new Map<string, PossibleMeal[]>();
+                      for (const pm of meals) {
+                        const key = pm.meal_time || "_";
+                        const list = buckets.get(key) ?? [];
+                        list.push(pm);
+                        buckets.set(key, list);
+                      }
+                      const out: ReactNode[] = [];
+                      for (const group of buckets.values()) {
+                        out.push(renderGroupedMealCard(group));
+                      }
+                      return out;
                     };
 
                     /** Carte synthétique « Goûter » (extras seuls, sans repas). */
@@ -1948,7 +2115,7 @@ export function GoogleAgendaPlanningView({
                               startMinutes: minutes,
                             })
                           }
-                          className={`absolute left-px right-px flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden ${
+                          className={`absolute left-px right-px flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
                             draggingKey ===
@@ -1981,15 +2148,15 @@ export function GoogleAgendaPlanningView({
 
                     const nodes: ReactNode[] = [];
 
-                    // Repas goûter = cartes repas classiques (déplaçables), extras en pastilles
+                    // Repas goûter : cartes groupées si plusieurs au même horaire
                     if (gouterMode === "meals-only" || gouterMode === "combined") {
-                      for (const pm of gouterMeals) nodes.push(renderMealCard(pm));
+                      nodes.push(...renderMealsGrouped(gouterMeals));
                     }
                     // Extras goûter seuls → carte « Goûter » déplaçable
                     if (gouterMode === "extras-only") {
                       nodes.push(renderGouterExtrasOnlyCard());
                     }
-                    for (const pm of nonGouterMeals) nodes.push(renderMealCard(pm));
+                    nodes.push(...renderMealsGrouped(nonGouterMeals));
 
                     return nodes;
                   })()}
@@ -2043,7 +2210,7 @@ export function GoogleAgendaPlanningView({
                             startMinutes: minutes,
                           })
                         }
-                        className={`absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing border border-amber-300/40 bg-amber-500/85 overflow-hidden shadow-md ${
+                        className={`absolute left-0.5 right-0.5 z-10 rounded-md px-1 sm:px-1.5 py-1 cursor-grab active:cursor-grabbing border border-amber-300/40 bg-amber-500/85 overflow-hidden shadow-md select-none ${
                           draggingKey ===
                           payloadKey({ kind: "extra", occurrenceKey: ex.occurrenceKey })
                             ? "opacity-35"
@@ -2076,7 +2243,9 @@ export function GoogleAgendaPlanningView({
                             isCompactAgenda ? "text-[6px]" : "text-[8px] sm:text-[9px]",
                           )}
                         >
-                          {formatAgendaClock(minutes)} · {ex.slot}
+                          <span data-agenda-drag-time>{formatAgendaClock(minutes)}</span>
+                          {" · "}
+                          {ex.slot}
                         </div>
                       </div>
                     );
@@ -2086,6 +2255,25 @@ export function GoogleAgendaPlanningView({
           })}
         </div>
       </div>
+
+      {(needsReauth || eventsError) && connected && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
+          <p className="text-[11px] text-amber-200 flex-1 min-w-0">
+            {needsReauth
+              ? "Le token Google a expiré — reconnecte Google Agenda pour afficher tes événements."
+              : `Impossible de charger Google Agenda : ${eventsError}`}
+          </p>
+          {onReconnectGoogle && (
+            <button
+              type="button"
+              onClick={onReconnectGoogle}
+              className="shrink-0 text-[11px] font-semibold rounded-md bg-amber-500/90 hover:bg-amber-400 text-black px-2.5 py-1"
+            >
+              Reconnecter Google
+            </button>
+          )}
+        </div>
+      )}
 
       {!connected && (
         <p className="text-[11px] text-muted-foreground px-1 mt-2">

@@ -187,14 +187,48 @@ export function useGoogleCalendar(timeMin: string | null, timeMax: string | null
   }, [enabled, consumeOAuthReturnParams]);
 
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
+  const eventsError = (eventsQuery.error as Error | null) ?? null;
+
+  /** Toast une seule fois par message d’erreur de sync événements. */
+  useEffect(() => {
+    if (!eventsError) return;
+    toast({
+      title: "Google Agenda indisponible",
+      description:
+        eventsError.message.includes("rafraîchir")
+          ? "Le token Google a expiré — déconnecte puis reconnecte Google Agenda."
+          : eventsError.message,
+      variant: "destructive",
+    });
+  }, [eventsError?.message]);
+
+  /**
+   * Force une nouvelle autorisation OAuth (utile si le refresh_token est mort).
+   * Déconnecte puis relance le flow Connecter Google.
+   */
+  const reconnect = useCallback(async () => {
+    try {
+      await callGoogleFunction("google-calendar-disconnect", { method: "POST" });
+    } catch {
+      // On enchaîne quand même sur OAuth même si la déconnexion échoue.
+    }
+    qc.setQueryData(["google_calendar_status"], false);
+    qc.removeQueries({ queryKey: ["google_calendar_events"] });
+    connectMutation.mutate();
+  }, [qc, connectMutation]);
 
   return {
     connected: statusQuery.data === true,
     statusLoading: statusQuery.isLoading,
     events,
     eventsLoading: eventsQuery.isLoading,
-    eventsError: eventsQuery.error as Error | null,
+    eventsError,
+    /** Token Google mort / events en échec alors que le statut dit encore « connecté ». */
+    needsReauth:
+      statusQuery.data === true &&
+      Boolean(eventsError?.message && /rafraîchir|token|401|403/i.test(eventsError.message)),
     connect: () => connectMutation.mutate(),
+    reconnect,
     disconnect: () => disconnectMutation.mutate(),
     connecting: connectMutation.isPending,
     disconnecting: disconnectMutation.isPending,

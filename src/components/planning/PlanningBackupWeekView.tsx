@@ -195,6 +195,18 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
             if (!m) return <div key={i} className="rounded-xl px-2 py-1 bg-muted text-[10px] text-muted-foreground">Repas supprimé</div>;
             const openBackupPopup = () => openBackupPlanningCardPopup(c, bCO[c.id], bPO[c.id]);
             const cardKey = `${c.id}-${i}`;
+            const fullPm = { ...c, meals: m };
+            const overrideCal = bCO[c.id];
+            const overridePro = bPO[c.id];
+            // Macros affichées comme sur la semaine courante (prot/fibres même si « Masquer calories »)
+            const rawCal = getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
+            const rawPro = getCardDisplayProtein(fullPm, overridePro, isAvailableCb, foodItems, foodMacroIndex);
+            const rawFiber = getCardDisplayFiber(fullPm, undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const displayCal =
+              !hideDayCalorieTotals && rawCal > 0 ? String(Math.round(rawCal)) : null;
+            const displayPro = rawPro > 0 ? String(Math.round(rawPro)) : null;
+            const displayFiber = rawFiber > 0 ? String(Math.round(rawFiber)) : null;
+            const hasMacros = Boolean(displayCal || displayPro || displayFiber);
             return (
               <div
                 key={i}
@@ -207,8 +219,27 @@ const backupRaw = getPreference<any>('possible_meals_backup', null);
                 <span className="block min-w-0 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] [word-break:break-word] leading-tight">
                   {getCategoryEmoji(m.category)} {m.name}
                 </span>
-                {bCO[c.id] && !hideDayCalorieTotals && <span className="self-end opacity-80 shrink-0 leading-none">🔥{bCO[c.id]}</span>}
-                {bPO[c.id] && <span className="self-end opacity-80 shrink-0 leading-none">🍗{bPO[c.id]}</span>}
+                {hasMacros && (
+                  <div className="flex flex-wrap items-center justify-end gap-0.5 min-w-0 max-w-full">
+                    {displayCal && (
+                      <span className="text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px rounded-full flex items-center gap-0.5 shrink-0 bg-black/30" title="Calories">
+                        <Flame className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
+                        {displayCal}
+                      </span>
+                    )}
+                    {displayPro && (
+                      <span className="text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px rounded-full flex items-center justify-center shrink-0 bg-black/30" title="Protéines">
+                        🍗 {displayPro}
+                      </span>
+                    )}
+                    {displayFiber && (
+                      <span className="text-[9px] sm:text-[10px] font-bold text-white px-1 sm:px-1.5 py-px rounded-full flex items-center justify-center shrink-0 bg-black/30" title="Fibres">
+                        <Wheat className="h-2 w-2 sm:h-2.5 sm:w-2.5 mr-0.5" />
+                        {displayFiber}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             );
           });

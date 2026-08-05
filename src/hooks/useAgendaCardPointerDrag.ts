@@ -16,6 +16,7 @@ import {
   AGENDA_HOUR_END,
   AGENDA_HOUR_START,
   AGENDA_SNAP_MINUTES,
+  formatAgendaClock,
   snapMinutes,
 } from "@/domain/planning/agendaTimeUtils";
 
@@ -59,6 +60,8 @@ type ActivePointerDrag = {
   lastX: number;
   lastY: number;
   lastTarget: AgendaDropTarget | null;
+  /** Dernières minutes affichées sur le fantôme (évite les writes DOM inutiles). */
+  lastPreviewMinutes: number | null;
 };
 
 export interface UseAgendaCardPointerDragOptions {
@@ -119,6 +122,24 @@ function placeGhostInColumn(
   ghost.style.boxShadow = "0 8px 24px rgba(0,0,0,0.45)";
   ghost.style.transform = "none";
   ghost.style.transition = "none";
+}
+
+/**
+ * Met à jour l’heure affichée sur le fantôme selon le créneau potentiel (avant drop).
+ */
+function updateGhostPreviewTime(ghost: HTMLElement, minutes: number): void {
+  const label = formatAgendaClock(minutes);
+  ghost.querySelectorAll("[data-agenda-drag-time]").forEach((el) => {
+    el.textContent = label;
+  });
+  const prevTitle = ghost.getAttribute("title");
+  if (prevTitle) {
+    // Remplace un éventuel `HHhMM` déjà présent dans le title tooltip
+    ghost.setAttribute(
+      "title",
+      prevTitle.replace(/\d{1,2}h\d{2}/, label),
+    );
+  }
 }
 
 /**
@@ -271,6 +292,10 @@ export function useAgendaCardPointerDrag({
         active.layoutWidth,
         active.layoutHeight,
       );
+      if (active.lastPreviewMinutes !== minutes) {
+        updateGhostPreviewTime(active.ghost, minutes);
+        active.lastPreviewMinutes = minutes;
+      }
 
       return { dayIso: hit.day.iso, dayKey: hit.day.key, minutes };
     },
@@ -318,12 +343,20 @@ export function useAgendaCardPointerDrag({
       active.ghost.remove();
       active.card.style.opacity = "";
       active.card.style.touchAction = "";
+      active.card.style.userSelect = "";
+      active.card.style.removeProperty("-webkit-user-select");
       try {
         active.card.releasePointerCapture(active.pointerId);
       } catch {
         /* ignore */
       }
       activeRef.current = null;
+    }
+    const pending = pendingRef.current;
+    if (pending) {
+      pending.card.style.touchAction = "";
+      pending.card.style.userSelect = "";
+      pending.card.style.removeProperty("-webkit-user-select");
     }
     pendingRef.current = null;
     setDragOverDay(null);
@@ -370,6 +403,7 @@ export function useAgendaCardPointerDrag({
       }
 
       pending.card.style.opacity = "0.3";
+      window.getSelection()?.removeAllRanges();
       try {
         pending.card.setPointerCapture(pending.pointerId);
       } catch {
@@ -399,11 +433,14 @@ export function useAgendaCardPointerDrag({
               minutes: originMinutes,
             }
           : null,
+        lastPreviewMinutes: null,
       };
       activeRef.current = active;
       pendingRef.current = null;
       setDraggingKey(payloadKey(pending.payload));
       if (originHit) setDragOverDay(originHit.day.iso);
+      updateGhostPreviewTime(ghost, originMinutes);
+      active.lastPreviewMinutes = originMinutes;
       active.lastTarget = placeGhostByDelta(active, pending.lastX, pending.lastY);
       ensureDragLoop();
     },
@@ -412,12 +449,23 @@ export function useAgendaCardPointerDrag({
 
   /**
    * Démarre un éventuel drag (long-press touch / suivi souris).
+   * Empêche la sélection de texte native qui entre en conflit avec le déplacement.
    */
   const onCardPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLElement>, payload: AgendaCardDragPayload) => {
       if (disabled) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       const card = e.currentTarget;
+
+      // Annule toute sélection en cours + bloque le surlignage pendant le geste
+      window.getSelection()?.removeAllRanges();
+      card.style.userSelect = "none";
+      card.style.setProperty("-webkit-user-select", "none");
+      // Souris : preventDefault évite le drag-sélection HTML du navigateur
+      if (e.pointerType === "mouse") {
+        e.preventDefault();
+      }
+
       pendingRef.current = {
         payload,
         card,
@@ -503,6 +551,8 @@ export function useAgendaCardPointerDrag({
           longPressTimerRef.current = null;
         }
         pending.card.style.touchAction = "";
+        pending.card.style.userSelect = "";
+        pending.card.style.removeProperty("-webkit-user-select");
         pendingRef.current = null;
       }
 
@@ -523,7 +573,11 @@ export function useAgendaCardPointerDrag({
         (active && active.pointerId === e.pointerId) ||
         (pending && pending.pointerId === e.pointerId)
       ) {
-        if (pending) pending.card.style.touchAction = "";
+        if (pending) {
+          pending.card.style.touchAction = "";
+          pending.card.style.userSelect = "";
+          pending.card.style.removeProperty("-webkit-user-select");
+        }
         cancelPointerDrag();
       }
     };

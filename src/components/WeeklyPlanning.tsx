@@ -2291,6 +2291,9 @@ export function WeeklyPlanning({
           extras={agendaExtraOccurrences}
           googleEvents={googleCalendar.events}
           connected={googleCalendar.connected}
+          eventsError={googleCalendar.eventsError?.message ?? null}
+          needsReauth={googleCalendar.needsReauth}
+          onReconnectGoogle={googleCalendar.reconnect}
           hideMealCards={hideAgendaMealCards}
           onMoveMeal={handleAgendaMoveMeal}
           onMoveExtra={handleAgendaMoveExtra}
