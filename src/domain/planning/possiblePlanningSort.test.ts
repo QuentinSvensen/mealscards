@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   comparePossiblePlanningOrder,
   hasNumberedPotLabel,
+  isUnnumberedPotLabel,
   prioritizeNumberedPotsAmongUnplanned,
 } from "./possiblePlanningSort";
 
@@ -29,6 +30,15 @@ describe("hasNumberedPotLabel", () => {
     expect(hasNumberedPotLabel("Pot # 12")).toBe(true);
     expect(hasNumberedPotLabel("Pot #?")).toBe(false);
     expect(hasNumberedPotLabel("Pot #")).toBe(false);
+  });
+});
+
+describe("isUnnumberedPotLabel", () => {
+  it("détecte Pot #? et Pot # sans chiffre", () => {
+    expect(isUnnumberedPotLabel("Pot #?")).toBe(true);
+    expect(isUnnumberedPotLabel("Pot #")).toBe(true);
+    expect(isUnnumberedPotLabel("Pot #3")).toBe(false);
+    expect(isUnnumberedPotLabel("Tarte")).toBe(false);
   });
 });
 

@@ -24,6 +24,15 @@ export function hasNumberedPotLabel(name: string | null | undefined): boolean {
 }
 
 /**
+ * Indique un pot sans numéro (ex. « Pot #? » ou « Pot # ») — à distinguer des pots numérotés.
+ */
+export function isUnnumberedPotLabel(name: string | null | undefined): boolean {
+  const n = (name || "").trim();
+  if (!/^pot\s*#/i.test(n)) return false;
+  return !hasNumberedPotLabel(n);
+}
+
+/**
  * Parmi les cartes non planifiées, place les pots numérotés (#3) au-dessus des #? / sans chiffre.
  * Les cartes planifiées gardent leur place ; l’ordre relatif dans chaque groupe est préservé.
  */

@@ -20,6 +20,7 @@ import {
   serializeNinjaCreamiExtrasForPossible,
 } from "@/components/NinjaCreamiTestsExtrasDialog";
 import type { NinjaCreamiBaseGroup, NinjaCreamiCatalogLine } from "@/domain/ninjaCreami/ninjaCreami";
+import { isUnnumberedPotLabel } from "@/domain/planning/possiblePlanningSort";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IngredientEditor } from "@/components/IngredientEditor";
@@ -824,7 +825,11 @@ export function PossibleMealCard({
         onDoubleClick?.();
       }}
       className={`group relative flex flex-col rounded-2xl px-3 py-2.5 shadow-md cursor-grab active:cursor-grabbing transition-all hover:scale-[1.02] hover:shadow-lg ${isHighlighted ? 'ring-4 ring-yellow-400 scale-105' : fromMaster ? 'ring-2 ring-yellow-400' : expIsToday ? 'ring-2 ring-red-500' : isExpired ? 'ring-2 ring-red-500' : ''}`}
-      style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
+      style={{
+        backgroundColor: isUnnumberedPotLabel(meal.name)
+          ? "hsl(220, 6%, 22%)"
+          : getMealColor(cardColorIngredients, meal.name),
+      }}
       title={fromMaster ? "Issu de Tous" : undefined}
     >
       {/* Badge multiplicateur — épinglé en haut à droite absolu */}
