@@ -8,6 +8,7 @@ import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import type { PossibleMeal } from "@/hooks/useMeals";
 import { getMealColor } from "@/lib/ingredientUtils";
+import { isUnnumberedPotLabel } from "@/domain/planning/possiblePlanningSort";
 import type { StockInfo } from "@/lib/stockUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 
@@ -249,7 +250,11 @@ export function PlanningMiniCard({
         ${slotDragOver === pm.id ? "ring-2 ring-white/60" : fromMaster ? "ring-2 ring-yellow-400" : ""}
         ${compact ? "px-1.5 py-0.5" : "px-1.5 py-0.5 sm:px-2 sm:py-1.5"}
       `}
-      style={{ backgroundColor: getMealColor(cardColorIngredients, meal.name) }}
+      style={{
+        backgroundColor: isUnnumberedPotLabel(meal.name)
+          ? "hsl(220, 6%, 22%)"
+          : getMealColor(cardColorIngredients, meal.name),
+      }}
     >
       {/* Mobile : mise en page verticale */}
       <div className="flex flex-col sm:hidden">

@@ -1297,9 +1297,9 @@ export function PlanningNextWeekView(props: PlanningNextWeekViewProps) {
                   mealCards={gouterMeals.map((pm) => (
                     <div
                       key={pm.id}
-                      className="inline-block mr-1 [&>div]:min-w-[132px] [&>div]:!px-3 [&>div]:!py-1.5 [&>div]:text-center [&>div>div]:items-center"
+                      className="inline-block mr-1 [&>div]:min-w-[148px] [&>div]:max-w-[220px] [&>div]:!px-2 [&>div]:!py-1"
                     >
-                      {renderMiniCard(pm, true)}
+                      {renderMiniCard(pm, false, true)}
                     </div>
                   ))}
                   onDragOver={(e) => {
