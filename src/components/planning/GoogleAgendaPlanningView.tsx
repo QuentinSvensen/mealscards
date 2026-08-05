@@ -206,7 +206,7 @@ function fitTextFontPx(
 
 /**
  * Contenu d’une carte repas / goûter agenda.
- * Desktop : titre à gauche, extras en pastilles à droite.
+ * Desktop : titre à gauche ; avec extras → pastilles puis heure à droite.
  * Mobile : texte le plus grand possible sans dépasser ; avec extras =
  * titre (wrap si besoin) puis pastilles en dessous.
  */
@@ -410,26 +410,26 @@ function AgendaMealCardBody({
     );
   }
 
-  // —— Desktop / large : titre | pastilles ——
+  // —— Desktop / large : titre | pastilles + heure à droite ——
   if (hasChips) {
     return (
       <div
-        className="flex h-full min-h-0 w-full overflow-hidden gap-0.5"
+        className="flex h-full min-h-0 w-full items-center overflow-hidden gap-0.5"
         style={pastContentStyle}
       >
-        <div className="flex min-w-0 flex-1 flex-col justify-start gap-px overflow-hidden">
-          <div className={`min-w-0 ${titleClsDesktop}`}>
-            <MealCardTitleLabel title={title} />
+        <div className={`min-w-0 flex-1 overflow-hidden ${titleClsDesktop}`}>
+          <MealCardTitleLabel title={title} />
+        </div>
+        <div className="flex min-h-0 h-full max-w-[68%] shrink-0 items-center gap-0.5 overflow-hidden">
+          <div
+            ref={chipsRef}
+            className="flex min-h-0 h-full min-w-0 flex-col justify-center gap-0.5 overflow-hidden"
+          >
+            {chips.map((chip) => renderChip(chip))}
           </div>
-          <div className={timeCls} data-agenda-drag-time>
+          <div className={`text-right tabular-nums ${timeCls}`} data-agenda-drag-time>
             {timeLabel}
           </div>
-        </div>
-        <div
-          ref={chipsRef}
-          className="flex min-h-0 h-full w-auto max-w-[62%] shrink-0 flex-col justify-center gap-0.5 overflow-hidden"
-        >
-          {chips.map((chip) => renderChip(chip))}
         </div>
       </div>
     );
