@@ -23,7 +23,7 @@ import { computeIngredientCalories, computeIngredientProtein, computeIngredientF
 import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { isPossibleOnlyCreatedMeal } from "@/lib/possibleOnlyMeals";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
-import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, resolveInheritedFutureLotOpening, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, formatPossibleCounterBadgeLabel, readFrozenPossibleCounterDays, shouldSuppressFrozenPossibleCounterBadge, resolveDisplayedPossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
+import { buildStockMap, analyzeMealIngredients, getDisplayedPMCalories, getDisplayedPMFiber, buildFoodItemIndex, resolveCounterStartForPossibleBadge, resolveInheritedFutureLotOpening, findEarliestActiveCounterDate, pickEarliestPastCounterStart, formatFrozenPossibleCounterTooltip, formatPossibleCounterBadgeLabel, readFrozenPossibleCounterDays, resolveVisiblePossibleCounterDays, type PossibleFrozenCounterDaysMap } from "@/lib/stockUtils";
 import type { StockInfo } from "@/lib/stockUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { usePreferenceValue } from "@/hooks/usePreferences";
@@ -284,34 +284,16 @@ export function PossibleList({
                 undefined, undefined, undefined, consumedLotSnapshots,
               );
 
-          // Masque un Xj figé fantôme : Prog. seul sur ce créneau, ou stock sans aucun compteur
-          // (ex. Cookie replanif ven.→dim. avec counter_start_date carte = 2j).
-          // Cartes « Tous » / Ninja exemptes : aucun lien stock → jamais de badge compteur.
-          const rawFrozenDays = stockExempt
-            ? null
-            : readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
-          const keptFrozenDays =
-            typeof rawFrozenDays === "number" &&
-            shouldSuppressFrozenPossibleCounterBadge(
-              cardIngredients,
-              foodItems,
-              pm.day_of_week,
-              pm.meal_time,
-              foodItemIndex,
-              undefined,
-              inheritedFutureOpening ?? resolvedCounterStart,
-            )
-              ? null
-              : rawFrozenDays;
-          // Repli d’affichage : gel absent/null mais lot déjà entamé par une carte plus tôt.
-          const frozenCounterDays = stockExempt
-            ? null
-            : resolveDisplayedPossibleCounterDays(
-                keptFrozenDays,
-                inheritedFutureOpening,
-                pm.day_of_week,
-                pm.meal_time,
-              );
+          const frozenCounterDays = resolveVisiblePossibleCounterDays({
+            frozenDays: readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id),
+            inheritedFutureOpeningIso: inheritedFutureOpening,
+            ingredients: cardIngredients,
+            foodItems,
+            index: foodItemIndex,
+            dayKey: pm.day_of_week,
+            mealTime: pm.meal_time,
+            stockExempt,
+          });
 
           const isTodayPM = pm.day_of_week === todayISO;
           const isPrevToday = index > 0 && visibleItemsWithAnalysis[index - 1].pm.day_of_week === todayISO;
@@ -455,10 +437,6 @@ export function PossibleList({
                 ninjaTestPmSet,
                 ninjaMealIdSet,
               );
-            const frozenCounterDaysRaw = popupStockExempt
-              ? null
-              : readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
-            const popupIngredients = popupPm.ingredients_override ?? meal.ingredients;
             const popupInheritedOpening = popupStockExempt
               ? undefined
               : resolveInheritedFutureLotOpening(
@@ -471,28 +449,17 @@ export function PossibleList({
                   undefined,
                   consumedLotSnapshots,
                 );
-            const popupKeptFrozenDays =
-              typeof frozenCounterDaysRaw === "number" &&
-              shouldSuppressFrozenPossibleCounterBadge(
-                popupIngredients,
-                foodItems,
-                popupPm.day_of_week,
-                popupPm.meal_time,
-                foodItemIndex,
-                undefined,
-                popupInheritedOpening,
-              )
-                ? null
-                : frozenCounterDaysRaw;
-            const frozenCounterDays = popupStockExempt
-              ? null
-              : resolveDisplayedPossibleCounterDays(
-                  popupKeptFrozenDays,
-                  popupInheritedOpening,
-                  popupPm.day_of_week,
-                  popupPm.meal_time,
-                );
-            const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+            const frozenCounterDays = resolveVisiblePossibleCounterDays({
+              frozenDays: readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id),
+              inheritedFutureOpeningIso: popupInheritedOpening,
+              ingredients: displayIngredients,
+              foodItems,
+              index: foodItemIndex,
+              dayKey: popupPm.day_of_week,
+              mealTime: popupPm.meal_time,
+              stockExempt: popupStockExempt,
+            });
+            const counterDays = frozenCounterDays;
             const popupCounterStart =
               popupInheritedOpening
               ?? analysis.earliestActiveCounterDate

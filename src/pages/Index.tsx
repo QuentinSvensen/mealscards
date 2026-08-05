@@ -1408,6 +1408,8 @@ const Index = () => {
               <LazyWeeklyPlanning
                 masterSourcePmIds={masterSourcePmIds}
                 unParUnSourcePmIds={unParUnSourcePmIds}
+                ninjaCreamiTestPmIds={ninjaCreamiTestPmIds}
+                ninjaCreamiMealIds={ninjaCreamiMealIds}
               />
             </ErrorBoundary>
           )}

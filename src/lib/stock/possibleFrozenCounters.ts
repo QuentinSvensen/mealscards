@@ -171,6 +171,52 @@ export function shouldSuppressFrozenPossibleCounterBadge(
 }
 
 /**
+ * Valeur finale du badge compteur Possible à afficher (`null` = pas de badge).
+ * Garde-fous : carte sans lien stock (Tous / Ninja), stock présent sans aucun compteur aliment
+ * (ex. Pot Creami ∞), suppression des gels fantômes — un `counter_start_date` carte seul
+ * ne doit jamais maintenir un Xj.
+ */
+export function resolveVisiblePossibleCounterDays(params: {
+  frozenDays: number | null | undefined;
+  inheritedFutureOpeningIso?: string | null;
+  ingredients?: string | null;
+  foodItems: FoodItem[];
+  index?: FoodItemIndex;
+  dayKey?: string | null;
+  mealTime?: string | null;
+  /** Carte issue de Tous / Ninja : aucun badge. */
+  stockExempt?: boolean;
+  fixedNow?: Date;
+}): number | null {
+  if (params.stockExempt) return null;
+  const inherited = params.inheritedFutureOpeningIso?.trim() || undefined;
+  if (
+    hasNoFoodCounterEvidenceWhileStockRemains(
+      params.ingredients, params.foodItems, params.index, params.fixedNow,
+    ) && !inherited
+  ) {
+    return null;
+  }
+  const raw = params.frozenDays;
+  const kept =
+    typeof raw === "number" &&
+    shouldSuppressFrozenPossibleCounterBadge(
+      params.ingredients,
+      params.foodItems,
+      params.dayKey,
+      params.mealTime,
+      params.index,
+      params.fixedNow,
+      inherited,
+    )
+      ? null
+      : raw;
+  return resolveDisplayedPossibleCounterDays(
+    kept, inherited, params.dayKey, params.mealTime, params.fixedNow,
+  );
+}
+
+/**
  * Indique si aucun aliment de la recette n’a de compteur actif ni Prog., alors que le stock
  * de la recette est encore présent — signal pour effacer un Xj figé fantôme au re-gel.
  */

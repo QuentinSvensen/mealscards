@@ -27,6 +27,7 @@ import {
   shouldSuppressFrozenPossibleCounterBadge,
   resolveInheritedFutureLotOpening,
   resolveDisplayedPossibleCounterDays,
+  resolveVisiblePossibleCounterDays,
   hasNoFoodCounterEvidenceWhileStockRemains,
   buildFrozenBadgePreferenceEntry,
   hasActiveFoodItemCounter,
@@ -1201,6 +1202,43 @@ describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
         inherited,
       ),
     ).toBe(1);
+  });
+
+  it("recette ∞ sans compteur aliment : un 1j figé ne s’affiche pas (Pot Creami)", () => {
+    // Pot Creami (whey, stévia…) : stock présent, aucun compteur → masquer le gel fantôme.
+    const fixedNow = new Date("2026-08-05T20:00:00.000+02:00");
+    const ingredients =
+      "55g Lait avoine, 170g Lait écrémé, 0,5g Xanthane, 5g Stévia, 30g Whey";
+    const foodItems = [
+      makeFoodItem({ name: "Lait avoine", is_infinite: true, grams: "1000" }),
+      makeFoodItem({ name: "Lait écrémé", is_infinite: true, grams: "1000" }),
+      makeFoodItem({ name: "Xanthane", is_infinite: true, grams: "100" }),
+      makeFoodItem({ name: "Stévia", is_infinite: true, grams: "100" }),
+      makeFoodItem({ name: "Whey", is_infinite: true, grams: "1000" }),
+    ];
+    expect(
+      resolveVisiblePossibleCounterDays({
+        frozenDays: 1,
+        ingredients,
+        foodItems,
+        dayKey: "2026-08-07",
+        mealTime: "gouter",
+        fixedNow,
+      }),
+    ).toBeNull();
+    // Carte Tous / Ninja : masqué même si un héritage existait.
+    expect(
+      resolveVisiblePossibleCounterDays({
+        frozenDays: 1,
+        inheritedFutureOpeningIso: "2026-08-06T19:00:00.000+02:00",
+        ingredients,
+        foodItems,
+        dayKey: "2026-08-07",
+        mealTime: "gouter",
+        stockExempt: true,
+        fixedNow,
+      }),
+    ).toBeNull();
   });
 
   it("Cookie ∞ : replanif ven.→dim. + baseStartDate carte → null (pas de 2j fantôme)", () => {
