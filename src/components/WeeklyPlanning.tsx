@@ -2298,6 +2298,7 @@ export function WeeklyPlanning({
           onMoveMeal={handleAgendaMoveMeal}
           onMoveExtra={handleAgendaMoveExtra}
           onMoveGouterExtras={handleAgendaMoveGouterExtras}
+          onOpenMealCard={openPlanningCardPopup}
           weekOffset={agendaWeekOffset}
           onWeekOffsetChange={setAgendaWeekOffset}
         />

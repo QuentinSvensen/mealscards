@@ -535,6 +535,8 @@ export interface GoogleAgendaPlanningViewProps {
     dayKey: string,
     minutes: number,
   ) => void;
+  /** Double-clic sur une carte repas → ouvre la popup détail Planning. */
+  onOpenMealCard?: (pm: PossibleMeal) => void;
   /** Décalage de semaine (0 = semaine calendaire courante). */
   weekOffset?: number;
   /** Change la semaine affichée (offset relatif à la semaine courante). */
@@ -997,6 +999,7 @@ export function GoogleAgendaPlanningView({
   onMoveMeal,
   onMoveExtra,
   onMoveGouterExtras,
+  onOpenMealCard,
   weekOffset = 0,
   onWeekOffsetChange,
 }: GoogleAgendaPlanningViewProps) {
@@ -1288,7 +1291,8 @@ export function GoogleAgendaPlanningView({
     }
   };
 
-  const { dragOverDay, draggingKey, onCardPointerDown, payloadKey } = useAgendaCardPointerDrag({
+  const { dragOverDay, draggingKey, onCardPointerDown, payloadKey, cancelPointerDrag } =
+    useAgendaCardPointerDrag({
     weekDates,
     columnRefs,
     scrollRef,
@@ -1888,6 +1892,13 @@ export function GoogleAgendaPlanningView({
                         }
                       }
                       const cardTitle = `${getCategoryEmoji(pm.meals?.category)} ${pm.meals?.name || "Repas"}`;
+                      /**
+                       * Ouvre la popup détail au double-clic (annule un drag pending).
+                       */
+                      const openMealPopup = () => {
+                        cancelPointerDrag();
+                        onOpenMealCard?.(pm);
+                      };
                       return (
                         <div
                           key={`meal-${pm.id}`}
@@ -1898,6 +1909,7 @@ export function GoogleAgendaPlanningView({
                               startMinutes: minutes,
                             })
                           }
+                          onDoubleClick={openMealPopup}
                           className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
@@ -1920,8 +1932,8 @@ export function GoogleAgendaPlanningView({
                           }}
                           title={
                             onManger
-                              ? `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} (${durationMin} min, sur Manger)`
-                              : `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)}`
+                              ? `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} (${durationMin} min, sur Manger) — double-clic pour détail`
+                              : `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} — double-clic pour détail`
                           }
                         >
                           <AgendaMealCardBody
@@ -2014,6 +2026,14 @@ export function GoogleAgendaPlanningView({
                       const combinedTitle = formatGroupedMealAgendaTitle(ordered);
                       const groupKey = ordered.map((m) => m.id).join("+");
 
+                      /**
+                       * Ouvre la popup de la 1re carte du groupe (ordre Planning).
+                       */
+                      const openGroupedMealPopup = () => {
+                        cancelPointerDrag();
+                        onOpenMealCard?.(firstPm);
+                      };
+
                       return (
                         <div
                           key={`meal-group-${groupKey}`}
@@ -2024,6 +2044,7 @@ export function GoogleAgendaPlanningView({
                               startMinutes: minutes,
                             })
                           }
+                          onDoubleClick={openGroupedMealPopup}
                           className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
@@ -2044,7 +2065,7 @@ export function GoogleAgendaPlanningView({
                               ? opaqueMealColorMatchingTransparency(mealBg)
                               : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
                           }}
-                          title={`${combinedTitle} · ${formatAgendaClock(minutes)}`}
+                          title={`${combinedTitle} · ${formatAgendaClock(minutes)} — double-clic pour détail`}
                         >
                           <AgendaMealCardBody
                             title={combinedTitle}
