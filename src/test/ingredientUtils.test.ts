@@ -356,6 +356,21 @@ describe("listRecipeIngredientGroups / buildIngredientsOverrideFromSelection", (
     expect(override).not.toMatch(/90g Pâtes/);
   });
 
+  it("applique le renommage d'un aliment dans l'override de sélection", () => {
+    const recipe = "25g Fuet, 35g Gruyère";
+    const groups = listRecipeIngredientGroups(recipe);
+    const keys = defaultIncludedIngredientKeys(groups);
+    const fuetKey = groups
+      .flatMap((g) => g.alternatives.flatMap((a) => a.items))
+      .find((i) => i.name === "Fuet")!.key;
+    const override = buildIngredientsOverrideFromSelection(recipe, keys, {
+      [fuetKey]: { qty: "25g", count: "", name: "Saucisson" },
+    });
+    expect(override).toMatch(/25g Saucisson/);
+    expect(override).not.toMatch(/Fuet/);
+    expect(override).toMatch(/35g Gruyère/);
+  });
+
   it("pré-coche seulement l'alternative « ou » disponible en stock", () => {
     const recipeOr = "100g Poulet | 100g Saumon, 50g Riz";
     const groups = listRecipeIngredientGroups(recipeOr);

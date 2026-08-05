@@ -20,10 +20,13 @@ import {
   hasFrozenPossibleCounter,
   readFrozenPossibleCounterDays,
   formatFrozenPossibleCounterTooltip,
+  formatPossibleCounterBadgeLabel,
   mergeFrozenPossibleCounterDays,
   resolveFrozenPossibleCounterDays,
   isCounterStartAlignedWithMealSlot,
   shouldSuppressFrozenPossibleCounterBadge,
+  resolveInheritedFutureLotOpening,
+  resolveDisplayedPossibleCounterDays,
   hasNoFoodCounterEvidenceWhileStockRemains,
   buildFrozenBadgePreferenceEntry,
   hasActiveFoodItemCounter,
@@ -31,7 +34,7 @@ import {
   type StockInfo,
   type PossibleFrozenCounterDaysMap,
 } from "@/lib/stockUtils";
-import { getAdaptedCounterDays } from "@/lib/ingredientUtils";
+import { getAdaptedCounterDays, getAdaptedCounterHours } from "@/lib/ingredientUtils";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { Meal } from "@/hooks/useMeals";
 
@@ -1021,6 +1024,185 @@ describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
     ).toBe(1);
   });
 
+  it("Ouverture héritée future sans counter DB (Sandwich jeu. → Pâtes ven.) → 1j", () => {
+    // Blanc de poulet unitaire : l’UI montre Prog. jeu. via le planning, mais pas de counter_start_date en base.
+    // baseStartDate = créneau Sandwich jeu. soir → badge 1j sur Pâtes ven. soir.
+    const fixedNow = new Date("2026-08-05T12:00:00.000+02:00");
+    const thursdaySoir = "2026-08-06T19:00:00.000+02:00";
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de poulet", quantity: 2, grams: null, counter_start_date: null }),
+    ];
+    expect(
+      computePossibleFrozenCounterDays(
+        "100g Pâtes • 2 Blanc de poulet • 200g Crème liquide",
+        foodItems,
+        undefined,
+        fixedNow,
+        "2026-08-07",
+        "soir",
+        undefined,
+        thursdaySoir,
+      ),
+    ).toBe(1);
+    // Sans héritage futur → toujours null (pas de fantôme).
+    expect(
+      computePossibleFrozenCounterDays(
+        "100g Pâtes • 2 Blanc de poulet • 200g Crème liquide",
+        foodItems,
+        undefined,
+        fixedNow,
+        "2026-08-07",
+        "soir",
+      ),
+    ).toBeNull();
+    // Héritage passé seul (Cookie) → null.
+    expect(
+      computePossibleFrozenCounterDays(
+        "100g Pâtes • 2 Blanc de poulet",
+        foodItems,
+        undefined,
+        fixedNow,
+        "2026-08-07",
+        "soir",
+        undefined,
+        "2026-08-04T19:00:00.000+02:00",
+      ),
+    ).toBeNull();
+    // Ne pas masquer un 1j figé si ouverture future héritée (sans counter DB).
+    expect(
+      shouldSuppressFrozenPossibleCounterBadge(
+        "2 Blanc de poulet",
+        foodItems,
+        "2026-08-07",
+        "soir",
+        undefined,
+        fixedNow,
+        thursdaySoir,
+      ),
+    ).toBe(false);
+  });
+
+  it("Sandwich jeu. → Pâtes ven. : ouverture héritée = 1j même sans compteur en base", () => {
+    // Blanc de poulet unitaire sans counter_start_date : la fiche Aliments affiche « Prog. jeu. 19h »
+    // uniquement via le planning. La carte de vendredi doit quand même montrer 1j.
+    const fixedNow = new Date("2026-08-05T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Blanc de poulet", quantity: 2, grams: null, counter_start_date: null }),
+    ];
+    const sandwich = {
+      id: "pm-sandwich",
+      day_of_week: "2026-08-06",
+      meal_time: "soir",
+      ingredients_override: "170g Baguette surgelée, 2 Blanc de poulet",
+      counter_start_date: null,
+      meals: null,
+    };
+    const pates = {
+      id: "pm-pates",
+      day_of_week: "2026-08-07",
+      meal_time: "soir",
+      ingredients_override: "100g Pâtes, 2 Blanc de poulet, 200g Crème liquide",
+      counter_start_date: null,
+      meals: null,
+    };
+    const siblings = [sandwich, pates];
+
+    const inheritedForPates = resolveInheritedFutureLotOpening(
+      pates, siblings, foodItems, undefined, undefined, undefined, fixedNow,
+    );
+    expect(inheritedForPates).toBeTruthy();
+    expect(
+      resolveDisplayedPossibleCounterDays(
+        null, inheritedForPates, pates.day_of_week, pates.meal_time, fixedNow,
+      ),
+    ).toBe(1);
+
+    // La carte qui ouvre le lot (Sandwich) n’hérite de rien → aucun badge.
+    const inheritedForSandwich = resolveInheritedFutureLotOpening(
+      sandwich, siblings, foodItems, undefined, undefined, undefined, fixedNow,
+    );
+    expect(inheritedForSandwich).toBeUndefined();
+    expect(
+      resolveDisplayedPossibleCounterDays(
+        null, inheritedForSandwich, sandwich.day_of_week, sandwich.meal_time, fixedNow,
+      ),
+    ).toBeNull();
+
+    // Une valeur figée existante reste prioritaire (pas de recalcul live).
+    expect(
+      resolveDisplayedPossibleCounterDays(
+        3, inheritedForPates, pates.day_of_week, pates.meal_time, fixedNow,
+      ),
+    ).toBe(3);
+
+    // Même lot mais repas de vendredi MIDI : jeu. 19h → ven. 12h = 17 h → 0j (pas 1j).
+    expect(
+      resolveDisplayedPossibleCounterDays(
+        null, inheritedForPates, pates.day_of_week, "midi", fixedNow,
+      ),
+    ).toBe(0);
+    expect(formatPossibleCounterBadgeLabel(0, 17)).toBe("0j");
+    expect(formatFrozenPossibleCounterTooltip(0, undefined, 17)).toBe("0j (de 17h)");
+    expect(getAdaptedCounterHours(inheritedForPates, pates.day_of_week, "midi", fixedNow)).toBe(17);
+  });
+
+  it("Lot vidé par la carte (fiche stock supprimée) → 1j hérité quand même", () => {
+    // Planifier « Pâtes jambon » consomme les 2 derniers Blanc de poulet : plus aucune fiche en stock.
+    // Le partage de lot avec « Sandwich » (jeu.) doit rester détecté via les noms d’ingrédients.
+    const fixedNow = new Date("2026-08-05T20:00:00.000+02:00");
+    const foodItems = [
+      makeFoodItem({ name: "Crème liquide", grams: "200" }),
+      makeFoodItem({ name: "Pâtes", grams: "500", is_infinite: true }),
+    ];
+    const sandwich = {
+      id: "pm-sandwich",
+      day_of_week: "2026-08-06",
+      meal_time: "soir",
+      ingredients_override: "170g Baguette surgelée, 2 Blanc de poulet",
+      counter_start_date: null,
+      meals: null,
+    };
+    const pates = {
+      id: "pm-pates",
+      day_of_week: "2026-08-07",
+      meal_time: "soir",
+      ingredients_override: "100g Pâtes, 2 Blanc de poulet, 200g Crème liquide",
+      counter_start_date: null,
+      meals: null,
+    };
+    const inherited = resolveInheritedFutureLotOpening(
+      pates, [sandwich, pates], foodItems, undefined, undefined, undefined, fixedNow,
+    );
+    expect(
+      resolveDisplayedPossibleCounterDays(
+        null, inherited, pates.day_of_week, pates.meal_time, fixedNow,
+      ),
+    ).toBe(1);
+
+    // Snapshot de déduction indiquant un lot surgelé → pas de badge (aliment non comptable).
+    const frozenSnapshots = [
+      makeFoodItem({ name: "Blanc de poulet", storage_type: "surgele", quantity: 2, grams: null }),
+    ];
+    const inheritedFrozenLot = resolveInheritedFutureLotOpening(
+      pates, [sandwich, pates], foodItems, undefined, undefined, undefined, fixedNow, frozenSnapshots,
+    );
+    expect(inheritedFrozenLot).toBeUndefined();
+
+    // Le gel figé au moment de la planification vaut aussi 1j via cette ouverture héritée.
+    expect(
+      computePossibleFrozenCounterDays(
+        pates.ingredients_override,
+        foodItems,
+        undefined,
+        fixedNow,
+        pates.day_of_week,
+        pates.meal_time,
+        undefined,
+        inherited,
+      ),
+    ).toBe(1);
+  });
+
   it("Cookie ∞ : replanif ven.→dim. + baseStartDate carte → null (pas de 2j fantôme)", () => {
     // Aujourd’hui = ven. 24 ; carte déplacée sur dim. 26 Matin ; counter_start_date carte = ven. matin.
     // Aucun aliment n’a de compteur → le décalage de replanif ne doit PAS inventer un badge 2j.
@@ -1089,10 +1271,10 @@ describe("computePossibleFrozenCounterDays (gel badge Possible)", () => {
     expect(readFrozenPossibleCounterDays(map, "pm-a")).toBe(2);
     expect(readFrozenPossibleCounterDays(map, "pm-null")).toBeNull();
     expect(readFrozenPossibleCounterDays(map, "pm-missing")).toBeUndefined();
-    expect(formatFrozenPossibleCounterTooltip(2)).toBe("2j (figé)");
+    expect(formatFrozenPossibleCounterTooltip(2)).toBe("2j");
     expect(formatFrozenPossibleCounterTooltip(null)).toBeUndefined();
     expect(formatFrozenPossibleCounterTooltip(1, "2026-07-23T10:00:00.000Z")).toMatch(
-      /^1j \(figé\) · Démarré : /,
+      /^1j · Démarré : /,
     );
   });
 });

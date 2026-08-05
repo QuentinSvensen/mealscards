@@ -68,6 +68,7 @@ import {
   getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber,
   findEarliestActiveCounterDate,
   findEarliestFutureCounterDate,
+  resolveInheritedFutureLotOpening,
   computePossibleFrozenCounterDays,
   resolveFrozenPossibleCounterDays,
   isLotProgOpeningAtMealSlot,
@@ -719,6 +720,15 @@ const Index = () => {
     let changed = false;
     for (const pm of possibleMeals) {
       const ing = pm.ingredients_override ?? pm.meals?.ingredients;
+      // Ouverture programmée par une carte planifiée plus tôt (Sandwich jeu. → Pâtes ven.) :
+      // sans elle, ce re-calcul effacerait un Xj légitime dès que le lot n’a pas de compteur en base.
+      const inheritedOpening = resolveInheritedFutureLotOpening(
+        pm,
+        possibleMeals,
+        foodItems,
+        foodItemIndex,
+      );
+      const baseStartDate = inheritedOpening ?? pm.counter_start_date;
       if (!Object.prototype.hasOwnProperty.call(next, pm.id)) {
         const days = computePossibleFrozenCounterDays(
           ing,
@@ -728,6 +738,7 @@ const Index = () => {
           pm.day_of_week,
           pm.meal_time,
           pm.created_at,
+          inheritedOpening,
         );
         next = { ...next, [pm.id]: days };
         changed = true;
@@ -756,16 +767,18 @@ const Index = () => {
             pm.day_of_week,
             pm.meal_time,
             pm.created_at,
-            pm.counter_start_date,
+            baseStartDate,
           ),
           {
-            baseStartDate: pm.counter_start_date,
+            baseStartDate,
             dayKey: pm.day_of_week,
             mealTime: pm.meal_time,
             lotProgOpensAtThisSlot: lotProgAtSlot,
-            noFoodCounterEvidence: hasNoFoodCounterEvidenceWhileStockRemains(
-              ing, foodItems, foodItemIndex,
-            ),
+            noFoodCounterEvidence:
+              !inheritedOpening &&
+              hasNoFoodCounterEvidenceWhileStockRemains(
+                ing, foodItems, foodItemIndex,
+              ),
           },
         );
         if (healed !== existing) {
@@ -1971,8 +1984,15 @@ const Index = () => {
                               const lotFutureOpening = ing
                                 ? findEarliestFutureCounterDate(ing, foodItems, foodItemIndex)
                                 : undefined;
+                              // Ouverture déduite du planning (robuste sans counter_start_date en base,
+                              // ex. Blanc de poulet unitaire entamé par « Sandwich » jeu. 19h).
+                              const inheritedOpening = resolveInheritedFutureLotOpening(
+                                pm, nextPossibleMeals, foodItems, foodItemIndex, day, time,
+                                undefined,
+                                Object.values(effectiveDeductionSnapshots).flat(),
+                              );
                               const slotMsForFreeze = plannedSlotIso ? new Date(plannedSlotIso).getTime() : NaN;
-                              const earlierOpeningForFreeze = [lotFutureOpening, nextResolvedCounter]
+                              const earlierOpeningForFreeze = [lotFutureOpening, nextResolvedCounter, inheritedOpening]
                                 .filter((iso): iso is string => {
                                   if (!iso) return false;
                                   const ms = new Date(iso).getTime();
@@ -2020,11 +2040,11 @@ const Index = () => {
                                 nextResolvedCounter ??
                                 pm.counter_start_date ??
                                 undefined;
-                              // Recette sans aucun compteur aliment → ne pas persister une date carte
-                              // (sinon replanif ven.→dim. réécrit un créneau orphelin).
+                              // Recette sans compteur aliment NI ouverture héritée d’une carte plus tôt
+                              // → ne pas persister une date carte (sinon Cookie ven.→dim. fantôme).
                               const counterForMutate =
                                 hasFullPlanningSlot && !isOccupied
-                                  ? (noFoodCounterEvidence ? null : frozenCounter)
+                                  ? (noFoodCounterEvidence && !earlierOpeningForFreeze ? null : frozenCounter)
                                   : preservedCounter;
                               updatePlanning.mutate({
                                 id,
@@ -2033,16 +2053,23 @@ const Index = () => {
                                 counter_start_date: counterForMutate,
                               });
                               if (hasFullPlanningSlot) {
-                                // Sans compteur aliment (actif/Prog.), ne pas réinjecter pm.counter_start_date
-                                // (créneau ven. après replanif dim. → 2j fantôme).
-                                const fallbackDate = noFoodCounterEvidence
-                                  ? (activeStockFallback ?? counter ?? null)
-                                  : (frozenCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null);
+                                // Priorité à l’ouverture héritée (Sandwich jeu. → Pâtes ven. = 1j),
+                                // même si le lot unitaire n’a pas encore de counter_start_date en base.
+                                // Sans héritage ni compteur aliment : ne pas réinjecter pm.counter_start_date.
+                                const fallbackDate = earlierOpeningForFreeze
+                                  ?? (noFoodCounterEvidence
+                                    ? (activeStockFallback ?? counter ?? null)
+                                    : (frozenCounter ?? activeStockFallback ?? counter ?? pm.counter_start_date ?? null));
                                 // Re-gel AVANT de passer les aliments en Prog. : sinon hasActiveFoodItemCounter
                                 // devient false et le calcul renvoie null (badge écrasé / disparu).
                                 // `fallbackDate` = vraie ouverture (ex. ven. 19h) pour retrouver 1j même si
                                 // le stock est déjà Prog. sur sam. soir (re-sélection Soir après bug).
-                                freezePossibleBadgeCounter(id, ing, day, time, pm.created_at, foodItems, fallbackDate);
+                                // Cartes « Tous » : pas de déduction stock → pas de badge compteur à figer.
+                                if (!isOccupied) {
+                                  freezePossibleBadgeCounter(id, ing, day, time, pm.created_at, foodItems, fallbackDate);
+                                } else {
+                                  clearFrozenPossibleBadgeCounter(id);
+                                }
                                 // Cartes « Tous » : pas de déduction stock → ne pas basculer les aliments en Prog.
                                 if (!masterSourcePmIds.has(id)) {
                                   updateFoodItemCountersForPlanning(

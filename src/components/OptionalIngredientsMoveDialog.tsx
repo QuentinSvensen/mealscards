@@ -31,6 +31,7 @@ import {
 import { formatExpirationLabel } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
+import { ClickToEditText } from "@/components/ClickToEditText";
 import { getMealNutritionScore } from "@/lib/nutritionScore";
 import { getMealRecipeSatietyDetails } from "@/lib/satietyIndex";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -173,6 +174,12 @@ export function OptionalIngredientsMoveDialog({
     [selectedIngredients, ingredients, ingredientMacroSources],
   );
 
+  /** Noms d’aliments en stock pour l’auto-complétion (comme IngredientEditor Possible). */
+  const stockSuggestionNames = useMemo(
+    () => foodItems.map((item) => item.name).filter(Boolean),
+    [foodItems],
+  );
+
   const { getDayCalories, DAILY_GOAL, DAILY_GOAL_LOW } = useCalorieBalance();
   const { getPreference } = usePreferences();
   const nextDailyGoal = asGoalNumber(getPreference("next_week_daily_goal", DAILY_GOAL), DAILY_GOAL);
@@ -290,12 +297,17 @@ export function OptionalIngredientsMoveDialog({
                   )}
                   {alt.items.map((opt, itemIndex) => {
                     const checked = includeKeys.has(opt.key);
-                    const edit = qtyEdits[opt.key] ?? { qty: opt.qty, count: opt.count };
+                    const edit = qtyEdits[opt.key] ?? {
+                      qty: opt.qty,
+                      count: opt.count,
+                      name: opt.name,
+                    };
+                    const displayName = (edit.name ?? opt.name).trim() || opt.name;
                     // Affiche grammes OU quantité selon la définition d’origine (les deux si les deux existent).
                     const showQty = !!opt.qty.trim();
                     const showCount = !!opt.count.trim();
-                    const stockLots = listIngredientStockFoodItems(opt.name, foodItems);
-                    const stockFi = resolveIngredientStockFoodItem(opt.name, foodItems);
+                    const stockLots = listIngredientStockFoodItems(displayName, foodItems);
+                    const stockFi = resolveIngredientStockFoodItem(displayName, foodItems);
                     const expDate = stockFi?.expiration_date ?? null;
                     const expLabel = formatExpirationLabel(expDate);
                     const expIsToday = !!expDate && expDate.slice(0, 10) === todayIso;
@@ -317,7 +329,7 @@ export function OptionalIngredientsMoveDialog({
                           />
                           {showQty && (
                             <Input
-                              aria-label={`Grammes ${opt.name}`}
+                              aria-label={`Grammes ${displayName}`}
                               inputMode="decimal"
                               placeholder="g"
                               value={edit.qty}
@@ -330,7 +342,7 @@ export function OptionalIngredientsMoveDialog({
                           )}
                           {showCount && (
                             <Input
-                              aria-label={`Nombre ${opt.name}`}
+                              aria-label={`Nombre ${displayName}`}
                               inputMode="numeric"
                               placeholder="#"
                               value={edit.count}
@@ -341,13 +353,21 @@ export function OptionalIngredientsMoveDialog({
                               className="h-6 w-auto min-w-0 max-w-[4.75ch] shrink-0 rounded-md border-border/60 bg-background/50 text-[11px] tabular-nums text-center px-0.5 py-0 [field-sizing:content]"
                             />
                           )}
-                          <button
-                            type="button"
-                            onClick={() => onToggleKey(opt.key)}
-                            className="text-[12px] font-medium text-foreground leading-tight flex-1 min-w-0 basis-[6rem] text-left whitespace-normal break-words"
+                          <div
+                            className="flex-1 min-w-0 basis-[6rem]"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            {opt.name}
-                          </button>
+                            <ClickToEditText
+                              value={displayName}
+                              onChange={(next) => onQtyEdit(opt.key, "name", next)}
+                              emptyLabel="Nom de l'aliment"
+                              placeholder="Nom de l'aliment"
+                              title="Cliquer pour renommer l'aliment"
+                              textClassName="text-[12px] font-medium text-foreground leading-tight"
+                              inputClassName="h-6 w-full min-w-0 rounded-md border-border/60 bg-background/50 text-[12px] font-medium text-foreground px-1.5"
+                              suggestionPool={stockSuggestionNames}
+                            />
+                          </div>
                           {expLabel && (
                             <span
                               className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${

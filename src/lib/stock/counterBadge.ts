@@ -1,6 +1,6 @@
 import type { FoodItem } from "@/types/food";
 import {
-  normalizeKey, parseQty, parseIngredientGroups,
+  normalizeKey, parseQty, parseIngredientGroups, strictNameMatch,
   computeCounterDays, getAdaptedCounterDays, getTargetDate,
 } from "@/lib/ingredientUtils";
 import { parseISO } from "date-fns";
@@ -36,7 +36,7 @@ export function recipeHasMatchingFoodItemsInStock(
   }
   return false;
 }
-type PossibleMealForBadge = {
+export type PossibleMealForBadge = {
   id: string;
   day_of_week: string | null;
   meal_time: string | null;
@@ -196,6 +196,147 @@ export function resolveCounterStartForPossibleBadge(
   if (start.getTime() <= nowMs) return base;
 
   return plannedSlot.toISOString();
+}
+/**
+ * Indique si un ingrédient peut porter un compteur d’ouverture, même quand sa fiche stock a
+ * disparu parce que la carte vient de consommer tout le lot (ex. « 2 Blanc de poulet » sur les
+ * 2 derniers). Les snapshots de déduction servent de mémoire ; sans trace, on suppose comptable.
+ * Seuls les aliments explicitement non comptables (∞, surgelé, `no_counter`) sont exclus.
+ */
+function isIngredientPotentiallyCounterable(
+  name: string,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  snapshotFoodItems?: FoodItem[],
+): boolean {
+  const matches = lookupFoodItems(name, foodItems, index);
+  if (matches.length > 0) return matches.some(isFoodItemCounterEligible);
+  const snapMatches = snapshotFoodItems?.filter((fi) => strictNameMatch(fi.name, name)) ?? [];
+  if (snapMatches.length > 0) return snapMatches.some(isFoodItemCounterEligible);
+  return true;
+}
+
+/**
+ * Clés des ingrédients non optionnels susceptibles de porter un compteur, lots déjà entièrement
+ * consommés inclus. Contrairement à `counterableIngredientKeysFromRecipe`, ne dépend donc pas de
+ * la présence d’une fiche en stock : sert à repérer deux cartes qui partagent le même lot.
+ */
+export function potentiallyCounterableIngredientKeys(
+  ingredients: string | null | undefined,
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  snapshotFoodItems?: FoodItem[],
+): Set<string> {
+  const keys = new Set<string>();
+  if (!ingredients?.trim()) return keys;
+  for (const group of parseIngredientGroups(ingredients)) {
+    if (group.every((b) => b.every((i) => i.optional))) continue;
+    const bundle = group[0];
+    if (!bundle) continue;
+    for (const item of bundle) {
+      if (item.optional || !item.name) continue;
+      if (isIngredientPotentiallyCounterable(item.name, foodItems, index, snapshotFoodItems)) {
+        keys.add(normalizeKey(item.name));
+      }
+    }
+  }
+  return keys;
+}
+
+/**
+ * Créneau de la carte planifiée la plus tôt (mais encore à venir) qui partage un lot comptable
+ * avec cette recette. Le partage est évalué sur les noms d’ingrédients, donc il reste détecté même
+ * quand la fiche stock vient d’être vidée par la carte elle-même.
+ */
+function findEarliestSharedLotSlot(
+  ingredients: string | null | undefined,
+  pmId: string,
+  siblingPossibleMeals: PossibleMealForBadge[],
+  foodItems: FoodItem[],
+  index: FoodItemIndex | undefined,
+  slotMs: number,
+  now: Date,
+  snapshotFoodItems?: FoodItem[],
+): string | undefined {
+  const mine = potentiallyCounterableIngredientKeys(ingredients, foodItems, index, snapshotFoodItems);
+  if (mine.size === 0) return undefined;
+  const nowMs = now.getTime();
+  let earliestMs = Infinity;
+  let earliest: string | undefined;
+  for (const other of siblingPossibleMeals) {
+    if (other.id === pmId) continue;
+    if (!other.day_of_week?.trim() || !other.meal_time?.trim()) continue;
+    const otherIngredients = other.ingredients_override ?? other.meals?.ingredients;
+    if (!otherIngredients?.trim()) continue;
+    const theirs = potentiallyCounterableIngredientKeys(
+      otherIngredients, foodItems, index, snapshotFoodItems,
+    );
+    let shares = false;
+    for (const key of mine) {
+      if (theirs.has(key)) { shares = true; break; }
+    }
+    if (!shares) continue;
+    const otherSlot = getTargetDate(other.day_of_week, now, null, other.meal_time);
+    const otherMs = otherSlot.getTime();
+    if (otherMs > nowMs && otherMs < slotMs && otherMs < earliestMs) {
+      earliestMs = otherMs;
+      earliest = otherSlot.toISOString();
+    }
+  }
+  return earliest;
+}
+
+/**
+ * Retourne l’ouverture FUTURE du lot héritée d’une autre carte planifiée plus tôt que celle-ci
+ * (ex. « Sandwich » jeu. 19h entame le Blanc de poulet → « Pâtes jambon » ven. hérite de jeu. 19h).
+ * Fonctionne même sans `counter_start_date` en base : l’ouverture est déduite du planning, comme
+ * le « Prog. » affiché sur la fiche Aliments. `undefined` si le lot n’ouvre pas avant ce créneau.
+ */
+export function resolveInheritedFutureLotOpening(
+  pm: PossibleMealForBadge,
+  siblingPossibleMeals: PossibleMealForBadge[],
+  foodItems: FoodItem[],
+  index?: FoodItemIndex,
+  dayKey?: string | null,
+  mealTime?: string | null,
+  fixedNow?: Date,
+  snapshotFoodItems?: FoodItem[],
+): string | undefined {
+  const day = dayKey ?? pm.day_of_week;
+  const time = mealTime ?? pm.meal_time;
+  if (!day?.trim() || !time?.trim()) return undefined;
+  const now = fixedNow ?? new Date();
+  const nowMs = now.getTime();
+  const ingredients = pm.ingredients_override ?? pm.meals?.ingredients;
+  const slotMs = getTargetDate(day, now, null, time).getTime();
+  const candidates = [
+    findEarliestFutureCounterDate(ingredients, foodItems, index, now),
+    resolveCounterStartForPossibleBadge(
+      { ...pm, day_of_week: day, meal_time: time },
+      siblingPossibleMeals,
+      undefined,
+      pm.counter_start_date ?? undefined,
+      foodItems,
+      index,
+      fixedNow,
+    ),
+    findEarliestSharedLotSlot(
+      ingredients, pm.id, siblingPossibleMeals, foodItems, index, slotMs, now, snapshotFoodItems,
+    ),
+  ];
+  let best: string | undefined;
+  let bestMs = Infinity;
+  for (const iso of candidates) {
+    if (!iso?.trim()) continue;
+    const ms = parseISO(iso).getTime();
+    if (Number.isNaN(ms) || ms <= nowMs) continue;
+    if (!Number.isNaN(slotMs) && ms >= slotMs) continue;
+    if (ms < bestMs) {
+      bestMs = ms;
+      best = iso;
+    }
+  }
+  return best;
 }
 export function findEarliestActiveCounterDate(
   ingredients: string | null | undefined,

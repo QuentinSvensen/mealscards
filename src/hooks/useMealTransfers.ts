@@ -1379,14 +1379,13 @@ export function useMealTransfers(foodItems: FoodItem[]) {
 
         // Lot encore scellé : pas de compteur si le paquet est plein (boîte 400g = 400g, #2 lardons, etc.).
         // Exception : pot unique + recette partielle (ex. 50g sur pot de 225g).
-        // Exception 2 : unitaires — uniquement le lot qui a déjà un counter_start_date
-        // (posé à la déduction sur CET id), pas tous les homonymes.
+        // Unitaires (grammes vides) : toujours synchroniser le Prog. ci-dessous — même sans
+        // counter_start_date en base — pour que le badge Xj des cartes ultérieures soit figé.
         if (isFoodFullySealed(fi)) {
           if (isCountOnlyFoodItem(fi)) {
-            if (!fi.counter_start_date?.trim()) {
-              continue;
-            }
-            // Unitaire déjà prélevé (ce lot) : laisser la synchro Prog. / ouverture ci-dessous.
+            // Unitaires : toujours laisser la synchro Prog. ci-dessous.
+            // Sans counter DB, l’UI Aliments montre déjà « Prog. » via le créneau planifié ;
+            // le badge Xj des cartes ultérieures a besoin que la date soit écrite en base.
           } else {
             const partialPastOpen = isSealedPartialUseInPastPlanning(
               fi,

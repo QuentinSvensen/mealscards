@@ -105,13 +105,14 @@ export function useOptionalIngredientsMoveDialog() {
     });
   };
 
-  /** Met à jour la quantité (grammes) ou le compteur d'un ingrédient dans la pop-up. */
+  /** Met à jour la quantité, le compteur ou le nom d'un ingrédient dans la pop-up. */
   const updateOptionalQtyEdit = (key: string, field: keyof IngredientQtyEdit, value: string) => {
     setOptionalQtyEdits((prev) => ({
       ...prev,
       [key]: {
         qty: prev[key]?.qty ?? "",
         count: prev[key]?.count ?? "",
+        name: prev[key]?.name ?? "",
         [field]: value,
       },
     }));

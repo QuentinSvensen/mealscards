@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { computeCounterDays, getAdaptedCounterDays } from "@/lib/ingredientUtils";
+import { computeCounterDays, getAdaptedCounterDays, getAdaptedCounterHours } from "@/lib/ingredientUtils";
 import { computePlannedCounterDate, findEarliestPastPlannedOpenForFood, resolveFoodItemCounterStartForDisplay, resolveFoodItemStockVisualHint, isSealedPartialUseInPastPlanning } from "@/hooks/useMealTransfers";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { PossibleMeal } from "@/hooks/useMeals";
@@ -8,24 +8,40 @@ import type { PossibleMeal } from "@/hooks/useMeals";
 
 describe("getAdaptedCounterDays", () => {
   it("estime les jours entre ouverture future et créneau du repas quand le jour est planifié", () => {
-    const fixedNow = new Date("2026-04-06T10:00:00.000Z"); // avant l’ouverture prévue le même jour
-    const futureStart = "2026-04-06T12:00:00.000Z"; // ouverture lundi midi (futur par rapport à fixedNow)
+    // Ouverture lundi midi → repas mardi midi = 24 h pleines → 1j
+    const fixedNow = new Date("2026-04-06T10:00:00.000+02:00"); // avant l’ouverture prévue le même jour
+    const futureStart = "2026-04-06T12:00:00.000+02:00";
     expect(
       getAdaptedCounterDays(futureStart, "2026-04-07", "2026-01-01T10:00:00.000Z", "midi", fixedNow)
     ).toBe(1);
   });
 
   it("estime aussi avec une clé jour français (ex. mardi après ouverture lundi)", () => {
-    const fixedNow = new Date("2026-04-06T10:00:00.000Z");
-    const futureStart = "2026-04-06T12:00:00.000Z";
+    const fixedNow = new Date("2026-04-06T10:00:00.000+02:00");
+    const futureStart = "2026-04-06T12:00:00.000+02:00";
     expect(
       getAdaptedCounterDays(futureStart, "mardi", "2026-01-01T10:00:00.000Z", "midi", fixedNow)
     ).toBe(1);
   });
 
-  it("n'affiche pas d'estimation si le repas est le même jour calendaire que l'ouverture future", () => {
-    const fixedNow = new Date("2026-04-06T10:00:00.000Z");
-    const futureStart = "2026-04-06T12:00:00.000Z";
+  it("jeu. 19h → ven. midi = 0j (17h) ; jeu. 19h → ven. soir = 1j", () => {
+    // Moins de 24 h → 0j (le badge UI précise les heures) ; 24 h pile → 1j.
+    const fixedNow = new Date("2026-08-05T20:00:00.000+02:00");
+    const thursdaySoir = "2026-08-06T19:00:00.000+02:00";
+    expect(
+      getAdaptedCounterDays(thursdaySoir, "2026-08-07", undefined, "midi", fixedNow)
+    ).toBe(0);
+    expect(
+      getAdaptedCounterHours(thursdaySoir, "2026-08-07", "midi", fixedNow)
+    ).toBe(17);
+    expect(
+      getAdaptedCounterDays(thursdaySoir, "2026-08-07", undefined, "soir", fixedNow)
+    ).toBe(1);
+  });
+
+  it("n'affiche pas d'estimation si le repas est le même créneau que l'ouverture future", () => {
+    const fixedNow = new Date("2026-04-06T10:00:00.000+02:00");
+    const futureStart = "2026-04-06T12:00:00.000+02:00";
     expect(
       getAdaptedCounterDays(futureStart, "2026-04-06", "2026-01-01T10:00:00.000Z", "midi", fixedNow)
     ).toBeNull();

@@ -50,10 +50,11 @@ import {
   hasNegativeMetric, getMealColor, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw,
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
+  getAdaptedCounterHours,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { AutoGrowDescriptionTextarea } from "@/components/AutoGrowDescriptionTextarea";
-import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, formatFrozenPossibleCounterTooltip, parseMacroDisplay } from "@/lib/stockUtils";
+import { scaleIngredientStringExact, findStockKey, getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, buildFoodItemIndex, formatFrozenPossibleCounterTooltip, formatPossibleCounterBadgeLabel, parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
 import { getPossibleMealNutritionScore } from "@/lib/nutritionScore";
@@ -479,9 +480,16 @@ export function PossibleMealCard({
   if (!meal) return null;
 
   const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+  const counterStartForHours = realtimeCounterStartDate ?? pm.counter_start_date;
+  const counterHoursUntilSlot =
+    counterDays === 0
+      ? getAdaptedCounterHours(counterStartForHours, pm.day_of_week, pm.meal_time)
+      : null;
+  const counterBadgeLabel = formatPossibleCounterBadgeLabel(counterDays, counterHoursUntilSlot);
   const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
     frozenCounterDays,
-    realtimeCounterStartDate ?? pm.counter_start_date,
+    counterStartForHours,
+    counterHoursUntilSlot,
   );
 
   // Arrêter le clignotement si le jour du repas est passé !
@@ -885,7 +893,7 @@ export function PossibleMealCard({
                   }`}
                 title={counterBadgeTitle}
               >
-                <Timer className="h-3 w-3" /> {counterDays}j
+                <Timer className="h-3 w-3" /> {counterBadgeLabel}
               </button>
             ) : null}
           </div>
@@ -946,7 +954,7 @@ export function PossibleMealCard({
                 }`}
               title={counterBadgeTitle}
             >
-              <Timer className="h-3 w-3" /> {counterDays}j
+              <Timer className="h-3 w-3" /> {counterBadgeLabel}
             </button>
           ) : null}
 

@@ -56,7 +56,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useCalorieBalance, getOverrideScaleRatio, getCardDisplayProtein, getCardDisplayCalories, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import { Timer, Flame, Weight, Thermometer, Wheat, FileText } from "lucide-react";
-import { normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay } from "@/lib/ingredientUtils";
+import { normalizeKey, getMealColor, parseIngredientGroups, formatNumeric, ingredientsForPossibleCardDisplay, getAdaptedCounterHours } from "@/lib/ingredientUtils";
 import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -66,7 +66,7 @@ import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
 import { useExtrasDividerRecovery } from "@/hooks/useExtrasDividerRecovery";
 import { useSortModes } from "@/hooks/useSortModes";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, readFrozenPossibleCounterDays, shouldSuppressFrozenPossibleCounterBadge, hasNoFoodCounterEvidenceWhileStockRemains, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, formatPossibleCounterBadgeLabel, readFrozenPossibleCounterDays, shouldSuppressFrozenPossibleCounterBadge, hasNoFoodCounterEvidenceWhileStockRemains, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, buildClearFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch, resolveInheritedFutureLotOpening, resolveDisplayedPossibleCounterDays } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -286,33 +286,54 @@ export function WeeklyPlanning({
   ) => {
     const pm = possibleMeals.find(p => p.id === pmId);
     let earliestCounter: string | null = null;
+    const ing = pm ? (pm.ingredients_override ?? pm.meals?.ingredients) : null;
     if (pm?.meals) {
-      const ing = pm.ingredients_override ?? pm.meals.ingredients;
       const analysis = analyzeMealIngredients({ ...pm.meals, ingredients: ing }, foodItems);
       earliestCounter = analysis.earliestCounterDate;
+    }
+
+    const siblings = filterStockAffectingPossibleMeals(possibleMeals, masterSourcePmIds);
+    let earlierOpeningForFreeze: string | undefined;
+    let fallbackDate: string | null = earliestCounter;
+    if (pm) {
+      // Ouverture déjà programmée par une autre carte plus tôt (même sans counter DB).
+      earlierOpeningForFreeze = resolveInheritedFutureLotOpening(
+        pm, siblings, foodItems, foodMacroIndex, day, time,
+      );
+      const noFoodCounterEvidence = hasNoFoodCounterEvidenceWhileStockRemains(
+        ing, foodItems, foodMacroIndex,
+      );
+      // Priorité à l’ouverture héritée ; sinon éviter un Xj fantôme Cookie sans compteur aliment.
+      fallbackDate = earlierOpeningForFreeze
+        ?? (noFoodCounterEvidence
+          ? (earliestCounter || null)
+          : (earliestCounter || pm.counter_start_date || null));
     }
 
     updatePlanning.mutate({
       id: pmId,
       day_of_week: day,
       meal_time: time,
-      counter_start_date: day && time ? undefined : earliestCounter,
+      counter_start_date: day && time
+        ? (earlierOpeningForFreeze ?? undefined)
+        : earliestCounter,
     });
     if (pm) {
-      const ing = pm.ingredients_override ?? pm.meals?.ingredients;
-      // Ne pas hériter du counter_start_date carte si aucun aliment n’ouvre de compteur
-      // (évite un Xj = décalage de replanif, ex. Cookie ven.→dim.).
-      const fallbackDate = hasNoFoodCounterEvidenceWhileStockRemains(
-        ing, foodItems, foodMacroIndex,
-      )
-        ? (earliestCounter || null)
-        : (earliestCounter || pm.counter_start_date || null);
       // Re-gel AVANT de passer les aliments en Prog. (sinon le calcul renvoie null et efface le badge).
+      // Cartes « Tous » : pas de déduction stock → effacer un gel fantôme s’il existe.
       const prefEntries = [...extraPrefEntries];
       if (day?.trim() && time?.trim()) {
-        prefEntries.push(
-          buildFrozenBadgePreference(pmId, ing, day, time, pm.created_at, fallbackDate),
-        );
+        if (masterSourcePmIds.has(pmId)) {
+          const clearEntry = buildClearFrozenBadgePreferenceEntry(
+            pmId,
+            getPreference<PossibleFrozenCounterDaysMap>(POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, {}),
+          );
+          if (clearEntry) prefEntries.push(clearEntry);
+        } else {
+          prefEntries.push(
+            buildFrozenBadgePreference(pmId, ing, day, time, pm.created_at, fallbackDate),
+          );
+        }
       }
       if (prefEntries.length === 1) {
         setPreference.mutate(prefEntries[0]);
@@ -328,7 +349,7 @@ export function WeeklyPlanning({
           time,
           fallbackDate,
           pm.created_at,
-          filterStockAffectingPossibleMeals(possibleMeals, masterSourcePmIds),
+          siblings,
         );
       }
     } else if (extraPrefEntries.length === 1) {
@@ -1843,9 +1864,15 @@ export function WeeklyPlanning({
     const mealForAnalysis = { ...meal, ingredients: displayIngredients };
     const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
 
-    // Badge = valeur figée (prefs) ; masquer fantôme sans compteur aliment / Prog. seul sur créneau.
-    const rawFrozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
-    const frozenCounterDays =
+    // Cartes issues de « Tous » : aucun lien stock → jamais de badge compteur (même si un gel fantôme existe).
+    const fromMaster = masterSourcePmIds.has(pm.id);
+    const inheritedFutureOpening = fromMaster
+      ? undefined
+      : resolveInheritedFutureLotOpening(pm, possibleMeals, foodItems, foodMacroIndex);
+    const rawFrozenCounterDays = fromMaster
+      ? null
+      : readFrozenPossibleCounterDays(frozenCounterDaysByPmId, pm.id);
+    const keptFrozenCounterDays =
       typeof rawFrozenCounterDays === "number" &&
       shouldSuppressFrozenPossibleCounterBadge(
         displayIngredients,
@@ -1853,13 +1880,34 @@ export function WeeklyPlanning({
         pm.day_of_week,
         pm.meal_time,
         foodMacroIndex,
+        undefined,
+        inheritedFutureOpening ?? pm.counter_start_date,
       )
         ? null
         : rawFrozenCounterDays;
+    const frozenCounterDays = fromMaster
+      ? null
+      : resolveDisplayedPossibleCounterDays(
+          keptFrozenCounterDays,
+          inheritedFutureOpening,
+          pm.day_of_week,
+          pm.meal_time,
+        );
     const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+    const counterStartForHours =
+      inheritedFutureOpening
+      ?? analysis.earliestActiveCounterDate
+      ?? analysis.earliestCounterDate
+      ?? pm.counter_start_date;
+    const counterHoursUntilSlot =
+      counterDays === 0
+        ? getAdaptedCounterHours(counterStartForHours, pm.day_of_week, pm.meal_time)
+        : null;
+    const counterBadgeLabel = formatPossibleCounterBadgeLabel(counterDays, counterHoursUntilSlot);
     const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
       frozenCounterDays,
-      analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? pm.counter_start_date,
+      counterStartForHours,
+      counterHoursUntilSlot,
     );
     const counterUrgent = counterDays !== null && counterDays >= 3;
 
@@ -1899,6 +1947,7 @@ export function WeeklyPlanning({
         expiredIngredientNames={expiredIngs}
         expiringSoonIngredientNames={soonIngs}
         counterDays={counterDays}
+        counterBadgeLabel={counterBadgeLabel}
         counterBadgeTitle={counterBadgeTitle}
         counterUrgent={counterUrgent}
         isPast={(() => {
@@ -3004,8 +3053,13 @@ export function WeeklyPlanning({
             const mealForAnalysis = { ...meal, ingredients: displayIngredients };
             const analysis = analyzeMealIngredients(mealForAnalysis, foodItems);
             // Badge = valeur figée (prefs) ; masquer fantôme sans compteur aliment.
-            const rawFrozenCounterDays = readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
-            const frozenCounterDays =
+            const popupInheritedOpening = masterSourcePmIds.has(popupPm.id)
+              ? undefined
+              : resolveInheritedFutureLotOpening(popupPm, possibleMeals, foodItems, foodMacroIndex);
+            const rawFrozenCounterDays = masterSourcePmIds.has(popupPm.id)
+              ? null
+              : readFrozenPossibleCounterDays(frozenCounterDaysByPmId, popupPm.id);
+            const popupKeptFrozenDays =
               typeof rawFrozenCounterDays === "number" &&
               shouldSuppressFrozenPossibleCounterBadge(
                 displayIngredients,
@@ -3013,9 +3067,19 @@ export function WeeklyPlanning({
                 popupPm.day_of_week,
                 popupPm.meal_time,
                 foodMacroIndex,
+                undefined,
+                popupInheritedOpening ?? popupPm.counter_start_date,
               )
                 ? null
                 : rawFrozenCounterDays;
+            const frozenCounterDays = masterSourcePmIds.has(popupPm.id)
+              ? null
+              : resolveDisplayedPossibleCounterDays(
+                  popupKeptFrozenDays,
+                  popupInheritedOpening,
+                  popupPm.day_of_week,
+                  popupPm.meal_time,
+                );
             const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
             const popupCal =
               parsePositivePlanningOverride(popupCalOverride) ??
@@ -3030,9 +3094,20 @@ export function WeeklyPlanning({
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
             const displayFiber = popupFiber != null && popupFiber > 0 ? String(Math.round(popupFiber)) : null;
             const counterDays = frozenCounterDays !== undefined ? frozenCounterDays : null;
+            const popupCounterStart =
+              popupInheritedOpening
+              ?? analysis.earliestActiveCounterDate
+              ?? analysis.earliestCounterDate
+              ?? popupPm.counter_start_date;
+            const popupCounterHours =
+              counterDays === 0
+                ? getAdaptedCounterHours(popupCounterStart, popupPm.day_of_week, popupPm.meal_time)
+                : null;
+            const counterBadgeLabel = formatPossibleCounterBadgeLabel(counterDays, popupCounterHours);
             const counterBadgeTitle = formatFrozenPossibleCounterTooltip(
               frozenCounterDays,
-              analysis.earliestActiveCounterDate ?? analysis.earliestCounterDate ?? popupPm.counter_start_date,
+              popupCounterStart,
+              popupCounterHours,
             );
             const plannedDayIso = resolvePlannedDayIso(popupPm.day_of_week, weekDates);
             const expired = isExpiredOnPlannedDay(popupPm.expiration_date, plannedDayIso);
@@ -3061,12 +3136,12 @@ export function WeeklyPlanning({
                       <Weight className="h-3.5 w-3.5" /> {meal.grams}
                     </span>
                   )}
-                  {counterDays !== null && (
+                  {counterDays !== null && counterBadgeLabel && (
                     <span
                       className={`text-sm font-bold px-2.5 py-1 rounded-full flex items-center gap-1 ${counterDays >= 3 ? 'bg-red-600' : 'bg-black/40'}`}
                       title={counterBadgeTitle}
                     >
-                      <Timer className="h-3.5 w-3.5" /> {counterDays}j
+                      <Timer className="h-3.5 w-3.5" /> {counterBadgeLabel}
                     </span>
                   )}
                 </div>

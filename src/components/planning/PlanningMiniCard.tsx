@@ -61,6 +61,8 @@ export interface PlanningMiniCardProps {
   meal: { name?: string; category?: string; ingredients?: string | null; grams?: string | null };
   expired: boolean;
   counterDays: number | null;
+  /** Libellé du badge (ex. « 0j (de 17h) ») ; défaut = « Nj ». */
+  counterBadgeLabel?: string | null;
   counterBadgeTitle?: string;
   counterUrgent: boolean;
   isPast: boolean;
@@ -103,6 +105,7 @@ export function PlanningMiniCard({
   meal,
   expired,
   counterDays,
+  counterBadgeLabel,
   counterBadgeTitle,
   counterUrgent,
   displayCal,
@@ -315,7 +318,7 @@ export function PlanningMiniCard({
                 title={counterBadgeTitle}
               >
                 <Timer className="h-2.5 w-2.5" />
-                {counterDays}j
+                {counterBadgeLabel ?? `${counterDays}j`}
               </span>
             ) : null}
           </div>

@@ -153,9 +153,11 @@ export function getTargetDate(dayKey: string | null | undefined, refDate: Date, 
  * Comportement historique inchangé tant que le compteur a déjà démarré (start ≤ maintenant) :
  * même formules qu’avant (créneau planifié, figé sur created_at si pas de jour, etc.).
  *
- * Ajout ciblé : si l’ouverture est encore dans le futur (ex. aliment entamé jeudi midi au prochain repas)
- * et que cette carte a un jour planifié **après** cette ouverture d’au moins 1 jour calendaire
- * (ex. vendredi midi), on affiche une estimation (ex. 1j) — sans modifier les autres cas (futur sans jour → null).
+ * Ajout ciblé : si l’ouverture est encore dans le futur et que cette carte a un créneau planifié
+ * **strictement après** (au moins 1 minute), on affiche une estimation en jours de 24 h réelles
+ * (ex. jeu. soir → ven. soir = 1j). Moins de 24 h → `0` (le badge UI peut alors préciser les heures,
+ * ex. « 0j (de 17h) » pour jeu. 19h → ven. midi). Même créneau que l’ouverture → `null` (pas de badge).
+ * Futur sans jour planifié → `null`.
  *
  * Si un autre repas entame le stock maintenant alors que ce repas est planifié plus tard (ex. burger jeudi midi),
  * le compteur sur la carte reflète le nombre de jours **entre l’ouverture réelle et le créneau du repas**
@@ -173,13 +175,14 @@ export function getAdaptedCounterDays(
   const now = fixedNow || new Date();
   const start = parseISO(startDate);
 
-  // Ajout seulement : ouverture future + repas planifié plus tard (≥ 1 jour calendaire, ex. jeu. midi → ven. midi)
+  // Ouverture future + créneau planifié après : jours = tranches de 24 h (0 si < 24 h).
   if (start.getTime() > now.getTime()) {
     if (!dayKey) return null;
     const target = getTargetDate(dayKey, now, null, mealTime);
-    const days = differenceInCalendarDays(target, start);
-    if (days < 1) return null;
-    return days;
+    const diffMs = target.getTime() - start.getTime();
+    // Même créneau (ou écart négligeable) : cette carte ouvre le lot → pas de badge.
+    if (diffMs < 60_000) return null;
+    return differenceInDays(target, start);
   }
 
   // Sans jour planifié : figer le compteur au moment de la création
@@ -205,6 +208,33 @@ export function getAdaptedCounterDays(
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   return days < 0 ? null : days;
+}
+
+/**
+ * Nombre d’heures entières entre l’ouverture du lot et le créneau planifié du repas.
+ * Sert au libellé « 0j (de 17h) » quand le décalage est inférieur à 24 h.
+ * `null` si dates invalides, créneau manquant, ou écart < 1 minute (même créneau).
+ */
+export function getAdaptedCounterHours(
+  startDate: string | null | undefined,
+  dayKey?: string | null,
+  mealTime?: string | null,
+  fixedNow?: Date,
+): number | null {
+  if (!startDate?.trim() || !dayKey?.trim()) return null;
+  const now = fixedNow ?? new Date();
+  const start = parseISO(startDate);
+  if (Number.isNaN(start.getTime())) return null;
+  // Ouverture future : ne pas faire avancer le créneau d’une semaine via startDate.
+  const target = getTargetDate(
+    dayKey,
+    now,
+    start.getTime() > now.getTime() ? null : startDate,
+    mealTime,
+  );
+  const diffMs = target.getTime() - start.getTime();
+  if (diffMs < 60_000) return null;
+  return Math.floor(diffMs / (1000 * 60 * 60));
 }
 
 /**
@@ -1113,13 +1143,13 @@ export function listOptionalIngredientGroups(
     .filter((group) => group.items.length > 0);
 }
 
-/** Édition de quantité/compte par clé d'ingrédient (pop-up → Possible). */
-export type IngredientQtyEdit = { qty: string; count: string };
+/** Édition de quantité/compte/nom par clé d'ingrédient (pop-up → Possible). */
+export type IngredientQtyEdit = { qty: string; count: string; name?: string };
 
 /**
  * Produit un override Possible à partir des ingrédients cochés dans la pop-up :
  * retire les non cochés, enlève le « ? » des optionnels conservés,
- * et applique les quantités éventuellement modifiées (`qtyEdits`).
+ * et applique les quantités / noms éventuellement modifiés (`qtyEdits`).
  */
 export function buildIngredientsOverrideFromSelection(
   ingredients: string | null | undefined,
@@ -1140,11 +1170,13 @@ export function buildIngredientsOverrideFromSelection(
     if (!keptFlags[i]) continue;
     const key = optionalIngredientKey(lines[i]);
     const edit = qtyEdits?.[key];
+    const renamed = edit?.name?.trim();
     const line: IngLine = {
       ...lines[i],
       isOptional: false,
       qty: edit ? edit.qty : lines[i].qty,
       count: edit ? edit.count : lines[i].count,
+      name: renamed || lines[i].name,
     };
     if (out.length === 0 || i === 0 || !keptFlags[i - 1]) {
       line.isAnd = false;
@@ -1156,7 +1188,7 @@ export function buildIngredientsOverrideFromSelection(
 }
 
 /**
- * Initialise les champs qty/count éditables de la pop-up à partir des groupes affichés.
+ * Initialise les champs qty/count/nom éditables de la pop-up à partir des groupes affichés.
  */
 export function defaultIngredientQtyEdits(
   groups: OptionalIngredientGroup[],
@@ -1165,7 +1197,7 @@ export function defaultIngredientQtyEdits(
   for (const group of groups) {
     for (const alt of group.alternatives) {
       for (const item of alt.items) {
-        edits[item.key] = { qty: item.qty, count: item.count };
+        edits[item.key] = { qty: item.qty, count: item.count, name: item.name };
       }
     }
   }
