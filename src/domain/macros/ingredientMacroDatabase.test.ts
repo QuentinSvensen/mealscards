@@ -3,12 +3,15 @@ import type { Meal, PossibleMeal } from "@/types/meals";
 import type { FoodItem } from "@/types/food";
 import {
   applyIngredientMacroToText,
+  applyIngredientRenameToText,
   buildIngredientMacroUpdatePlan,
+  buildIngredientRenamePlan,
   collectIngredientMacroEntries,
   createIngredientMacroLibraryItem,
   areIngredientMacroLibrariesEqual,
   persistMissingIngredientMacroEntries,
   removeIngredientMacroLibraryItem,
+  renameIngredientMacroLibraryItem,
   upsertFoodItemMacroLibraryItem,
   upsertIngredientMacroLibraryItem,
   resolveIngredientLineMacros,
@@ -400,5 +403,44 @@ describe("ingredientMacroDatabase", () => {
       cal: 2052,
       pro: 122,
     });
+  });
+
+  it("renomme un ingrédient dans une chaîne de recette", () => {
+    const next = applyIngredientRenameToText(
+      "100g Dinde{105} [24]<2>, Riz{130} [3]",
+      "dinde",
+      "Poulet",
+    );
+    expect(next).toBe("100g Poulet{105} [24] <2>, Riz{130} [3]");
+  });
+
+  it("prépare un plan de renommage recettes / possibles / aliments", () => {
+    const meal = makeMeal("m1", "Bol", "100g Dinde{105} [24], Riz{130} [3]");
+    const possibles = [makePossible("p1", meal, "Dinde{50} [10]")];
+    const foods = [makeFoodItem("f1", "Dinde", "105", "24")];
+
+    const plan = buildIngredientRenamePlan([meal], possibles, foods, "dinde", "Poulet rôti");
+
+    expect(plan.mealUpdates).toEqual([
+      { id: "m1", ingredients: "100g Poulet rôti{105} [24], Riz{130} [3]" },
+    ]);
+    expect(plan.possibleUpdates).toEqual([
+      { id: "p1", ingredients_override: "Poulet rôti{50} [10]" },
+    ]);
+    expect(plan.foodUpdates).toEqual([{ id: "f1", name: "Poulet rôti" }]);
+  });
+
+  it("renomme l'entrée du référentiel Macro (ancienne clé → nouvelle)", () => {
+    const library = [createIngredientMacroLibraryItem("Dinde", "105", "24", "0")!];
+    const next = renameIngredientMacroLibraryItem(library, "dinde", "Poulet", "110", "25", "1");
+    expect(next).toEqual([
+      {
+        key: "poulet",
+        displayName: "Poulet",
+        calories: "110",
+        protein: "25",
+        fiber: "1",
+      },
+    ]);
   });
 });

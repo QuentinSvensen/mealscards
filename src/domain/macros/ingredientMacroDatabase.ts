@@ -58,6 +58,13 @@ export interface IngredientMacroUpdatePlan {
   foodUpdates: { id: string; calories: string | null; protein: string | null; fiber: string | null }[];
 }
 
+/** Plan de renommage d’un ingrédient dans recettes, possibles et fiches Aliments. */
+export interface IngredientRenameUpdatePlan {
+  mealUpdates: { id: string; ingredients: string }[];
+  possibleUpdates: { id: string; ingredients_override: string | null }[];
+  foodUpdates: { id: string; name: string }[];
+}
+
 type MacroAccumulator = IngredientMacroEntry & {
   recipeIds: Set<string>;
   overrideIds: Set<string>;
@@ -458,6 +465,87 @@ export function buildIngredientMacroUpdatePlan(
   });
 
   return { mealUpdates, possibleUpdates, foodUpdates };
+}
+
+/**
+ * Renomme toutes les occurrences d’un ingrédient (clé normalisée) dans une chaîne
+ * d’ingrédients structurés ; conserve qty / macros / notes de chaque ligne.
+ */
+export function applyIngredientRenameToText(
+  ingredients: string | null | undefined,
+  oldIngredientKey: string,
+  newDisplayName: string,
+): string | null {
+  if (!ingredients?.trim() || !oldIngredientKey) return null;
+  const nextName = formatIngredientDisplayName(newDisplayName);
+  if (!nextName || !normalizeKey(nextName)) return null;
+
+  const lines = parseIngredientsToLines(ingredients);
+  let changed = false;
+
+  for (const line of lines) {
+    const key = normalizeKey(line.name || "");
+    if (key !== oldIngredientKey) continue;
+    if (line.name === nextName) continue;
+    line.name = nextName;
+    changed = true;
+  }
+
+  return changed ? serializeIngredients(lines) : null;
+}
+
+/**
+ * Prépare les mises à jour de renommage : recettes, overrides Possible, fiches Aliments.
+ */
+export function buildIngredientRenamePlan(
+  meals: Meal[],
+  possibleMeals: PossibleMeal[],
+  foodItems: FoodItem[],
+  oldIngredientKey: string,
+  newDisplayName: string,
+): IngredientRenameUpdatePlan {
+  const nextName = formatIngredientDisplayName(newDisplayName);
+
+  const mealUpdates = meals.flatMap((meal) => {
+    const ingredients = applyIngredientRenameToText(meal.ingredients, oldIngredientKey, nextName);
+    return ingredients === null ? [] : [{ id: meal.id, ingredients }];
+  });
+
+  const possibleUpdates = possibleMeals.flatMap((pm) => {
+    if (pm.ingredients_override == null) return [];
+    const ingredients_override = applyIngredientRenameToText(
+      pm.ingredients_override,
+      oldIngredientKey,
+      nextName,
+    );
+    return ingredients_override === null ? [] : [{ id: pm.id, ingredients_override }];
+  });
+
+  const foodUpdates = foodItems.flatMap((foodItem) => {
+    if (normalizeKey(foodItem.name || "") !== oldIngredientKey) return [];
+    if ((foodItem.name || "").trim() === nextName) return [];
+    return [{ id: foodItem.id, name: nextName }];
+  });
+
+  return { mealUpdates, possibleUpdates, foodUpdates };
+}
+
+/**
+ * Remplace l’entrée Macro `oldKey` par le nouveau nom (nouvelle clé si besoin).
+ * Ne gère pas les collisions : le caller doit vérifier avant.
+ */
+export function renameIngredientMacroLibraryItem(
+  library: IngredientMacroLibraryItem[],
+  oldKey: string,
+  newDisplayName: string,
+  calories: string,
+  protein: string,
+  fiber: string = "",
+): IngredientMacroLibraryItem[] | null {
+  const item = createIngredientMacroLibraryItem(newDisplayName, calories, protein, fiber);
+  if (!item) return null;
+  const withoutOld = removeIngredientMacroLibraryItem(library, oldKey);
+  return upsertIngredientMacroLibraryItem(withoutOld, item);
 }
 
 // Formate une valeur numérique de macro pour l'affichage dans l'éditeur d'ingrédients.

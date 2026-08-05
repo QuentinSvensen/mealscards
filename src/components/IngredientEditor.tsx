@@ -32,7 +32,7 @@ interface IngredientEditorProps {
 
 /** Colonnes compactes sur mobile : macros en largeur minimale, le nom prend le reste. */
 const INGREDIENT_GRID_CLASS =
-  "grid grid-cols-[auto_auto_auto_auto_max-content_max-content_minmax(0,1fr)_max-content_max-content_max-content] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0.5 pl-0 pr-0";
+  "grid grid-cols-[auto_auto_auto_auto_max-content_max-content_minmax(0,1fr)_max-content_max-content_max-content] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0 pl-0 pr-0";
 
 /**
  * Shared ingredient editing grid used by MealCard and PossibleMealCard.
@@ -52,6 +52,8 @@ export function IngredientEditor({
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [suggestionLineIdx, setSuggestionLineIdx] = useState<number | null>(null);
   const [activeSuggestionIdx, setActiveSuggestionIdx] = useState(0);
+  /** Index de la ligne dont le nom est en édition (sinon affichage texte épuré). */
+  const [editingNameIdx, setEditingNameIdx] = useState<number | null>(null);
   const handleRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const linesRef = useRef(lines);
@@ -173,6 +175,7 @@ export function IngredientEditor({
       next.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
     }
     onUpdate(next);
+    setEditingNameIdx(idx);
     setSuggestionLineIdx(null);
     setActiveSuggestionIdx(0);
     setTimeout(() => nameRefs.current[idx]?.focus(), 0);
@@ -229,10 +232,16 @@ export function IngredientEditor({
     if (e.key === "Enter") {
       e.preventDefault();
       if (field === "qty") countRefs.current[idx]?.focus();
-      else if (field === "count") nameRefs.current[idx]?.focus();
-      else if (idx < lines.length - 1) qtyRefs.current[idx + 1]?.focus();
-      else if (lines[idx].name.trim()) setTimeout(() => qtyRefs.current[idx + 1]?.focus(), 0);
-      else commitCurrentLines();
+      else if (field === "count") {
+        setEditingNameIdx(idx);
+        setTimeout(() => nameRefs.current[idx]?.focus(), 0);
+      } else if (field === "name") {
+        setEditingNameIdx(null);
+        setSuggestionLineIdx(null);
+        if (idx < lines.length - 1) qtyRefs.current[idx + 1]?.focus();
+        else if (lines[idx].name.trim()) setTimeout(() => qtyRefs.current[idx + 1]?.focus(), 0);
+        else commitCurrentLines();
+      }
     }
     if (e.key === "Escape") commitCurrentLines();
   };
@@ -275,19 +284,19 @@ export function IngredientEditor({
           if (container && !container.contains(document.activeElement)) commitCurrentLines();
         }, 100);
       }}
-      className="flex flex-col gap-1 min-w-0"
+      className="flex flex-col gap-1.5 min-w-0"
     >
-      <div className={`${INGREDIENT_GRID_CLASS} mb-0.5`}>
-        <span className="text-[8px] text-white/50 text-center"></span>
-        <span className="text-[8px] text-white/50 text-center">Ou</span>
-        <span className="text-[8px] text-white/50 text-center">Et</span>
-        <span className="text-[8px] text-white/50 text-center">?</span>
-        <span className="text-[8px] text-white/50 text-center">g</span>
-        <span className="text-[8px] text-white/50 text-center">#</span>
-        <span className="text-[8px] text-white/50">Nom</span>
-        <span className="text-[8px] text-white/50 text-center">Cal</span>
-        <span className="text-[8px] text-white/50 text-center">P</span>
-        <span className="text-[8px] text-white/50 text-center">Fib</span>
+      <div className={`${INGREDIENT_GRID_CLASS} px-2 pb-1`}>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center"></span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">Ou</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">Et</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">?</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">g</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">#</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium">Nom</span>
+        <span className="text-[9px] uppercase tracking-wide text-orange-300/80 font-medium text-center">Cal</span>
+        <span className="text-[9px] uppercase tracking-wide text-sky-300/80 font-medium text-center">P</span>
+        <span className="text-[9px] uppercase tracking-wide text-emerald-300/80 font-medium text-center">Fib</span>
       </div>
       {lines.map((line, idx) => (
         <div
@@ -297,12 +306,22 @@ export function IngredientEditor({
           onDragOver={(e) => handleDragOver(e, idx)}
           onDrop={(e) => handleDrop(e, idx)}
           onDragEnd={handleDragEnd}
-          className={`${INGREDIENT_GRID_CLASS} transition-opacity ${
-            dragIdx === idx ? 'opacity-30' : ''
-          } ${dragOverIdx === idx && dragIdx !== idx ? 'border-t-2 border-yellow-300/60' : ''}`}
+          className={`${INGREDIENT_GRID_CLASS} relative px-2 py-1 rounded-xl transition-all duration-150 ${
+            dragIdx === idx
+              ? 'opacity-30 scale-[0.99]'
+              : 'bg-white/[0.07] ring-1 ring-white/10 shadow-sm shadow-black/20 hover:bg-white/[0.11] hover:ring-white/20 hover:shadow-md hover:shadow-black/25'
+          } ${
+            dragOverIdx === idx && dragIdx !== idx ? 'bg-yellow-400/15 ring-yellow-300/45' : ''
+          }`}
         >
+          {dragOverIdx === idx && dragIdx !== idx && (
+            <span
+              className="absolute left-2 right-2 top-0 h-0.5 rounded-full bg-yellow-300/80"
+              aria-hidden
+            />
+          )}
           <div
-            className="h-7 flex items-center justify-center cursor-grab active:cursor-grabbing text-white/30 hover:text-white/60"
+            className="h-6 flex items-center justify-center cursor-grab active:cursor-grabbing text-white/30 hover:text-white/60"
             onMouseDown={() => {
               // Mark that drag interaction started from handle — prevent blur commit
               handleRef.current = true;
@@ -314,7 +333,7 @@ export function IngredientEditor({
           <button
             type="button"
             onClick={() => toggleOr(idx)}
-            className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
+            className={`h-6 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
               idx === 0
                 ? 'text-white/15 cursor-default'
                 : line.isOr
@@ -329,7 +348,7 @@ export function IngredientEditor({
           <button
             type="button"
             onClick={() => toggleAnd(idx)}
-            className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
+            className={`h-6 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
               idx === 0
                 ? 'text-white/15 cursor-default'
                 : line.isAnd
@@ -344,7 +363,7 @@ export function IngredientEditor({
           <button
             type="button"
             onClick={() => toggleOptional(idx)}
-            className={`h-7 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
+            className={`h-6 flex items-center justify-center rounded text-[9px] font-bold transition-all ${
               line.isOptional
                 ? 'bg-purple-400/30 text-purple-200 border border-purple-400/50'
                 : 'text-white/20 hover:text-white/50 hover:bg-white/10'
@@ -361,7 +380,11 @@ export function IngredientEditor({
             value={line.qty}
             onChange={e => updateLine(idx, "qty", e.target.value)}
             onKeyDown={e => handleKeyDown(idx, "qty", e)}
-            className="h-7 w-[2.25rem] min-w-0 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-1"
+            className={`h-6 w-[2.25rem] min-w-0 rounded-none border-0 border-b bg-transparent text-white text-xs px-1 text-center shadow-none focus-visible:ring-0 focus-visible:border-primary/50 ${
+              !String(line.qty ?? "").trim()
+                ? "border-white/10 placeholder:text-white/20"
+                : "border-white/20 placeholder:text-white/25"
+            }`}
           />
           <Input
             ref={el => { countRefs.current[idx] = el; }}
@@ -370,22 +393,49 @@ export function IngredientEditor({
             value={line.count}
             onChange={e => updateLine(idx, "count", e.target.value)}
             onKeyDown={e => handleKeyDown(idx, "count", e)}
-            className="h-7 w-[1.35rem] min-w-0 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-xs px-0.5"
+            className={`h-6 w-[1.35rem] min-w-0 rounded-none border-0 border-b bg-transparent text-white text-xs px-0.5 text-center shadow-none focus-visible:ring-0 focus-visible:border-primary/50 ${
+              !String(line.count ?? "").trim()
+                ? "border-white/10 placeholder:text-white/20"
+                : "border-white/20 placeholder:text-white/25"
+            }`}
           />
           <div className="relative min-w-0">
-            <Input
-              ref={el => { nameRefs.current[idx] = el; }}
-              placeholder={`Ingrédient ${idx + 1}`}
-              value={line.name}
-              dir="ltr"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              onFocus={() => { if (line.name.trim()) setSuggestionLineIdx(idx); }}
-              onChange={e => updateLine(idx, "name", e.target.value)}
-              onKeyDown={e => handleKeyDown(idx, "name", e)}
-              className="h-7 min-w-0 w-full border-white/30 bg-white/20 text-left text-white placeholder:text-white/40 text-xs px-1.5"
-            />
+            {!line.name.trim() || editingNameIdx === idx ? (
+              <Input
+                ref={el => { nameRefs.current[idx] = el; }}
+                placeholder={`Ingrédient ${idx + 1}`}
+                value={line.name}
+                dir="ltr"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus={editingNameIdx === idx && !!line.name.trim()}
+                onFocus={() => { if (line.name.trim()) setSuggestionLineIdx(idx); }}
+                onChange={e => updateLine(idx, "name", e.target.value)}
+                onKeyDown={e => handleKeyDown(idx, "name", e)}
+                onBlur={() => {
+                  // Laisse le temps au clic suggestion (mousedown) de s’exécuter
+                  setTimeout(() => {
+                    if (handleRef.current) return;
+                    setSuggestionLineIdx(null);
+                    if (line.name.trim()) setEditingNameIdx(null);
+                  }, 120);
+                }}
+                className="h-6 min-w-0 w-full rounded-none border-0 border-b border-white/20 bg-transparent text-left text-white placeholder:text-white/40 text-xs px-1 shadow-none focus-visible:ring-0 focus-visible:border-primary/50"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingNameIdx(idx);
+                  setTimeout(() => nameRefs.current[idx]?.focus(), 0);
+                }}
+                className="h-6 min-w-0 w-full text-left text-white text-xs font-semibold px-1 truncate hover:text-primary transition-colors"
+                title="Cliquer pour renommer"
+              >
+                {line.name}
+              </button>
+            )}
             {suggestionLineIdx === idx && getSuggestions(idx).length > 0 && (
               <div className="absolute left-0 top-full z-50 mt-1 min-w-[10rem] max-w-[min(100vw,16rem)] max-h-40 overflow-y-auto rounded-lg border border-white/20 bg-slate-900/95 py-1 shadow-xl backdrop-blur">
                 {getSuggestions(idx).map((name, suggestionIdx) => (
@@ -417,7 +467,7 @@ export function IngredientEditor({
             value={line.cal}
             onChange={e => updateLine(idx, "cal", e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
-            className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-white/20 text-white placeholder:text-white/40 text-[10px] px-0.5"
+            className="h-6 w-[2.1rem] min-w-0 rounded-none border-0 border-b border-orange-400/25 bg-transparent text-orange-200 placeholder:text-white/40 text-[10px] px-0.5 shadow-none focus-visible:ring-0 focus-visible:border-orange-400/50"
           />
           <Input
             placeholder="prot"
@@ -425,7 +475,7 @@ export function IngredientEditor({
             value={line.pro}
             onChange={e => updateLine(idx, "pro", e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
-            className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-blue-500/20 text-white placeholder:text-white/40 text-[10px] px-0.5"
+            className="h-6 w-[2.1rem] min-w-0 rounded-none border-0 border-b border-sky-400/25 bg-transparent text-sky-200 placeholder:text-white/40 text-[10px] px-0.5 shadow-none focus-visible:ring-0 focus-visible:border-sky-400/50"
           />
           <Input
             placeholder="fib"
@@ -433,7 +483,7 @@ export function IngredientEditor({
             value={fiberInputValue(line)}
             onChange={e => updateLine(idx, "fiber", e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") commitCurrentLines(); if (e.key === "Escape") commitCurrentLines(); }}
-            className="h-7 w-[2.1rem] min-w-0 border-white/30 bg-emerald-500/20 text-white placeholder:text-white/40 text-[10px] px-0.5"
+            className="h-6 w-[2.1rem] min-w-0 rounded-none border-0 border-b border-emerald-400/25 bg-transparent text-emerald-200 placeholder:text-white/40 text-[10px] px-0.5 shadow-none focus-visible:ring-0 focus-visible:border-emerald-400/50"
           />
         </div>
       ))}

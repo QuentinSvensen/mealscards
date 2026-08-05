@@ -106,7 +106,7 @@ interface PossibleListProps {
   onUpdateOvenTemp?: (id: string, temp: string | null) => void;
   onUpdateOvenMinutes?: (id: string, minutes: string | null) => void;
   onUpdateDescription?: (id: string, description: string | null) => void;
-  /** Renomme un repas créé via « Possibles uniquement ». */
+  /** Renomme un repas (Possibles uniquement, ou carte Ninja Creami). */
   onRename?: (id: string, name: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onSplitQuantity?: (id: string, ratio: number, baseIngredients: string | null) => void;
@@ -126,12 +126,12 @@ interface PossibleListProps {
   frozenCounterDaysByPmId?: PossibleFrozenCounterDaysMap;
   /** Catalogue des repas (Master / Au choix) pour retomber sur la description homonyme si absente. */
   mealsCatalog?: Meal[];
-  /** Ids des repas créés via « Possibles uniquement » (seuls à pouvoir être renommés). */
+  /** Ids des repas créés via « Possibles uniquement » (renommables depuis Possible). */
   possibleOnlyMealIds?: string[];
-  /** Possible issus de Ninja Creami → Tests (option enregistrer Recettes testées). */
+  /** Possible issus de Ninja Creami → Tests (option enregistrer Recettes testées ; renommables). */
   ninjaCreamiTestPmIds?: Set<string> | string[];
   onSaveToNinjaTested?: (pmId: string) => void;
-  /** Meal ids déjà en Recettes testées (équivalent Tous : pas de lien stock). */
+  /** Meal ids déjà en Recettes testées (équivalent Tous : pas de lien stock ; renommables). */
   ninjaCreamiMealIds?: Set<string> | string[];
   /** Catalogue Base Tests pour l’option « Ajouter extras ». */
   ninjaCreamiBaseGroups?: NinjaCreamiBaseGroup[];
@@ -355,7 +355,14 @@ export function PossibleList({
                   onUpdateOvenMinutes={onUpdateOvenMinutes ? (m) => onUpdateOvenMinutes(pm.meals.id, m) : undefined}
                   onUpdateDescription={onUpdateDescription ? (d) => onUpdateDescription(pm.meals.id, d) : undefined}
                   onRename={
-                    onRename && isPossibleOnlyCreatedMeal(meal.id, possibleOnlyMealIds)
+                    onRename &&
+                    (isPossibleOnlyCreatedMeal(meal.id, possibleOnlyMealIds) ||
+                      isNinjaCreamiStockExemptPossibleMeal(
+                        pm.id,
+                        meal.id,
+                        ninjaCreamiTestPmIds,
+                        ninjaCreamiMealIds,
+                      ))
                       ? (name) => onRename(meal.id, name)
                       : undefined
                   }

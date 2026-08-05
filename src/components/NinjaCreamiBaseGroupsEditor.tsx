@@ -125,7 +125,7 @@ export function NinjaCreamiBaseGroupsEditor({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <div className="flex items-center gap-2 px-0.5">
         <div className="text-[11px] font-bold text-foreground/90">Base</div>
         <Button
@@ -147,6 +147,8 @@ export function NinjaCreamiBaseGroupsEditor({
           onDragOver={(e) => handleGroupDragOver(e, idx)}
           onDrop={(e) => handleGroupDrop(e, idx)}
           className={`transition-opacity ${
+            idx > 0 ? "pt-1 mt-0.5" : ""
+          } ${
             dragGroupIdx === idx ? "opacity-40" : ""
           } ${
             dragOverGroupIdx === idx && dragGroupIdx !== idx

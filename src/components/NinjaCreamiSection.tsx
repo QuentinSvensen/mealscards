@@ -317,7 +317,7 @@ export function NinjaCreamiSection({
                   onIngredientNameCommit={onIngredientNameCommit}
                   ingredientMacroSources={ingredientMacroAutofillSources}
                   ingredientSuggestions={ingredientSuggestions}
-                  frameTone="bordeaux"
+                  frameTone="violet"
                 />
 
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted-foreground px-0.5">

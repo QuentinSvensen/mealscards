@@ -318,7 +318,7 @@ export function NinjaCreamiTestsExtrasDialog({
           )}
 
           {selectableExtras.length > 0 && (
-            <div className="rounded-xl border border-rose-800/55 bg-rose-950/30 p-2 space-y-1.5">
+            <div className="rounded-xl bg-violet-950/25 ring-1 ring-violet-500/30 shadow-sm shadow-black/20 p-2 space-y-1.5">
               <div className="text-[11px] font-bold text-foreground/90 px-0.5">Extras</div>
               {selectableExtras.map(renderLine)}
             </div>

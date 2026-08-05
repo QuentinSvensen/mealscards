@@ -843,9 +843,24 @@ export function PossibleMealCard({
             <ArrowLeft className="h-3.5 w-3.5" />
           </Button>
           <div className="flex items-center gap-1 min-w-0 flex-1">
-            <span className="block flex-1 font-semibold text-white text-sm min-w-0 break-normal whitespace-normal pt-[2px]">
-              {meal.name}
-            </span>
+            {onRename ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditValue(meal.name);
+                  setEditing("name");
+                }}
+                className="block flex-1 font-semibold text-white text-sm min-w-0 break-normal whitespace-normal pt-[2px] text-left rounded-sm hover:bg-white/10 transition-colors"
+                title="Cliquer pour renommer"
+              >
+                {meal.name}
+              </button>
+            ) : (
+              <span className="block flex-1 font-semibold text-white text-sm min-w-0 break-normal whitespace-normal pt-[2px]">
+                {meal.name}
+              </span>
+            )}
             <NutritionScoreBadge score={nutritionScore} />
             <SatietyIndexBadge
               index={mealSatietyDetails?.index ?? null}

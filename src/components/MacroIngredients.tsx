@@ -14,12 +14,16 @@ import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { toast } from "@/hooks/use-toast";
 import {
+  applyIngredientMacroToText,
+  applyIngredientRenameToText,
   buildIngredientMacroUpdatePlan,
+  buildIngredientRenamePlan,
   collectIngredientMacroEntries,
   createIngredientMacroLibraryItem,
   areIngredientMacroLibrariesEqual,
   persistMissingIngredientMacroEntries,
   removeIngredientMacroLibraryItem,
+  renameIngredientMacroLibraryItem,
   upsertIngredientMacroLibraryItem,
   type IngredientMacroEntry,
   type IngredientMacroLibraryItem,
@@ -28,6 +32,7 @@ import { normalizeForMatch, normalizeKey } from "@/lib/ingredientUtils";
 import { parseMacroDisplay } from "@/lib/stockUtils";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
+import { ClickToEditText } from "@/components/ClickToEditText";
 import {
   getIngredientMacroNutritionScore,
   getIngredientMacroNutritionScoreRaw,
@@ -65,11 +70,18 @@ interface MacroIngredientsProps {
   onUpdatePossibleIngredients: (id: string, ingredients_override: string | null) => void;
   onUpdateFoodItemMacro: (
     id: string,
-    updates: { calories?: string | null; protein?: string | null; fiber?: string | null; food_type?: FoodType },
+    updates: {
+      name?: string;
+      calories?: string | null;
+      protein?: string | null;
+      fiber?: string | null;
+      food_type?: FoodType;
+    },
   ) => void;
 }
 
 interface DraftMacro {
+  displayName: string;
   calories: string;
   protein: string;
   fiber: string;
@@ -131,14 +143,26 @@ export function upsertIngredientMacroUnitGrams(
 
 // Renvoie les valeurs actuellement visibles, en tenant compte des edits non sauvegardés.
 function getDraftValue(entry: IngredientMacroEntry, drafts: Record<string, DraftMacro>): DraftMacro {
-  return drafts[entry.key] ?? { calories: entry.calories, protein: entry.protein, fiber: entry.fiber };
+  return (
+    drafts[entry.key] ?? {
+      displayName: entry.displayName,
+      calories: entry.calories,
+      protein: entry.protein,
+      fiber: entry.fiber,
+    }
+  );
 }
 
-// Indique si la ligne a été modifiée par rapport aux macros de référence chargées.
+// Indique si la ligne a été modifiée (nom ou macros) par rapport à la référence chargée.
 function hasDraftChanged(entry: IngredientMacroEntry, drafts: Record<string, DraftMacro>): boolean {
   const draft = drafts[entry.key];
   if (!draft) return false;
-  return draft.calories.trim() !== entry.calories || draft.protein.trim() !== entry.protein || draft.fiber.trim() !== entry.fiber;
+  return (
+    draft.displayName.trim() !== entry.displayName ||
+    draft.calories.trim() !== entry.calories ||
+    draft.protein.trim() !== entry.protein ||
+    draft.fiber.trim() !== entry.fiber
+  );
 }
 
 // Produit une signature stable du référentiel pour éviter de relancer deux fois la même sauvegarde automatique.
@@ -402,8 +426,12 @@ export function MacroIngredients({
     onSaveMacroLibrary(nextLibrary);
   }, [entries, macroLibrary, manuallyDeletedKeys, onSaveMacroLibrary]);
 
-  // Met à jour le brouillon local d'une cellule calories/protéines/fibres.
-  const updateDraft = (entry: IngredientMacroEntry, field: keyof DraftMacro, value: string) => {
+  // Met à jour le brouillon local d'une cellule (nom / calories / protéines / fibres).
+  const updateDraft = (
+    entry: IngredientMacroEntry,
+    field: keyof DraftMacro,
+    value: string,
+  ) => {
     setDrafts((current) => {
       const draft = getDraftValue(entry, current);
       return {
@@ -449,7 +477,7 @@ export function MacroIngredients({
     toast({ title: "Ingrédient ajouté", description: `${item.displayName} est maintenant dans le référentiel macros.` });
   };
 
-  // Sauvegarde une ligne et applique les nouvelles macros dans tous les ingrédients correspondants.
+  // Sauvegarde nom + macros et propage aux recettes, possibles et aliments.
   const saveEntry = (entry: IngredientMacroEntry) => {
     const draft = getDraftValue(entry, drafts);
     const calories = draft.calories.trim();
@@ -457,38 +485,189 @@ export function MacroIngredients({
     // Fibres vides → "0" si kcal/prot sont saisis (le placeholder « 0 » n’était pas persisté).
     const fiber =
       draft.fiber.trim() || (calories || protein ? "0" : "");
-    const plan = buildIngredientMacroUpdatePlan(meals, possibleMeals, foodItems, entry.key, calories, protein, fiber);
-    const libraryItem = createIngredientMacroLibraryItem(entry.displayName, calories, protein, fiber);
+    const nextItem = createIngredientMacroLibraryItem(draft.displayName, calories, protein, fiber);
+    if (!nextItem) {
+      toast({
+        title: "Nom requis",
+        description: "Indique un nom d'ingrédient valide.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    for (const update of plan.mealUpdates) {
-      onUpdateMealIngredients(update.id, update.ingredients);
+    const nameChanged =
+      nextItem.key !== entry.key || nextItem.displayName !== entry.displayName;
+
+    if (nameChanged && nextItem.key !== entry.key) {
+      const keyTaken =
+        macroLibrary.some((item) => item.key === nextItem.key) ||
+        entries.some((e) => e.key === nextItem.key);
+      if (keyTaken) {
+        toast({
+          title: "Nom déjà utilisé",
+          description: `« ${nextItem.displayName} » existe déjà dans Macro. Choisis un autre nom.`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
-    for (const update of plan.possibleUpdates) {
-      onUpdatePossibleIngredients(update.id, update.ingredients_override);
+
+    let renamedMeals = 0;
+    let renamedPossibles = 0;
+    let renamedFoods = 0;
+    let macroMeals = 0;
+    let macroPossibles = 0;
+    let macroFoods = 0;
+
+    if (nameChanged) {
+      const renamePlan = buildIngredientRenamePlan(
+        meals,
+        possibleMeals,
+        foodItems,
+        entry.key,
+        nextItem.displayName,
+      );
+      renamedMeals = renamePlan.mealUpdates.length;
+      renamedPossibles = renamePlan.possibleUpdates.length;
+      renamedFoods = renamePlan.foodUpdates.length;
     }
-    for (const update of plan.foodUpdates) {
-      onUpdateFoodItemMacro(update.id, { calories: update.calories, protein: update.protein, fiber: update.fiber });
+
+    // Une seule passe locale : rename puis macros sur le texte résultant (évite d’écraser le rename).
+    for (const meal of meals) {
+      let nextText = meal.ingredients ?? "";
+      const before = nextText;
+      if (nameChanged) {
+        nextText =
+          applyIngredientRenameToText(nextText, entry.key, nextItem.displayName) ?? nextText;
+      }
+      nextText =
+        applyIngredientMacroToText(nextText, nextItem.key, calories, protein, fiber) ??
+        applyIngredientMacroToText(nextText, entry.key, calories, protein, fiber) ??
+        nextText;
+      if (nextText !== before) {
+        onUpdateMealIngredients(meal.id, nextText);
+        macroMeals += 1;
+      }
+    }
+
+    for (const pm of possibleMeals) {
+      if (pm.ingredients_override == null) continue;
+      let nextText = pm.ingredients_override;
+      const before = nextText;
+      if (nameChanged) {
+        nextText =
+          applyIngredientRenameToText(nextText, entry.key, nextItem.displayName) ?? nextText;
+      }
+      nextText =
+        applyIngredientMacroToText(nextText, nextItem.key, calories, protein, fiber) ??
+        applyIngredientMacroToText(nextText, entry.key, calories, protein, fiber) ??
+        nextText;
+      if (nextText !== before) {
+        onUpdatePossibleIngredients(pm.id, nextText);
+        macroPossibles += 1;
+      }
+    }
+
+    for (const foodItem of foodItems) {
+      if (normalizeKey(foodItem.name || "") !== entry.key) continue;
+      const updates: {
+        name?: string;
+        calories?: string | null;
+        protein?: string | null;
+        fiber?: string | null;
+      } = {};
+      if (nameChanged && (foodItem.name || "").trim() !== nextItem.displayName) {
+        updates.name = nextItem.displayName;
+      }
+      const macroPlan = buildIngredientMacroUpdatePlan(
+        [],
+        [],
+        [foodItem],
+        entry.key,
+        calories,
+        protein,
+        fiber,
+      );
+      if (macroPlan.foodUpdates[0]) {
+        updates.calories = macroPlan.foodUpdates[0].calories;
+        updates.protein = macroPlan.foodUpdates[0].protein;
+        updates.fiber = macroPlan.foodUpdates[0].fiber;
+        macroFoods += 1;
+      }
+      if (Object.keys(updates).length > 0) {
+        onUpdateFoodItemMacro(foodItem.id, updates);
+      }
     }
 
     setDrafts((current) => {
       const next = { ...current };
       delete next[entry.key];
+      delete next[nextItem.key];
       return next;
     });
 
-    if (libraryItem) {
-      setManuallyDeletedKeys((current) => {
-        if (!current.has(libraryItem.key)) return current;
-        const next = new Set(current);
-        next.delete(libraryItem.key);
-        return next;
-      });
-      onSaveMacroLibrary(upsertIngredientMacroLibraryItem(macroLibrary, libraryItem));
+    setManuallyDeletedKeys((current) => {
+      const next = new Set(current);
+      next.delete(nextItem.key);
+      if (nextItem.key !== entry.key) next.delete(entry.key);
+      return next;
+    });
+
+    const nextLibrary = renameIngredientMacroLibraryItem(
+      macroLibrary,
+      entry.key,
+      nextItem.displayName,
+      calories,
+      protein,
+      fiber,
+    );
+    if (nextLibrary) onSaveMacroLibrary(nextLibrary);
+
+    if (nextItem.key !== entry.key) {
+      const oldGrams = unitGramsByKey[entry.key];
+      if (oldGrams != null) {
+        let nextMap = upsertIngredientMacroUnitGrams(unitGramsByKey, entry.key, null);
+        nextMap = upsertIngredientMacroUnitGrams(nextMap, nextItem.key, oldGrams);
+        setPreference.mutate({
+          key: INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY,
+          value: nextMap,
+        });
+      }
     }
 
+    const existingLibrary = foodLibrary.find((item) => normalizeKey(item.name || "") === entry.key);
+    upsertEntry.mutate({
+      name: nextItem.displayName,
+      food_type: existingLibrary?.food_type ?? foodTypeByKey[entry.key] ?? null,
+      is_meal: existingLibrary?.is_meal ?? false,
+      no_counter: existingLibrary?.no_counter ?? false,
+      storage_type: existingLibrary?.storage_type ?? "frigo",
+      calories: calories || existingLibrary?.calories || null,
+      protein: protein || existingLibrary?.protein || null,
+      fiber: fiber || existingLibrary?.fiber || null,
+    });
+
+    if (nameChanged) {
+      setSearchQuery(nextItem.displayName);
+    }
+
+    const parts: string[] = [];
+    if (nameChanged) {
+      parts.push(
+        `renommé en « ${nextItem.displayName} » (${renamedMeals} recette(s)${
+          renamedPossibles ? `, ${renamedPossibles} possible(s)` : ""
+        }${renamedFoods ? `, ${renamedFoods} aliment(s)` : ""})`,
+      );
+    }
+    parts.push(
+      `macros synchronisées (${macroMeals} recette(s)${
+        macroPossibles ? `, ${macroPossibles} possible(s)` : ""
+      }${macroFoods ? ` et ${macroFoods} aliment(s)` : ""})`,
+    );
+
     toast({
-      title: "Macros synchronisées",
-      description: `${entry.displayName} mis à jour dans ${plan.mealUpdates.length} recette(s)${plan.possibleUpdates.length ? `, ${plan.possibleUpdates.length} possible(s)` : ""}${plan.foodUpdates.length ? ` et ${plan.foodUpdates.length} aliment(s)` : ""}.`,
+      title: nameChanged ? "Ingrédient renommé" : "Macros synchronisées",
+      description: parts.join(" · "),
     });
   };
 
@@ -804,14 +983,32 @@ export function MacroIngredients({
               return (
                 <div key={entry.key} className="grid grid-cols-[180px_88px_52px_72px_72px_72px_52px_64px_48px] sm:grid-cols-[260px_128px_56px_96px_96px_96px_64px_80px_56px] items-center gap-0 px-2 py-2">
                   <div className="min-w-0 pr-2">
-                    <div className="flex items-start gap-1.5 min-w-0">
-                      <p className={`min-w-0 flex-1 break-words whitespace-normal text-xs sm:text-sm font-semibold leading-tight ${hasMissingMacro ? "text-red-500" : ""}`}>{entry.displayName}</p>
-                      <NutritionScoreBadge
-                        score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber, scoreOptions)}
-                        rawScore={getIngredientMacroNutritionScoreRaw(draft.calories, draft.protein, draft.fiber, scoreOptions)}
-                      />
-                    </div>
-                    <p className="break-words whitespace-normal text-[10px] text-muted-foreground leading-snug">
+                    <ClickToEditText
+                      value={draft.displayName}
+                      onChange={(value) => updateDraft(entry, "displayName", value)}
+                      emptyLabel="Nom de l'ingrédient"
+                      placeholder="Nom"
+                      title="Cliquer pour renommer (recettes, aliments, possibles)"
+                      textClassName={`text-xs sm:text-sm font-semibold ${
+                        hasMissingMacro ? "text-red-500" : ""
+                      }`}
+                      inputClassName={`min-w-0 flex-1 h-8 text-xs sm:text-sm font-semibold ${
+                        hasMissingMacro ? "text-red-500 border-red-500/40" : ""
+                      }`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && changed) {
+                          e.preventDefault();
+                          saveEntry(entry);
+                        }
+                      }}
+                      trailing={
+                        <NutritionScoreBadge
+                          score={getIngredientMacroNutritionScore(draft.calories, draft.protein, draft.fiber, scoreOptions)}
+                          rawScore={getIngredientMacroNutritionScoreRaw(draft.calories, draft.protein, draft.fiber, scoreOptions)}
+                        />
+                      }
+                    />
+                    <p className="break-words whitespace-normal text-[10px] text-muted-foreground leading-snug mt-0.5">
                       {entry.recipeCount} recette(s){entry.foodCount ? ` · ${entry.foodCount} aliment(s)` : ""}{entry.overrideCount ? ` · ${entry.overrideCount} possible(s)` : ""}
                     </p>
                     {hasConflict && (

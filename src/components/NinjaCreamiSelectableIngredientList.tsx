@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { GripVertical, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { ClickToEditText } from "@/components/ClickToEditText";
 import {
   resolveIngredientLineMacros,
   type IngredientMacroAutofillSources,
@@ -21,7 +22,7 @@ import {
 import { normalizeForMatch, normalizeKey, type IngLine } from "@/lib/ingredientUtils";
 
 const GRID =
-  "grid grid-cols-[0.75rem_1.1rem_max-content_max-content_minmax(0,1fr)_1.9rem_1.65rem_1.65rem] gap-x-px gap-y-0.5 items-center";
+  "grid grid-cols-[0.75rem_1.1rem_max-content_max-content_minmax(0,1fr)_1.9rem_1.65rem_1.65rem] gap-x-1 gap-y-0 items-center";
 
 export interface NinjaCreamiSelectableIngredientListProps {
   title: string;
@@ -44,8 +45,8 @@ export interface NinjaCreamiSelectableIngredientListProps {
   onDeleteGroup?: () => void;
   /** Réception d’une ligne venant d’une autre sous-catégorie. */
   onExternalLineDrop?: (payload: NinjaCreamiLineDragPayload, targetIdx: number) => void;
-  /** Teinte de l’encadré (bordeaux pour Extras). */
-  frameTone?: "default" | "bordeaux";
+  /** Teinte de l’encadré (violet pour Extras). */
+  frameTone?: "default" | "violet";
   /** Poignée DnD de sous-catégorie (affichée dans l’en-tête de l’encadré). */
   groupReorderHandle?: ReactNode;
 }
@@ -159,7 +160,10 @@ export function NinjaCreamiSelectableIngredientList({
   const [groupDropActive, setGroupDropActive] = useState(false);
   const [suggestionLineIdx, setSuggestionLineIdx] = useState<number | null>(null);
   const [activeSuggestionIdx, setActiveSuggestionIdx] = useState(0);
+  /** Index du nom en édition (sinon texte épuré si le nom est rempli). */
+  const [editingNameIdx, setEditingNameIdx] = useState<number | null>(null);
   const focusedRef = useRef(false);
+  const nameEditGuardRef = useRef(false);
   const titleFocusedRef = useRef(false);
   const dragIdxRef = useRef<number | null>(null);
   const draftRef = useRef(draftLines);
@@ -405,43 +409,54 @@ export function NinjaCreamiSelectableIngredientList({
     setGroupDropActive(false);
   };
 
-  /** Classes de bordure / fond selon la teinte (bordeaux pour Extras). */
+  /** Classes de bordure / fond selon la teinte (violet pour Extras ; Base un cran plus sombre que Tests). */
   const frameClasses =
-    frameTone === "bordeaux"
+    frameTone === "violet"
       ? groupDropActive
-        ? "border-rose-500/55 bg-rose-950/45"
-        : "border-rose-800/55 bg-rose-950/30"
+        ? "bg-violet-950/45 ring-1 ring-violet-400/50 shadow-md shadow-black/25"
+        : "bg-violet-950/25 ring-1 ring-violet-500/30 shadow-sm shadow-black/20 hover:bg-violet-950/35 hover:ring-violet-400/40"
       : groupDropActive
-        ? "border-cyan-400/60 bg-cyan-500/10"
-        : "border-white/10 bg-black/25";
+        ? "bg-cyan-500/15 ring-1 ring-cyan-400/50 shadow-md shadow-black/25"
+        : "bg-white/[0.05] ring-1 ring-white/10 shadow-sm shadow-black/20 hover:bg-white/[0.08] hover:ring-white/18";
 
   return (
     <div
-      className={`rounded-xl border p-2 space-y-1.5 transition-colors ${frameClasses}`}
+      className={`rounded-xl px-2 py-2 space-y-1.5 transition-all duration-150 ${frameClasses}`}
       onDragOver={handleGroupDragOver}
       onDragLeave={handleGroupDragLeave}
       onDrop={handleGroupDrop}
     >
-      <div className="flex items-center gap-1 px-0.5 min-w-0">
+      <div className="flex items-center gap-1.5 px-0.5 min-w-0 pb-0.5">
         {groupReorderHandle}
         {titleEditable ? (
-          <Input
+          <ClickToEditText
             value={draftTitle}
-            onFocus={() => {
-              titleFocusedRef.current = true;
+            onChange={setDraftTitle}
+            emptyLabel="Sous-catégorie"
+            placeholder="Sous-catégorie"
+            title="Cliquer pour renommer la sous-catégorie"
+            forceEditing={!draftTitle.trim()}
+            textClassName="text-sm font-extrabold tracking-wide text-white"
+            inputClassName="h-8 flex-1 min-w-0 border-white/20 bg-white/10 text-sm font-extrabold tracking-wide text-white px-1.5"
+            onEditingChange={(editing) => {
+              titleFocusedRef.current = editing;
             }}
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onBlur={() => {
+            onBlurCommit={() => {
               titleFocusedRef.current = false;
               const next = draftTitle.trim() || "Sous-catégorie";
               setDraftTitle(next);
               onTitleChange?.(next);
             }}
-            className="h-7 flex-1 min-w-0 border-white/15 bg-white/5 text-[11px] font-bold px-1.5"
-            title="Renommer la sous-catégorie"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const next = draftTitle.trim() || "Sous-catégorie";
+                setDraftTitle(next);
+                onTitleChange?.(next);
+              }
+            }}
           />
         ) : (
-          <div className="text-[11px] font-bold text-foreground/90 flex-1">{title}</div>
+          <div className="text-sm font-extrabold tracking-wide text-white flex-1">{title}</div>
         )}
         {onDeleteGroup && (
           <button
@@ -454,44 +469,63 @@ export function NinjaCreamiSelectableIngredientList({
           </button>
         )}
       </div>
-      <div className={GRID}>
-        <span className="text-[8px] text-muted-foreground text-center" title="Réordonner" />
-        <span className="text-[8px] text-muted-foreground text-center" title="Sélection">
+      <div className={`${GRID} px-2 pb-1`}>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center" title="Réordonner" />
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center" title="Sélection">
           ✓
         </span>
-        <span className="text-[8px] text-muted-foreground text-center">g</span>
-        <span className="text-[8px] text-muted-foreground text-center">#</span>
-        <span className="text-[8px] text-muted-foreground">Nom</span>
-        <span className="text-[8px] text-muted-foreground text-center">Cal</span>
-        <span className="text-[8px] text-muted-foreground text-center">P</span>
-        <span className="text-[8px] text-muted-foreground text-center">Fib</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">g</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">#</span>
+        <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium">Nom</span>
+        <span className="text-[9px] uppercase tracking-wide text-orange-300/80 font-medium text-center">Cal</span>
+        <span className="text-[9px] uppercase tracking-wide text-sky-300/80 font-medium text-center">P</span>
+        <span className="text-[9px] uppercase tracking-wide text-emerald-300/80 font-medium text-center">Fib</span>
       </div>
+      <div className="flex flex-col gap-1.5">
       {draftLines.map((line, idx) => {
         const selectable = isNinjaCreamiLineSelectable(line);
         const checked = selectedIds.has(line.id);
         const canDrag = isLineMeaningful(line);
         const isCreateRow = !canDrag;
         const inputBg = isCreateRow
-          ? "bg-transparent border-white/10 text-white/50 placeholder:text-white/35"
-          : "bg-white/10 border-white/20";
+          ? "bg-transparent border-0 border-b border-white/10 rounded-none shadow-none focus-visible:ring-0 text-white/50"
+          : "bg-transparent border-0 border-b border-white/20 rounded-none shadow-none focus-visible:ring-0 focus-visible:border-primary/60";
+        /** Styles discrets pour un champ gramme/# encore vide. */
+        const emptyUnitField =
+          "border-white/10 placeholder:text-white/20 placeholder:font-normal";
+        const rowSelected = checked && selectable;
+        const qtyEmpty = !String(line.qty ?? "").trim();
+        const countEmpty = !String(line.count ?? "").trim();
         return (
           <div
             key={line.id || idx}
             data-ninja-line-row
             onDragOver={(e) => handleDragOver(e, idx)}
             onDrop={(e) => handleDrop(e, idx)}
-            className={`${GRID} rounded-md px-0 py-0.5 transition-opacity ${
-              isCreateRow ? "opacity-55" : ""
-            } ${dragIdx === idx ? "opacity-30" : ""} ${
-              dragOverIdx === idx && dragIdx !== idx ? "border-t-2 border-cyan-300/70" : ""
+            className={`${GRID} relative px-2 py-1 rounded-xl transition-all duration-150 ${
+              isCreateRow
+                ? "opacity-50 bg-white/[0.03] ring-1 ring-dashed ring-white/20"
+                : rowSelected
+                  ? "bg-primary/20 ring-1 ring-primary/40 shadow-[inset_3px_0_0_0_hsl(var(--primary))] backdrop-blur-[2px]"
+                  : "bg-white/[0.07] ring-1 ring-white/10 shadow-sm shadow-black/20 hover:bg-white/[0.11] hover:ring-white/20 hover:shadow-md hover:shadow-black/25"
+            } ${dragIdx === idx ? "opacity-30 scale-[0.99]" : ""} ${
+              dragOverIdx === idx && dragIdx !== idx
+                ? "bg-cyan-500/15 ring-cyan-400/45"
+                : ""
             }`}
           >
+            {dragOverIdx === idx && dragIdx !== idx && (
+              <span
+                className="absolute left-2 right-2 top-0 h-0.5 rounded-full bg-cyan-300/80"
+                aria-hidden
+              />
+            )}
             <div
               data-drag-handle
               draggable={canDrag}
               onDragStart={(e) => handleDragStart(e, idx)}
               onDragEnd={handleDragEnd}
-              className={`h-7 w-full flex items-center justify-center text-white/30 hover:text-white/60 ${
+              className={`h-6 w-full flex items-center justify-center text-white/30 hover:text-white/60 ${
                 canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-default opacity-20"
               }`}
               title={canDrag ? "Glisser pour réordonner / changer de sous-catégorie" : undefined}
@@ -515,7 +549,9 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { qty: e.target.value })}
               onBlur={() => handleBlurLine(idx, "qty")}
-              className={`h-7 w-[2rem] min-w-0 text-[11px] px-0.5 ${inputBg}`}
+              className={`h-6 w-[2rem] min-w-0 text-[11px] px-0.5 text-center ${inputBg} ${
+                qtyEmpty ? emptyUnitField : ""
+              }`}
             />
             <Input
               placeholder="#"
@@ -526,28 +562,52 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { count: e.target.value })}
               onBlur={() => handleBlurLine(idx, "count")}
-              className={`h-7 w-[1.2rem] min-w-0 text-[11px] px-0 ${inputBg}`}
+              className={`h-6 w-[1.2rem] min-w-0 text-[11px] px-0 text-center ${inputBg} ${
+                countEmpty ? emptyUnitField : ""
+              }`}
             />
             <div className="relative min-w-0">
-              <Input
-                placeholder={`Ingrédient ${idx + 1}`}
-                value={line.name}
-                dir="ltr"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                onFocus={() => {
-                  focusedRef.current = true;
-                  if (line.name.trim()) setSuggestionLineIdx(idx);
-                }}
-                onChange={(e) => updateLineLocal(idx, { name: e.target.value })}
-                onKeyDown={(e) => handleNameKeyDown(idx, e)}
-                onBlur={() => {
-                  setSuggestionLineIdx(null);
-                  handleBlurLine(idx, "name");
-                }}
-                className={`h-7 min-w-0 w-full text-xs px-1 ${inputBg}`}
-              />
+              {!line.name.trim() || editingNameIdx === idx ? (
+                <Input
+                  placeholder={`Ingrédient ${idx + 1}`}
+                  value={line.name}
+                  dir="ltr"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoFocus={editingNameIdx === idx && !!line.name.trim()}
+                  onFocus={() => {
+                    focusedRef.current = true;
+                    if (line.name.trim()) setSuggestionLineIdx(idx);
+                  }}
+                  onChange={(e) => updateLineLocal(idx, { name: e.target.value })}
+                  onKeyDown={(e) => {
+                    handleNameKeyDown(idx, e);
+                    if (e.key === "Enter" && !(suggestionLineIdx === idx && getSuggestions(idx).length > 0)) {
+                      setEditingNameIdx(null);
+                      setSuggestionLineIdx(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (nameEditGuardRef.current) return;
+                      setSuggestionLineIdx(null);
+                      handleBlurLine(idx, "name");
+                      if (draftRef.current[idx]?.name.trim()) setEditingNameIdx(null);
+                    }, 120);
+                  }}
+                  className={`h-6 min-w-0 w-full text-xs px-1 ${inputBg}`}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingNameIdx(idx)}
+                  className="h-6 min-w-0 w-full text-left text-xs font-semibold px-1 truncate hover:text-primary transition-colors"
+                  title="Cliquer pour renommer"
+                >
+                  {line.name}
+                </button>
+              )}
               {suggestionLineIdx === idx && getSuggestions(idx).length > 0 && (
                 <div className="absolute left-0 top-full z-50 mt-1 min-w-[10rem] max-w-[min(100vw,16rem)] max-h-40 overflow-y-auto rounded-lg border border-white/20 bg-slate-900/95 py-1 shadow-xl backdrop-blur">
                   {getSuggestions(idx).map((name, suggestionIdx) => (
@@ -556,7 +616,11 @@ export function NinjaCreamiSelectableIngredientList({
                       type="button"
                       onMouseDown={(event) => {
                         event.preventDefault();
+                        nameEditGuardRef.current = true;
                         selectSuggestion(idx, name);
+                        setTimeout(() => {
+                          nameEditGuardRef.current = false;
+                        }, 100);
                       }}
                       onMouseEnter={() => setActiveSuggestionIdx(suggestionIdx)}
                       className={`block w-full px-2 py-1.5 text-left text-[11px] transition-colors ${
@@ -580,7 +644,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { cal: e.target.value })}
               onBlur={() => handleBlurLine(idx, "cal")}
-              className={`h-7 w-full min-w-0 text-[10px] px-0 text-center text-orange-300 ${inputBg}`}
+              className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-orange-300 ${inputBg}`}
             />
             <Input
               placeholder="—"
@@ -591,7 +655,7 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { pro: e.target.value })}
               onBlur={() => handleBlurLine(idx, "pro")}
-              className={`h-7 w-full min-w-0 text-[10px] px-0 text-center text-blue-300 ${inputBg}`}
+              className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-blue-300 ${inputBg}`}
             />
             <Input
               placeholder="—"
@@ -602,11 +666,12 @@ export function NinjaCreamiSelectableIngredientList({
               }}
               onChange={(e) => updateLineLocal(idx, { fiber: e.target.value })}
               onBlur={() => handleBlurLine(idx, "fiber")}
-              className={`h-7 w-full min-w-0 text-[10px] px-0 text-center text-emerald-300 ${inputBg}`}
+              className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-emerald-300 ${inputBg}`}
             />
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
