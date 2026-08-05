@@ -19,6 +19,8 @@ export const AGENDA_INITIAL_SCROLL_HOUR = 7;
 export const AGENDA_DEFAULT_VISIBLE_HOURS = AGENDA_HOUR_END - AGENDA_INITIAL_SCROLL_HOUR;
 /** Durée visuelle par défaut d’une carte repas/extra (minutes). */
 export const AGENDA_EVENT_DURATION_MIN = 60;
+/** Durée visuelle des cartes repas du créneau matin (minutes). */
+export const AGENDA_MATIN_EVENT_DURATION_MIN = 30;
 /** Pas d’accrochage au drag (minutes). */
 export const AGENDA_SNAP_MINUTES = 15;
 /** Sous ce seuil (px), colonne jour → mode agenda compact style mobile. */
@@ -55,6 +57,14 @@ export function defaultMinutesForMealTime(mealTime: string | null | undefined): 
     default:
       return 12 * 60;
   }
+}
+
+/**
+ * Durée visuelle d’une carte repas hors alignement « Manger » :
+ * matin = 30 min, autres créneaux = 1 h.
+ */
+export function agendaMealCardDurationMin(mealTime: string | null | undefined): number {
+  return mealTime === "matin" ? AGENDA_MATIN_EVENT_DURATION_MIN : AGENDA_EVENT_DURATION_MIN;
 }
 
 /**

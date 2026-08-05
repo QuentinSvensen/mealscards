@@ -20,6 +20,7 @@ import {
   AGENDA_HOUR_START,
   AGENDA_INITIAL_SCROLL_HOUR,
   AGENDA_DEFAULT_VISIBLE_HOURS,
+  agendaMealCardDurationMin,
   buildExtraAgendaOccurrenceKey,
   formatAgendaClock,
   hasExtraAgendaCustomTime,
@@ -1828,11 +1829,11 @@ export function GoogleAgendaPlanningView({
                         alignment?.startMin ??
                         resolveAgendaMinutesForMeal(pm.id, pm.meal_time, agendaTimes);
                       let durationMin =
-                        alignment?.durationMin ?? AGENDA_EVENT_DURATION_MIN;
+                        alignment?.durationMin ?? agendaMealCardDurationMin(pm.meal_time);
                       const onManger = alignment != null;
-                      // Hors « Manger » : toujours 1 h (pas d’agrandissement selon les extras)
+                      // Hors « Manger » : matin 30 min, autres créneaux 1 h
                       if (!onManger) {
-                        durationMin = AGENDA_EVENT_DURATION_MIN;
+                        durationMin = agendaMealCardDurationMin(pm.meal_time);
                       }
                       const slotKey = pm.meal_time;
                       let chips = opts?.chips;
@@ -1966,9 +1967,9 @@ export function GoogleAgendaPlanningView({
                         alignment?.startMin ??
                         resolveAgendaMinutesForMeal(firstPm.id, firstPm.meal_time, agendaTimes);
                       let durationMin =
-                        alignment?.durationMin ?? AGENDA_EVENT_DURATION_MIN;
+                        alignment?.durationMin ?? agendaMealCardDurationMin(firstPm.meal_time);
                       const onManger = alignment != null;
-                      if (!onManger) durationMin = AGENDA_EVENT_DURATION_MIN;
+                      if (!onManger) durationMin = agendaMealCardDurationMin(firstPm.meal_time);
 
                       const slotKey = firstPm.meal_time;
                       const mealsOfSlot = slotKey
