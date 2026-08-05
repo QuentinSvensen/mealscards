@@ -16,6 +16,39 @@ const MEAL_TIME_SORT_RANK: Record<string, number> = {
   soir: 3,
 };
 
+/**
+ * Indique si le nom contient un numéro de pot (ex. « Pot #3 »), pas un « #? ».
+ */
+export function hasNumberedPotLabel(name: string | null | undefined): boolean {
+  return /#\s*\d+/.test((name || "").trim());
+}
+
+/**
+ * Parmi les cartes non planifiées, place les pots numérotés (#3) au-dessus des #? / sans chiffre.
+ * Les cartes planifiées gardent leur place ; l’ordre relatif dans chaque groupe est préservé.
+ */
+export function prioritizeNumberedPotsAmongUnplanned<T extends PossiblePlanningSortable>(
+  items: readonly T[],
+): T[] {
+  const result = [...items];
+  const unplannedIndices: number[] = [];
+  for (let i = 0; i < result.length; i++) {
+    if (!result[i].day_of_week?.trim()) unplannedIndices.push(i);
+  }
+  if (unplannedIndices.length < 2) return result;
+
+  const unplannedItems = unplannedIndices.map((i) => result[i]);
+  unplannedItems.sort((a, b) => {
+    const aNum = hasNumberedPotLabel(a.meals?.name) ? 0 : 1;
+    const bNum = hasNumberedPotLabel(b.meals?.name) ? 0 : 1;
+    return aNum - bNum;
+  });
+  unplannedIndices.forEach((idx, j) => {
+    result[idx] = unplannedItems[j];
+  });
+  return result;
+}
+
 /** Classe un créneau dans l'ordre d'une journée, en plaçant les cartes sans timing après les créneaux choisis. */
 function getMealTimeSortRank(mealTime: string | null | undefined): number {
   const key = (mealTime || "").trim().toLowerCase();
@@ -51,6 +84,10 @@ export function comparePossiblePlanningOrder(
       return 1;
     }
   } else {
+    const aNum = hasNumberedPotLabel(a.meals?.name) ? 0 : 1;
+    const bNum = hasNumberedPotLabel(b.meals?.name) ? 0 : 1;
+    if (aNum !== bNum) return aNum - bNum;
+
     const dateA = getTargetDate(null, fixedNow, null, a.meal_time);
     const dateB = getTargetDate(null, fixedNow, null, b.meal_time);
     if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();

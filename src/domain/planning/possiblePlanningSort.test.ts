@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { comparePossiblePlanningOrder } from "./possiblePlanningSort";
+import {
+  comparePossiblePlanningOrder,
+  hasNumberedPotLabel,
+  prioritizeNumberedPotsAmongUnplanned,
+} from "./possiblePlanningSort";
 
 const fixedNow = new Date("2026-05-28T10:00:00.000Z");
 
@@ -18,6 +22,37 @@ function pm(
     meals: { name },
   };
 }
+
+describe("hasNumberedPotLabel", () => {
+  it("détecte un numéro après #", () => {
+    expect(hasNumberedPotLabel("Pot #3")).toBe(true);
+    expect(hasNumberedPotLabel("Pot # 12")).toBe(true);
+    expect(hasNumberedPotLabel("Pot #?")).toBe(false);
+    expect(hasNumberedPotLabel("Pot #")).toBe(false);
+  });
+});
+
+describe("prioritizeNumberedPotsAmongUnplanned", () => {
+  it("place les pots numérotés non planifiés au-dessus des #?", () => {
+    const items = [
+      pm("Pot #?", null, null, 0),
+      pm("Pot #6", null, null, 1),
+      pm("Pot #3", null, null, 2),
+    ];
+    const sorted = prioritizeNumberedPotsAmongUnplanned(items);
+    expect(sorted.map((item) => item.meals.name)).toEqual(["Pot #6", "Pot #3", "Pot #?"]);
+  });
+
+  it("ne déplace pas les cartes planifiées", () => {
+    const items = [
+      pm("Pot #?", null, null, 0),
+      pm("Planifié", "2026-05-28", "midi", 1),
+      pm("Pot #3", null, null, 2),
+    ];
+    const sorted = prioritizeNumberedPotsAmongUnplanned(items);
+    expect(sorted.map((item) => item.meals.name)).toEqual(["Pot #3", "Planifié", "Pot #?"]);
+  });
+});
 
 describe("comparePossiblePlanningOrder", () => {
   it("place les cartes avec seulement le jour sous les cartes du même jour avec timing", () => {
@@ -54,5 +89,14 @@ describe("comparePossiblePlanningOrder", () => {
     const sorted = [...items].sort((a, b) => comparePossiblePlanningOrder(a, b, fixedNow));
 
     expect(sorted.map((item) => item.meals.name)).toEqual(["Aujourd'hui sans timing", "Demain midi"]);
+  });
+
+  it("parmi les non planifiés, place Pot #N avant Pot #?", () => {
+    const items = [
+      pm("Pot #?", null, null, 0),
+      pm("Pot #3", null, null, 1),
+    ];
+    const sorted = [...items].sort((a, b) => comparePossiblePlanningOrder(a, b, fixedNow));
+    expect(sorted.map((item) => item.meals.name)).toEqual(["Pot #3", "Pot #?"]);
   });
 });

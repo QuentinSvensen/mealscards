@@ -125,6 +125,7 @@ import {
 } from "@/domain/ninjaCreami/ninjaCreami";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
+import { prioritizeNumberedPotsAmongUnplanned } from "@/domain/planning/possiblePlanningSort";
 
 /** Préférence Macro : grammes/unité (même clé que `INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY`). */
 const INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY = "ingredient_macro_unit_grams";
@@ -1038,9 +1039,11 @@ const Index = () => {
   const getSortedPossible = (cat: string): PossibleMeal[] => {
     const items = getPossibleByCategory(cat);
     const mode = sortModes[cat] || "manual";
-    if (mode === "expiration") return sortByExpiration(items);
-    if (mode === "planning") return sortByPlanning(items);
-    return items;
+    let sorted = items;
+    if (mode === "expiration") sorted = sortByExpiration(items);
+    else if (mode === "planning") sorted = sortByPlanning(items);
+    // Non planifiés : Pot #3 / #6 au-dessus de Pot #?
+    return prioritizeNumberedPotsAmongUnplanned(sorted);
   };
 
   const handleReorderMeals = (cat: string, fromIndex: number, toIndex: number) => {
