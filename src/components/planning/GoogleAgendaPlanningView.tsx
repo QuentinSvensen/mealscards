@@ -45,7 +45,15 @@ import {
   agendaCardHasRoomForTimes,
   guestHidesTimesForThinHostTitle,
 } from "@/domain/planning/agendaOverlapLayout";
-import { assignMealsToMangerEvents, resolveReminderMinutesBefore } from "@/domain/planning/mangerEventAlignment";
+import {
+  assignMealsToGouterEvents,
+  assignMealsToMangerEvents,
+  findGouterPlacement,
+  isGouterEvent,
+  isMangerEvent,
+  resolveReminderMinutesBefore,
+  type MealMangerAlignment,
+} from "@/domain/planning/mangerEventAlignment";
 import { resolveGouterAgendaMode } from "@/domain/planning/gouterAgendaCard";
 import {
   formatGroupedMealAgendaTitle,
@@ -53,7 +61,7 @@ import {
 } from "@/domain/planning/groupedMealAgendaTitle";
 import type { ExtraDaySlot } from "@/domain/planning/extraSlotOps";
 
-/** Alpha du fond des cartes repas hors « Manger » (laisse lire les events dessous). */
+/** Alpha du fond des cartes repas hors Manger/Gouter (laisse lire les events dessous). */
 const MEAL_CARD_BG_ALPHA = 0.36;
 /**
  * Couleur unique des cartes repas agenda (matin / midi / goûter / soir).
@@ -1802,37 +1810,56 @@ export function GoogleAgendaPlanningView({
                       gouterExtras.length,
                     );
                     const nonGouterMeals = dayMeals.filter((pm) => pm.meal_time !== "gouter");
+                    const dayHostEvents = dayLaidOut.map((ev) => ({
+                      id: ev.id,
+                      summary: ev.summary ?? "",
+                      startMin: ev.startMin,
+                      durationMin: ev.durationMin,
+                      reminderMinutesBefore:
+                        ev.reminderMinutesBefore ??
+                        resolveReminderMinutesBefore(ev.reminders) ??
+                        null,
+                      col: ev.col,
+                      colCount: ev.colCount,
+                      clusterId: ev.clusterId,
+                    }));
                     const mangerAlignments = assignMealsToMangerEvents(
                       nonGouterMeals,
-                      dayLaidOut.map((ev) => ({
-                        id: ev.id,
-                        summary: ev.summary ?? "",
-                        startMin: ev.startMin,
-                        durationMin: ev.durationMin,
-                        reminderMinutesBefore:
-                          ev.reminderMinutesBefore ??
-                          resolveReminderMinutesBefore(ev.reminders) ??
-                          null,
-                        col: ev.col,
-                        colCount: ev.colCount,
-                        clusterId: ev.clusterId,
-                      })),
+                      dayHostEvents,
                     );
+                    const gouterAlignments = assignMealsToGouterEvents(
+                      gouterMeals,
+                      dayHostEvents,
+                    );
+                    /** Alignements Manger + Gouter (même géométrie « carte sur event »). */
+                    const hostAlignments = new Map<string, MealMangerAlignment>([
+                      ...mangerAlignments,
+                      ...gouterAlignments,
+                    ]);
+                    /**
+                     * Libellé d’infobulle selon l’événement hôte (Manger / Gouter).
+                     */
+                    const hostOverlayLabel = (alignment: MealMangerAlignment): string => {
+                      const hostEv = dayLaidOut.find((e) => e.id === alignment.eventId);
+                      if (hostEv && isGouterEvent(hostEv.summary)) return "Gouter";
+                      if (hostEv && isMangerEvent(hostEv.summary)) return "Manger";
+                      return "event";
+                    };
 
                     /**
                      * Rend une carte repas (une seule). Extras du créneau → pastilles
                      * uniquement sur la 1re carte du créneau.
                      */
                     const renderMealCard = (pm: PossibleMeal, opts?: { chips?: MealCardChip[] }) => {
-                      const alignment = mangerAlignments.get(pm.id);
+                      const alignment = hostAlignments.get(pm.id);
                       const minutes =
                         alignment?.startMin ??
                         resolveAgendaMinutesForMeal(pm.id, pm.meal_time, agendaTimes);
                       let durationMin =
                         alignment?.durationMin ?? agendaMealCardDurationMin(pm.meal_time);
-                      const onManger = alignment != null;
-                      // Hors « Manger » : matin 30 min, autres créneaux 1 h
-                      if (!onManger) {
+                      const onHost = alignment != null;
+                      // Hors Manger/Gouter : matin 30 min, autres créneaux 1 h
+                      if (!onHost) {
                         durationMin = agendaMealCardDurationMin(pm.meal_time);
                       }
                       const slotKey = pm.meal_time;
@@ -1874,7 +1901,7 @@ export function GoogleAgendaPlanningView({
                       let leftStyle: string | undefined;
                       let widthStyle: string | undefined;
                       let zIndex = MEAL_CARD_Z_INDEX;
-                      if (onManger && alignment) {
+                      if (onHost && alignment) {
                         const clusterBlocks = dayLaidOut.filter(
                           (e) => e.clusterId === alignment.clusterId,
                         );
@@ -1914,7 +1941,7 @@ export function GoogleAgendaPlanningView({
                           className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
-                            onManger ? "" : "left-px right-px"
+                            onHost ? "" : "left-px right-px"
                           } ${
                             draggingKey === payloadKey({ kind: "meal", pmId: pm.id })
                               ? "opacity-35"
@@ -1924,16 +1951,16 @@ export function GoogleAgendaPlanningView({
                             top: pos.top,
                             height: pos.height,
                             zIndex,
-                            ...(onManger && leftStyle != null
+                            ...(onHost && leftStyle != null
                               ? { left: leftStyle, width: widthStyle }
                               : {}),
-                            backgroundColor: onManger
+                            backgroundColor: onHost
                               ? opaqueMealColorMatchingTransparency(mealBg)
                               : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
                           }}
                           title={
-                            onManger
-                              ? `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} (${durationMin} min, sur Manger) — double-clic pour détail`
+                            onHost && alignment
+                              ? `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} (${durationMin} min, sur ${hostOverlayLabel(alignment)}) — double-clic pour détail`
                               : `${pm.meals?.name || "Repas"} · ${formatAgendaClock(minutes)} — double-clic pour détail`
                           }
                         >
@@ -1962,14 +1989,14 @@ export function GoogleAgendaPlanningView({
                       if (!firstPm) return null;
                       if (ordered.length === 1) return renderMealCard(firstPm);
 
-                      const alignment = mangerAlignments.get(firstPm.id);
+                      const alignment = hostAlignments.get(firstPm.id);
                       const minutes =
                         alignment?.startMin ??
                         resolveAgendaMinutesForMeal(firstPm.id, firstPm.meal_time, agendaTimes);
                       let durationMin =
                         alignment?.durationMin ?? agendaMealCardDurationMin(firstPm.meal_time);
-                      const onManger = alignment != null;
-                      if (!onManger) durationMin = agendaMealCardDurationMin(firstPm.meal_time);
+                      const onHost = alignment != null;
+                      if (!onHost) durationMin = agendaMealCardDurationMin(firstPm.meal_time);
 
                       const slotKey = firstPm.meal_time;
                       const mealsOfSlot = slotKey
@@ -2005,7 +2032,7 @@ export function GoogleAgendaPlanningView({
                       let leftStyle: string | undefined;
                       let widthStyle: string | undefined;
                       let zIndex = MEAL_CARD_Z_INDEX;
-                      if (onManger && alignment) {
+                      if (onHost && alignment) {
                         const clusterBlocks = dayLaidOut.filter(
                           (e) => e.clusterId === alignment.clusterId,
                         );
@@ -2049,7 +2076,7 @@ export function GoogleAgendaPlanningView({
                           className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
-                            onManger ? "" : "left-px right-px"
+                            onHost ? "" : "left-px right-px"
                           } ${
                             draggingKey === payloadKey({ kind: "meal", pmId: firstPm.id })
                               ? "opacity-35"
@@ -2059,14 +2086,18 @@ export function GoogleAgendaPlanningView({
                             top: pos.top,
                             height: pos.height,
                             zIndex,
-                            ...(onManger && leftStyle != null
+                            ...(onHost && leftStyle != null
                               ? { left: leftStyle, width: widthStyle }
                               : {}),
-                            backgroundColor: onManger
+                            backgroundColor: onHost
                               ? opaqueMealColorMatchingTransparency(mealBg)
                               : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
                           }}
-                          title={`${combinedTitle} · ${formatAgendaClock(minutes)} — double-clic pour détail`}
+                          title={
+                            onHost && alignment
+                              ? `${combinedTitle} · ${formatAgendaClock(minutes)} (${durationMin} min, sur ${hostOverlayLabel(alignment)}) — double-clic pour détail`
+                              : `${combinedTitle} · ${formatAgendaClock(minutes)} — double-clic pour détail`
+                          }
                         >
                           <AgendaMealCardBody
                             title={combinedTitle}
@@ -2105,13 +2136,26 @@ export function GoogleAgendaPlanningView({
 
                     /** Carte synthétique « Goûter » (extras seuls, sans repas). */
                     const renderGouterExtrasOnlyCard = () => {
-                      const minutes = resolveAgendaMinutesForExtra(
-                        gouterExtras[0]?.occurrenceKey ?? "gouter",
-                        "gouter",
-                        extraAgendaTimes,
-                      );
+                      const gouterHost = findGouterPlacement(dayHostEvents);
+                      // Gouter : bornes exactes de l’event (pas d’avance rappel, contrairement à Manger)
+                      const gouterHostAlign = gouterHost
+                        ? {
+                            startMin: gouterHost.startMin,
+                            durationMin: Math.max(5, gouterHost.durationMin),
+                          }
+                        : null;
+                      const minutes =
+                        gouterHostAlign?.startMin ??
+                        resolveAgendaMinutesForExtra(
+                          gouterExtras[0]?.occurrenceKey ?? "gouter",
+                          "gouter",
+                          extraAgendaTimes,
+                        );
                       const chips = groupExtrasAsChips(gouterExtras);
-                      const durationMin = AGENDA_EVENT_DURATION_MIN;
+                      let durationMin =
+                        gouterHostAlign?.durationMin ?? AGENDA_EVENT_DURATION_MIN;
+                      const onHost = gouterHost != null;
+                      if (!onHost) durationMin = AGENDA_EVENT_DURATION_MIN;
                       const mealPast = isAgendaEventPast(
                         day.iso,
                         todayIsoStr,
@@ -2126,6 +2170,27 @@ export function GoogleAgendaPlanningView({
                         : AGENDA_MEAL_CARD_COLOR;
                       const pos = blockStyle(minutes, durationMin, hourHeightPx);
                       const occurrenceKeys = gouterExtras.map((ex) => ex.occurrenceKey);
+                      let leftStyle: string | undefined;
+                      let widthStyle: string | undefined;
+                      let zIndex = MEAL_CARD_Z_INDEX;
+                      if (onHost && gouterHost) {
+                        const clusterBlocks = dayLaidOut.filter(
+                          (e) => e.clusterId === (gouterHost.clusterId ?? 0),
+                        );
+                        const hostEv = dayLaidOut.find((e) => e.id === gouterHost.id);
+                        if (hostEv) {
+                          const geom = agendaOverlapGeometryForBlock(
+                            hostEv,
+                            clusterBlocks,
+                            hourHeightPx,
+                            dayColumnWidthPx,
+                          );
+                          const edgePx = isCompactAgenda ? 1 : 2;
+                          leftStyle = `calc(${geom.leftPct}% + 0px)`;
+                          widthStyle = `calc(${geom.widthPct}% - ${edgePx}px)`;
+                          zIndex = MEAL_CARD_Z_INDEX + geom.zIndex;
+                        }
+                      }
 
                       return (
                         <div
@@ -2137,9 +2202,11 @@ export function GoogleAgendaPlanningView({
                               startMinutes: minutes,
                             })
                           }
-                          className={`absolute left-px right-px flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
+                          className={`absolute flex flex-col rounded-md cursor-grab active:cursor-grabbing overflow-hidden select-none ${
                             isCompactAgenda ? "px-px py-px" : "px-0.5 py-px"
                           } ${mealPast ? MEAL_CARD_BORDER_PAST : MEAL_CARD_BORDER_UPCOMING} ${
+                            onHost ? "" : "left-px right-px"
+                          } ${
                             draggingKey ===
                             payloadKey({ kind: "gouter-extras", occurrenceKeys })
                               ? "opacity-35"
@@ -2148,10 +2215,19 @@ export function GoogleAgendaPlanningView({
                           style={{
                             top: pos.top,
                             height: pos.height,
-                            zIndex: MEAL_CARD_Z_INDEX,
-                            backgroundColor: withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
+                            zIndex,
+                            ...(onHost && leftStyle != null
+                              ? { left: leftStyle, width: widthStyle }
+                              : {}),
+                            backgroundColor: onHost
+                              ? opaqueMealColorMatchingTransparency(mealBg)
+                              : withCssAlpha(mealBg, MEAL_CARD_BG_ALPHA),
                           }}
-                          title={`⭐ Goûter · ${formatAgendaClock(minutes)}`}
+                          title={
+                            onHost
+                              ? `⭐ Goûter · ${formatAgendaClock(minutes)} (${durationMin} min, sur Gouter)`
+                              : `⭐ Goûter · ${formatAgendaClock(minutes)}`
+                          }
                         >
                           <AgendaMealCardBody
                             title="⭐ Goûter"
