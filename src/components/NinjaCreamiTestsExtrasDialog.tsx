@@ -17,6 +17,7 @@ import {
 import {
   catalogLineHasContent,
   isNinjaCreamiLineSelectable,
+  previewNinjaCreamiLineMacros,
   sumSelectedNinjaCreamiMacros,
   type NinjaCreamiBaseGroup,
   type NinjaCreamiCatalogLine,
@@ -206,34 +207,11 @@ export function NinjaCreamiTestsExtrasDialog({
   };
 
   /**
-   * Affiche les macros catalogue au 100 g (pas scaled par les grammes saisis).
-   * Les fibres à 0 s’affichent comme « 0 » (pas « — »).
-   */
-  const lineMacroPreview = (line: NinjaCreamiCatalogLine) => {
-    const fmtOrDash = (raw: string) => {
-      const t = raw.trim();
-      if (!t) return "—";
-      return t;
-    };
-    const fmtFiber = (raw: string) => {
-      const t = raw.trim();
-      if (!t) return "0";
-      const n = parseFloat(t.replace(",", "."));
-      if (Number.isFinite(n) && n === 0) return "0";
-      return t;
-    };
-    return {
-      cal: fmtOrDash(line.cal),
-      pro: fmtOrDash(line.pro),
-      fiber: fmtFiber(line.fiber),
-    };
-  };
-
-  /**
    * Rend une ligne sélectionnable avec champ grammes.
    */
   const renderLine = (line: NinjaCreamiCatalogLine) => {
-    const macros = lineMacroPreview(line);
+    const editedQty = qtyById[line.id] ?? line.qty;
+    const macros = previewNinjaCreamiLineMacros(line, editedQty);
     const selected = selectedIds.has(line.id);
     return (
       <div

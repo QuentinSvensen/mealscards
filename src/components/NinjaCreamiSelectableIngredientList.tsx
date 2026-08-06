@@ -121,6 +121,14 @@ function autofillEmptyMacrosExact(
 }
 
 /**
+ * Indique si le dataTransfer expose un type MIME (comparaison insensible à la casse).
+ */
+function dataTransferHasType(dt: DataTransfer, mime: string): boolean {
+  const target = mime.toLowerCase();
+  return Array.from(dt.types).some((t) => String(t).toLowerCase() === target);
+}
+
+/**
  * Parse le payload DnD inter-sous-catégories.
  */
 function parseLineDragPayload(raw: string): NinjaCreamiLineDragPayload | null {
@@ -217,9 +225,18 @@ export function NinjaCreamiSelectableIngredientList({
   };
 
   // Resync depuis les prefs seulement hors édition (évite le reset curseur).
-  // Ignore un passage à vide si le brouillon a encore des lignes (anti-wipe).
+  // Ignore un passage à vide si le brouillon a encore des lignes (anti-wipe),
+  // sauf si des ids ont quitté le parent (déplacement vers une autre liste).
   useEffect(() => {
     if (!focusedRef.current && dragIdx === null) {
+      const incomingIds = new Set(lines.map((l) => l.id));
+      const draftLostLines = draftRef.current.filter(
+        (l) => isLineMeaningful(l) && !incomingIds.has(l.id),
+      );
+      if (draftLostLines.length > 0) {
+        setDraftLines(ensureTrailingEmpty(lines));
+        return;
+      }
       const incomingHas = lines.some(isLineMeaningful);
       const draftHas = draftRef.current.some(isLineMeaningful);
       if (!incomingHas && draftHas) {
@@ -343,11 +360,10 @@ export function NinjaCreamiSelectableIngredientList({
     setDragOverIdx(idx);
   };
 
-  /** Survole la zone groupe (accueil depuis une autre sous-cat). */
+  /** Survole la zone groupe (accueil depuis une autre sous-cat / Extras). */
   const handleGroupDragOver = (e: React.DragEvent) => {
     if (!onExternalLineDrop) return;
-    const types = Array.from(e.dataTransfer.types);
-    if (!types.includes(NINJA_CREAMI_LINE_DND_MIME)) return;
+    if (!dataTransferHasType(e.dataTransfer, NINJA_CREAMI_LINE_DND_MIME)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setGroupDropActive(true);

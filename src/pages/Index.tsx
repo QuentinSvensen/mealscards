@@ -100,6 +100,7 @@ import {
   NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY,
   NINJA_CREAMI_MEAL_IDS_KEY,
   NINJA_CREAMI_TEST_PM_IDS_KEY,
+  NINJA_CREAMI_TESTED_SORT_KEY,
   addNinjaCreamiMealId,
   addNinjaCreamiTestPmId,
   applyNinjaCreamiAuChoixDisplayNames,
@@ -215,11 +216,6 @@ const CATEGORIES: { value: MealCategory; label: string; emoji: string; }[] = [
   { value: "dessert", label: "Desserts", emoji: "🍰" },
   { value: "bonus", label: "Bonus", emoji: "⭐" }];
 
-/** Récupère les calories affichées pour un repas (via le helper partagé) */
-function getDisplayedMealCalories(meal: Meal): number {
-  return getDisplayedCalories(meal) ?? 0;
-}
-
 /** Valide le nom d'un repas avant création */
 function validateMealName(name: string): string | null {
   const trimmed = name.trim();
@@ -230,8 +226,7 @@ function validateMealName(name: string): string | null {
 
 import type { SortMode, MasterSortMode, AvailableSortMode, UnParUnSortMode } from "@/hooks/useSortModes";
 import {
-  compareMealsByNutritionNote,
-  compareMealsBySatiety,
+  sortMealsByMasterMode,
 } from "@/lib/mealListSort";
 type MainPage = "aliments" | "repas" | "macros" | "planning" | "courses";
 
@@ -1075,45 +1070,19 @@ const Index = () => {
     }
     const mode = masterSortModes[cat] || "manual";
     const asc = sortDirections[`master-${cat}`] !== false;
-    if (mode === "calories") {
-      return [...items].sort((a, b) => {
-        const ca = getDisplayedMealCalories(a);
-        const cb = getDisplayedMealCalories(b);
-        return asc ? ca - cb : cb - ca;
-      });
-    }
-    if (mode === "protein") {
-      return [...items].sort((a, b) => {
-        const pa = parseFloat((a.protein || "0").replace(/[^0-9.]/g, "")) || 0;
-        const pb = parseFloat((b.protein || "0").replace(/[^0-9.]/g, "")) || 0;
-        return asc ? pa - pb : pb - pa;
-      });
-    }
-    if (mode === "note") {
-      /** Aligné MealCard : note basée sur les ingrédients encore en stock. */
-      const isIngredientAvailable = (name: string) => {
-        const key = findStockKey(stockMap, name);
-        if (!key) return false;
-        const stock = stockMap.get(key);
-        if (!stock) return false;
-        return stock.infinite || stock.grams > 0 || stock.count > 0;
-      };
-      return [...items].sort((a, b) => compareMealsByNutritionNote(a, b, asc, isIngredientAvailable));
-    }
-    if (mode === "satiety") {
-      return [...items].sort((a, b) =>
-        compareMealsBySatiety(a, b, asc, ingredientMacroAutofillSources),
-      );
-    }
-    if (mode === "favorites") return [...items].sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
-    if (mode === "ingredients") {
-      return [...items].sort((a, b) => {
-        const aCount = a.ingredients ? a.ingredients.split(/[,\n]+/).filter(Boolean).length : 0;
-        const bCount = b.ingredients ? b.ingredients.split(/[,\n]+/).filter(Boolean).length : 0;
-        return aCount - bCount;
-      });
-    }
-    return items;
+    /** Aligné MealCard : note basée sur les ingrédients encore en stock. */
+    const isIngredientAvailable = (name: string) => {
+      const key = findStockKey(stockMap, name);
+      if (!key) return false;
+      const stock = stockMap.get(key);
+      if (!stock) return false;
+      return stock.infinite || stock.grams > 0 || stock.count > 0;
+    };
+    return sortMealsByMasterMode(items, mode, {
+      ascending: asc,
+      isIngredientAvailable,
+      satietySources: ingredientMacroAutofillSources,
+    });
   };
 
   const handleReorderPossible = (cat: string, fromIndex: number, toIndex: number) => {
@@ -1471,6 +1440,12 @@ const Index = () => {
                               ),
                               ninjaCreamiMealDisplayNames,
                             )}
+                            testedSortMode={masterSortModes[NINJA_CREAMI_TESTED_SORT_KEY] || "manual"}
+                            testedSortAsc={sortDirections[`master-${NINJA_CREAMI_TESTED_SORT_KEY}`] !== false}
+                            onToggleTestedSort={() => toggleMasterSort(NINJA_CREAMI_TESTED_SORT_KEY)}
+                            onToggleTestedSortDirection={() =>
+                              toggleSortDirection(`master-${NINJA_CREAMI_TESTED_SORT_KEY}`)
+                            }
                             foodItems={foodItems}
                             baseGroups={ninjaCreamiBaseGroups}
                             extrasLines={ninjaCreamiExtrasLines}

@@ -3,7 +3,22 @@
  * Recettes testées (comme Tous) + encadré Tests (Base / Extras → Possible).
  */
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Flame, Plus, Sparkles, Wheat } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  Drumstick,
+  Flame,
+  Hash,
+  List,
+  Plus,
+  Scale,
+  Sparkles,
+  Star,
+  Wheat,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,6 +38,7 @@ import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientM
 import {
   buildStockMap,
   buildFoodItemIndex,
+  findStockKey,
   getMissingIngredients,
   analyzeMealIngredients,
   formatExpirationLabel,
@@ -32,12 +48,22 @@ import {
   flattenNinjaCreamiBaseGroups,
   formatNinjaCreamiTotalsForMeal,
   isNinjaCreamiLineSelectable,
+  moveNinjaCreamiCatalogLine,
+  NINJA_CREAMI_EXTRAS_GROUP_ID,
   serializeSelectedNinjaCreamiIngredients,
   sumSelectedNinjaCreamiMacros,
   type NinjaCreamiBaseGroup,
   type NinjaCreamiCatalogLine,
+  type NinjaCreamiLineDragPayload,
 } from "@/domain/ninjaCreami/ninjaCreami";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
+import {
+  sortMealsByMasterMode,
+  type MasterSortMode,
+} from "@/lib/mealListSort";
+
+/** Clé de préférence pour le tri « Recettes testées » (même cycle que Tous). */
+export { NINJA_CREAMI_TESTED_SORT_KEY } from "@/domain/ninjaCreami/ninjaCreami";
 
 export interface NinjaCreamiSectionProps {
   collapsed: boolean;
@@ -56,6 +82,14 @@ export interface NinjaCreamiSectionProps {
   onExtrasLinesChange: (lines: NinjaCreamiCatalogLine[]) => void;
   onIngredientNameCommit: (line: NinjaCreamiCatalogLine) => void;
   ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
+  /** Mode de tri (mêmes options que « Tous »). */
+  testedSortMode?: MasterSortMode;
+  /** Sens du tri numérique (calories / protéines / note / satiété). */
+  testedSortAsc?: boolean;
+  /** Cycle le mode de tri Recettes testées. */
+  onToggleTestedSort?: () => void;
+  /** Inverse croissant / décroissant. */
+  onToggleTestedSortDirection?: () => void;
   onAddTestedRecipe: () => void;
   onMoveToPossible: (id: string) => void;
   onRename: (id: string, name: string) => void;
@@ -98,6 +132,10 @@ export function NinjaCreamiSection({
   onExtrasLinesChange,
   onIngredientNameCommit,
   ingredientMacroAutofillSources,
+  testedSortMode = "manual",
+  testedSortAsc = true,
+  onToggleTestedSort,
+  onToggleTestedSortDirection,
   onAddTestedRecipe,
   onMoveToPossible,
   onRename,
@@ -141,6 +179,63 @@ export function NinjaCreamiSection({
     return out;
   }, [foodItems, ingredientMacroAutofillSources]);
 
+  /**
+   * Indique si un ingrédient a encore du stock (pour le tri par note).
+   */
+  const isIngredientAvailable = (name: string) => {
+    const key = findStockKey(stockMap, name);
+    if (!key) return false;
+    const stock = stockMap.get(key);
+    if (!stock) return false;
+    return stock.infinite || stock.grams > 0 || stock.count > 0;
+  };
+
+  /** Recettes testées triées comme « Tous ». */
+  const sortedTestedMeals = useMemo(
+    () =>
+      sortMealsByMasterMode(testedMeals, testedSortMode, {
+        ascending: testedSortAsc,
+        isIngredientAvailable,
+        satietySources: ingredientMacroAutofillSources,
+      }),
+    // isIngredientAvailable dépend de stockMap ; on reclasse quand stock / mode changent.
+    [testedMeals, testedSortMode, testedSortAsc, stockMap, ingredientMacroAutofillSources],
+  );
+
+  const SortIcon =
+    testedSortMode === "calories"
+      ? Flame
+      : testedSortMode === "protein"
+        ? Drumstick
+        : testedSortMode === "note"
+          ? Hash
+          : testedSortMode === "satiety"
+            ? Scale
+            : testedSortMode === "favorites"
+              ? Star
+              : testedSortMode === "ingredients"
+                ? List
+                : ArrowUpDown;
+  const sortLabel =
+    testedSortMode === "calories"
+      ? "Calories"
+      : testedSortMode === "protein"
+        ? "Protéines"
+        : testedSortMode === "note"
+          ? "Note"
+          : testedSortMode === "satiety"
+            ? "Satiété"
+            : testedSortMode === "favorites"
+              ? "Favoris"
+              : testedSortMode === "ingredients"
+                ? "Ingrédients"
+                : "Manuel";
+  const isNumericSort =
+    testedSortMode === "calories" ||
+    testedSortMode === "protein" ||
+    testedSortMode === "note" ||
+    testedSortMode === "satiety";
+
   const baseLines = useMemo(() => flattenNinjaCreamiBaseGroups(baseGroups), [baseGroups]);
 
   /** Totaux à partir des macros saisies / autofill exact au blur (pas de fuzzy). */
@@ -156,6 +251,26 @@ export function NinjaCreamiSection({
     }
     return n;
   }, [baseLines, extrasLines, selectedIds]);
+
+  /**
+   * Déplace une ligne Tests entre sous-catégories Base et/ou Extras.
+   */
+  const handleMoveCatalogLine = (
+    toGroupId: string,
+    payload: NinjaCreamiLineDragPayload,
+    targetIdx: number,
+  ) => {
+    const result = moveNinjaCreamiCatalogLine(
+      baseGroups,
+      extrasLines,
+      payload.fromGroupId,
+      payload.line.id,
+      toGroupId,
+      targetIdx,
+    );
+    onBaseGroupsChange(result.baseGroups);
+    onExtrasLinesChange(result.extrasLines);
+  };
 
   /** Ouvre le dialog de nom pour Créer. */
   const openCreateDialog = () => {
@@ -211,23 +326,56 @@ export function NinjaCreamiSection({
             onToggleCollapse={onToggleTestedCollapse}
             className="py-3 px-2"
             headerActions={
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0"
-                title="Nouvelle recette testée"
-                onClick={onAddTestedRecipe}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
+              <>
+                {onToggleTestedSort && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={onToggleTestedSort}
+                    className="text-[10px] gap-0.5 h-6 px-1.5"
+                    title="Trier les recettes testées"
+                  >
+                    <SortIcon
+                      className={`h-3 w-3 ${
+                        testedSortMode === "favorites" ? "text-yellow-400 fill-yellow-400" : ""
+                      }`}
+                    />
+                    <span className="hidden sm:inline">{sortLabel}</span>
+                  </Button>
+                )}
+                {isNumericSort && onToggleTestedSortDirection && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={onToggleTestedSortDirection}
+                    className="h-6 w-6 p-0"
+                    title={testedSortAsc ? "Croissant" : "Décroissant"}
+                  >
+                    {testedSortAsc ? (
+                      <ArrowUp className="h-3 w-3" />
+                    ) : (
+                      <ArrowDown className="h-3 w-3" />
+                    )}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  title="Nouvelle recette testée"
+                  onClick={onAddTestedRecipe}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </>
             }
           >
-            {testedMeals.length === 0 && (
+            {sortedTestedMeals.length === 0 && (
               <p className="text-muted-foreground text-sm text-center py-4 italic">
                 Aucune recette testée
               </p>
             )}
-            {testedMeals.map((meal) => {
+            {sortedTestedMeals.map((meal) => {
               const missingIngs = getMissingIngredients(meal, stockMap);
               const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
               const expLabel = formatExpirationLabel(analysis.earliestExpiration);
@@ -307,9 +455,11 @@ export function NinjaCreamiSection({
                   onIngredientNameCommit={onIngredientNameCommit}
                   ingredientMacroSources={ingredientMacroAutofillSources}
                   ingredientSuggestions={ingredientSuggestions}
+                  onMoveLineToGroup={handleMoveCatalogLine}
                 />
                 <NinjaCreamiSelectableIngredientList
                   title="Extras"
+                  groupId={NINJA_CREAMI_EXTRAS_GROUP_ID}
                   lines={extrasLines}
                   selectedIds={selectedIds}
                   onLinesChange={onExtrasLinesChange}
@@ -317,6 +467,9 @@ export function NinjaCreamiSection({
                   onIngredientNameCommit={onIngredientNameCommit}
                   ingredientMacroSources={ingredientMacroAutofillSources}
                   ingredientSuggestions={ingredientSuggestions}
+                  onExternalLineDrop={(payload, targetIdx) =>
+                    handleMoveCatalogLine(NINJA_CREAMI_EXTRAS_GROUP_ID, payload, targetIdx)
+                  }
                   frameTone="violet"
                 />
 

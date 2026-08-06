@@ -9,6 +9,8 @@ import {
   formatNinjaCreamiTotalsForMeal,
   isNinjaCreamiStockExemptPossibleMeal,
   moveLineBetweenNinjaCreamiBaseGroups,
+  moveNinjaCreamiCatalogLine,
+  NINJA_CREAMI_EXTRAS_GROUP_ID,
   normalizeNinjaCreamiBaseGroups,
   normalizeNinjaCreamiCatalogLines,
   removeNinjaCreamiMealDisplayName,
@@ -19,6 +21,7 @@ import {
   serializeSelectedNinjaCreamiIngredients,
   setNinjaCreamiMealDisplayName,
   sumSelectedNinjaCreamiMacros,
+  previewNinjaCreamiLineMacros,
   upsertMacroLibraryFromNinjaLineName,
   type NinjaCreamiCatalogLine,
 } from "./ninjaCreami";
@@ -74,6 +77,57 @@ describe("sumSelectedNinjaCreamiMacros", () => {
       calories: 76.5,
       protein: 7.4,
       fiber: 0,
+    });
+  });
+});
+
+describe("previewNinjaCreamiLineMacros", () => {
+  it("affiche les macros scaled quand des grammes sont saisis", () => {
+    const l = line({
+      id: "1",
+      name: "Kinder bueno",
+      qty: "21.3",
+      cal: "572",
+      pro: "8.6",
+      fiber: "0",
+    });
+    expect(previewNinjaCreamiLineMacros(l, "21.3")).toEqual({
+      cal: "121.8",
+      pro: "1.8",
+      fiber: "0",
+    });
+  });
+
+  it("réaffiche les macros catalogue si les grammes sont vidés", () => {
+    const l = line({
+      id: "1",
+      name: "Kinder bueno",
+      qty: "21.3",
+      cal: "572",
+      pro: "8.6",
+      fiber: "0",
+    });
+    expect(previewNinjaCreamiLineMacros(l, "")).toEqual({
+      cal: "572",
+      pro: "8.6",
+      fiber: "0",
+    });
+  });
+
+  it("scale par quantité (count) si pas de grammes", () => {
+    const l = line({
+      id: "1",
+      name: "Daim",
+      qty: "",
+      count: "2",
+      cal: "50",
+      pro: "1",
+      fiber: "0.5",
+    });
+    expect(previewNinjaCreamiLineMacros(l)).toEqual({
+      cal: "100",
+      pro: "2",
+      fiber: "1",
     });
   });
 });
@@ -320,6 +374,57 @@ describe("moveLineBetweenNinjaCreamiBaseGroups", () => {
     const next = moveLineBetweenNinjaCreamiBaseGroups(groups, "a", "l1", "b", 0);
     expect(next.find((g) => g.id === "a")!.lines.some((l) => l.id === "l1")).toBe(false);
     expect(next.find((g) => g.id === "b")!.lines[0].id).toBe("l1");
+  });
+});
+
+describe("moveNinjaCreamiCatalogLine", () => {
+  it("déplace une ligne Extras vers une sous-catégorie Base", () => {
+    const groups = [
+      {
+        id: "a",
+        name: "A",
+        lines: [createEmptyNinjaCreamiCatalogLine()],
+      },
+    ];
+    const extras = [
+      line({ id: "fr", name: "Framboise", cal: "46", pro: "1,4", fiber: "6,7" }),
+      createEmptyNinjaCreamiCatalogLine(),
+    ];
+    const result = moveNinjaCreamiCatalogLine(
+      groups,
+      extras,
+      NINJA_CREAMI_EXTRAS_GROUP_ID,
+      "fr",
+      "a",
+      0,
+    );
+    expect(result.extrasLines.some((l) => l.id === "fr")).toBe(false);
+    expect(result.baseGroups[0].lines[0].id).toBe("fr");
+    expect(result.baseGroups[0].lines[0].name).toBe("Framboise");
+  });
+
+  it("déplace une ligne Base vers Extras", () => {
+    const groups = [
+      {
+        id: "a",
+        name: "A",
+        lines: [
+          line({ id: "fr", name: "Framboise" }),
+          createEmptyNinjaCreamiCatalogLine(),
+        ],
+      },
+    ];
+    const extras = [createEmptyNinjaCreamiCatalogLine()];
+    const result = moveNinjaCreamiCatalogLine(
+      groups,
+      extras,
+      "a",
+      "fr",
+      NINJA_CREAMI_EXTRAS_GROUP_ID,
+      0,
+    );
+    expect(result.baseGroups[0].lines.some((l) => l.id === "fr")).toBe(false);
+    expect(result.extrasLines[0].id).toBe("fr");
   });
 });
 

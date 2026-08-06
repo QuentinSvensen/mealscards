@@ -5,6 +5,7 @@ import {
   compareNullableSortValues,
   cycleAvailableSortMode,
   cycleMasterSortMode,
+  sortMealsByMasterMode,
 } from "@/lib/mealListSort";
 import type { Meal } from "@/hooks/useMeals";
 
@@ -128,5 +129,41 @@ describe("mealListSort — note / satiété repas", () => {
     expect(compareMealsBySatiety(low, high, true)).toBeLessThan(0);
     expect(compareMealsBySatiety(low, high, false)).toBeGreaterThan(0);
     expect(compareMealsBySatiety(missing, high, true)).toBeGreaterThan(0);
+  });
+});
+
+describe("mealListSort — sortMealsByMasterMode", () => {
+  it("trie par calories croissant / décroissant", () => {
+    const meals = [
+      makeMeal({ id: "1", name: "B", calories: "300" }),
+      makeMeal({ id: "2", name: "A", calories: "100" }),
+      makeMeal({ id: "3", name: "C", calories: "200" }),
+    ];
+    expect(sortMealsByMasterMode(meals, "calories", { ascending: true }).map((m) => m.id)).toEqual([
+      "2",
+      "3",
+      "1",
+    ]);
+    expect(sortMealsByMasterMode(meals, "calories", { ascending: false }).map((m) => m.id)).toEqual([
+      "1",
+      "3",
+      "2",
+    ]);
+  });
+
+  it("place les favoris en tête", () => {
+    const meals = [
+      makeMeal({ id: "1", name: "A", is_favorite: false }),
+      makeMeal({ id: "2", name: "B", is_favorite: true }),
+    ];
+    expect(sortMealsByMasterMode(meals, "favorites").map((m) => m.id)).toEqual(["2", "1"]);
+  });
+
+  it("laisse l’ordre inchangé en mode manuel", () => {
+    const meals = [
+      makeMeal({ id: "1", name: "A" }),
+      makeMeal({ id: "2", name: "B" }),
+    ];
+    expect(sortMealsByMasterMode(meals, "manual")).toBe(meals);
   });
 });

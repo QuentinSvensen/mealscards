@@ -10,7 +10,6 @@ import { NinjaCreamiSelectableIngredientList } from "@/components/NinjaCreamiSel
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   addNinjaCreamiBaseGroup,
-  moveLineBetweenNinjaCreamiBaseGroups,
   NINJA_CREAMI_GROUP_DND_MIME,
   NINJA_CREAMI_LINE_DND_MIME,
   removeNinjaCreamiBaseGroup,
@@ -31,6 +30,14 @@ export interface NinjaCreamiBaseGroupsEditorProps {
   ingredientMacroSources?: IngredientMacroAutofillSources;
   /** Noms pour l’autocomplete des lignes Base. */
   ingredientSuggestions?: string[];
+  /**
+   * Déplacement d’une ligne vers une sous-catégorie (depuis une autre sous-cat ou Extras).
+   */
+  onMoveLineToGroup: (
+    toGroupId: string,
+    payload: NinjaCreamiLineDragPayload,
+    targetIdx: number,
+  ) => void;
 }
 
 /**
@@ -44,6 +51,7 @@ export function NinjaCreamiBaseGroupsEditor({
   onIngredientNameCommit,
   ingredientMacroSources,
   ingredientSuggestions,
+  onMoveLineToGroup,
 }: NinjaCreamiBaseGroupsEditorProps) {
   const [dragGroupIdx, setDragGroupIdx] = useState<number | null>(null);
   const [dragOverGroupIdx, setDragOverGroupIdx] = useState<number | null>(null);
@@ -54,21 +62,13 @@ export function NinjaCreamiBaseGroupsEditor({
     onGroupsChange(addNinjaCreamiBaseGroup(groups));
   };
 
-  /** Reçoit une ligne déposée depuis une autre sous-catégorie. */
+  /** Reçoit une ligne déposée depuis une autre sous-catégorie ou Extras. */
   const handleExternalDrop = (
     toGroupId: string,
     payload: NinjaCreamiLineDragPayload,
     targetIdx: number,
   ) => {
-    onGroupsChange(
-      moveLineBetweenNinjaCreamiBaseGroups(
-        groups,
-        payload.fromGroupId,
-        payload.line.id,
-        toGroupId,
-        targetIdx,
-      ),
-    );
+    onMoveLineToGroup(toGroupId, payload, targetIdx);
   };
 
   /**
@@ -86,12 +86,15 @@ export function NinjaCreamiBaseGroupsEditor({
 
   /** Survole une sous-catégorie cible (réordonnancement des groupes). */
   const handleGroupDragOver = (e: React.DragEvent, idx: number) => {
-    const types = Array.from(e.dataTransfer.types);
+    const types = Array.from(e.dataTransfer.types).map((t) => String(t).toLowerCase());
     // Laisser le DnD d’ingrédients à la liste interne.
-    if (types.includes(NINJA_CREAMI_LINE_DND_MIME) && !types.includes(NINJA_CREAMI_GROUP_DND_MIME)) {
+    if (
+      types.includes(NINJA_CREAMI_LINE_DND_MIME.toLowerCase()) &&
+      !types.includes(NINJA_CREAMI_GROUP_DND_MIME.toLowerCase())
+    ) {
       return;
     }
-    if (!types.includes(NINJA_CREAMI_GROUP_DND_MIME) && dragGroupIdxRef.current === null) {
+    if (!types.includes(NINJA_CREAMI_GROUP_DND_MIME.toLowerCase()) && dragGroupIdxRef.current === null) {
       return;
     }
     e.preventDefault();
@@ -101,8 +104,11 @@ export function NinjaCreamiBaseGroupsEditor({
 
   /** Dépose une sous-catégorie pour changer son ordre. */
   const handleGroupDrop = (e: React.DragEvent, toIndex: number) => {
-    const types = Array.from(e.dataTransfer.types);
-    if (types.includes(NINJA_CREAMI_LINE_DND_MIME) && !types.includes(NINJA_CREAMI_GROUP_DND_MIME)) {
+    const types = Array.from(e.dataTransfer.types).map((t) => String(t).toLowerCase());
+    if (
+      types.includes(NINJA_CREAMI_LINE_DND_MIME.toLowerCase()) &&
+      !types.includes(NINJA_CREAMI_GROUP_DND_MIME.toLowerCase())
+    ) {
       return;
     }
     e.preventDefault();

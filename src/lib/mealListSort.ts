@@ -5,6 +5,7 @@
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import { getMealNutritionScore } from "@/lib/nutritionScore";
 import { getMealSatietyIndex } from "@/lib/satietyIndex";
+import { getDisplayedCalories } from "@/lib/stock/displayedMacros";
 import type { Meal } from "@/hooks/useMeals";
 
 /** Modes de tri catalogue Master (Tous). */
@@ -25,6 +26,16 @@ export type AvailableSortMode =
   | "note"
   | "satiety"
   | "expiration";
+
+/** Options pour le tri catalogue Master. */
+export type SortMealsByMasterModeOptions = {
+  /** true = croissant (défaut), false = décroissant. */
+  ascending?: boolean;
+  /** Filtre stock pour la note (aligné MealCard). */
+  isIngredientAvailable?: (name: string) => boolean;
+  /** Sources macros pour l’indice de satiété. */
+  satietySources?: IngredientMacroAutofillSources;
+};
 
 /**
  * Compare deux valeurs numériques optionnelles pour un tri croissant/décroissant.
@@ -84,6 +95,68 @@ export function compareMealsBySatiety(
     a.name ?? "",
     b.name ?? "",
   );
+}
+
+/**
+ * Parse les protéines d’un repas (nombre ; 0 si invalide).
+ */
+function parseMealProtein(meal: Meal): number {
+  return parseFloat((meal.protein || "0").replace(/[^0-9.]/g, "")) || 0;
+}
+
+/**
+ * Compte les groupes d’ingrédients d’un repas (séparateurs virgule / saut de ligne).
+ */
+function countMealIngredientGroups(meal: Meal): number {
+  return meal.ingredients ? meal.ingredients.split(/[,\n]+/).filter(Boolean).length : 0;
+}
+
+/**
+ * Trie une liste de repas catalogue comme la liste « Tous »
+ * (manuel, calories, protéines, note, satiété, favoris, ingrédients).
+ */
+export function sortMealsByMasterMode(
+  meals: Meal[],
+  mode: MasterSortMode,
+  options: SortMealsByMasterModeOptions = {},
+): Meal[] {
+  if (mode === "manual") return meals;
+  const ascending = options.ascending !== false;
+  const items = [...meals];
+
+  if (mode === "calories") {
+    return items.sort((a, b) => {
+      const ca = getDisplayedCalories(a) ?? 0;
+      const cb = getDisplayedCalories(b) ?? 0;
+      return ascending ? ca - cb : cb - ca;
+    });
+  }
+  if (mode === "protein") {
+    return items.sort((a, b) => {
+      const pa = parseMealProtein(a);
+      const pb = parseMealProtein(b);
+      return ascending ? pa - pb : pb - pa;
+    });
+  }
+  if (mode === "note") {
+    return items.sort((a, b) =>
+      compareMealsByNutritionNote(a, b, ascending, options.isIngredientAvailable),
+    );
+  }
+  if (mode === "satiety") {
+    return items.sort((a, b) =>
+      compareMealsBySatiety(a, b, ascending, options.satietySources),
+    );
+  }
+  if (mode === "favorites") {
+    return items.sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0));
+  }
+  if (mode === "ingredients") {
+    return items.sort(
+      (a, b) => countMealIngredientGroups(a) - countMealIngredientGroups(b),
+    );
+  }
+  return meals;
 }
 
 /**

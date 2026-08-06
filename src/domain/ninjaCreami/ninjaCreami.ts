@@ -21,6 +21,9 @@ export const NINJA_CREAMI_BASE_GROUPS_KEY = "ninja_creami_base_groups";
 export const NINJA_CREAMI_EXTRAS_LINES_KEY = "ninja_creami_extras_lines";
 export const NINJA_CREAMI_TEST_PM_IDS_KEY = "ninja_creami_test_pm_ids";
 
+/** Clé de tri prefs pour « Recettes testées » (cycle identique à Tous / Master). */
+export const NINJA_CREAMI_TESTED_SORT_KEY = "ninja-creami-tested";
+
 /** MIME drag & drop pour déplacer une ligne entre sous-catégories Base. */
 export const NINJA_CREAMI_LINE_DND_MIME = "application/x-ninja-creami-line";
 
@@ -29,6 +32,9 @@ export const NINJA_CREAMI_GROUP_DND_MIME = "application/x-ninja-creami-group";
 
 /** Id stable de la sous-catégorie créée lors de la migration depuis la liste plate. */
 export const NINJA_CREAMI_DEFAULT_BASE_GROUP_ID = "ninja-base-general";
+
+/** Id virtuel DnD pour la liste Extras (déplacement vers / depuis une sous-cat Base). */
+export const NINJA_CREAMI_EXTRAS_GROUP_ID = "ninja-creami-extras";
 
 /** Ligne catalogue Tests avec id stable pour la sélection. */
 export type NinjaCreamiCatalogLine = IngLine & { id: string };
@@ -310,6 +316,20 @@ export function removeNinjaCreamiBaseGroup(
 }
 
 /**
+ * Insère une ligne dans une liste catalogue à un index donné, puis normalise.
+ */
+function insertCatalogLineAt(
+  lines: NinjaCreamiCatalogLine[],
+  line: NinjaCreamiCatalogLine,
+  toIndex: number,
+): NinjaCreamiCatalogLine[] {
+  const next = lines.filter((l) => l.id !== line.id);
+  const insertAt = Math.max(0, Math.min(toIndex, next.length));
+  next.splice(insertAt, 0, line);
+  return normalizeNinjaCreamiCatalogLines(next);
+}
+
+/**
  * Déplace une ligne d’une sous-catégorie Base vers une autre (ou réordonne si même groupe).
  */
 export function moveLineBetweenNinjaCreamiBaseGroups(
@@ -352,6 +372,89 @@ export function moveLineBetweenNinjaCreamiBaseGroups(
     toGroupId,
     normalizeNinjaCreamiCatalogLines(nextTo),
   );
+}
+
+/** Résultat d’un déplacement ligne entre Base et/ou Extras. */
+export type NinjaCreamiCatalogMoveResult = {
+  baseGroups: NinjaCreamiBaseGroup[];
+  extrasLines: NinjaCreamiCatalogLine[];
+};
+
+/**
+ * Déplace une ligne entre sous-catégories Base et la liste Extras (id virtuel).
+ */
+export function moveNinjaCreamiCatalogLine(
+  baseGroups: NinjaCreamiBaseGroup[],
+  extrasLines: NinjaCreamiCatalogLine[],
+  fromGroupId: string,
+  lineId: string,
+  toGroupId: string,
+  toIndex: number,
+): NinjaCreamiCatalogMoveResult {
+  const fromExtras = fromGroupId === NINJA_CREAMI_EXTRAS_GROUP_ID;
+  const toExtras = toGroupId === NINJA_CREAMI_EXTRAS_GROUP_ID;
+
+  if (!fromExtras && !toExtras) {
+    return {
+      baseGroups: moveLineBetweenNinjaCreamiBaseGroups(
+        baseGroups,
+        fromGroupId,
+        lineId,
+        toGroupId,
+        toIndex,
+      ),
+      extrasLines,
+    };
+  }
+
+  if (fromExtras && toExtras) {
+    const lineIdx = extrasLines.findIndex((l) => l.id === lineId);
+    if (lineIdx < 0) return { baseGroups, extrasLines };
+    const line = extrasLines[lineIdx];
+    const next = [...extrasLines];
+    next.splice(lineIdx, 1);
+    const insertAt = Math.max(0, Math.min(toIndex, next.length));
+    next.splice(insertAt, 0, line);
+    return {
+      baseGroups,
+      extrasLines: normalizeNinjaCreamiCatalogLines(next),
+    };
+  }
+
+  if (fromExtras) {
+    const lineIdx = extrasLines.findIndex((l) => l.id === lineId);
+    if (lineIdx < 0) return { baseGroups, extrasLines };
+    const line = extrasLines[lineIdx];
+    const nextExtras = normalizeNinjaCreamiCatalogLines(
+      extrasLines.filter((l) => l.id !== lineId),
+    );
+    const toGroup = baseGroups.find((g) => g.id === toGroupId);
+    if (!toGroup) return { baseGroups, extrasLines };
+    return {
+      baseGroups: updateNinjaCreamiBaseGroupLines(
+        baseGroups,
+        toGroupId,
+        insertCatalogLineAt(toGroup.lines, line, toIndex),
+      ),
+      extrasLines: nextExtras,
+    };
+  }
+
+  // Base → Extras
+  const fromGroup = baseGroups.find((g) => g.id === fromGroupId);
+  if (!fromGroup) return { baseGroups, extrasLines };
+  const lineIdx = fromGroup.lines.findIndex((l) => l.id === lineId);
+  if (lineIdx < 0) return { baseGroups, extrasLines };
+  const line = fromGroup.lines[lineIdx];
+  const nextGroups = updateNinjaCreamiBaseGroupLines(
+    baseGroups,
+    fromGroupId,
+    normalizeNinjaCreamiCatalogLines(fromGroup.lines.filter((l) => l.id !== lineId)),
+  );
+  return {
+    baseGroups: nextGroups,
+    extrasLines: insertCatalogLineAt(extrasLines, line, toIndex),
+  };
 }
 
 /**
@@ -437,6 +540,57 @@ function ninjaCreamiLineMacroContribution(
   const count = parseLineMacro(line.count);
   if (count > 0) return value * count;
   return value;
+}
+
+/**
+ * Formate une valeur numérique pour l’aperçu macros (1 décimale max).
+ */
+function formatMacroPreviewNumber(n: number): string {
+  return String(Math.round(n * 10) / 10);
+}
+
+/**
+ * Aperçu macros d’une ligne : scaled si grammes ou quantité saisis,
+ * sinon valeurs catalogue brutes (au 100 g ou par unité).
+ * `editedQty` / `editedCount` surchargent la ligne (champ vidé → retour catalogue).
+ */
+export function previewNinjaCreamiLineMacros(
+  line: NinjaCreamiCatalogLine,
+  editedQty?: string,
+  editedCount?: string,
+): { cal: string; pro: string; fiber: string } {
+  const qtyRaw = editedQty !== undefined ? editedQty : line.qty;
+  const countRaw = editedCount !== undefined ? editedCount : line.count;
+  const qty = parseLineMacro(qtyRaw);
+  const count = parseLineMacro(countRaw);
+  const isScaled = qty > 0 || count > 0;
+  const effective: NinjaCreamiCatalogLine = {
+    ...line,
+    qty: qtyRaw,
+    count: countRaw,
+  };
+
+  const formatField = (field: "cal" | "pro" | "fiber"): string => {
+    const raw = String(line[field] ?? "").trim();
+    if (!isScaled) {
+      if (field === "fiber") {
+        if (!raw) return "0";
+        const n = parseLineMacro(raw);
+        if (Number.isFinite(n) && n === 0) return "0";
+        return raw;
+      }
+      return raw || "—";
+    }
+    if (!raw) return field === "fiber" ? "0" : "—";
+    const contrib = ninjaCreamiLineMacroContribution(effective, field);
+    return formatMacroPreviewNumber(contrib);
+  };
+
+  return {
+    cal: formatField("cal"),
+    pro: formatField("pro"),
+    fiber: formatField("fiber"),
+  };
 }
 
 /**
