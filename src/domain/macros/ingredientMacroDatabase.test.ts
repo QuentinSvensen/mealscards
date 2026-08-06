@@ -18,6 +18,7 @@ import {
   resolveUnParUnFoodItemMacros,
   resolveConsumeDialogMacros,
   autofillIngredientLinesMacros,
+  computeFoodItemPortionMacros,
 } from "./ingredientMacroDatabase";
 
 const baseMeal: Omit<Meal, "id" | "name" | "ingredients"> = {
@@ -442,5 +443,49 @@ describe("ingredientMacroDatabase", () => {
         fiber: "1",
       },
     ]);
+  });
+
+  it("aliment-repas : macros depuis la fiche (portion unitaire)", () => {
+    const fi = makeFoodItem("n1", "Nouille protéinée", "350", "25", "frigo", "100", 2);
+    const macros = computeFoodItemPortionMacros(fi);
+    expect(macros.calories).toBe("350");
+    expect(macros.protein).toBe("25");
+  });
+
+  it("aliment-repas sans fiche : lit le référentiel Macro /100g × grammage unitaire", () => {
+    const fi = makeFoodItem("n1", "Nouille protéinée", null, null, "frigo", "200", 2);
+    const library = [createIngredientMacroLibraryItem("Nouille protéinée", "175", "12", "2")!];
+    const macros = computeFoodItemPortionMacros(fi, {
+      macroSources: { foodItems: [fi], macroLibrary: library, mealMacros: new Map() },
+    });
+    // 175/100g × 200g = 350 kcal ; 12 × 2 = 24 prot
+    expect(macros.calories).toBe("350");
+    expect(macros.protein).toBe("24");
+    expect(macros.fiber).toBe("4");
+  });
+
+  it("aliment-repas sans grammage : affiche les valeurs Macro /100g (repli visible)", () => {
+    const fi = makeFoodItem("n1", "Nouille protéinée", null, null, "frigo", null, 2);
+    const library = [createIngredientMacroLibraryItem("Nouille protéinée", "350", "25", "0")!];
+    const macros = computeFoodItemPortionMacros(fi, {
+      macroSources: { foodItems: [fi], macroLibrary: library, mealMacros: new Map() },
+    });
+    expect(macros.calories).toBe("350");
+    expect(macros.protein).toBe("25");
+  });
+
+  it("aliment-repas : macros depuis annotations recettes + g/unité Macro", () => {
+    const fi = makeFoodItem("n1", "Nouille protéinée", null, null, "frigo", null, 2);
+    const mealMacros = new Map([["nouille proteinee", { cal: "175", pro: "12", fiber: "2" }]]);
+    const macros = computeFoodItemPortionMacros(fi, {
+      macroSources: {
+        foodItems: [fi],
+        macroLibrary: [],
+        mealMacros,
+        unitGramsByKey: { "nouille proteinee": 200 },
+      },
+    });
+    expect(macros.calories).toBe("350");
+    expect(macros.protein).toBe("24");
   });
 });

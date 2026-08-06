@@ -26,14 +26,14 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { autofillIngredientLinesMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
+import { autofillIngredientLinesMacros, computeFoodItemPortionMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   type IngLine,
   parseIngredientsToLines, serializeIngredients,
   computeIngredientCalories, computeIngredientProtein, computeIngredientFiber,
-  getMealColor, computeCounterHours
+  getMealColor, computeCounterHours, strictNameMatch
 } from "@/lib/ingredientUtils";
-import { findStockKey, type StockInfo, type FoodItemIndex, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber } from "@/lib/stockUtils";
+import { findStockKey, type StockInfo, type FoodItemIndex, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, parseMacroDisplay } from "@/lib/stockUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import { SatietyIndexBadge } from "@/components/SatietyIndexBadge";
@@ -226,16 +226,53 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     return stock.infinite || stock.grams > 0 || stock.count > 0;
   } : undefined;
 
+  /**
+   * Enrichit les ingrédients via le référentiel Macro pour l’affichage des badges
+   * (aligné sur le tri Au choix et la satiété), sans persister en base.
+   */
+  const mealForMacroDisplay = (() => {
+    if (!ingredientMacroSources || !meal.ingredients?.trim()) return meal;
+    const filled = autofillIngredientLinesMacros(
+      parseIngredientsToLines(meal.ingredients),
+      ingredientMacroSources,
+    );
+    const ingredients = serializeIngredients(filled);
+    if (!ingredients || ingredients === meal.ingredients) return meal;
+    return { ...meal, ingredients };
+  })();
+
   const ovenTemp = meal.oven_temp;
   const ovenMinutes = meal.oven_minutes;
   const hasCuisson = ovenTemp || ovenMinutes;
-  const nutritionScore = getMealNutritionScore(meal, isAvailableCb);
+  const nutritionScore = getMealNutritionScore(mealForMacroDisplay, isAvailableCb);
   // Satiété : somme pondérée ÷ 4,5, clamp [0, 100] + volume (g) ; catalogue = recette écrite (pas de filtre stock).
   const mealSatietyDetails = getMealSatietyDetails(meal, ingredientMacroSources);
-  const headerCal = getDisplayedCalories(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
-  const headerPro = getDisplayedProtein(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
-  const headerFiber = getDisplayedFiber(meal, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
-  const hasIngredientMacros = Boolean(meal.ingredients?.trim());
+  let headerCal = getDisplayedCalories(mealForMacroDisplay, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
+  let headerPro = getDisplayedProtein(mealForMacroDisplay, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
+  let headerFiber = getDisplayedFiber(mealForMacroDisplay, undefined, undefined, isAvailableCb, foodItems, foodItemIndex);
+
+  // Aliment-repas (pas d’ingrédients) : recalcule via fiche / Macro / recettes si la fake meal n’a pas de macros.
+  if (
+    !meal.ingredients?.trim() &&
+    (headerCal == null || headerCal === 0) &&
+    (headerPro == null || headerPro === 0) &&
+    (headerFiber == null || headerFiber === 0) &&
+    foodItems?.length
+  ) {
+    const fi = foodItems.find(
+      (item) => item.is_meal && strictNameMatch(item.name, meal.name),
+    ) ?? foodItems.find((item) => strictNameMatch(item.name, meal.name));
+    if (fi) {
+      const portion = computeFoodItemPortionMacros(fi, {
+        macroSources: ingredientMacroSources,
+      });
+      headerCal = parseMacroDisplay(portion.calories) ?? headerCal;
+      headerPro = parseMacroDisplay(portion.protein) ?? headerPro;
+      headerFiber = parseMacroDisplay(portion.fiber) ?? headerFiber;
+    }
+  }
+
+  const hasIngredientMacros = Boolean(mealForMacroDisplay.ingredients?.trim());
   const hasDirectMacros = !hasIngredientMacros && (headerCal != null || (headerPro != null && headerPro !== 0) || (headerFiber != null && headerFiber !== 0));
 
   return (
@@ -309,8 +346,8 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
               {(() => {
                 if (hideCalorieDisplay) return null;
                 const displayCal = headerCal;
-                const isComputed = computeIngredientCalories(meal.ingredients, isAvailableCb) !== null || hasDirectMacros;
-                return displayCal ? (
+                const isComputed = computeIngredientCalories(mealForMacroDisplay.ingredients, isAvailableCb, 1, foodItems, foodItemIndex) !== null || hasDirectMacros;
+                return displayCal != null && displayCal !== 0 ? (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 ${isComputed ? 'bg-orange-500/50 text-white font-bold' : 'text-white/70 bg-white/20'
                     }`}>
                     <Flame className="h-3 w-3" />{displayCal}
@@ -319,7 +356,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
               })()}
               {(() => {
                 const displayPro = headerPro;
-                const isComputedPro = computeIngredientProtein(meal.ingredients, isAvailableCb) !== null || hasDirectMacros;
+                const isComputedPro = computeIngredientProtein(mealForMacroDisplay.ingredients, isAvailableCb, 1, foodItems, foodItemIndex) !== null || hasDirectMacros;
                 return displayPro && displayPro !== 0 ? (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${isComputedPro ? 'bg-blue-600/60 text-white' : 'text-white/70 bg-blue-500/30'
                     }`}>
@@ -329,7 +366,7 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
               })()}
               {(() => {
                 const displayFiber = headerFiber;
-                const isComputedFiber = computeIngredientFiber(meal.ingredients, isAvailableCb) !== null || hasDirectMacros;
+                const isComputedFiber = computeIngredientFiber(mealForMacroDisplay.ingredients, isAvailableCb, 1, foodItems, foodItemIndex) !== null || hasDirectMacros;
                 return displayFiber && displayFiber !== 0 ? (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-1 shrink-0 font-semibold ${isComputedFiber ? 'bg-emerald-600/60 text-white' : 'text-white/70 bg-emerald-500/30'
                     }`}>

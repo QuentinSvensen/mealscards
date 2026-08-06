@@ -12,6 +12,7 @@ import {
 import {
   getExtraMacroBasisLabel,
   getExtraMacroReferenceMacros,
+  getExtraPortionMacros,
   getExtraStoredMacrosFromReference,
   hasNonZeroMacro,
   parseFoodMacroValue,
@@ -702,6 +703,104 @@ export interface UnParUnMacroDisplay {
   per100Cal: number | null;
   per100Pro: number | null;
   hasGrams: boolean;
+}
+
+export interface FoodItemPortionMacros {
+  calories: string | null;
+  protein: string | null;
+  fiber: string | null;
+}
+
+/**
+ * Calcule les macros d’une portion (1 unité) d’aliment-repas pour les cartes Au choix.
+ * Ordre : fiche aliment → référentiel Macro (/100 g × grammage unitaire) → macros recettes.
+ */
+export function computeFoodItemPortionMacros(
+  fi: FoodItem,
+  opts?: { ratio?: number; macroSources?: IngredientMacroAutofillSources },
+): FoodItemPortionMacros {
+  const ratio = opts?.ratio ?? 1;
+  /** Formate une macro numérique en chaîne après application du ratio de portion. */
+  const scale = (n: number): string => String(Math.round(n * ratio));
+
+  /**
+   * Grammes d’une unité : fiche aliment, sinon préférence Macro (g/unité).
+   */
+  const resolveUnitGrams = (): number => {
+    const fromFi = parseQty(fi.grams);
+    if (fromFi > 0) return fromFi;
+    const key = normalizeKey(fi.name);
+    const fromPref = opts?.macroSources?.unitGramsByKey?.[key];
+    return typeof fromPref === "number" && fromPref > 0 ? fromPref : 0;
+  };
+
+  // 1) Macros déjà sur la fiche → portion unitaire
+  const fromFiche = getExtraPortionMacros(fi, { perUnit: true });
+  if (fromFiche.cal > 0 || fromFiche.pro > 0 || fromFiche.fiber > 0) {
+    return {
+      calories: fromFiche.cal > 0 ? scale(fromFiche.cal) : null,
+      protein: fromFiche.pro > 0 ? scale(fromFiche.pro) : null,
+      fiber: fromFiche.fiber > 0 ? scale(fromFiche.fiber) : null,
+    };
+  }
+
+  const unitG = resolveUnitGrams();
+  const per100Factor = unitG > 0 ? unitG / 100 : 1;
+
+  // 2) Référentiel Macro (/100 g)
+  const libraryItem = findMacroLibraryItemForIngredientName(
+    opts?.macroSources?.macroLibrary,
+    fi.name,
+  );
+  if (libraryItem) {
+    const per100Cal = parseFoodMacroValue(libraryItem.calories);
+    const per100Pro = parseFoodMacroValue(libraryItem.protein);
+    const per100Fiber = parseFoodMacroValue(libraryItem.fiber);
+    if (hasNonZeroMacro(per100Cal) || hasNonZeroMacro(per100Pro) || hasNonZeroMacro(per100Fiber)) {
+      return {
+        calories: hasNonZeroMacro(per100Cal) ? scale(per100Cal * per100Factor) : null,
+        protein: hasNonZeroMacro(per100Pro) ? scale(per100Pro * per100Factor) : null,
+        fiber: hasNonZeroMacro(per100Fiber) ? scale(per100Fiber * per100Factor) : null,
+      };
+    }
+  }
+
+  // 3) Macros déjà vues dans des recettes (annotations {cal} [pro]) — valeurs /100 g
+  if (opts?.macroSources?.mealMacros?.size) {
+    const mealMacro = findMealMacroForIngredientName(opts.macroSources.mealMacros, fi.name);
+    if (mealMacro) {
+      const calRef = parseFoodMacroValue(mealMacro.cal);
+      const proRef = parseFoodMacroValue(mealMacro.pro);
+      const fiberRef = parseFoodMacroValue(mealMacro.fiber);
+      if (hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef) || hasNonZeroMacro(fiberRef)) {
+        return {
+          calories: hasNonZeroMacro(calRef) ? scale(calRef * per100Factor) : null,
+          protein: hasNonZeroMacro(proRef) ? scale(proRef * per100Factor) : null,
+          fiber: hasNonZeroMacro(fiberRef) ? scale(fiberRef * per100Factor) : null,
+        };
+      }
+    }
+  }
+
+  // 4) resolveIngredientLineMacros (homonymes / autres sources)
+  if (opts?.macroSources) {
+    const resolved = resolveIngredientLineMacros(
+      { name: fi.name, qty: unitG > 0 ? String(unitG) : "", count: "1" },
+      opts.macroSources,
+    );
+    const calRef = parseFoodMacroValue(resolved.cal);
+    const proRef = parseFoodMacroValue(resolved.pro);
+    const fiberRef = parseFoodMacroValue(resolved.fiber);
+    if (hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef) || hasNonZeroMacro(fiberRef)) {
+      return {
+        calories: hasNonZeroMacro(calRef) ? scale(calRef * per100Factor) : null,
+        protein: hasNonZeroMacro(proRef) ? scale(proRef * per100Factor) : null,
+        fiber: hasNonZeroMacro(fiberRef) ? scale(fiberRef * per100Factor) : null,
+      };
+    }
+  }
+
+  return { calories: null, protein: null, fiber: null };
 }
 
 /**

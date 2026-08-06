@@ -32,8 +32,7 @@ import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
-import { autofillIngredientLinesMacros, resolveIngredientLineMacros } from "@/domain/macros/ingredientMacroDatabase";
-import { getExtraPortionMacros, parseFoodMacroValue } from "@/lib/extraMacroUtils";
+import { autofillIngredientLinesMacros, computeFoodItemPortionMacros } from "@/domain/macros/ingredientMacroDatabase";
 import { usePreferences } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
@@ -119,71 +118,6 @@ function useUnusedSuggestionTapMode(): boolean {
     return () => mq.removeEventListener("change", sync);
   }, []);
   return tapMode;
-}
-
-/**
- * Calcule les macros affichées (kcal, protéines, fibres) pour une portion d'aliment-repas
- * à partir des valeurs /100g, du grammage unitaire et du référentiel Macro si besoin.
- */
-function computeFoodItemPortionMacros(
-  fi: FoodItem,
-  opts?: { ratio?: number; macroSources?: IngredientMacroAutofillSources },
-): { calories: string | null; protein: string | null; fiber: string | null } {
-  const ratio = opts?.ratio ?? 1;
-  let calRef = parseFoodMacroValue(fi.calories);
-  let proRef = parseFoodMacroValue(fi.protein);
-  let fiberRef = parseFoodMacroValue(fi.fiber);
-
-  if (calRef <= 0 && proRef <= 0 && fiberRef <= 0 && opts?.macroSources) {
-    const resolved = resolveIngredientLineMacros(
-      { name: fi.name, qty: fi.grams ?? "", count: fi.quantity ?? undefined },
-      opts.macroSources,
-    );
-    calRef = parseFoodMacroValue(resolved.cal);
-    proRef = parseFoodMacroValue(resolved.pro);
-    fiberRef = parseFoodMacroValue(resolved.fiber);
-  }
-
-  if (calRef <= 0 && proRef <= 0 && fiberRef <= 0 && opts?.macroSources?.macroLibrary?.length) {
-    const libraryItem = opts.macroSources.macroLibrary.find((entry) =>
-      strictNameMatch(entry.displayName, fi.name),
-    );
-    if (libraryItem) {
-      calRef = parseFoodMacroValue(libraryItem.calories);
-      proRef = parseFoodMacroValue(libraryItem.protein);
-      fiberRef = parseFoodMacroValue(libraryItem.fiber);
-    }
-  }
-
-  if (calRef <= 0 && proRef <= 0 && fiberRef <= 0 && opts?.macroSources?.foodItems?.length) {
-    const donor = opts.macroSources.foodItems.find(
-      (item) =>
-        item.id !== fi.id &&
-        strictNameMatch(item.name, fi.name) &&
-        (parseFoodMacroValue(item.calories) > 0 ||
-          parseFoodMacroValue(item.protein) > 0 ||
-          parseFoodMacroValue(item.fiber) > 0),
-    );
-    if (donor) {
-      calRef = parseFoodMacroValue(donor.calories);
-      proRef = parseFoodMacroValue(donor.protein);
-      fiberRef = parseFoodMacroValue(donor.fiber);
-    }
-  }
-
-  const enriched: FoodItem = {
-    ...fi,
-    calories: calRef > 0 ? String(calRef) : fi.calories,
-    protein: proRef > 0 ? String(proRef) : fi.protein,
-    fiber: fiberRef > 0 ? String(fiberRef) : fi.fiber,
-  };
-  const portion = getExtraPortionMacros(enriched, { perUnit: true });
-
-  return {
-    calories: portion.cal > 0 ? String(Math.round(portion.cal * ratio)) : null,
-    protein: portion.pro > 0 ? String(Math.round(portion.pro * ratio)) : null,
-    fiber: portion.fiber > 0 ? String(Math.round(portion.fiber * ratio)) : null,
-  };
 }
 
 /**
@@ -450,13 +384,30 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     return { ...nm.meal, calories: baseCal > 0 ? String(Math.round(baseCal)) : nm.meal.calories, ingredients: null };
   };
 
+  /**
+   * Filtre « calories restantes » : un repas rentre-t-il dans le seuil max ?
+   * Sans calories connues → masqué (évite les aliments-repas sans macros à 0 kcal restants).
+   * Vraiment 0 kcal → toujours affiché.
+   */
   const tryFitMeal = (meal: Meal, overrideRatio: number | null, isScalable: boolean = true): { show: boolean; newRatio: number | null } => {
     if (!useRemainingCalories) return { show: true, newRatio: overrideRatio };
 
-    const baseRaw = getAvailableSortMacroValue(meal, "calories");
-    if (baseRaw === null || baseRaw === 0) return { show: true, newRatio: overrideRatio }; // No cal info, keep it
-
     const startingRatio = overrideRatio ?? 1;
+    const resolvedForCal = resolveMealForAvailableSort(meal, startingRatio);
+    const knownCal = getDisplayedCalories(
+      resolvedForCal,
+      undefined,
+      undefined,
+      isAvailableCb,
+      foodItems,
+      foodItemIndex,
+    );
+    // Pas d’info calorique → ne pas contourner le filtre seuil
+    if (knownCal === null) return { show: false, newRatio: null };
+    // Repas à 0 kcal → rentre dans n’importe quel seuil (y compris 0)
+    if (knownCal === 0) return { show: true, newRatio: startingRatio };
+
+    const baseRaw = getAvailableSortMacroValue(meal, "calories");
     let currentCal = getAvailableSortMacroValue(meal, "calories", startingRatio);
 
     if (currentCal !== null && currentCal <= calorieThreshold) {
@@ -767,7 +718,23 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     const isExpiredFi = fi.expiration_date && new Date(new Date(fi.expiration_date).toDateString()) < new Date(new Date().toDateString());
     const expIsTodayFi = isToday(fi.expiration_date);
     const { portionsLabel, displayGrams } = getStandaloneFoodStockDisplay(fi);
-    const macros = computeFoodItemPortionMacros(fi, { macroSources: ingredientMacroAutofillSources });
+    let macros = computeFoodItemPortionMacros(fi, { macroSources: ingredientMacroAutofillSources });
+    // Repli : macros saisies sur une fiche repas catalogue homonyme (sans ingrédients)
+    if (!macros.calories && !macros.protein && !macros.fiber) {
+      const catalog = (allMeals ?? meals).find(
+        (m) =>
+          strictNameMatch(m.name, fi.name) &&
+          !m.ingredients?.trim() &&
+          (parseMacroDisplay(m.calories) || parseMacroDisplay(m.protein) || parseMacroDisplay(m.fiber)),
+      );
+      if (catalog) {
+        macros = {
+          calories: catalog.calories?.trim() || null,
+          protein: catalog.protein?.trim() || null,
+          fiber: catalog.fiber?.trim() || null,
+        };
+      }
+    }
 
     const counterDays = computeCounterDays(fi.counter_start_date);
     const fakeMeal: Meal = {
