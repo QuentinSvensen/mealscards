@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  assignMealsToGouterEvents,
   assignMealsToMangerEvents,
   displayPlacementWithReminder,
+  findGouterPlacement,
   findMangerPlacementForMeal,
+  isGouterEvent,
   isMangerEvent,
   resolveReminderMinutesBefore,
 } from "./mangerEventAlignment";
@@ -14,6 +17,14 @@ describe("mangerEventAlignment", () => {
     expect(isMangerEvent("MANGER")).toBe(true);
     expect(isMangerEvent("Manger chez mamie")).toBe(false);
     expect(isMangerEvent("Sport")).toBe(false);
+  });
+
+  it("détecte Gouter / Goûter sans accents ni casse", () => {
+    expect(isGouterEvent("Gouter")).toBe(true);
+    expect(isGouterEvent("Goûter")).toBe(true);
+    expect(isGouterEvent("  GOUTER ")).toBe(true);
+    expect(isGouterEvent("Gouter chez mamie")).toBe(false);
+    expect(isGouterEvent("Manger")).toBe(false);
   });
 
   it("associe un Manger à midi selon l’heure de début", () => {
@@ -41,6 +52,48 @@ describe("mangerEventAlignment", () => {
         "gouter",
       ),
     ).toBeNull();
+  });
+
+  it("place le goûter sur l’événement Gouter le plus proche de 16h", () => {
+    const match = findGouterPlacement([
+      { id: "early", summary: "Gouter", startMin: 14 * 60, durationMin: 30 },
+      { id: "right", summary: "Goûter", startMin: 16 * 60, durationMin: 30 },
+    ]);
+    expect(match?.id).toBe("right");
+    expect(match?.durationMin).toBe(30);
+  });
+
+  it("assigne toutes les cartes goûter sur le même Gouter", () => {
+    const map = assignMealsToGouterEvents(
+      [
+        { id: "g1", meal_time: "gouter" },
+        { id: "g2", meal_time: "gouter" },
+        { id: "midi", meal_time: "midi" },
+      ],
+      [{ id: "ev", summary: "Gouter", startMin: 16 * 60, durationMin: 30 }],
+    );
+    expect(map.size).toBe(2);
+    expect(map.has("midi")).toBe(false);
+    expect(map.get("g1")?.eventId).toBe("ev");
+    expect(map.get("g2")?.eventId).toBe("ev");
+    expect(map.get("g1")?.durationMin).toBe(30);
+  });
+
+  it("aligne le goûter sur les bornes exactes de l’event (ignore le rappel)", () => {
+    const map = assignMealsToGouterEvents(
+      [{ id: "g1", meal_time: "gouter" }],
+      [
+        {
+          id: "ev",
+          summary: "Gouter",
+          startMin: 16 * 60,
+          durationMin: 30,
+          reminderMinutesBefore: 30,
+        },
+      ],
+    );
+    expect(map.get("g1")?.startMin).toBe(16 * 60);
+    expect(map.get("g1")?.durationMin).toBe(30);
   });
 
   it("n’assigne qu’un Manger par repas (unicité)", () => {
