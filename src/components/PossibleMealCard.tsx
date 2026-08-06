@@ -39,6 +39,7 @@ import { format, parseISO } from "date-fns";
 
 /** Libellés du sélecteur de créneau (Repas) — alignés sur le Planning (GOÛTER). */
 const MEAL_TIME_SELECT_LABELS: Record<string, string> = {
+  matin: "Matin",
   midi: "Midi",
   soir: "Soir",
   gouter: "Goûter",
@@ -809,7 +810,10 @@ export function PossibleMealCard({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="none">—</SelectItem>
-            {meal.category === "petit_dejeuner" && <SelectItem value="matin">Matin</SelectItem>}
+            {/* Matin : petit-déj + desserts possibles (ex. yaourt au petit déj) */}
+            {(meal.category === "petit_dejeuner" || meal.category === "dessert") && (
+              <SelectItem value="matin">{MEAL_TIME_SELECT_LABELS.matin}</SelectItem>
+            )}
             <SelectItem value="midi">{MEAL_TIME_SELECT_LABELS.midi}</SelectItem>
             {/* Même clé meal_time que la section GOÛTER du Planning — entre Midi et Soir */}
             <SelectItem value="gouter">{MEAL_TIME_SELECT_LABELS.gouter}</SelectItem>
