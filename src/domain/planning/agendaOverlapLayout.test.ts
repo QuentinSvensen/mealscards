@@ -150,6 +150,49 @@ describe("agendaOverlapGeometryForBlock", () => {
     expect(guestHidesTimesForThinHostTitle(guest, cluster, 52)).toBe(true);
   });
 
+  it("3 cartes courtes simultanées → colonnes égales ⅓ (pas d’empilement)", () => {
+    const cluster = layoutOverlappingBlocks([
+      {
+        id: "brosser",
+        summary: "Brosser Boudi",
+        durationMin: 15,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 15,
+      },
+      {
+        id: "pate",
+        summary: "Pâté Boudin sc",
+        durationMin: 15,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 15,
+      },
+      {
+        id: "seance",
+        summary: "Séance : corde à sauter + doigts",
+        durationMin: 20,
+        startMin: 17 * 60,
+        endMin: 17 * 60 + 20,
+      },
+    ]);
+    expect(cluster.every((b) => b.colCount === 3)).toBe(true);
+    const colW = 180;
+    const geoms = cluster.map((b) => ({
+      id: b.id,
+      col: b.col,
+      ...agendaOverlapGeometryForBlock(b, cluster, 52, colW),
+    }));
+    const byCol = [...geoms].sort((a, b) => a.col - b.col);
+    expect(byCol[0].widthPct).toBeCloseTo(100 / 3, 5);
+    expect(byCol[1].widthPct).toBeCloseTo(100 / 3, 5);
+    expect(byCol[2].widthPct).toBeCloseTo(100 / 3, 5);
+    expect(byCol[0].leftPct).toBeCloseTo(0, 5);
+    expect(byCol[1].leftPct).toBeCloseTo(100 / 3, 5);
+    expect(byCol[2].leftPct).toBeCloseTo((100 / 3) * 2, 5);
+    // Pas deux cartes avec le même left (empilement)
+    const lefts = new Set(byCol.map((g) => Math.round(g.leftPct * 10)));
+    expect(lefts.size).toBe(3);
+  });
+
   it("Pain + Séance même durée → pas 50/50, Séance sans horaires et plus étroite", () => {
     const cluster = layoutOverlappingBlocks([
       {

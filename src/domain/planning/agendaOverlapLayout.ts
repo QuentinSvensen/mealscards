@@ -529,6 +529,28 @@ function equalColumnGeometry(col: number, colCount: number): AgendaOverlapGeomet
   };
 }
 
+/**
+ * Indique si un cluster de cartes courtes concurrentes (≥3) doit être
+ * partagé en colonnes égales (⅓ / ⅓ / ⅓…), sans empilement overflow titre.
+ * N’applique pas aux hôtes longs (Arkose + invités nest).
+ */
+function shouldSplitEqualColumnsForShortConcurrentCluster<T extends TimedBlock>(
+  clusterBlocks: T[],
+  colCount: number,
+): boolean {
+  if (colCount < 3 || clusterBlocks.length < 3) return false;
+  const allShort = clusterBlocks.every(
+    (b) => blockDurationMin(b) < HOST_TITLE_PRIORITY_MAX_MIN,
+  );
+  if (!allShort) return false;
+  let maxConcurrent = 0;
+  for (const b of clusterBlocks) {
+    const overlapping = clusterBlocks.filter((o) => blocksOverlap(b, o));
+    maxConcurrent = Math.max(maxConcurrent, overlapping.length);
+  }
+  return maxConcurrent >= 3;
+}
+
 /** Deux blocs se chevauchent-ils dans le temps ? */
 function blocksOverlap(a: TimedBlock, b: TimedBlock): boolean {
   return a.startMin < b.endMin && b.startMin < a.endMin;
@@ -841,6 +863,11 @@ export function agendaOverlapGeometryForBlock<T extends LaidOutBlock>(
 ): AgendaOverlapGeometry {
   const n = Math.max(1, block.colCount);
   const c = Math.max(0, Math.min(n - 1, block.col));
+
+  // 3+ cartes courtes simultanées (ex. Brosser / Pâté / Séance) → ⅓ chacune
+  if (shouldSplitEqualColumnsForShortConcurrentCluster(clusterBlocks, n)) {
+    return equalColumnGeometry(c, n);
+  }
 
   if (n === 1 || c === 0) {
     const overlappingRight = clusterBlocks.filter(

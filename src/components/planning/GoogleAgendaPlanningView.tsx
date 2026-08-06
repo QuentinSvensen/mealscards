@@ -1631,15 +1631,27 @@ export function GoogleAgendaPlanningView({
                     hourHeightPx,
                     dayColumnWidthPx,
                   );
-                  const isShortEvent = ev.durationMin <= SHORT_EVENT_MAX_MIN;
+                  /** Partage égal (½, ⅓…) : même layout pour toutes les cartes du cluster. */
+                  const isEqualColumnSplit =
+                    ev.colCount >= 2 &&
+                    Math.abs(geom.widthPct - 100 / Math.max(1, ev.colCount)) < 1.5;
+                  /** En colonnes égales : même seuil « short » pour tout le cluster (alignement vertical). */
+                  const isShortEvent = isEqualColumnSplit
+                    ? Math.max(...clusterBlocks.map((b) => b.durationMin)) <= SHORT_EVENT_MAX_MIN
+                    : ev.durationMin <= SHORT_EVENT_MAX_MIN;
                   /** Invité < 15 min avant la fin → heure repositionnée (marge réduite / au-dessus). */
                   const endClockRepositioned = endClockTopPx != null;
-                  /** Style Google : titre + début à gauche quand une carte chevauche à droite. */
+                  /**
+                   * Style Google hôte plein fond + invité à droite : titre empilé en haut.
+                   * Pas pour les colonnes égales (sinon col0 en haut, les autres centrées).
+                   */
                   const googleStackLeft =
                     timeLayout === "thin" &&
                     ev.col === 0 &&
                     ev.colCount > 1 &&
-                    !isShortEvent;
+                    !isShortEvent &&
+                    !isEqualColumnSplit &&
+                    geom.widthPct >= 90;
                   const guestContentWidthPx = (dayColumnWidthPx * geom.widthPct) / 100;
                   const eventBlockHeightPxEarly = Math.max(
                     4,
@@ -1648,6 +1660,7 @@ export function GoogleAgendaPlanningView({
                   const thinTitleWrapEarly =
                     timeLayout === "thin" &&
                     !isShortEvent &&
+                    !isEqualColumnSplit &&
                     eventBlockHeightPxEarly >= (isCompactAgenda ? 14 : 22);
                   /** Peu de place → titre seul ; sinon horaires même si le titre est tronqué. */
                   const hasRoomForTimes = agendaCardHasRoomForTimes(
@@ -1672,7 +1685,8 @@ export function GoogleAgendaPlanningView({
                     titleMaxWidthPct != null &&
                     ev.col === 0 &&
                     (timeLayout === "thin" || isShortEvent);
-                  const hideTimesForNarrowGuest = ev.col > 0 && geom.widthPct < 50;
+                  // Colonnes égales étroites : même règle pour toutes (pas seulement col > 0)
+                  const hideTimesForNarrowGuest = geom.widthPct < 50;
                   const hideTimesForThinHostGuest = guestHidesTimesForThinHostTitle(
                     ev,
                     clusterBlocks,
@@ -1775,7 +1789,10 @@ export function GoogleAgendaPlanningView({
                         color: displayPalette.text,
                         // Sous les repas (z-30+) ; pointer-events-none laisse le drag repas
                         zIndex: 20 + geom.zIndex,
-                        boxShadow: ev.col > 0 ? "-2px 0 6px rgba(0,0,0,0.18)" : undefined,
+                        boxShadow:
+                          !isEqualColumnSplit && ev.col > 0
+                            ? "-2px 0 6px rgba(0,0,0,0.18)"
+                            : undefined,
                       }}
                       title={`${ev.summary} · ${startClock} – ${endClock}`}
                     >
