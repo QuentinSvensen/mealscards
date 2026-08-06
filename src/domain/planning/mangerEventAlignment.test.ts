@@ -79,7 +79,7 @@ describe("mangerEventAlignment", () => {
     expect(map.get("g1")?.durationMin).toBe(30);
   });
 
-  it("aligne le goûter sur les bornes exactes de l’event (ignore le rappel)", () => {
+  it("avance le goûter à l’heure de notif si l’event a un rappel", () => {
     const map = assignMealsToGouterEvents(
       [{ id: "g1", meal_time: "gouter" }],
       [
@@ -92,8 +92,9 @@ describe("mangerEventAlignment", () => {
         },
       ],
     );
-    expect(map.get("g1")?.startMin).toBe(16 * 60);
-    expect(map.get("g1")?.durationMin).toBe(30);
+    // 16h–16h30 + notif 30 min avant → 15h30–16h30
+    expect(map.get("g1")?.startMin).toBe(15 * 60 + 30);
+    expect(map.get("g1")?.durationMin).toBe(60);
   });
 
   it("n’assigne qu’un Manger par repas (unicité)", () => {

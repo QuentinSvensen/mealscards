@@ -48,6 +48,7 @@ import {
 import {
   assignMealsToGouterEvents,
   assignMealsToMangerEvents,
+  displayPlacementWithReminder,
   findGouterPlacement,
   isGouterEvent,
   isMangerEvent,
@@ -2137,12 +2138,13 @@ export function GoogleAgendaPlanningView({
                     /** Carte synthétique « Goûter » (extras seuls, sans repas). */
                     const renderGouterExtrasOnlyCard = () => {
                       const gouterHost = findGouterPlacement(dayHostEvents);
-                      // Gouter : bornes exactes de l’event (pas d’avance rappel, contrairement à Manger)
+                      // Comme Manger : avance au rappel si l’event en a un
                       const gouterHostAlign = gouterHost
-                        ? {
-                            startMin: gouterHost.startMin,
-                            durationMin: Math.max(5, gouterHost.durationMin),
-                          }
+                        ? displayPlacementWithReminder(
+                            gouterHost.startMin,
+                            gouterHost.durationMin,
+                            gouterHost.reminderMinutesBefore,
+                          )
                         : null;
                       const minutes =
                         gouterHostAlign?.startMin ??

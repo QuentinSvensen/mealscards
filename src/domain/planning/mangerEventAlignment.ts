@@ -1,7 +1,7 @@
 /**
  * Alignement des repas Planning sur les événements Google « Manger » / « Gouter » :
- * créneau (matin/midi/soir → Manger, goûter → Gouter) selon l’heure ou le titre,
- * durée = durée de l’événement, début d’affichage avancé au rappel s’il existe.
+ * créneau (matin/midi/soir → Manger, goûter → Gouter), durée jusqu’à la fin de l’event,
+ * début d’affichage avancé à l’heure du rappel s’il existe.
  */
 
 import {
@@ -136,23 +136,14 @@ export function isGouterEvent(summary: string | null | undefined): boolean {
 }
 
 /**
- * Construit l’alignement d’affichage depuis un événement hôte.
- * @param applyReminder — si true (Manger), avance au rappel ; si false (Gouter), colle aux bornes de l’event.
+ * Construit l’alignement d’affichage (rappel inclus) depuis un événement hôte.
  */
-function alignmentFromHostEvent(
-  match: MangerEventPlacement,
-  applyReminder: boolean = true,
-): MealMangerAlignment {
-  const display = applyReminder
-    ? displayPlacementWithReminder(
-        match.startMin,
-        match.durationMin,
-        match.reminderMinutesBefore,
-      )
-    : {
-        startMin: match.startMin,
-        durationMin: Math.max(5, match.durationMin),
-      };
+function alignmentFromHostEvent(match: MangerEventPlacement): MealMangerAlignment {
+  const display = displayPlacementWithReminder(
+    match.startMin,
+    match.durationMin,
+    match.reminderMinutesBefore,
+  );
   return {
     startMin: display.startMin,
     durationMin: display.durationMin,
@@ -259,7 +250,7 @@ export function assignMealsToGouterEvents(
   const match = findGouterPlacement(dayEvents);
   if (!match) return out;
 
-  const align = alignmentFromHostEvent(match, false);
+  const align = alignmentFromHostEvent(match);
   for (const meal of gouterMeals) {
     out.set(meal.id, align);
   }
