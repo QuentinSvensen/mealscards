@@ -2,7 +2,7 @@
  * Section « Ninja Creami » (onglet Desserts) :
  * Recettes testées (comme Tous) + encadré Tests (Base / Extras → Possible).
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ChevronRight,
   Drumstick,
-  FileText,
   Flame,
   Hash,
   List,
@@ -31,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { MealList } from "@/components/MealList";
 import { MealCard } from "@/components/MealCard";
+import { AutoGrowDescriptionTextarea } from "@/components/AutoGrowDescriptionTextarea";
 import { NinjaCreamiBaseGroupsEditor } from "@/components/NinjaCreamiBaseGroupsEditor";
 import { NinjaCreamiSelectableIngredientList } from "@/components/NinjaCreamiSelectableIngredientList";
 import type { Meal } from "@/hooks/useMeals";
@@ -58,7 +58,6 @@ import {
   type NinjaCreamiLineDragPayload,
 } from "@/domain/ninjaCreami/ninjaCreami";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
-import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import {
   sortMealsByMasterMode,
   type MasterSortMode,
@@ -66,6 +65,54 @@ import {
 
 /** Clé de préférence pour le tri « Recettes testées » (même cycle que Tous). */
 export { NINJA_CREAMI_TESTED_SORT_KEY } from "@/domain/ninjaCreami/ninjaCreami";
+
+/**
+ * Champ description éditable dans l’aperçu Recettes testées.
+ * Sauvegarde au blur pour garder le curseur fluide pendant la frappe.
+ */
+function TestedOverviewDescriptionField({
+  mealId,
+  savedValue,
+  onSave,
+}: {
+  mealId: string;
+  savedValue: string;
+  onSave: (id: string, description: string | null) => void;
+}) {
+  const [draft, setDraft] = useState(savedValue);
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(savedValue);
+  }, [savedValue]);
+
+  /** Persiste la description si elle a vraiment changé. */
+  const commit = () => {
+    const next = draft.trim() ? draft : null;
+    const prev = savedValue.trim() ? savedValue : null;
+    if (next === prev) return;
+    onSave(mealId, next);
+  };
+
+  return (
+    <AutoGrowDescriptionTextarea
+      value={draft}
+      onChange={setDraft}
+      autoFocus={false}
+      minHeightPx={72}
+      maxViewportRatio={0.28}
+      placeholder="Cliquer pour écrire une description…"
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        commit();
+      }}
+      className="h-full min-h-[4.5rem] max-h-[30vh] resize-none border-transparent bg-transparent px-0 py-0 text-sm leading-relaxed focus-visible:ring-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    />
+  );
+}
 
 export interface NinjaCreamiSectionProps {
   collapsed: boolean;
@@ -573,33 +620,27 @@ export function NinjaCreamiSection({
           {sortedTestedMeals.length === 0 ? (
             <p className="text-muted-foreground text-sm text-center py-8 italic">Aucune recette testée</p>
           ) : (
-            <div className="overflow-y-auto min-h-0 flex-1 pr-1 -mr-1">
+            <div className="overflow-y-auto min-h-0 flex-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="hidden lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 px-1 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                 <span>Carte</span>
                 <span>Description</span>
               </div>
               <div className="flex flex-col divide-y divide-border/40">
-                {sortedTestedMeals.map((meal) => {
-                  const description = resolveMealDescriptionForDisplay(meal);
-                  return (
+                {sortedTestedMeals.map((meal) => (
                     <div
                       key={meal.id}
                       className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 py-3 first:pt-0 items-stretch"
                     >
                       <div className="min-w-0">{renderTestedMealCard(meal, true)}</div>
-                      <div className="rounded-2xl border border-border/40 bg-muted/30 p-4 text-sm leading-relaxed whitespace-pre-wrap">
-                        {description ? (
-                          <p className="text-foreground">{description}</p>
-                        ) : (
-                          <p className="italic text-muted-foreground flex items-center gap-1.5">
-                            <FileText className="h-3.5 w-3.5 shrink-0" />
-                            Aucune description
-                          </p>
-                        )}
+                      <div className="rounded-2xl border border-border/40 bg-muted/30 p-4">
+                        <TestedOverviewDescriptionField
+                          mealId={meal.id}
+                          savedValue={meal.description ?? ""}
+                          onSave={onUpdateDescription}
+                        />
                       </div>
                     </div>
-                  );
-                })}
+                ))}
               </div>
             </div>
           )}
