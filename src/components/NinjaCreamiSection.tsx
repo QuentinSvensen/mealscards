@@ -99,8 +99,9 @@ function TestedOverviewDescriptionField({
       value={draft}
       onChange={setDraft}
       autoFocus={false}
-      minHeightPx={72}
+      minHeightPx={24}
       maxViewportRatio={0.28}
+      rows={1}
       placeholder="Cliquer pour écrire une description…"
       onFocus={() => {
         focusedRef.current = true;
@@ -109,7 +110,7 @@ function TestedOverviewDescriptionField({
         focusedRef.current = false;
         commit();
       }}
-      className="h-full min-h-[4.5rem] max-h-[30vh] resize-none border-transparent bg-transparent px-0 py-0 text-sm leading-relaxed focus-visible:ring-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="block min-h-0 max-h-[30vh] resize-none border-transparent bg-transparent px-0 py-0.5 text-sm leading-normal focus-visible:ring-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     />
   );
 }
@@ -629,10 +630,10 @@ export function NinjaCreamiSection({
                 {sortedTestedMeals.map((meal) => (
                     <div
                       key={meal.id}
-                      className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 py-3 first:pt-0 items-stretch"
+                      className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 py-1 first:pt-0 items-start"
                     >
                       <div className="min-w-0">{renderTestedMealCard(meal, true)}</div>
-                      <div className="rounded-2xl border border-border/40 bg-muted/30 p-4">
+                      <div className="self-start h-fit rounded-2xl border border-border/40 bg-muted/30 px-3 py-1">
                         <TestedOverviewDescriptionField
                           mealId={meal.id}
                           savedValue={meal.description ?? ""}

@@ -17,6 +17,8 @@ export interface AutoGrowDescriptionTextareaProps {
   maxViewportRatio?: number;
   /** Focus auto (dialog dédié). Désactiver dans une liste de champs. */
   autoFocus?: boolean;
+  /** Lignes HTML natives (l’aperçu liste doit rester à 1 pour coller au texte). */
+  rows?: number;
   className?: string;
 }
 
@@ -30,7 +32,9 @@ function syncTextareaHeight(
 ) {
   el.style.height = "0px";
   const maxH = Math.max(minHeightPx, Math.floor(window.innerHeight * maxViewportRatio));
-  el.style.height = `${Math.min(Math.max(el.scrollHeight, minHeightPx), maxH)}px`;
+  // +2 px : évite de couper les ascendantes / descendantes (scrollHeight parfois trop juste).
+  const contentH = el.scrollHeight + 2;
+  el.style.height = `${Math.min(Math.max(contentH, minHeightPx), maxH)}px`;
 }
 
 /**
@@ -45,6 +49,7 @@ export function AutoGrowDescriptionTextarea({
   minHeightPx = 120,
   maxViewportRatio = 0.6,
   autoFocus = true,
+  rows = 6,
   className,
 }: AutoGrowDescriptionTextareaProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -72,7 +77,7 @@ export function AutoGrowDescriptionTextarea({
       onBlur={onBlur}
       onKeyDown={(e) => e.stopPropagation()}
       placeholder={placeholder}
-      rows={6}
+      rows={rows}
       className={cn(
         "w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y min-h-[120px] max-h-[60vh] overflow-y-auto",
         className,
