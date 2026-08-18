@@ -13,12 +13,17 @@ import {
   getFoodItemTotalGrams,
 } from "@/lib/ingredientUtils";
 import { scaleIngredientStringExact } from "@/lib/stockUtils";
+import {
+  computeFoodItemPortionMacros,
+  type IngredientMacroAutofillSources,
+} from "@/domain/macros/ingredientMacroDatabase";
 
 /** Mutations / helpers nécessaires aux déplacements stock → Possible. */
 export type IndexStockMoveHandlerDeps = {
   qc: QueryClient;
   foodItems: FoodItem[];
   macroLookup: Map<string, { cal: string; pro: string; fiber?: string }>;
+  ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
   moveToPossible: {
     mutateAsync: (args: {
       mealId: string;
@@ -74,6 +79,7 @@ export function useIndexStockMoveHandlers(deps: IndexStockMoveHandlerDeps) {
     qc,
     foodItems,
     macroLookup,
+    ingredientMacroAutofillSources,
     moveToPossible,
     addMealToPossibleDirectly,
     updatePossibleIngredients,
@@ -267,19 +273,25 @@ export function useIndexStockMoveHandlers(deps: IndexStockMoveHandlerDeps) {
         }
         qc.invalidateQueries({ queryKey: ["food_items"] });
       }
-      const fiKey = normalizeKey(fi.name);
-      const fiMacro = macroLookup.get(fiKey);
-      let calories = fi.calories || fiMacro?.cal || null;
-      let protein = fi.protein || fiMacro?.pro || null;
-      let fiber = fi.fiber || fiMacro?.fiber || null;
-
-      if (fi.grams) {
-        // Un déplacement depuis "Au choix" consomme une seule portion, pas tout le stock disponible.
-        const movedGrams = portionGrams > 0 ? portionGrams : perUnit;
-        if (movedGrams > 0) {
-          if (calories) calories = String(Math.round(parseFloat(calories.replace(",", ".")) * movedGrams / 100));
-          if (protein) protein = String(Math.round(parseFloat(protein.replace(",", ".")) * movedGrams / 100));
-          if (fiber) fiber = String(Math.round(parseFloat(fiber.replace(",", ".")) * movedGrams / 100));
+      const portion = computeFoodItemPortionMacros(fi, {
+        macroSources: ingredientMacroAutofillSources,
+      });
+      let calories = portion.calories;
+      let protein = portion.protein;
+      let fiber = portion.fiber;
+      if (!calories && !protein) {
+        const fiKey = normalizeKey(fi.name);
+        const fiMacro = macroLookup.get(fiKey);
+        calories = fi.calories || fiMacro?.cal || null;
+        protein = fi.protein || fiMacro?.pro || null;
+        fiber = fi.fiber || fiMacro?.fiber || null;
+        if (fi.grams) {
+          const movedGrams = portionGrams > 0 ? portionGrams : perUnit;
+          if (movedGrams > 0) {
+            if (calories) calories = String(Math.round(parseFloat(calories.replace(",", ".")) * movedGrams / 100));
+            if (protein) protein = String(Math.round(parseFloat(protein.replace(",", ".")) * movedGrams / 100));
+            if (fiber) fiber = String(Math.round(parseFloat(fiber.replace(",", ".")) * movedGrams / 100));
+          }
         }
       }
 
@@ -306,6 +318,7 @@ export function useIndexStockMoveHandlers(deps: IndexStockMoveHandlerDeps) {
       addMealToPossibleDirectly,
       attachFoodDeductionSnapshot,
       freezePossibleBadgeCounter,
+      ingredientMacroAutofillSources,
       macroLookup,
       qc,
       updateSnapshots,

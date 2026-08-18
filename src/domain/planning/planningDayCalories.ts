@@ -2,10 +2,14 @@ import { PLANNING_DAY_SLOTS, TIMES } from "@/hooks/useMeals";
 import type { Meal, PossibleMeal } from "@/types/meals";
 import type { FoodItem } from "@/types/food";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
-import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import {
+  computeHomonymFoodMealMacros,
+  type IngredientMacroLibraryItem,
+} from "@/domain/macros/ingredientMacroDatabase";
 import {
   getDisplayedCalories,
   getDisplayedPMCalories,
+  parseMacroDisplay,
 } from "@/lib/stockUtils";
 import { getOverrideScaleRatio } from "@/hooks/useCalorieBalance";
 import {
@@ -57,6 +61,9 @@ function parsePositiveOverride(value: string | null | undefined): number | null 
 /** Calories affichées d'une carte planning (même logique que le hook live). */
 function cardDisplayCalories(
   pm: PossibleMeal,
+  foodItems: FoodItem[],
+  macroLibrary: IngredientMacroLibraryItem[],
+  catalogMeals: Meal[],
   calOverride?: string | null,
   isAvailable?: (name: string) => boolean,
 ): number {
@@ -64,12 +71,16 @@ function cardDisplayCalories(
   if (!meal) return 0;
   const override = parsePositiveOverride(calOverride);
   if (override !== null) return override;
-  const displayCal = getDisplayedPMCalories(
-    pm,
-    getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined,
-    isAvailable,
+  const ratio = getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined;
+  const displayCal = getDisplayedPMCalories(pm, ratio, isAvailable);
+  if (displayCal) return displayCal;
+  const fallback = computeHomonymFoodMealMacros(
+    meal,
+    foodItems,
+    { foodItems, macroLibrary, mealMacros: new Map(), catalogMeals },
+    ratio ?? 1,
   );
-  return displayCal || 0;
+  return parseMacroDisplay(fallback?.calories) || 0;
 }
 
 /**
@@ -135,7 +146,7 @@ export function computePlanningDayTotalCalories(
       return (
         total +
         slotMeals.reduce(
-          (s, pm) => s + cardDisplayCalories(pm, calOverrides[pm.id], isAvailable),
+          (s, pm) => s + cardDisplayCalories(pm, foodItems, ingredientMacroLibrary, allMeals, calOverrides[pm.id], isAvailable),
           0,
         )
       );
@@ -154,7 +165,7 @@ export function computePlanningDayTotalCalories(
       : false;
     breakfastCal =
       possiblePdj && !alreadyInMatin
-        ? cardDisplayCalories(possiblePdj, undefined, isAvailable)
+        ? cardDisplayCalories(possiblePdj, foodItems, ingredientMacroLibrary, allMeals, undefined, isAvailable)
         : 0;
   } else if (selId?.startsWith("meal:")) {
     const mealId = selId.slice(5);

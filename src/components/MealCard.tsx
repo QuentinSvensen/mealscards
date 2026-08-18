@@ -26,12 +26,12 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
-import { autofillIngredientLinesMacros, computeFoodItemPortionMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
+import { autofillIngredientLinesMacros, computeHomonymFoodMealMacros, type IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   type IngLine,
   parseIngredientsToLines, serializeIngredients,
   computeIngredientCalories, computeIngredientProtein, computeIngredientFiber,
-  getMealColor, computeCounterHours, strictNameMatch
+  getMealColor, computeCounterHours
 } from "@/lib/ingredientUtils";
 import { findStockKey, type StockInfo, type FoodItemIndex, getDisplayedCalories, getDisplayedProtein, getDisplayedFiber, parseMacroDisplay } from "@/lib/stockUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
@@ -256,16 +256,10 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
     !meal.ingredients?.trim() &&
     (headerCal == null || headerCal === 0) &&
     (headerPro == null || headerPro === 0) &&
-    (headerFiber == null || headerFiber === 0) &&
-    foodItems?.length
+    (headerFiber == null || headerFiber === 0)
   ) {
-    const fi = foodItems.find(
-      (item) => item.is_meal && strictNameMatch(item.name, meal.name),
-    ) ?? foodItems.find((item) => strictNameMatch(item.name, meal.name));
-    if (fi) {
-      const portion = computeFoodItemPortionMacros(fi, {
-        macroSources: ingredientMacroSources,
-      });
+    const portion = computeHomonymFoodMealMacros(meal, foodItems, ingredientMacroSources);
+    if (portion) {
       headerCal = parseMacroDisplay(portion.calories) ?? headerCal;
       headerPro = parseMacroDisplay(portion.protein) ?? headerPro;
       headerFiber = parseMacroDisplay(portion.fiber) ?? headerFiber;

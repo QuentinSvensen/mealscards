@@ -23,6 +23,7 @@ import {
   MASTER_SOURCE_PM_IDS_PREF_KEY,
   addMasterSourcePmIds,
   filterStockAffectingPossibleMeals,
+  isPossibleMealStockExempt,
 } from "@/lib/masterSourcePossibleMeals";
 import { shouldSuppressStockRealtime } from "@/lib/stockRealtimeGate";
 import { debounceInvalidateQueries } from "@/lib/queryInvalidationDebounce";
@@ -559,8 +560,9 @@ const Index = () => {
       macroLibrary,
       mealMacros: macroLookup,
       unitGramsByKey: macroUnitGramsByKey,
+      catalogMeals: meals,
     }),
-    [foodItems, macroLibrary, macroLookup, macroUnitGramsByKey],
+    [foodItems, macroLibrary, macroLookup, macroUnitGramsByKey, meals],
   );
 
   useEffect(() => {
@@ -814,6 +816,21 @@ const Index = () => {
     [setPreference],
   );
 
+  const ninjaStockExemptIds = useMemo(
+    () => ({
+      ninjaTestPmIds: ninjaCreamiTestPmIds,
+      ninjaTestedMealIds: ninjaCreamiMealIds,
+    }),
+    [ninjaCreamiMealIds, ninjaCreamiTestPmIds],
+  );
+
+  /** Contour jaune (Tous / Tests / Recettes testées) : la carte ne doit pas toucher au stock. */
+  const isStockExemptPossibleCard = useCallback(
+    (pmId: string, mealId?: string | null) =>
+      isPossibleMealStockExempt({ id: pmId, meal_id: mealId }, masterSourcePmIds, ninjaStockExemptIds),
+    [masterSourcePmIds, ninjaStockExemptIds],
+  );
+
   useProgCounterReconcile({
     enabled: unlocked,
     isLoading,
@@ -973,6 +990,7 @@ const Index = () => {
     qc,
     foodItems,
     macroLookup,
+    ingredientMacroAutofillSources,
     moveToPossible,
     addMealToPossibleDirectly,
     updatePossibleIngredients,
@@ -1796,6 +1814,7 @@ const Index = () => {
                               const remainingMeals = filterStockAffectingPossibleMeals(
                                 possibleMeals.filter(p => p.id !== id),
                                 masterSourcePmIds,
+                                ninjaStockExemptIds,
                               );
                               const ing = pm.ingredients_override ?? pm.meals?.ingredients;
                               const fallbackCounter =
@@ -1812,7 +1831,7 @@ const Index = () => {
                             // Retour Tous : pas de synchro Prog. (jamais déduit).
                           }}
                           onSplitQuantity={(id, ratio, baseIng) => {
-                            const fromMaster = masterSourcePmIds.has(id);
+                            const fromMaster = isStockExemptPossibleCard(id, possibleMeals.find((p) => p.id === id)?.meal_id);
                             splitPossibleMealQuantity.mutate(
                               { id, ratio, baseIngredients: baseIng },
                               {
@@ -1837,10 +1856,11 @@ const Index = () => {
                             clearFrozenPossibleBadgeCounter(id);
                             deletePossibleMeal.mutate(id);
 
-                            if (pm && !masterSourcePmIds.has(id)) {
+                            if (pm && !isStockExemptPossibleCard(id, pm.meal_id)) {
                               const remainingMeals = filterStockAffectingPossibleMeals(
                                 possibleMeals.filter(p => p.id !== id),
                                 masterSourcePmIds,
+                                ninjaStockExemptIds,
                               );
                               const ing = pm.ingredients_override ?? pm.meals?.ingredients;
                               updateFoodItemCountersForPlanning(null, ing, null, null, null, null, remainingMeals);
@@ -1849,7 +1869,7 @@ const Index = () => {
                           onDuplicate={async (id) => {
                             const pm = possibleMeals.find(p => p.id === id);
                             if (pm?.meals) {
-                              const fromMaster = masterSourcePmIds.has(id);
+                              const fromMaster = isStockExemptPossibleCard(id, possibleMeals.find((p) => p.id === id)?.meal_id);
                               let snapshots: FoodItem[] = [];
                               if (!fromMaster) {
                                 const ingredientsToDeduce = pm.ingredients_override ?? pm.meals.ingredients;
@@ -1897,7 +1917,7 @@ const Index = () => {
                                 const { [id]: _removedSlotOverride, ...nextSlotOverrides } = currentSlotOverrides;
                                 setPreference.mutate({ key: 'planning_slot_overrides', value: nextSlotOverrides });
                               }
-                              const isOccupied = unParUnSourcePmIds.has(id) || masterSourcePmIds.has(id);
+                              const isOccupied = unParUnSourcePmIds.has(id) || isStockExemptPossibleCard(id, pm.meal_id);
                               const effectiveCounter = isOccupied ? null : counter;
                               const fallbackUnParUnIngredients =
                                 unParUnSourcePmIds.has(id) && pm.meals
@@ -2048,7 +2068,7 @@ const Index = () => {
                                   clearFrozenPossibleBadgeCounter(id);
                                 }
                                 // Cartes « Tous » : pas de déduction stock → ne pas basculer les aliments en Prog.
-                                if (!masterSourcePmIds.has(id)) {
+                                if (!isStockExemptPossibleCard(id, pm.meal_id)) {
                                   updateFoodItemCountersForPlanning(
                                     id,
                                     ing,
@@ -2056,7 +2076,11 @@ const Index = () => {
                                     time,
                                     fallbackDate,
                                     pm.created_at,
-                                    filterStockAffectingPossibleMeals(nextPossibleMeals, masterSourcePmIds),
+                                    filterStockAffectingPossibleMeals(
+                                      nextPossibleMeals,
+                                      masterSourcePmIds,
+                                      ninjaStockExemptIds,
+                                    ),
                                   );
                                 }
                               }
@@ -2156,8 +2180,8 @@ const Index = () => {
                             const pm = possibleMeals.find(p => p.id === pmId);
                             if (!pm) return;
                             const oldIngredients = pm.ingredients_override ?? pm.meals?.ingredients;
-                            // Cartes issues de « Tous » : pas de déduction initiale → le scale xN non plus.
-                            if (!masterSourcePmIds.has(pmId) && (oldIngredients || newIngredients)) {
+                            // Contour jaune (Tous / Ninja) : pas de déduction initiale → extras / scale non plus.
+                            if (!isStockExemptPossibleCard(pmId, pm.meal_id) && (oldIngredients || newIngredients)) {
                               const newSnaps = await adjustStockForIngredientChange(oldIngredients, newIngredients, effectiveDeductionSnapshots[pmId]);
                               if (newSnaps.length > 0) {
                                 updateSnapshots(prev => ({

@@ -25,6 +25,10 @@ interface MealListProps {
   headerActions?: React.ReactNode;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Double-clic sur le titre (ex. aperçu Recettes testées). */
+  onHeaderDoubleClick?: () => void;
+  /** Infobulle du titre quand un double-clic est disponible. */
+  headerDoubleClickTitle?: string;
   /** Classes CSS additionnelles (ex. padding réduit pour listes imbriquées). */
   className?: string;
 }
@@ -39,6 +43,8 @@ export function MealList({
   headerActions,
   collapsed,
   onToggleCollapse,
+  onHeaderDoubleClick,
+  headerDoubleClickTitle,
   className,
 }: MealListProps) {
   const [dragOver, setDragOver] = useState(false);
@@ -83,10 +89,26 @@ export function MealList({
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
         )}
-        <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-          <span className="text-2xl">{emoji}</span> {title}
-        </h2>
-        <span className="text-sm font-normal text-muted-foreground">{count}</span>
+        <div
+          className={`flex items-center gap-2 min-w-0 ${
+            onHeaderDoubleClick ? "cursor-pointer select-none" : ""
+          }`}
+          title={onHeaderDoubleClick ? (headerDoubleClickTitle ?? "Double-clic pour ouvrir l’aperçu") : undefined}
+          onDoubleClick={
+            onHeaderDoubleClick
+              ? (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onHeaderDoubleClick();
+                }
+              : undefined
+          }
+        >
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2 min-w-0">
+            <span className="text-2xl">{emoji}</span> {title}
+          </h2>
+          <span className="text-sm font-normal text-muted-foreground">{count}</span>
+        </div>
         <div className="ml-auto flex items-center gap-1">
           {headerActions}
         </div>

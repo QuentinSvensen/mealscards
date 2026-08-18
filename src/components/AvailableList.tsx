@@ -32,7 +32,7 @@ import { applyContainerReorderDrop } from "@/lib/listReorderDnD";
 import { colorFromName } from "@/lib/foodColors";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
-import { autofillIngredientLinesMacros, computeFoodItemPortionMacros } from "@/domain/macros/ingredientMacroDatabase";
+import { autofillIngredientLinesMacros, computeFoodItemPortionMacros, computeHomonymFoodMealMacros } from "@/domain/macros/ingredientMacroDatabase";
 import { usePreferences } from "@/hooks/usePreferences";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import {
@@ -50,6 +50,7 @@ import {
 import {
   normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey, parseIngredientsToLines, serializeIngredients
 } from "@/lib/ingredientUtils";
+import { getActiveCounterDaysForSort } from "@/lib/foodSortUtils";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 import { useCalorieBalance } from "@/hooks/useCalorieBalance";
@@ -369,7 +370,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
 
   /** Construit un repas factice avec les calories visibles pour une correspondance nom ↔ aliment. */
   const buildNameMatchCalorieMeal = (nm: NameMatch): Meal => {
+    const portion = computeFoodItemPortionMacros(nm.fi, { macroSources: ingredientMacroAutofillSources });
     let baseCal = nm.meal.calories && nm.meal.calories !== "0" ? parseFloat(nm.meal.calories.replace(",", ".")) : 0;
+    if (!baseCal && portion.calories) {
+      const fromPortion = parseFloat(portion.calories.replace(",", "."));
+      if (Number.isFinite(fromPortion) && fromPortion > 0) baseCal = fromPortion;
+    }
     if (!baseCal && nm.fi.calories) {
       const fiCal = parseFloat(nm.fi.calories.replace(",", "."));
       if (Number.isFinite(fiCal) && fiCal > 0) {
@@ -381,7 +387,13 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
         }
       }
     }
-    return { ...nm.meal, calories: baseCal > 0 ? String(Math.round(baseCal)) : nm.meal.calories, ingredients: null };
+    return {
+      ...nm.meal,
+      calories: baseCal > 0 ? String(Math.round(baseCal)) : nm.meal.calories,
+      protein: portion.protein || nm.meal.protein,
+      fiber: portion.fiber || nm.meal.fiber,
+      ingredients: null,
+    };
   };
 
   /**
@@ -402,13 +414,31 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       foodItems,
       foodItemIndex,
     );
+    const knownCalIsMissing =
+      knownCal === null ||
+      (knownCal === 0 &&
+        !resolvedForCal.calories?.trim() &&
+        !resolvedForCal.ingredients?.trim());
+    const fallbackMacros = knownCalIsMissing
+      ? computeHomonymFoodMealMacros(
+          resolvedForCal,
+          foodItems,
+          ingredientMacroAutofillSources,
+          startingRatio,
+        )
+      : null;
+    const resolvedCal = knownCal ?? parseMacroDisplay(fallbackMacros?.calories);
     // Pas d’info calorique → ne pas contourner le filtre seuil
-    if (knownCal === null) return { show: false, newRatio: null };
+    if (resolvedCal === null) return { show: false, newRatio: null };
     // Repas à 0 kcal → rentre dans n’importe quel seuil (y compris 0)
-    if (knownCal === 0) return { show: true, newRatio: startingRatio };
+    if (resolvedCal === 0) return { show: true, newRatio: startingRatio };
 
-    const baseRaw = getAvailableSortMacroValue(meal, "calories");
-    let currentCal = getAvailableSortMacroValue(meal, "calories", startingRatio);
+    const mealForFit =
+      fallbackMacros?.calories
+        ? { ...meal, calories: fallbackMacros.calories, protein: fallbackMacros.protein, fiber: fallbackMacros.fiber }
+        : meal;
+    const baseRaw = getAvailableSortMacroValue(mealForFit, "calories");
+    let currentCal = getAvailableSortMacroValue(mealForFit, "calories", startingRatio);
 
     if (currentCal !== null && currentCal <= calorieThreshold) {
       return { show: true, newRatio: startingRatio };
@@ -426,12 +456,12 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        // Round down to nearest 0.01 to ensure we don't exceed threshold
        const directRatio = Math.floor(targetRatio * 100) / 100;
        if (directRatio < 0.5) return { show: false, newRatio: null };
-       const checkCal = getAvailableSortMacroValue(meal, "calories", directRatio);
+       const checkCal = getAvailableSortMacroValue(mealForFit, "calories", directRatio);
        if (checkCal !== null && checkCal <= calorieThreshold) return { show: true, newRatio: directRatio };
        // Edge case: rounding artifacts — try one step down
        const fallback = directRatio - 0.01;
        if (fallback >= 0.5) {
-         const fbCal = getAvailableSortMacroValue(meal, "calories", fallback);
+         const fbCal = getAvailableSortMacroValue(mealForFit, "calories", fallback);
          if (fbCal !== null && fbCal <= calorieThreshold) return { show: true, newRatio: fallback };
        }
        return { show: false, newRatio: null };
@@ -447,7 +477,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        
        if (bestValid < 0.5) return { show: false, newRatio: null };
        
-       currentCal = getAvailableSortMacroValue(meal, "calories", bestValid);
+       currentCal = getAvailableSortMacroValue(mealForFit, "calories", bestValid);
        if (currentCal !== null && currentCal <= calorieThreshold) {
          return { show: true, newRatio: bestValid };
        }
@@ -456,7 +486,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
        const sortedRatios = [...validRatios].sort((a,b) => b-a);
        for (const r of sortedRatios) {
          if (r <= targetRatio + EPSILON && r >= 0.5) {
-            currentCal = getAvailableSortMacroValue(meal, "calories", r);
+            currentCal = getAvailableSortMacroValue(mealForFit, "calories", r);
             if (currentCal !== null && currentCal <= calorieThreshold) return { show: true, newRatio: r };
          }
        }
@@ -1362,8 +1392,9 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       <div className="flex flex-wrap gap-1.5">
         {[...allItems].sort((a, b) => {
           const today = new Date(new Date().toDateString());
-          const aCounter = computeCounterDays(a.counter_start_date);
-          const bCounter = computeCounterDays(b.counter_start_date);
+          // Même masquage que la fiche Aliments (no_counter, paquet scellé, date orpheline).
+          const aCounter = getActiveCounterDaysForSort(a);
+          const bCounter = getActiveCounterDaysForSort(b);
           if (aCounter !== null && bCounter === null) return -1;
           if (aCounter === null && bCounter !== null) return 1;
           if (aCounter !== null && bCounter !== null && aCounter !== bCounter) return bCounter - aCounter;
@@ -1383,7 +1414,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           const daysUntilExp = fi.expiration_date ? Math.ceil((new Date(fi.expiration_date).getTime() - new Date(todayStr).getTime()) / 86400000) : null;
           const isSoonExpiring = daysUntilExp !== null && daysUntilExp >= 0 && daysUntilExp <= 7;
           const expLabel = fi.expiration_date ? format(parseISO(fi.expiration_date), 'd MMM', { locale: fr }) : null;
-          const counterDays = computeCounterDays(fi.counter_start_date);
+          const counterDays = getActiveCounterDaysForSort(fi);
           const counterUrgent = counterDays !== null && counterDays >= 3;
           const isCrossCat = crossCatIds.has(fi.id);
           return (

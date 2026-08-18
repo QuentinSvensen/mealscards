@@ -19,11 +19,15 @@ import { format } from 'date-fns';
 import { useMeals, PLANNING_DAY_SLOTS, type PossibleMeal, type Meal } from '@/hooks/useMeals';
 import { usePreferences } from '@/hooks/usePreferences';
 import { type FoodItemMacroIndex } from '@/lib/ingredientUtils';
-import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex } from '@/lib/stockUtils';
+import { getDisplayedPMCalories, getDisplayedPMProtein, getDisplayedPMFiber, getDisplayedProtein, getDisplayedFiber, buildFoodItemIndex, parseMacroDisplay } from '@/lib/stockUtils';
 import {
   DESSERT_FOOD_PREF_KEY,
 } from "@/lib/foodDessertUtils";
-import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import {
+  computeHomonymFoodMealMacros,
+  type IngredientMacroAutofillSources,
+  type IngredientMacroLibraryItem,
+} from "@/domain/macros/ingredientMacroDatabase";
 import {
   aggregateExtraSelectionMacros,
   buildPlanningDessertCatalogById,
@@ -116,6 +120,8 @@ export function getCardDisplayCalories(
   pm: PossibleMeal,
   calOverride?: string | null,
   isAvailable?: (name: string) => boolean,
+  foodItems?: FoodItem[],
+  macroSources?: IngredientMacroAutofillSources,
 ): number {
   const meal = pm.meals;
   if (!meal) return 0;
@@ -124,9 +130,11 @@ export function getCardDisplayCalories(
   const override = parsePositiveOverride(calOverride);
   if (override !== null) return override;
 
-  // 2. Utiliser la fonction d'affichage centralisée des macros (gère le total additif et l'échelle)
-  const displayCal = getDisplayedPMCalories(pm, getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined, isAvailable);
-  return displayCal || 0;
+  const ratio = getOverrideScaleRatio(meal, pm.ingredients_override) ?? undefined;
+  const displayCal = getDisplayedPMCalories(pm, ratio, isAvailable);
+  if (displayCal) return displayCal;
+  const fallback = computeHomonymFoodMealMacros(meal, foodItems, macroSources, ratio ?? 1);
+  return parseMacroDisplay(fallback?.calories) || 0;
 }
 
 /**
@@ -139,6 +147,7 @@ export function getCardDisplayProtein(
   isAvailable?: (name: string) => boolean,
   foodItems?: FoodItem[],
   foodItemIndex?: FoodItemMacroIndex,
+  macroSources?: IngredientMacroAutofillSources,
 ): number {
   const meal = pm.meals;
   if (!meal) return 0;
@@ -154,7 +163,10 @@ export function getCardDisplayProtein(
     foodItems,
     foodItemIndex,
   );
-  return displayPro || 0;
+  if (displayPro) return displayPro;
+  const ratio = getOverrideScaleRatio(meal, pm.ingredients_override) ?? 1;
+  const fallback = computeHomonymFoodMealMacros(meal, foodItems, macroSources, ratio);
+  return parseMacroDisplay(fallback?.protein) || 0;
 }
 
 /**
@@ -167,6 +179,7 @@ export function getCardDisplayFiber(
   isAvailable?: (name: string) => boolean,
   foodItems?: FoodItem[],
   foodItemIndex?: FoodItemMacroIndex,
+  macroSources?: IngredientMacroAutofillSources,
 ): number {
   const meal = pm.meals;
   if (!meal) return 0;
@@ -181,7 +194,10 @@ export function getCardDisplayFiber(
     foodItems,
     foodItemIndex,
   );
-  return displayFiber || 0;
+  if (displayFiber) return displayFiber;
+  const ratio = getOverrideScaleRatio(meal, pm.ingredients_override) ?? 1;
+  const fallback = computeHomonymFoodMealMacros(meal, foodItems, macroSources, ratio);
+  return parseMacroDisplay(fallback?.fiber) || 0;
 }
 
 /**

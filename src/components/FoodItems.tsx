@@ -62,7 +62,10 @@ import { BarcodeScanner } from "./BarcodeScanner";
 import MaxMealGenerator from "@/components/MaxMealGenerator";
 import {
   upsertFoodItemMacroLibraryItem,
+  computeFoodItemPortionMacros,
+  type IngredientMacroAutofillSources,
   type IngredientMacroLibraryItem,
+  type FoodItemPortionMacros,
 } from "@/domain/macros/ingredientMacroDatabase";
 import { NutritionScoreBadge } from "@/components/NutritionScoreBadge";
 import {
@@ -154,10 +157,12 @@ interface FoodItemCardProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   draggableEnabled?: boolean;
+  /** Macros recalculées (Macro / catalogue) pour un aliment-repas dont la fiche est vide. */
+  computedPortionMacros?: FoodItemPortionMacros | null;
 }
 
 /** Carte d’un aliment : édition inline, péremption, compteur, glisser-déposer. */
-function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantity, onUpdate, manualMacroFields, isMorningMeal, isDessertFood, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true }: FoodItemCardProps) {
+function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantity, onUpdate, manualMacroFields, isMorningMeal, isDessertFood, onCycleMealMode, onDelete, onDuplicate, onMoveToExtras, onDragStart, onDragOver, onDrop, draggableEnabled = true, computedPortionMacros }: FoodItemCardProps) {
   const color = colorFromName(item.name);
   const [editing, setEditing] = useState<"name" | "grams" | "calories" | "protein" | "fiber" | "quantity" | "partial" | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -194,6 +199,12 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
   const showCalories = isManualFoodMacroVisible(item, "calories", manualMacroFields);
   const showProtein = isManualFoodMacroVisible(item, "protein", manualMacroFields);
   const showFiber = isManualFoodMacroVisible(item, "fiber", manualMacroFields);
+  const computedCal = computedPortionMacros?.calories?.trim() || null;
+  const computedPro = computedPortionMacros?.protein?.trim() || null;
+  const computedFiber = computedPortionMacros?.fiber?.trim() || null;
+  const calorieBadge = showCalories ? item.calories : (item.is_meal ? computedCal : null);
+  const proteinBadge = showProtein ? item.protein : (item.is_meal ? computedPro : null);
+  const fiberBadge = showFiber ? item.fiber : (item.is_meal ? computedFiber : null);
 
   // Indique si la prochaine version simulée de l'aliment est entièrement scellée
   // (aucune unité entamée). Utilisé pour arrêter automatiquement les compteurs.
@@ -477,27 +488,27 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
           {/* Calories */}
           {editing === "calories" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 200 kcal" className="h-6 w-24 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : showCalories ? (
-            <button onClick={() => startEdit("calories")} className="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0">
-              <Flame className="h-2.5 w-2.5" />{item.calories}
+          ) : calorieBadge ? (
+            <button onClick={() => startEdit("calories")} className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-white/30 shrink-0 ${showCalories ? "text-white/70 bg-white/20" : "text-white font-bold bg-orange-500/50 hover:bg-orange-500/60"}`}>
+              <Flame className="h-2.5 w-2.5" />{calorieBadge}
             </button>
           ) : null}
 
           {/* Protéines */}
           {editing === "protein" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 25" inputMode="numeric" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : showProtein ? (
-            <button onClick={() => startEdit("protein")} className="text-[10px] text-white/70 bg-blue-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-blue-500/40 shrink-0 font-semibold">
-              🍗 {Math.round(parseFloat(item.protein!.replace(',', '.')) || 0)}
+          ) : proteinBadge ? (
+            <button onClick={() => startEdit("protein")} className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${showProtein ? "text-white/70 bg-blue-500/30 hover:bg-blue-500/40" : "text-white bg-blue-600/60 hover:bg-blue-600/70"}`}>
+              🍗 {Math.round(parseFloat(String(proteinBadge).replace(',', '.')) || 0)}
             </button>
           ) : null}
 
           {/* Fibres */}
           {editing === "fiber" ? (
             <Input autoFocus value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={e => e.key === "Enter" && saveEdit()} placeholder="Ex: 8" inputMode="decimal" className="h-6 w-16 border-white/30 bg-white/20 text-white placeholder:text-white/50 text-[10px] px-1.5" />
-          ) : showFiber ? (
-            <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/70 bg-emerald-500/30 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 hover:bg-emerald-500/40 shrink-0 font-semibold">
-              🌾 {Math.round(parseFloat(item.fiber!.replace(',', '.')) || 0)}
+          ) : fiberBadge ? (
+            <button onClick={() => startEdit("fiber")} className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 font-semibold ${showFiber ? "text-white/70 bg-emerald-500/30 hover:bg-emerald-500/40" : "text-white bg-emerald-600/60 hover:bg-emerald-600/70"}`}>
+              🌾 {Math.round(parseFloat(String(fiberBadge).replace(',', '.')) || 0)}
             </button>
           ) : null}
 
@@ -592,17 +603,17 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
             <InfinityIcon className="h-2.5 w-2.5" />∞
           </button>
         )}
-        {!showCalories && editing !== "calories" && (
+        {!showCalories && !calorieBadge && editing !== "calories" && (
           <button onClick={() => startEdit("calories")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             <Flame className="h-2.5 w-2.5" />+ calories
           </button>
         )}
-        {!showProtein && editing !== "protein" && (
+        {!showProtein && !proteinBadge && editing !== "protein" && (
           <button onClick={() => startEdit("protein")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🍗 + protéines
           </button>
         )}
-        {!showFiber && editing !== "fiber" && (
+        {!showFiber && !fiberBadge && editing !== "fiber" && (
           <button onClick={() => startEdit("fiber")} className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
             🌾 + fibres
           </button>
@@ -693,6 +704,7 @@ const foodItemSchema = z.object({
 
 const FOOD_LIBRARY_AMOUNT_PREF_KEY = "food_library_amounts";
 const INGREDIENT_MACRO_LIBRARY_PREF_KEY = "ingredient_macro_library";
+const INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY = "ingredient_macro_unit_grams";
 
 type FoodLibraryAmountMemory = Record<string, { grams: string; quantity?: string; is_indivisible?: boolean }>;
 
@@ -804,6 +816,18 @@ export function FoodItems() {
     }
   }, [dessertExtraStockSnapshots, dessertFoodItemIds, dessertFoodNameKeys, isLoading, items, setPreference]);
   const manualMacroFields = getPreference<FoodManualMacroFields>(FOOD_MANUAL_MACRO_FIELDS_PREF_KEY, {});
+  const macroLibrary = getPreference<IngredientMacroLibraryItem[]>(INGREDIENT_MACRO_LIBRARY_PREF_KEY, []);
+  const macroUnitGramsByKey = getPreference<Record<string, number>>(INGREDIENT_MACRO_UNIT_GRAMS_PREF_KEY, {});
+  const mealMacroSources = useMemo<IngredientMacroAutofillSources>(
+    () => ({
+      foodItems: items,
+      macroLibrary,
+      mealMacros: new Map(),
+      unitGramsByKey: macroUnitGramsByKey,
+      catalogMeals: meals,
+    }),
+    [items, macroLibrary, macroUnitGramsByKey, meals],
+  );
 
   const [newName, setNewName] = useState("");
   const [newQuantity, setNewQuantity] = useState("");
@@ -1816,6 +1840,7 @@ export function FoodItems() {
             setDragIndex={setDragIndex}
             allItems={items}
             manualMacroFields={manualMacroFields}
+            mealMacroSources={mealMacroSources}
             onChangeStorage={handleChangeStorage}
             morningMealFoodItemIdSet={morningMealFoodItemIdSet}
             dessertFoodItemIdSet={dessertFoodItemIdSet}
@@ -1861,6 +1886,7 @@ export function FoodItems() {
               setDragIndex={setDragIndex}
               allItems={items}
               manualMacroFields={manualMacroFields}
+              mealMacroSources={mealMacroSources}
               onChangeStorage={handleChangeStorage}
               morningMealFoodItemIdSet={morningMealFoodItemIdSet}
               dessertFoodItemIdSet={dessertFoodItemIdSet}
@@ -1916,10 +1942,11 @@ interface FoodSectionProps {
   foodLibraryAmountMemory: FoodLibraryAmountMemory;
   extrasDividerAfterId?: string | null;
   onSetExtrasDividerAfterId?: (id: string | null) => void;
+  mealMacroSources?: IngredientMacroAutofillSources;
 }
 
 /** Bloc repliable pour un type de stockage (frigo, placard…) avec tri et DnD. */
-function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, dessertFoodItemIdSet, cycleMealMode, removeMorningMealId, removeDessertFoodId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory, extrasDividerAfterId, onSetExtrasDividerAfterId }: FoodSectionProps) {
+function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onDuplicate, sortMode, onToggleSort, sortDirection, onToggleSortDirection, onReorder, dragIndex, setDragIndex, allItems, manualMacroFields, onChangeStorage, morningMealFoodItemIdSet, dessertFoodItemIdSet, cycleMealMode, removeMorningMealId, removeDessertFoodId, possibleMeals, foodStockBaselines, foodLibraryAmountMemory, extrasDividerAfterId, onSetExtrasDividerAfterId, mealMacroSources }: FoodSectionProps) {
   const effectiveDividerAfterId =
     storageType === "extras" ? resolveExtrasDividerAfterId(items, extrasDividerAfterId) : null;
   const dividerSplit =
@@ -2159,6 +2186,11 @@ function FoodSection({ emoji, title, storageType, items, onUpdate, onDelete, onD
                   onCycleMealMode={() => cycleMealMode(item)}
                   onDelete={() => onDelete(item.id)}
                   onDuplicate={() => onDuplicate(item.id)}
+                  computedPortionMacros={
+                    item.is_meal
+                      ? computeFoodItemPortionMacros(item, { macroSources: mealMacroSources })
+                      : null
+                  }
                   onMoveToExtras={storageType === 'test' ? () => onChangeStorage(item.id, 'extras') : undefined}
                   draggableEnabled={!isTouchDevice}
                   onDragStart={(e) => {

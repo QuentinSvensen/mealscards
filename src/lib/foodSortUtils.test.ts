@@ -165,6 +165,20 @@ describe("compareFoodItemsByExpiration / getSortedFoodItems (péremption)", () =
       expect(sorted.map((i) => i.name)).toEqual(["Pain de mie", "Spéculoos", "Fuet"]);
     });
 
+    it("aliment entamé avec compteur auto coupé : pas de jours affichés (ex. Aliments inutilisés)", () => {
+      const pommeDeTerre = makeFood({
+        id: "pdt",
+        name: "Pomme de terre",
+        grams: "500|250",
+        quantity: 1,
+        no_counter: true,
+        counter_start_date: "2026-08-06T10:00:00.000Z",
+        expiration_date: "2026-08-08",
+        storage_type: "sec",
+      });
+      expect(getActiveCounterDaysForSort(pommeDeTerre)).toBeNull();
+    });
+
     it("avec résolveur UI qui masque le badge : Fuet ne passe pas avant les dates proches", () => {
       const fuetHidden = makeFood({
         id: "fuet",

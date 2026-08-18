@@ -19,6 +19,7 @@ import {
   resolveConsumeDialogMacros,
   autofillIngredientLinesMacros,
   computeFoodItemPortionMacros,
+  computeHomonymFoodMealMacros,
 } from "./ingredientMacroDatabase";
 
 const baseMeal: Omit<Meal, "id" | "name" | "ingredients"> = {
@@ -487,5 +488,43 @@ describe("ingredientMacroDatabase", () => {
     });
     expect(macros.calories).toBe("350");
     expect(macros.protein).toBe("24");
+  });
+
+  it("repas homonyme sans kcal : scale Macro /100g × grammes de la portion", () => {
+    const fi = makeFoodItem("n1", "Nouille protéinée", null, null, "frigo", "210", 1);
+    fi.is_meal = true;
+    const library = [createIngredientMacroLibraryItem("Nouille protéinée", "350", "25", "2")!];
+    const macros = computeHomonymFoodMealMacros(
+      { name: "Nouille protéinée", grams: "210" },
+      [fi],
+      { foodItems: [fi], macroLibrary: library, mealMacros: new Map() },
+    );
+    expect(macros?.calories).toBe("735");
+    expect(macros?.protein).toBe("53");
+  });
+
+  it("repas homonyme : Macro /100g même si l'aliment n'est plus en stock", () => {
+    const library = [createIngredientMacroLibraryItem("Nouille protéinée", "350", "25", "2")!];
+    const macros = computeHomonymFoodMealMacros(
+      { name: "Nouille protéinée", grams: "210" },
+      [],
+      { foodItems: [], macroLibrary: library, mealMacros: new Map() },
+    );
+    expect(macros?.calories).toBe("735");
+    expect(macros?.protein).toBe("53");
+  });
+
+  it("repas homonyme : macros de la fiche catalogue Tous si Macro et aliment absents", () => {
+    const catalog = makeMeal("m1", "Nouille protéinée", null);
+    catalog.calories = "700";
+    catalog.protein = "50";
+    catalog.grams = "210";
+    const macros = computeHomonymFoodMealMacros(
+      { name: "Nouille protéinée", grams: "210" },
+      [],
+      { foodItems: [], macroLibrary: [], mealMacros: new Map(), catalogMeals: [catalog] },
+    );
+    expect(macros?.calories).toBe("700");
+    expect(macros?.protein).toBe("50");
   });
 });

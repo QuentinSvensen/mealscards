@@ -51,6 +51,11 @@ export interface IngredientMacroAutofillSources {
    * Sert à la satiété recette quand la fiche Aliments n'a pas de poids d'unité.
    */
   unitGramsByKey?: Record<string, number>;
+  /**
+   * Recettes catalogue (Tous) : repli quand la fiche aliment et Macro n’ont pas de kcal
+   * (repas homonyme sans ingrédients, macros saisies sur la carte).
+   */
+  catalogMeals?: Meal[];
 }
 
 export interface IngredientMacroUpdatePlan {
@@ -712,6 +717,155 @@ export interface FoodItemPortionMacros {
 }
 
 /**
+ * Trouve l’aliment homonyme d’un repas (préférence is_meal).
+ */
+function findHomonymFoodItem(
+  mealName: string,
+  foodItems: FoodItem[] | undefined,
+): FoodItem | undefined {
+  if (!foodItems?.length || !mealName.trim()) return undefined;
+  return (
+    foodItems.find((item) => item.is_meal && strictNameMatch(item.name, mealName)) ??
+    foodItems.find((item) => strictNameMatch(item.name, mealName))
+  );
+}
+
+/** Indique si un objet macros portion contient au moins une valeur utile. */
+function hasPortionMacros(macros: FoodItemPortionMacros | null | undefined): macros is FoodItemPortionMacros {
+  if (!macros) return false;
+  return Boolean(macros.calories || macros.protein || macros.fiber);
+}
+
+/**
+ * Convertit des macros /100 g en macros de portion (grammes × extraRatio).
+ * Sans grammage, affiche les valeurs /100 g (repli visible).
+ */
+function scalePer100MacrosToPortion(
+  per100Cal: number,
+  per100Pro: number,
+  per100Fiber: number,
+  grams: number,
+  extraRatio: number,
+): FoodItemPortionMacros {
+  const factor = extraRatio * (grams > 0 ? grams / 100 : 1);
+  return {
+    calories: hasNonZeroMacro(per100Cal) ? String(Math.round(per100Cal * factor)) : null,
+    protein: hasNonZeroMacro(per100Pro) ? String(Math.round(per100Pro * factor)) : null,
+    fiber: hasNonZeroMacro(per100Fiber) ? String(Math.round(per100Fiber * factor)) : null,
+  };
+}
+
+/**
+ * Lit des macros déjà en /100 g (Macro ou annotations recettes) et les scale à la portion.
+ */
+function portionMacrosFromPer100Source(
+  cal: string | null | undefined,
+  pro: string | null | undefined,
+  fiber: string | null | undefined,
+  grams: number,
+  extraRatio: number,
+): FoodItemPortionMacros | null {
+  const per100Cal = parseFoodMacroValue(cal);
+  const per100Pro = parseFoodMacroValue(pro);
+  const per100Fiber = parseFoodMacroValue(fiber);
+  if (!hasNonZeroMacro(per100Cal) && !hasNonZeroMacro(per100Pro) && !hasNonZeroMacro(per100Fiber)) {
+    return null;
+  }
+  return scalePer100MacrosToPortion(per100Cal, per100Pro, per100Fiber, grams, extraRatio);
+}
+
+/**
+ * Trouve un repas catalogue homonyme sans ingrédients (macros saisies sur la fiche Tous).
+ */
+function findCatalogMealMacros(catalogMeals: Meal[] | undefined, mealName: string): Meal | undefined {
+  if (!catalogMeals?.length || !mealName.trim()) return undefined;
+  return catalogMeals.find(
+    (entry) =>
+      strictNameMatch(entry.name, mealName) &&
+      !entry.ingredients?.trim() &&
+      (hasNonZeroMacro(parseFoodMacroValue(entry.calories)) ||
+        hasNonZeroMacro(parseFoodMacroValue(entry.protein)) ||
+        hasNonZeroMacro(parseFoodMacroValue(entry.fiber))),
+  );
+}
+
+/**
+ * Recalcule les macros d’un repas via aliment homonyme, Macro, recettes ou catalogue
+ * (fiche vide, ex. Nouille protéinée) ; scale selon meal.grams et extraRatio.
+ * Fonctionne même si l’aliment a déjà été consommé (plus en stock).
+ */
+export function computeHomonymFoodMealMacros(
+  meal: { name?: string | null; grams?: string | null },
+  foodItems: FoodItem[] | undefined,
+  macroSources?: IngredientMacroAutofillSources,
+  extraRatio: number = 1,
+): FoodItemPortionMacros | null {
+  const name = meal.name ?? "";
+  const extra = extraRatio || 1;
+  const mealG = parseQty(meal.grams);
+  const prefG = name ? macroSources?.unitGramsByKey?.[normalizeKey(name)] : undefined;
+  const gramsForPer100 =
+    mealG > 0 ? mealG : typeof prefG === "number" && prefG > 0 ? prefG : 0;
+
+  const fi = findHomonymFoodItem(name, foodItems ?? macroSources?.foodItems);
+  if (fi) {
+    const unitG =
+      parseQty(fi.grams) ||
+      (typeof macroSources?.unitGramsByKey?.[normalizeKey(fi.name)] === "number"
+        ? macroSources.unitGramsByKey[normalizeKey(fi.name)]
+        : 0);
+    const gramsRatio = unitG > 0 && mealG > 0 ? mealG / unitG : 1;
+    const macros = computeFoodItemPortionMacros(fi, {
+      ratio: gramsRatio * extra,
+      macroSources,
+    });
+    if (hasPortionMacros(macros)) return macros;
+  }
+
+  const libraryItem = findMacroLibraryItemForIngredientName(macroSources?.macroLibrary, name);
+  if (libraryItem) {
+    const fromLib = portionMacrosFromPer100Source(
+      libraryItem.calories,
+      libraryItem.protein,
+      libraryItem.fiber,
+      gramsForPer100,
+      extra,
+    );
+    if (fromLib) return fromLib;
+  }
+
+  const mealMacro = findMealMacroForIngredientName(macroSources?.mealMacros, name);
+  if (mealMacro) {
+    const fromRecipes = portionMacrosFromPer100Source(
+      mealMacro.cal,
+      mealMacro.pro,
+      mealMacro.fiber,
+      gramsForPer100,
+      extra,
+    );
+    if (fromRecipes) return fromRecipes;
+  }
+
+  const catalog = findCatalogMealMacros(macroSources?.catalogMeals, name);
+  if (catalog) {
+    const catG = parseQty(catalog.grams);
+    const ratio = catG > 0 && mealG > 0 ? (mealG / catG) * extra : extra;
+    const cal = parseFoodMacroValue(catalog.calories);
+    const pro = parseFoodMacroValue(catalog.protein);
+    const fiber = parseFoodMacroValue(catalog.fiber);
+    if (hasNonZeroMacro(cal) || hasNonZeroMacro(pro) || hasNonZeroMacro(fiber)) {
+      return {
+        calories: hasNonZeroMacro(cal) ? String(Math.round(cal * ratio)) : null,
+        protein: hasNonZeroMacro(pro) ? String(Math.round(pro * ratio)) : null,
+        fiber: hasNonZeroMacro(fiber) ? String(Math.round(fiber * ratio)) : null,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Calcule les macros d’une portion (1 unité) d’aliment-repas pour les cartes Au choix.
  * Ordre : fiche aliment → référentiel Macro (/100 g × grammage unitaire) → macros recettes.
  */
@@ -796,6 +950,23 @@ export function computeFoodItemPortionMacros(
         calories: hasNonZeroMacro(calRef) ? scale(calRef * per100Factor) : null,
         protein: hasNonZeroMacro(proRef) ? scale(proRef * per100Factor) : null,
         fiber: hasNonZeroMacro(fiberRef) ? scale(fiberRef * per100Factor) : null,
+      };
+    }
+  }
+
+  // 5) Fiche repas catalogue homonyme (macros totales de la portion Tous)
+  const catalog = findCatalogMealMacros(opts?.macroSources?.catalogMeals, fi.name);
+  if (catalog) {
+    const catG = parseQty(catalog.grams);
+    const gramsRatio = catG > 0 && unitG > 0 ? unitG / catG : 1;
+    const cal = parseFoodMacroValue(catalog.calories);
+    const pro = parseFoodMacroValue(catalog.protein);
+    const fiber = parseFoodMacroValue(catalog.fiber);
+    if (hasNonZeroMacro(cal) || hasNonZeroMacro(pro) || hasNonZeroMacro(fiber)) {
+      return {
+        calories: hasNonZeroMacro(cal) ? scale(cal * gramsRatio) : null,
+        protein: hasNonZeroMacro(pro) ? scale(pro * gramsRatio) : null,
+        fiber: hasNonZeroMacro(fiber) ? scale(fiber * gramsRatio) : null,
       };
     }
   }

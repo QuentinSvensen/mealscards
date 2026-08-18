@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   Drumstick,
+  FileText,
   Flame,
   Hash,
   List,
@@ -57,6 +58,7 @@ import {
   type NinjaCreamiLineDragPayload,
 } from "@/domain/ninjaCreami/ninjaCreami";
 import { normalizeForMatch } from "@/lib/ingredientUtils";
+import { resolveMealDescriptionForDisplay } from "@/lib/mealDescription";
 import {
   sortMealsByMasterMode,
   type MasterSortMode,
@@ -155,6 +157,8 @@ export function NinjaCreamiSection({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
+  /** Aperçu tableau cartes + descriptions (double-clic sur Recettes testées). */
+  const [testedOverviewOpen, setTestedOverviewOpen] = useState(false);
   /** Champ nom à la création : curseur placé après « Pot # ». */
   const createNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -304,6 +308,70 @@ export function NinjaCreamiSection({
     setSelectedIds(new Set());
   };
 
+  /** Ouvre l’aperçu tableau Recettes testées (cartes à gauche, descriptions à droite). */
+  const openTestedOverview = () => {
+    setTestedOverviewOpen(true);
+  };
+
+  /**
+   * Rend une carte Recettes testées, identique à la liste.
+   * En aperçu, le glisser-déposer est désactivé pour rester dans la pop-up.
+   */
+  const renderTestedMealCard = (meal: Meal, preview = false) => {
+    const missingIngs = getMissingIngredients(meal, stockMap);
+    const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
+    const expLabel = formatExpirationLabel(analysis.earliestExpiration);
+    const expIsTodayM = isToday(analysis.earliestExpiration);
+    return (
+      <MealCard
+        meal={meal}
+        stockMap={stockMap}
+        foodItems={foodItems}
+        foodItemIndex={foodItemIndex}
+        ingredientSuggestions={ingredientSuggestions}
+        ingredientMacroSources={ingredientMacroAutofillSources}
+        onMoveToPossible={() => onMoveToPossible(meal.id)}
+        onRename={(name) => onRename(meal.id, name)}
+        onDelete={() => onDelete(meal.id)}
+        onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
+        onUpdateProtein={(prot) => onUpdateProtein(meal.id, prot)}
+        onUpdateFiber={(fiber) => onUpdateFiber(meal.id, fiber)}
+        onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
+        onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
+        onToggleFavorite={() => onToggleFavorite(meal.id)}
+        onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
+        onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
+        onUpdateDescription={(d) => onUpdateDescription(meal.id, d)}
+        missingIngredientNames={missingIngs.size > 0 ? missingIngs : undefined}
+        expirationLabel={expLabel}
+        expirationDate={analysis.earliestExpiration}
+        expirationIsToday={expIsTodayM}
+        expiredIngredientNames={analysis.expiredIngredientNames}
+        expiringSoonIngredientNames={analysis.expiringSoonIngredientNames}
+        maxIngredientCounter={analysis.maxIngredientCounter}
+        counterIngredientNames={analysis.counterIngredientNames}
+        earliestCounterDate={analysis.earliestCounterDate}
+        onDragStart={(e) => {
+          if (preview) {
+            e.preventDefault();
+            return;
+          }
+          e.dataTransfer.setData("mealId", meal.id);
+          e.dataTransfer.setData("source", "master");
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        hideCounter
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col rounded-3xl bg-card/80 backdrop-blur-sm p-5 min-h-[80px] gap-3">
       <div className="flex items-center gap-2">
@@ -324,6 +392,8 @@ export function NinjaCreamiSection({
             count={testedMeals.length}
             collapsed={testedCollapsed}
             onToggleCollapse={onToggleTestedCollapse}
+            onHeaderDoubleClick={openTestedOverview}
+            headerDoubleClickTitle="Double-clic : aperçu cartes et descriptions"
             className="py-3 px-2"
             headerActions={
               <>
@@ -375,58 +445,9 @@ export function NinjaCreamiSection({
                 Aucune recette testée
               </p>
             )}
-            {sortedTestedMeals.map((meal) => {
-              const missingIngs = getMissingIngredients(meal, stockMap);
-              const analysis = analyzeMealIngredients(meal, foodItems, foodItemIndex);
-              const expLabel = formatExpirationLabel(analysis.earliestExpiration);
-              const expIsTodayM = isToday(analysis.earliestExpiration);
-              return (
-                <div key={meal.id}>
-                  <MealCard
-                    meal={meal}
-                    stockMap={stockMap}
-                    foodItems={foodItems}
-                    foodItemIndex={foodItemIndex}
-                    ingredientSuggestions={ingredientSuggestions}
-                    ingredientMacroSources={ingredientMacroAutofillSources}
-                    onMoveToPossible={() => onMoveToPossible(meal.id)}
-                    onRename={(name) => onRename(meal.id, name)}
-                    onDelete={() => onDelete(meal.id)}
-                    onUpdateCalories={(cal) => onUpdateCalories(meal.id, cal)}
-                    onUpdateProtein={(prot) => onUpdateProtein(meal.id, prot)}
-                    onUpdateFiber={(fiber) => onUpdateFiber(meal.id, fiber)}
-                    onUpdateGrams={(g) => onUpdateGrams(meal.id, g)}
-                    onUpdateIngredients={(ing) => onUpdateIngredients(meal.id, ing)}
-                    onToggleFavorite={() => onToggleFavorite(meal.id)}
-                    onUpdateOvenTemp={(t) => onUpdateOvenTemp(meal.id, t)}
-                    onUpdateOvenMinutes={(m) => onUpdateOvenMinutes(meal.id, m)}
-                    onUpdateDescription={(d) => onUpdateDescription(meal.id, d)}
-                    missingIngredientNames={missingIngs.size > 0 ? missingIngs : undefined}
-                    expirationLabel={expLabel}
-                    expirationDate={analysis.earliestExpiration}
-                    expirationIsToday={expIsTodayM}
-                    expiredIngredientNames={analysis.expiredIngredientNames}
-                    expiringSoonIngredientNames={analysis.expiringSoonIngredientNames}
-                    maxIngredientCounter={analysis.maxIngredientCounter}
-                    counterIngredientNames={analysis.counterIngredientNames}
-                    earliestCounterDate={analysis.earliestCounterDate}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("mealId", meal.id);
-                      e.dataTransfer.setData("source", "master");
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    hideCounter
-                  />
-                </div>
-              );
-            })}
+            {sortedTestedMeals.map((meal) => (
+              <div key={meal.id}>{renderTestedMealCard(meal)}</div>
+            ))}
           </MealList>
 
           <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/5 p-3 space-y-3">
@@ -534,6 +555,54 @@ export function NinjaCreamiSection({
               Créer
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={testedOverviewOpen} onOpenChange={setTestedOverviewOpen}>
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-w-6xl w-[min(96vw,72rem)] max-h-[90vh] overflow-hidden flex flex-col gap-3 p-4 sm:p-6"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="text-2xl">🧪</span>
+              Recettes testées
+              <span className="text-sm font-normal text-muted-foreground">{sortedTestedMeals.length}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {sortedTestedMeals.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center py-8 italic">Aucune recette testée</p>
+          ) : (
+            <div className="overflow-y-auto min-h-0 flex-1 pr-1 -mr-1">
+              <div className="hidden lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 px-1 pb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <span>Carte</span>
+                <span>Description</span>
+              </div>
+              <div className="flex flex-col divide-y divide-border/40">
+                {sortedTestedMeals.map((meal) => {
+                  const description = resolveMealDescriptionForDisplay(meal);
+                  return (
+                    <div
+                      key={meal.id}
+                      className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 py-3 first:pt-0 items-stretch"
+                    >
+                      <div className="min-w-0">{renderTestedMealCard(meal, true)}</div>
+                      <div className="rounded-2xl border border-border/40 bg-muted/30 p-4 text-sm leading-relaxed whitespace-pre-wrap">
+                        {description ? (
+                          <p className="text-foreground">{description}</p>
+                        ) : (
+                          <p className="italic text-muted-foreground flex items-center gap-1.5">
+                            <FileText className="h-3.5 w-3.5 shrink-0" />
+                            Aucune description
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

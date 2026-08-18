@@ -66,7 +66,7 @@ import { FOOD_EXTRAS_DIVIDER_PREF_KEY } from "@/lib/extrasDividerUtils";
 import { useExtrasDividerRecovery } from "@/hooks/useExtrasDividerRecovery";
 import { useSortModes } from "@/hooks/useSortModes";
 import { useFoodItems, type FoodItem } from "@/hooks/useFoodItems";
-import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, getDisplayedPMCalories, getDisplayedPMProtein, formatFrozenPossibleCounterTooltip, formatPossibleCounterBadgeLabel, readFrozenPossibleCounterDays, hasNoFoodCounterEvidenceWhileStockRemains, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, buildClearFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch, resolveInheritedFutureLotOpening, resolveVisiblePossibleCounterDays } from "@/lib/stockUtils";
+import { analyzeMealIngredients, buildStockMap, buildFoodItemIndex, findStockKey, type StockInfo, getDisplayedCalories as getMealCal, getDisplayedProtein as getMealPro, getDisplayedFiber as getMealFiber, formatFrozenPossibleCounterTooltip, formatPossibleCounterBadgeLabel, readFrozenPossibleCounterDays, hasNoFoodCounterEvidenceWhileStockRemains, POSSIBLE_FROZEN_COUNTER_DAYS_PREF_KEY, type PossibleFrozenCounterDaysMap, buildFrozenBadgePreferenceEntry, buildClearFrozenBadgePreferenceEntry, getMealMultiple, strictNameMatch, resolveInheritedFutureLotOpening, resolveVisiblePossibleCounterDays } from "@/lib/stockUtils";
 import { useMealTransfers } from "@/hooks/useMealTransfers";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -117,7 +117,7 @@ import {
   stripDessertCatalogDuplicatesForSelections,
   supplementFoodDessertExtrasFromSnapshots,
 } from "@/lib/foodDessertUtils";
-import type { IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import { buildWeekDates, buildAgendaWeekDates, getDateForDayKey, DAY_KEY_TO_INDEX, DAY_LABELS, JS_DAY_TO_KEY } from "@/lib/planningWeekUtils";
 import { parseCalories, parseProtein, parsePositiveMacroOverride } from "@/domain/planning/macroParsers";
 import {
@@ -375,6 +375,15 @@ export function WeeklyPlanning({
   const breakfastSelections = getPreference<Record<string, string>>('planning_breakfast', {});
   const dessertFoodItemIds = getPreference<string[]>(DESSERT_FOOD_PREF_KEY, []);
   const ingredientMacroLibrary = getPreference<IngredientMacroLibraryItem[]>("ingredient_macro_library", []);
+  const foodMealMacroSources = useMemo<IngredientMacroAutofillSources>(
+    () => ({
+      foodItems,
+      macroLibrary: ingredientMacroLibrary,
+      mealMacros: new Map(),
+      catalogMeals: meals,
+    }),
+    [foodItems, ingredientMacroLibrary, meals],
+  );
   const dessertExtraStockSnapshots = getPreference<Record<string, Record<string, FoodItem[][]>>>('planning_dessert_extra_stock_snapshots', {});
   const extraSelections = getPreference<Record<string, string[]>>('planning_extra_selections', {});
   const nextExtraSelections = getPreference<Record<string, string[]>>('next_week_extra_selections', {});
@@ -1278,7 +1287,7 @@ export function WeeklyPlanning({
           const overrideCal = c.id ? bCO[c.id] : undefined;
           const overridePro = c.id ? bPO[c.id] : undefined;
           const fullPm = { ...c, meals: m };
-          dayCal += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb);
+          dayCal += getCardDisplayCalories(fullPm, overrideCal, isAvailableCb, foodItems, foodMealMacroSources);
           dayPro += getCardDisplayProtein(fullPm, overridePro, isAvailableCb, foodItems, foodMacroIndex);
         }
       });
@@ -1303,7 +1312,7 @@ export function WeeklyPlanning({
             (c: { meal_time: string }) => c.meal_time === 'matin',
           );
           if (pm && !isBackupBreakfastPmAlreadyInMatinSlot(pm, bIso, key, dayMatinCards)) {
-            dayCal += getCardDisplayCalories(pm, bCO[pm.id], isAvailableCb);
+            dayCal += getCardDisplayCalories(pm, bCO[pm.id], isAvailableCb, foodItems, foodMealMacroSources);
             dayPro += getCardDisplayProtein(pm, bPO[pm.id], isAvailableCb, foodItems, foodMacroIndex);
           }
         } else if (bfSel.startsWith('meal:')) {
@@ -1930,12 +1939,12 @@ export function WeeklyPlanning({
     }
 
     // Utiliser le même calcul que la carte "possible" : macros de la portion visible, pas du total #quantity.
-    const rawCalNum = overrideCal ?? getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+    const rawCalNum = overrideCal ?? getCardDisplayCalories(pm, null, isAvailableCb, foodItems, foodMealMacroSources);
     const displayCal = rawCalNum ? String(Math.round(rawCalNum)) : null;
     const overridePro = parsePositivePlanningOverride(proOverrides[pm.id]);
-    const rawProNum = overridePro ?? getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+    const rawProNum = overridePro ?? getCardDisplayProtein(pm, null, isAvailableCb, foodItems, foodMacroIndex, foodMealMacroSources);
     const displayPro = rawProNum ? String(Math.round(rawProNum)) : null;
-    const rawFiberNum = getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex);
+    const rawFiberNum = getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex, foodMealMacroSources);
     const displayFiber = rawFiberNum ? String(Math.round(rawFiberNum)) : null;
 
     return (
@@ -2358,7 +2367,7 @@ export function WeeklyPlanning({
           const dayCalories = getDayCalories(key, iso);
           const dayFiber = getDayFiber(key, iso);
           const matinMeals = getMealsForSlot(key, 'matin', iso);
-          const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
+          const matinCals = matinMeals.reduce((s, pm) => s + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb, foodItems, foodMealMacroSources), 0);
           const matinPro = matinMeals.reduce((s, pm) => s + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
           const matinFiber = matinMeals.reduce((s, pm) => s + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
 
@@ -2377,7 +2386,7 @@ export function WeeklyPlanning({
                 baseBreakfastPro = 0;
                 baseBreakfastFiber = 0;
               } else {
-                baseBreakfastCals = possiblePdj ? getCardDisplayCalories(possiblePdj, calOverrides[possiblePdj.id], isAvailableCb) : parseCalories(breakfast.calories);
+                baseBreakfastCals = possiblePdj ? getCardDisplayCalories(possiblePdj, calOverrides[possiblePdj.id], isAvailableCb, foodItems, foodMealMacroSources) : parseCalories(breakfast.calories);
                 baseBreakfastPro = possiblePdj ? getCardDisplayProtein(possiblePdj, proOverrides[possiblePdj.id], isAvailableCb, foodItems, foodMacroIndex) : parseProtein(breakfast.protein);
                 baseBreakfastFiber = possiblePdj ? getCardDisplayFiber(possiblePdj, undefined, isAvailableCb, foodItems, foodMacroIndex) : getMealFiber(breakfast, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0;
               }
@@ -2401,7 +2410,7 @@ export function WeeklyPlanning({
             extraSlotAssignments[`${iso}-gouter`] ?? extraSlotAssignments[`${key}-gouter`] ?? [];
           const gouterAssigned = sumDayExtras(gouterAssignedIds);
           const gouterMeals = getMealsForSlot(key, 'gouter', iso);
-          const gouterMealCals = gouterMeals.reduce((sum, pm) => sum + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb), 0);
+          const gouterMealCals = gouterMeals.reduce((sum, pm) => sum + getCardDisplayCalories(pm, calOverrides[pm.id], isAvailableCb, foodItems, foodMealMacroSources), 0);
           const gouterMealPro = gouterMeals.reduce((sum, pm) => sum + getCardDisplayProtein(pm, proOverrides[pm.id], isAvailableCb, foodItems, foodMacroIndex), 0);
           const gouterMealFiber = gouterMeals.reduce((sum, pm) => sum + getCardDisplayFiber(pm, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
           const hasGouterMeals = gouterMeals.length > 0;
@@ -2564,7 +2573,7 @@ export function WeeklyPlanning({
                   const slotAssignedIds =
                     extraSlotAssignments[`${iso}-${time}`] ?? extraSlotAssignments[`${key}-${time}`] ?? [];
                   const isOver = dragOverSlot === slotKey || touchHighlight === slotKey || dragOverSlot === `${key}-${time}` || touchHighlight === `${key}-${time}`;
-                  const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb), 0);
+                  const slotCalsMeals = slotMeals.reduce((s, p) => s + getCardDisplayCalories(p, calOverrides[p.id], isAvailableCb, foodItems, foodMealMacroSources), 0);
                   const slotProMeals = slotMeals.reduce((s, p) => s + getCardDisplayProtein(p, proOverrides[p.id], isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotFiberMeals = slotMeals.reduce((s, p) => s + getCardDisplayFiber(p, undefined, isAvailableCb, foodItems, foodMacroIndex), 0);
                   const slotAssigned = sumDayExtras(slotAssignedIds);
@@ -3075,16 +3084,15 @@ export function WeeklyPlanning({
               mealTime: popupPm.meal_time,
               stockExempt: popupStockExempt,
             });
-            const popupRatio = getOverrideScaleRatio(meal, popupPm.ingredients_override);
             const popupCal =
               parsePositivePlanningOverride(popupCalOverride) ??
               parsePositivePlanningOverride(calOverrides[popupPm.id]) ??
-              getDisplayedPMCalories(popupPm, popupRatio ?? undefined, isAvailableCb);
+              getCardDisplayCalories(popupPm, null, isAvailableCb, foodItems, foodMealMacroSources);
             const popupPro =
               parsePositivePlanningOverride(popupProOverride) ??
               parsePositivePlanningOverride(proOverrides[popupPm.id]) ??
-              getDisplayedPMProtein(popupPm, popupRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
-            const popupFiber = getCardDisplayFiber(popupPm, undefined, isAvailableCb, foodItems, foodMacroIndex);
+              getCardDisplayProtein(popupPm, null, isAvailableCb, foodItems, foodMacroIndex, foodMealMacroSources);
+            const popupFiber = getCardDisplayFiber(popupPm, undefined, isAvailableCb, foodItems, foodMacroIndex, foodMealMacroSources);
             const displayCal = popupCal ? String(Math.round(popupCal)) : null;
             const displayPro = popupPro ? String(Math.round(popupPro)) : null;
             const displayFiber = popupFiber != null && popupFiber > 0 ? String(Math.round(popupFiber)) : null;
