@@ -102,6 +102,7 @@ import {
   NINJA_CREAMI_MEAL_IDS_KEY,
   NINJA_CREAMI_TEST_PM_IDS_KEY,
   NINJA_CREAMI_TESTED_SORT_KEY,
+  NINJA_CREAMI_TESTS_GROUP_ORDER_KEY,
   addNinjaCreamiMealId,
   addNinjaCreamiTestPmId,
   applyNinjaCreamiAuChoixDisplayNames,
@@ -112,6 +113,7 @@ import {
   loadNinjaCreamiBaseGroupsLocalBackup,
   normalizeNinjaCreamiBaseGroups,
   normalizeNinjaCreamiCatalogLines,
+  parseNinjaCreamiTestsGroupOrder,
   normalizeNinjaCreamiMealDisplayNames,
   NINJA_CREAMI_AU_CHOIX_NAME_PREFIX,
   ninjaCreamiBaseGroupsHaveContent,
@@ -335,6 +337,9 @@ const Index = () => {
   const ninjaCreamiExtrasLines = useMemo(
     () => normalizeNinjaCreamiCatalogLines(ninjaCreamiExtrasLinesRaw),
     [ninjaCreamiExtrasLinesRaw],
+  );
+  const ninjaCreamiTestsGroupOrder = parseNinjaCreamiTestsGroupOrder(
+    getPreference(NINJA_CREAMI_TESTS_GROUP_ORDER_KEY, null),
   );
 
   // Migre / répare Base uniquement quand on a du contenu (jamais d’écriture vide qui wipe le cloud).
@@ -1488,6 +1493,13 @@ const Index = () => {
                             }}
                             onExtrasLinesChange={(lines) =>
                               setPreference.mutate({ key: NINJA_CREAMI_EXTRAS_LINES_KEY, value: lines })
+                            }
+                            testsGroupOrder={ninjaCreamiTestsGroupOrder}
+                            onTestsGroupOrderChange={(order) =>
+                              setPreference.mutate({
+                                key: NINJA_CREAMI_TESTS_GROUP_ORDER_KEY,
+                                value: order,
+                              })
                             }
                             onIngredientNameCommit={(line: NinjaCreamiCatalogLine) => {
                               if (!line.name.trim()) return;

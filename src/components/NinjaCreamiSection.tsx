@@ -32,7 +32,6 @@ import { MealList } from "@/components/MealList";
 import { MealCard } from "@/components/MealCard";
 import { AutoGrowDescriptionTextarea } from "@/components/AutoGrowDescriptionTextarea";
 import { NinjaCreamiBaseGroupsEditor } from "@/components/NinjaCreamiBaseGroupsEditor";
-import { NinjaCreamiSelectableIngredientList } from "@/components/NinjaCreamiSelectableIngredientList";
 import type { Meal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
@@ -50,7 +49,6 @@ import {
   formatNinjaCreamiTotalsForMeal,
   isNinjaCreamiLineSelectable,
   moveNinjaCreamiCatalogLine,
-  NINJA_CREAMI_EXTRAS_GROUP_ID,
   serializeSelectedNinjaCreamiIngredients,
   sumSelectedNinjaCreamiMacros,
   type NinjaCreamiBaseGroup,
@@ -130,6 +128,9 @@ export interface NinjaCreamiSectionProps {
   extrasLines: NinjaCreamiCatalogLine[];
   onBaseGroupsChange: (groups: NinjaCreamiBaseGroup[]) => void;
   onExtrasLinesChange: (lines: NinjaCreamiCatalogLine[]) => void;
+  /** Ordre visuel Base + Extras (null = Extras à la fin). */
+  testsGroupOrder?: string[] | null;
+  onTestsGroupOrderChange: (order: string[]) => void;
   onIngredientNameCommit: (line: NinjaCreamiCatalogLine) => void;
   ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
   /** Mode de tri (mêmes options que « Tous »). */
@@ -180,6 +181,8 @@ export function NinjaCreamiSection({
   extrasLines,
   onBaseGroupsChange,
   onExtrasLinesChange,
+  testsGroupOrder = null,
+  onTestsGroupOrderChange,
   onIngredientNameCommit,
   ingredientMacroAutofillSources,
   testedSortMode = "manual",
@@ -519,27 +522,16 @@ export function NinjaCreamiSection({
                 <NinjaCreamiBaseGroupsEditor
                   groups={baseGroups}
                   onGroupsChange={onBaseGroupsChange}
+                  extrasLines={extrasLines}
+                  onExtrasLinesChange={onExtrasLinesChange}
+                  testsGroupOrder={testsGroupOrder}
+                  onTestsGroupOrderChange={onTestsGroupOrderChange}
                   selectedIds={selectedIds}
                   onSelectedIdsChange={setSelectedIds}
                   onIngredientNameCommit={onIngredientNameCommit}
                   ingredientMacroSources={ingredientMacroAutofillSources}
                   ingredientSuggestions={ingredientSuggestions}
                   onMoveLineToGroup={handleMoveCatalogLine}
-                />
-                <NinjaCreamiSelectableIngredientList
-                  title="Extras"
-                  groupId={NINJA_CREAMI_EXTRAS_GROUP_ID}
-                  lines={extrasLines}
-                  selectedIds={selectedIds}
-                  onLinesChange={onExtrasLinesChange}
-                  onSelectedIdsChange={setSelectedIds}
-                  onIngredientNameCommit={onIngredientNameCommit}
-                  ingredientMacroSources={ingredientMacroAutofillSources}
-                  ingredientSuggestions={ingredientSuggestions}
-                  onExternalLineDrop={(payload, targetIdx) =>
-                    handleMoveCatalogLine(NINJA_CREAMI_EXTRAS_GROUP_ID, payload, targetIdx)
-                  }
-                  frameTone="violet"
                 />
 
                 <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted-foreground px-0.5">

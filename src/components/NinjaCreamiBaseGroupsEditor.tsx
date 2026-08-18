@@ -1,20 +1,22 @@
 /**
  * Catalogue Base Ninja Creami : sous-catégories renommables,
  * ajout / suppression, déplacement d’ingrédients entre sous-cats,
- * et réordonnancement manuel des sous-catégories.
+ * et réordonnancement manuel des sous-catégories (y compris Extras).
  */
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { GripVertical, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NinjaCreamiSelectableIngredientList } from "@/components/NinjaCreamiSelectableIngredientList";
 import type { IngredientMacroAutofillSources } from "@/domain/macros/ingredientMacroDatabase";
 import {
   addNinjaCreamiBaseGroup,
+  NINJA_CREAMI_EXTRAS_GROUP_ID,
   NINJA_CREAMI_GROUP_DND_MIME,
   NINJA_CREAMI_LINE_DND_MIME,
+  normalizeNinjaCreamiTestsGroupOrder,
   removeNinjaCreamiBaseGroup,
   renameNinjaCreamiBaseGroup,
-  reorderNinjaCreamiBaseGroups,
+  reorderNinjaCreamiTestsSections,
   updateNinjaCreamiBaseGroupLines,
   type NinjaCreamiBaseGroup,
   type NinjaCreamiCatalogLine,
@@ -24,6 +26,11 @@ import {
 export interface NinjaCreamiBaseGroupsEditorProps {
   groups: NinjaCreamiBaseGroup[];
   onGroupsChange: (groups: NinjaCreamiBaseGroup[]) => void;
+  extrasLines: NinjaCreamiCatalogLine[];
+  onExtrasLinesChange: (lines: NinjaCreamiCatalogLine[]) => void;
+  /** Ordre sauvegardé Base + Extras (null = Extras à la fin). */
+  testsGroupOrder?: readonly string[] | null;
+  onTestsGroupOrderChange: (order: string[]) => void;
   selectedIds: Set<string>;
   onSelectedIdsChange: (ids: Set<string>) => void;
   onIngredientNameCommit?: (line: NinjaCreamiCatalogLine) => void;
@@ -46,6 +53,10 @@ export interface NinjaCreamiBaseGroupsEditorProps {
 export function NinjaCreamiBaseGroupsEditor({
   groups,
   onGroupsChange,
+  extrasLines,
+  onExtrasLinesChange,
+  testsGroupOrder = null,
+  onTestsGroupOrderChange,
   selectedIds,
   onSelectedIdsChange,
   onIngredientNameCommit,
@@ -57,9 +68,27 @@ export function NinjaCreamiBaseGroupsEditor({
   const [dragOverGroupIdx, setDragOverGroupIdx] = useState<number | null>(null);
   const dragGroupIdxRef = useRef<number | null>(null);
 
-  /** Ajoute une sous-catégorie vide. */
+  /** Ordre visuel : sous-catégories Base + Extras. */
+  const displayOrder = useMemo(
+    () => normalizeNinjaCreamiTestsGroupOrder(groups.map((group) => group.id), testsGroupOrder),
+    [groups, testsGroupOrder],
+  );
+
+  /** Persiste l’ordre Tests sans réécrire les sous-catégories Base (évite d’en perdre une). */
+  const persistDisplayOrder = (nextOrder: string[]) => {
+    onTestsGroupOrderChange(nextOrder);
+  };
+
+  /** Ajoute une sous-catégorie vide (placée juste avant Extras). */
   const handleAddGroup = () => {
-    onGroupsChange(addNinjaCreamiBaseGroup(groups));
+    const nextGroups = addNinjaCreamiBaseGroup(groups);
+    onGroupsChange(nextGroups);
+    onTestsGroupOrderChange(
+      normalizeNinjaCreamiTestsGroupOrder(
+        nextGroups.map((group) => group.id),
+        testsGroupOrder,
+      ),
+    );
   };
 
   /** Reçoit une ligne déposée depuis une autre sous-catégorie ou Extras. */
@@ -102,7 +131,7 @@ export function NinjaCreamiBaseGroupsEditor({
     setDragOverGroupIdx(idx);
   };
 
-  /** Dépose une sous-catégorie pour changer son ordre. */
+  /** Dépose une sous-catégorie pour changer son ordre (Base ou Extras). */
   const handleGroupDrop = (e: React.DragEvent, toIndex: number) => {
     const types = Array.from(e.dataTransfer.types).map((t) => String(t).toLowerCase());
     if (
@@ -120,7 +149,7 @@ export function NinjaCreamiBaseGroupsEditor({
     setDragGroupIdx(null);
     setDragOverGroupIdx(null);
     if (!Number.isFinite(from) || from === toIndex) return;
-    onGroupsChange(reorderNinjaCreamiBaseGroups(groups, from, toIndex));
+    persistDisplayOrder(reorderNinjaCreamiTestsSections(displayOrder, from, toIndex));
   };
 
   /** Nettoie l’état drag des sous-catégories. */
@@ -129,6 +158,19 @@ export function NinjaCreamiBaseGroupsEditor({
     setDragGroupIdx(null);
     setDragOverGroupIdx(null);
   };
+
+  /** Poignée commune pour glisser une sous-catégorie (Base ou Extras). */
+  const renderGroupHandle = (idx: number) => (
+    <div
+      draggable
+      onDragStart={(e) => handleGroupDragStart(e, idx)}
+      onDragEnd={handleGroupDragEnd}
+      className="shrink-0 h-7 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-white/35 hover:text-white/70"
+      title="Glisser pour réordonner la sous-catégorie"
+    >
+      <GripVertical className="h-4 w-4" />
+    </div>
+  );
 
   return (
     <div className="space-y-1.5">
@@ -147,59 +189,92 @@ export function NinjaCreamiBaseGroupsEditor({
         </Button>
       </div>
 
-      {groups.map((group, idx) => (
-        <div
-          key={group.id}
-          onDragOver={(e) => handleGroupDragOver(e, idx)}
-          onDrop={(e) => handleGroupDrop(e, idx)}
-          className={`transition-opacity ${
-            idx > 0 ? "pt-1 mt-0.5" : ""
-          } ${
-            dragGroupIdx === idx ? "opacity-40" : ""
-          } ${
-            dragOverGroupIdx === idx && dragGroupIdx !== idx
-              ? "border-t-2 border-amber-300/80 pt-0.5"
-              : ""
-          }`}
-        >
-          <NinjaCreamiSelectableIngredientList
-            title={group.name}
-            titleEditable
-            groupId={group.id}
-            lines={group.lines}
-            selectedIds={selectedIds}
-            onLinesChange={(lines) =>
-              onGroupsChange(updateNinjaCreamiBaseGroupLines(groups, group.id, lines))
-            }
-            onSelectedIdsChange={onSelectedIdsChange}
-            onIngredientNameCommit={onIngredientNameCommit}
-            ingredientMacroSources={ingredientMacroSources}
-            ingredientSuggestions={ingredientSuggestions}
-            onTitleChange={(name) =>
-              onGroupsChange(renameNinjaCreamiBaseGroup(groups, group.id, name))
-            }
-            onDeleteGroup={
-              groups.length > 1
-                ? () => onGroupsChange(removeNinjaCreamiBaseGroup(groups, group.id))
-                : undefined
-            }
-            onExternalLineDrop={(payload, targetIdx) =>
-              handleExternalDrop(group.id, payload, targetIdx)
-            }
-            groupReorderHandle={
-              <div
-                draggable
-                onDragStart={(e) => handleGroupDragStart(e, idx)}
-                onDragEnd={handleGroupDragEnd}
-                className="shrink-0 h-7 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing text-white/35 hover:text-white/70"
-                title="Glisser pour réordonner la sous-catégorie"
-              >
-                <GripVertical className="h-4 w-4" />
-              </div>
-            }
-          />
-        </div>
-      ))}
+      {displayOrder.map((sectionId, idx) => {
+        const rowClassName = `transition-opacity ${
+          idx > 0 ? "pt-1 mt-0.5" : ""
+        } ${
+          dragGroupIdx === idx ? "opacity-40" : ""
+        } ${
+          dragOverGroupIdx === idx && dragGroupIdx !== idx
+            ? "border-t-2 border-amber-300/80 pt-0.5"
+            : ""
+        }`;
+
+        if (sectionId === NINJA_CREAMI_EXTRAS_GROUP_ID) {
+          return (
+            <div
+              key={sectionId}
+              onDragOver={(e) => handleGroupDragOver(e, idx)}
+              onDrop={(e) => handleGroupDrop(e, idx)}
+              className={rowClassName}
+            >
+              <NinjaCreamiSelectableIngredientList
+                title="Extras"
+                groupId={NINJA_CREAMI_EXTRAS_GROUP_ID}
+                lines={extrasLines}
+                selectedIds={selectedIds}
+                onLinesChange={onExtrasLinesChange}
+                onSelectedIdsChange={onSelectedIdsChange}
+                onIngredientNameCommit={onIngredientNameCommit}
+                ingredientMacroSources={ingredientMacroSources}
+                ingredientSuggestions={ingredientSuggestions}
+                onExternalLineDrop={(payload, targetIdx) =>
+                  handleExternalDrop(NINJA_CREAMI_EXTRAS_GROUP_ID, payload, targetIdx)
+                }
+                frameTone="violet"
+                groupReorderHandle={renderGroupHandle(idx)}
+              />
+            </div>
+          );
+        }
+
+        const group = groups.find((item) => item.id === sectionId);
+        if (!group) return null;
+        return (
+          <div
+            key={sectionId}
+            onDragOver={(e) => handleGroupDragOver(e, idx)}
+            onDrop={(e) => handleGroupDrop(e, idx)}
+            className={rowClassName}
+          >
+            <NinjaCreamiSelectableIngredientList
+              title={group.name}
+              titleEditable
+              groupId={group.id}
+              lines={group.lines}
+              selectedIds={selectedIds}
+              onLinesChange={(lines) =>
+                onGroupsChange(updateNinjaCreamiBaseGroupLines(groups, group.id, lines))
+              }
+              onSelectedIdsChange={onSelectedIdsChange}
+              onIngredientNameCommit={onIngredientNameCommit}
+              ingredientMacroSources={ingredientMacroSources}
+              ingredientSuggestions={ingredientSuggestions}
+              onTitleChange={(name) =>
+                onGroupsChange(renameNinjaCreamiBaseGroup(groups, group.id, name))
+              }
+              onDeleteGroup={
+                groups.length > 1
+                  ? () => {
+                      const nextGroups = removeNinjaCreamiBaseGroup(groups, group.id);
+                      onGroupsChange(nextGroups);
+                      onTestsGroupOrderChange(
+                        normalizeNinjaCreamiTestsGroupOrder(
+                          nextGroups.map((item) => item.id),
+                          testsGroupOrder,
+                        ),
+                      );
+                    }
+                  : undefined
+              }
+              onExternalLineDrop={(payload, targetIdx) =>
+                handleExternalDrop(group.id, payload, targetIdx)
+              }
+              groupReorderHandle={renderGroupHandle(idx)}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

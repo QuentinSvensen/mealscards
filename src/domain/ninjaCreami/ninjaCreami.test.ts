@@ -8,6 +8,7 @@ import {
   filterOutNinjaCreamiMeals,
   formatNinjaCreamiTotalsForMeal,
   isNinjaCreamiStockExemptPossibleMeal,
+  mergeMissingNinjaCreamiBaseGroupsFromBackup,
   moveLineBetweenNinjaCreamiBaseGroups,
   moveNinjaCreamiCatalogLine,
   NINJA_CREAMI_EXTRAS_GROUP_ID,
@@ -16,6 +17,10 @@ import {
   removeNinjaCreamiMealDisplayName,
   removeNinjaCreamiMealId,
   reorderNinjaCreamiBaseGroups,
+  normalizeNinjaCreamiTestsGroupOrder,
+  parseNinjaCreamiTestsGroupOrder,
+  reorderNinjaCreamiTestsSections,
+  sortNinjaCreamiBaseGroupsByTestsOrder,
   resolveIngredientsForNinjaCreamiTestedSave,
   resolveNinjaCreamiMealDisplayName,
   serializeSelectedNinjaCreamiIngredients,
@@ -351,6 +356,27 @@ describe("normalizeNinjaCreamiBaseGroups", () => {
     );
     expect(groups[0].lines.some((l) => l.name === "Lait")).toBe(true);
   });
+
+  it("réinjecte une sous-catégorie présente dans le backup mais absente des prefs", () => {
+    const current = [
+      {
+        id: "g1",
+        name: "Lait",
+        lines: [line({ id: "1", name: "Lait" })],
+      },
+    ];
+    const backup = [
+      ...current,
+      {
+        id: "g2",
+        name: "Après",
+        lines: [line({ id: "2", name: "Daim" })],
+      },
+    ];
+    const groups = mergeMissingNinjaCreamiBaseGroupsFromBackup(current, backup);
+    expect(groups.map((g) => g.name)).toEqual(["Lait", "Après"]);
+    expect(groups[1].lines.some((l) => l.name === "Daim")).toBe(true);
+  });
 });
 
 describe("moveLineBetweenNinjaCreamiBaseGroups", () => {
@@ -437,6 +463,62 @@ describe("reorderNinjaCreamiBaseGroups", () => {
     ];
     const next = reorderNinjaCreamiBaseGroups(groups, 2, 0);
     expect(next.map((g) => g.id)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("normalizeNinjaCreamiTestsGroupOrder", () => {
+  it("place Extras à la fin par défaut", () => {
+    expect(normalizeNinjaCreamiTestsGroupOrder(["a", "b"], null)).toEqual([
+      "a",
+      "b",
+      NINJA_CREAMI_EXTRAS_GROUP_ID,
+    ]);
+  });
+
+  it("conserve Extras au milieu des sous-catégories", () => {
+    expect(
+      normalizeNinjaCreamiTestsGroupOrder(["a", "b"], ["a", NINJA_CREAMI_EXTRAS_GROUP_ID, "b"]),
+    ).toEqual(["a", NINJA_CREAMI_EXTRAS_GROUP_ID, "b"]);
+  });
+
+  it("insère une nouvelle sous-catégorie juste avant Extras", () => {
+    expect(
+      normalizeNinjaCreamiTestsGroupOrder(
+        ["a", "b", "c"],
+        ["a", NINJA_CREAMI_EXTRAS_GROUP_ID, "b"],
+      ),
+    ).toEqual(["a", "c", NINJA_CREAMI_EXTRAS_GROUP_ID, "b"]);
+  });
+
+  it("ignore un ordre sauvegardé invalide", () => {
+    expect(parseNinjaCreamiTestsGroupOrder("nope")).toBeNull();
+    expect(parseNinjaCreamiTestsGroupOrder(["a", 1, ""])).toEqual(["a"]);
+  });
+});
+
+describe("reorderNinjaCreamiTestsSections", () => {
+  it("déplace Extras entre deux sous-catégories", () => {
+    const order = ["a", "b", NINJA_CREAMI_EXTRAS_GROUP_ID];
+    expect(reorderNinjaCreamiTestsSections(order, 2, 1)).toEqual([
+      "a",
+      NINJA_CREAMI_EXTRAS_GROUP_ID,
+      "b",
+    ]);
+  });
+});
+
+describe("sortNinjaCreamiBaseGroupsByTestsOrder", () => {
+  it("réordonne Base selon l’affichage, sans Extras", () => {
+    const groups = [
+      { id: "a", name: "A", lines: [createEmptyNinjaCreamiCatalogLine()] },
+      { id: "b", name: "B", lines: [createEmptyNinjaCreamiCatalogLine()] },
+    ];
+    const next = sortNinjaCreamiBaseGroupsByTestsOrder(groups, [
+      "b",
+      NINJA_CREAMI_EXTRAS_GROUP_ID,
+      "a",
+    ]);
+    expect(next.map((g) => g.id)).toEqual(["b", "a"]);
   });
 });
 

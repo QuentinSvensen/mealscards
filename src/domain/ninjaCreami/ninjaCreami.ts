@@ -19,6 +19,8 @@ export const NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY = "ninja_creami_meal_display_na
 export const NINJA_CREAMI_BASE_LINES_KEY = "ninja_creami_base_lines";
 export const NINJA_CREAMI_BASE_GROUPS_KEY = "ninja_creami_base_groups";
 export const NINJA_CREAMI_EXTRAS_LINES_KEY = "ninja_creami_extras_lines";
+/** Ordre d’affichage Tests : ids des sous-catégories Base + id virtuel Extras. */
+export const NINJA_CREAMI_TESTS_GROUP_ORDER_KEY = "ninja_creami_tests_group_order";
 export const NINJA_CREAMI_TEST_PM_IDS_KEY = "ninja_creami_test_pm_ids";
 
 /** Clé de tri prefs pour « Recettes testées » (cycle identique à Tous / Master). */
@@ -126,13 +128,35 @@ export function ninjaCreamiBaseGroupsHaveContent(groups: NinjaCreamiBaseGroup[])
 export const NINJA_CREAMI_BASE_GROUPS_LOCAL_BACKUP_KEY = "ninja_creami_base_groups_local_backup";
 
 /**
+ * Réinjecte les sous-catégories encore dans le backup mais absentes des prefs.
+ */
+export function mergeMissingNinjaCreamiBaseGroupsFromBackup(
+  groups: NinjaCreamiBaseGroup[],
+  backup: NinjaCreamiBaseGroup[] | null,
+): NinjaCreamiBaseGroup[] {
+  if (!backup || !ninjaCreamiBaseGroupsHaveContent(backup)) return groups;
+  const ids = new Set(groups.map((group) => group.id));
+  const names = new Set(groups.map((group) => group.name.trim().toLowerCase()));
+  const missing = backup.filter((group) => {
+    if (!group.lines.some(catalogLineHasContent)) return false;
+    if (ids.has(group.id)) return false;
+    if (names.has(group.name.trim().toLowerCase())) return false;
+    return true;
+  });
+  return missing.length > 0 ? [...groups, ...missing] : groups;
+}
+
+/**
  * Sauvegarde locale des sous-catégories Base (uniquement si non vides).
+ * Union avec l’ancien backup : on ne perd plus une sous-catégorie déjà connue.
  */
 export function saveNinjaCreamiBaseGroupsLocalBackup(groups: NinjaCreamiBaseGroup[]): void {
   if (typeof localStorage === "undefined") return;
-  if (!ninjaCreamiBaseGroupsHaveContent(groups)) return;
+  const existing = loadNinjaCreamiBaseGroupsLocalBackup();
+  const merged = mergeMissingNinjaCreamiBaseGroupsFromBackup(groups, existing);
+  if (!ninjaCreamiBaseGroupsHaveContent(merged)) return;
   try {
-    localStorage.setItem(NINJA_CREAMI_BASE_GROUPS_LOCAL_BACKUP_KEY, JSON.stringify(groups));
+    localStorage.setItem(NINJA_CREAMI_BASE_GROUPS_LOCAL_BACKUP_KEY, JSON.stringify(merged));
   } catch {
     // ignore quota / private mode
   }
@@ -209,7 +233,7 @@ export function normalizeNinjaCreamiBaseGroups(
       if (!groupsHaveContent && backupHasContent && localBackup) {
         return localBackup;
       }
-      return groups;
+      return mergeMissingNinjaCreamiBaseGroupsFromBackup(groups, localBackup);
     }
   }
 
@@ -289,6 +313,101 @@ export function reorderNinjaCreamiBaseGroups(
   const [moved] = next.splice(fromIndex, 1);
   if (!moved) return groups;
   next.splice(toIndex, 0, moved);
+  return next;
+}
+
+/**
+ * Lit un ordre Tests sauvegardé (ids Base + Extras), ou null si inutilisable.
+ */
+export function parseNinjaCreamiTestsGroupOrder(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const ids = raw.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+  return ids.length > 0 ? ids : null;
+}
+
+/**
+ * Construit l’ordre d’affichage Base + Extras.
+ * Extras va à la fin s’il n’est pas encore dans la sauvegarde ;
+ * une nouvelle sous-catégorie s’insère juste avant Extras.
+ */
+export function normalizeNinjaCreamiTestsGroupOrder(
+  baseGroupIds: readonly string[],
+  savedOrder?: readonly string[] | null,
+): string[] {
+  const extrasId = NINJA_CREAMI_EXTRAS_GROUP_ID;
+  const baseSet = new Set(baseGroupIds);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const id of savedOrder ?? []) {
+    if (id === extrasId) {
+      if (!seen.has(extrasId)) {
+        result.push(extrasId);
+        seen.add(extrasId);
+      }
+      continue;
+    }
+    if (baseSet.has(id) && !seen.has(id)) {
+      result.push(id);
+      seen.add(id);
+    }
+  }
+
+  const missingBase = baseGroupIds.filter((id) => !seen.has(id));
+  const extrasIdx = result.indexOf(extrasId);
+  if (extrasIdx >= 0) {
+    result.splice(extrasIdx, 0, ...missingBase);
+  } else {
+    result.push(...missingBase, extrasId);
+  }
+  return result;
+}
+
+/**
+ * Réordonne la liste d’affichage Tests (sous-catégories Base et Extras).
+ */
+export function reorderNinjaCreamiTestsSections(
+  order: readonly string[],
+  fromIndex: number,
+  toIndex: number,
+): string[] {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= order.length ||
+    toIndex >= order.length
+  ) {
+    return [...order];
+  }
+  const next = [...order];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return [...order];
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
+/**
+ * Aligne l’ordre du tableau Base sur l’ordre d’affichage Tests (Extras ignoré).
+ */
+export function sortNinjaCreamiBaseGroupsByTestsOrder(
+  groups: NinjaCreamiBaseGroup[],
+  order: readonly string[],
+): NinjaCreamiBaseGroup[] {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const used = new Set<string>();
+  const next: NinjaCreamiBaseGroup[] = [];
+  for (const id of order) {
+    if (id === NINJA_CREAMI_EXTRAS_GROUP_ID) continue;
+    const group = byId.get(id);
+    if (group && !used.has(group.id)) {
+      next.push(group);
+      used.add(group.id);
+    }
+  }
+  for (const group of groups) {
+    if (!used.has(group.id)) next.push(group);
+  }
   return next;
 }
 
