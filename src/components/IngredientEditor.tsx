@@ -34,6 +34,11 @@ interface IngredientEditorProps {
 const INGREDIENT_GRID_CLASS =
   "grid grid-cols-[auto_auto_auto_auto_max-content_max-content_minmax(0,1fr)_max-content_max-content_max-content] lg:grid-cols-[0.8rem_1.2rem_1.2rem_0.8rem_3rem_2.2rem_minmax(0,12rem)_2.5rem_2.5rem_2.5rem] gap-x-0.5 gap-y-0 pl-0 pr-0";
 
+/** Donne le focus à un champ sans faire défiler la page. */
+function focusWithoutScroll(el: HTMLInputElement | null | undefined) {
+  el?.focus({ preventScroll: true });
+}
+
 /**
  * Shared ingredient editing grid used by MealCard and PossibleMealCard.
  * Supports drag & drop reordering of ingredient lines.
@@ -65,7 +70,7 @@ export function IngredientEditor({
     ignoreBlurUntilRef.current = Date.now() + 300;
     // Place le focus dans l’éditeur une fois le menu ⋮ vraiment fermé.
     const t = window.setTimeout(() => {
-      qtyRefs.current[0]?.focus();
+      focusWithoutScroll(qtyRefs.current[0]);
     }, 50);
     return () => window.clearTimeout(t);
   }, []);
@@ -155,6 +160,8 @@ export function IngredientEditor({
       next.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
     }
     if (field === "name") {
+      // Garde l’input monté dès la 1re lettre (sinon il devient un bouton, blur → scroll).
+      setEditingNameIdx(idx);
       setSuggestionLineIdx(value.trim() ? idx : null);
       setActiveSuggestionIdx(0);
       if (value.trim()) {
@@ -178,7 +185,7 @@ export function IngredientEditor({
     setEditingNameIdx(idx);
     setSuggestionLineIdx(null);
     setActiveSuggestionIdx(0);
-    setTimeout(() => nameRefs.current[idx]?.focus(), 0);
+    setTimeout(() => focusWithoutScroll(nameRefs.current[idx]), 0);
   };
 
   const toggleOr = (idx: number) => {
@@ -231,15 +238,15 @@ export function IngredientEditor({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      if (field === "qty") countRefs.current[idx]?.focus();
+      if (field === "qty") focusWithoutScroll(countRefs.current[idx]);
       else if (field === "count") {
         setEditingNameIdx(idx);
-        setTimeout(() => nameRefs.current[idx]?.focus(), 0);
+        setTimeout(() => focusWithoutScroll(nameRefs.current[idx]), 0);
       } else if (field === "name") {
         setEditingNameIdx(null);
         setSuggestionLineIdx(null);
-        if (idx < lines.length - 1) qtyRefs.current[idx + 1]?.focus();
-        else if (lines[idx].name.trim()) setTimeout(() => qtyRefs.current[idx + 1]?.focus(), 0);
+        if (idx < lines.length - 1) focusWithoutScroll(qtyRefs.current[idx + 1]);
+        else if (lines[idx].name.trim()) setTimeout(() => focusWithoutScroll(qtyRefs.current[idx + 1]), 0);
         else commitCurrentLines();
       }
     }
@@ -374,7 +381,6 @@ export function IngredientEditor({
           </button>
           <Input
             ref={el => { qtyRefs.current[idx] = el; }}
-            autoFocus={idx === 0}
             placeholder="g"
             inputMode="decimal"
             value={line.qty}
@@ -409,8 +415,10 @@ export function IngredientEditor({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
-                autoFocus={editingNameIdx === idx && !!line.name.trim()}
-                onFocus={() => { if (line.name.trim()) setSuggestionLineIdx(idx); }}
+                onFocus={() => {
+                  setEditingNameIdx(idx);
+                  if (line.name.trim()) setSuggestionLineIdx(idx);
+                }}
                 onChange={e => updateLine(idx, "name", e.target.value)}
                 onKeyDown={e => handleKeyDown(idx, "name", e)}
                 onBlur={() => {
@@ -428,7 +436,7 @@ export function IngredientEditor({
                 type="button"
                 onClick={() => {
                   setEditingNameIdx(idx);
-                  setTimeout(() => nameRefs.current[idx]?.focus(), 0);
+                  setTimeout(() => focusWithoutScroll(nameRefs.current[idx]), 0);
                 }}
                 className="h-6 min-w-0 w-full text-left text-white text-xs font-semibold px-1 truncate hover:text-primary transition-colors"
                 title="Cliquer pour renommer"

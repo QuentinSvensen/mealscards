@@ -266,6 +266,7 @@ export function NinjaCreamiSelectableIngredientList({
       return ensureTrailingEmpty(next);
     });
     if (patch.name !== undefined) {
+      setEditingNameIdx(idx);
       setSuggestionLineIdx(patch.name.trim() ? idx : null);
       setActiveSuggestionIdx(0);
     }
@@ -594,6 +595,7 @@ export function NinjaCreamiSelectableIngredientList({
                   autoFocus={editingNameIdx === idx && !!line.name.trim()}
                   onFocus={() => {
                     focusedRef.current = true;
+                    setEditingNameIdx(idx);
                     if (line.name.trim()) setSuggestionLineIdx(idx);
                   }}
                   onChange={(e) => updateLineLocal(idx, { name: e.target.value })}
