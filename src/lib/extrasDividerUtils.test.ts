@@ -53,10 +53,12 @@ describe("extrasDividerUtils", () => {
     });
   });
 
-  it("préfère le miroir local plus riche si le trait Supabase est trop haut", () => {
+  it("ne remplace pas un id Supabase valide par le miroir local (évite la boucle)", () => {
+    // Même si le miroir local a un aboveCount plus grand, l'id Supabase valide gagne.
+    // Sinon : local > Supabase → setPreference → relecture → idem → boucle infinie du trait.
     writeLocalExtrasDividerBackup("c", 3);
-    expect(resolveExtrasDividerAfterId(items, "a")).toBe("c");
-    expect(recoverExtrasDividerAfterId(items, "a")).toBe("c");
+    expect(resolveExtrasDividerAfterId(items, "a")).toBe("a");
+    expect(recoverExtrasDividerAfterId(items, "a")).toBeNull();
   });
 
   it("ne remonte pas le trait si le miroir local est plus haut (mouvement volontaire)", () => {

@@ -115,16 +115,11 @@ export function resolveExtrasDividerAfterId<T extends { id: string }>(
 ): string | null {
   if (sortedItems.length === 0) return null;
 
+  // Si l'id stocké est valide (existe dans la liste), on l'utilise directement.
+  // Le miroir localStorage ne remplace JAMAIS un id valide : il ne sert qu'à récupérer
+  // un trait perdu (id orphelin). Sinon on crée une boucle : local > Supabase → écriture
+  // Supabase → re-résolution → idem, indéfiniment.
   if (storedId && sortedItems.some((item) => item.id === storedId)) {
-    if (options?.recoverRicherLocal !== false && options?.useLocalBackup !== false) {
-      const local = readLocalExtrasDividerBackup();
-      const localId = pickExtrasDividerIdFromLocalBackup(sortedItems, local);
-      if (localId && localId !== storedId && isLocalExtrasDividerBackupFresh(local)) {
-        const storedAbove = sortedItems.findIndex((item) => item.id === storedId) + 1;
-        const localAbove = sortedItems.findIndex((item) => item.id === localId) + 1;
-        if (localAbove > storedAbove) return localId;
-      }
-    }
     return storedId;
   }
 
