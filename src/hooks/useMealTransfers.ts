@@ -59,6 +59,11 @@ import {
   patchDessertPrefsAfterStockDeletes,
 } from "@/lib/foodDessertUtils";
 import { suppressStockRealtime } from "@/lib/stockRealtimeGate";
+import {
+  applyGramsDeltaToFoodItem,
+  gramsToRestoreTowardSnapshot,
+  isDeletedGramsState,
+} from "@/lib/stock/stockPortionMath";
 
 type UserPreferenceRow = { id: string; key: string; value: unknown };
 
@@ -259,9 +264,11 @@ export function useMealTransfers(foodItems: FoodItem[]) {
   const deductIngredientsFromStock = async (meal: Meal, forcedCounterDate?: string): Promise<{ snapshots: FoodItem[]; consumedIds: string[]; oldestCounter: string | null; consumedIngredients: string | null }> => {
     if (!meal.ingredients?.trim()) return { snapshots: [], consumedIds: [], oldestCounter: null, consumedIngredients: null };
     const liveFoodItems = getLiveFoodItems();
+    // Copie de travail : chaque groupe voit le stock déjà réduit par les groupes précédents
+    // (sinon le même poulet est re-déduit depuis l'état initial, delta trop gros au retour).
+    const workingItems = liveFoodItems.map((fi) => ({ ...fi }));
     const groups = parseIngredientGroups(meal.ingredients);
     const pickedAlternatives: ParsedIngredient[][] = [];
-    const stockMap = buildStockMap(liveFoodItems);
     const snapshotsById = new Map<string, FoodItem>();
     /** Grammes / unités retirés par aliment pour cette carte Possible (restauration additive). */
     const portionDeltasById = new Map<string, { grams: number; quantity: number }>();
@@ -299,9 +306,43 @@ export function useMealTransfers(foodItems: FoodItem[]) {
       }
     };
 
+    type StockDeductionUpdate = {
+      id: string;
+      grams?: string | null;
+      quantity?: number | null;
+      delete?: boolean;
+      counter_start_date?: string | null;
+    };
+
+    /** Applique immédiatement un patch sur la copie de travail (groupes suivants). */
+    const patchWorkingItem = (id: string, patch: Partial<FoodItem> | { delete: true }) => {
+      const idx = workingItems.findIndex((fi) => fi.id === id);
+      if (idx < 0) return;
+      if ("delete" in patch && patch.delete) {
+        workingItems.splice(idx, 1);
+        return;
+      }
+      workingItems[idx] = { ...workingItems[idx], ...patch };
+    };
+
+    /** Enregistre un UPDATE/DELETE et met à jour la copie de travail tout de suite. */
+    const setStockUpdate = (u: StockDeductionUpdate) => {
+      updatesById.set(u.id, u);
+      if (u.delete) {
+        patchWorkingItem(u.id, { delete: true });
+        return;
+      }
+      const patch: Partial<FoodItem> = {};
+      if (u.grams !== undefined) patch.grams = u.grams;
+      if (u.quantity !== undefined) patch.quantity = u.quantity;
+      if (u.counter_start_date !== undefined) patch.counter_start_date = u.counter_start_date;
+      patchWorkingItem(u.id, patch);
+    };
+
     for (const group of groups) {
       // Ignorer les groupes entièrement optionnels
       if (group.every(alt => alt.every(item => item.optional))) continue;
+      const stockMap = buildStockMap(workingItems);
       const altBundle = pickBestAlternative(group, stockMap);
       if (!altBundle) continue;
       pickedAlternatives.push(altBundle);
@@ -314,8 +355,8 @@ export function useMealTransfers(foodItems: FoodItem[]) {
         const stockInfo = stockMap.get(key);
         if (!stockInfo || stockInfo.infinite) continue;
 
-        // Trier pour consommer en priorité les items déjà ouverts
-        const matchingItems = liveFoodItems
+        // Trier pour consommer en priorité les items déjà ouverts (stock déjà réduit).
+        const matchingItems = workingItems
           .filter((fi) => strictNameMatch(fi.name, name) && !fi.is_infinite)
           .sort(sortStockDeductionPriority);
 
@@ -338,7 +379,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             // Stock épuisé : toujours supprimer la ligne (même si compteur planifié).
             // Sinon une carte 0g reste visible ; le "programmé demain" vit sur la carte repas, pas sur un aliment fantôme.
             if (remaining <= 0) {
-              updatesById.set(fi.id, { id: fi.id, delete: true });
+              setStockUpdate({ id: fi.id, delete: true });
             } else {
               const bumpCounter = needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
               // Ne pas effacer le compteur des unitaires restants (toujours « scellés » au sens grammes).
@@ -348,7 +389,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 isFoodFullySealed({ ...fi, quantity: remaining } as FoodItem) &&
                 !isCountOnlyFoodItem(fi);
               if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
-              updatesById.set(fi.id, {
+              setStockUpdate({
                 id: fi.id,
                 quantity: Math.ceil(remaining),
                 ...(bumpCounter ? { counter_start_date: effectiveCounterDate } : {}),
@@ -375,7 +416,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
             trackOldestCounter(fi, effectiveCounterDate);
 
             if (remaining <= 0) {
-              updatesById.set(fi.id, { id: fi.id, delete: true });
+              setStockUpdate({ id: fi.id, delete: true });
               continue;
             }
 
@@ -397,7 +438,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                   needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate);
                 const counterUpdate = bumpCounter ? { counter_start_date: effectiveCounterDate } : {};
                 if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
-                updatesById.set(fi.id, {
+                setStockUpdate({
                   id: fi.id,
                   quantity: Math.max(1, fullUnits + 1),
                   grams: encodeStoredGrams(perUnit, remainder),
@@ -405,9 +446,9 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 });
               } else if (fullUnits > 0) {
                 // Unités complètes restantes → pas d'ouverture, reset du compteur
-                updatesById.set(fi.id, { id: fi.id, quantity: fullUnits, grams: formatNumeric(perUnit), ...(fi.counter_start_date ? { counter_start_date: null } : {}) });
+                setStockUpdate({ id: fi.id, quantity: fullUnits, grams: formatNumeric(perUnit), ...(fi.counter_start_date ? { counter_start_date: null } : {}) });
               } else {
-                updatesById.set(fi.id, { id: fi.id, delete: true });
+                setStockUpdate({ id: fi.id, delete: true });
               }
             } else {
               // Item simple (sans multi-unités) : conserver l'unité d'origine (ex. 450|225)
@@ -416,7 +457,7 @@ export function useMealTransfers(foodItems: FoodItem[]) {
                 shouldStartCounter(fi) &&
                 (needsCounterUpdate(fi, effectiveCounterDate, forcedCounterDate) || openedPartial);
               if (bumpCounter) registerDeductionOpenDate(effectiveCounterDate);
-              updatesById.set(fi.id, {
+              setStockUpdate({
                 id: fi.id,
                 grams: encodeStoredGrams(perUnit, openedPartial ? remaining : null),
                 ...(bumpCounter ? { counter_start_date: effectiveCounterDate } : {}),
@@ -647,8 +688,16 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     const restoredCounter = snap.counter_start_date
       ? earlierCounterDate(fi.counter_start_date, snap.counter_start_date)
       : null;
+    const cleanSnap = stripPortionDeductionMeta(snap);
     if (neededCount > 0) {
-      const newQty = (fi.quantity ?? 1) + neededCount;
+      const snapQty = cleanSnap.quantity ?? 1;
+      const currentQty = fi.quantity ?? 1;
+      const qtyToAdd =
+        currentQty >= snapQty
+          ? 0
+          : Math.min(neededCount, snapQty - currentQty);
+      if (qtyToAdd > 0) {
+        const newQty = currentQty + qtyToAdd;
         const synthetic = { ...fi, quantity: newQty } as FoodItem;
         const clearCtr = isFoodFullySealed(synthetic);
         const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
@@ -656,35 +705,25 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           quantity: Math.ceil(newQty),
           ...counterUpdate,
         });
-    }
-    if (neededGrams > 0) {
-      const fiGrams = parseQty(fi.grams);
-      if (fi.quantity && fi.quantity >= 1 && fiGrams > 0) {
-        const currentTotal = getFoodItemTotalGrams(fi);
-        const newTotal = currentTotal + neededGrams;
-        const fullUnits = Math.floor(newTotal / fiGrams);
-        const remainder = Math.round((newTotal - fullUnits * fiGrams) * 10) / 10;
-        const newQty = remainder > 0 ? fullUnits + 1 : fullUnits;
-        const newGramsStr = encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null);
-        const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
-        const clearCtr = isFoodFullySealed(synthetic);
-        const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
-        await accStockUpdate(acc, "Restauration portion (grams)", fi.id, {
-          quantity: newQty,
-          grams: newGramsStr,
-          ...counterUpdate,
-        });
-      } else {
-        const currentTotal = fiGrams;
-        const newG = formatNumeric(currentTotal + neededGrams);
-        const synthetic = { ...fi, grams: newG } as FoodItem;
-        const clearCtr = isFoodFullySealed(synthetic);
-        const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
-        await accStockUpdate(acc, "Restauration portion (simple)", fi.id, {
-          grams: newG,
-          ...counterUpdate,
-        });
       }
+    }
+    const gramsToAdd = gramsToRestoreTowardSnapshot(
+      acc.working.find((item) => item.id === fi.id) ?? fi,
+      cleanSnap,
+      neededGrams,
+    );
+    if (gramsToAdd > 0) {
+      const liveFi = acc.working.find((item) => item.id === fi.id) ?? fi;
+      const nextState = applyGramsDeltaToFoodItem(liveFi, gramsToAdd);
+      if (isDeletedGramsState(nextState)) return;
+      const synthetic = { ...liveFi, quantity: nextState.quantity, grams: nextState.grams } as FoodItem;
+      const clearCtr = isFoodFullySealed(synthetic);
+      const counterUpdate = { counter_start_date: clearCtr ? null : restoredCounter };
+      await accStockUpdate(acc, "Restauration portion (grams)", liveFi.id, {
+        quantity: nextState.quantity,
+        grams: nextState.grams,
+        ...counterUpdate,
+      });
     }
   };
 
@@ -839,31 +878,16 @@ export function useMealTransfers(foodItems: FoodItem[]) {
           const newQty = (fi.quantity ?? 1) + neededCount;
           await accStockUpdate(acc, "Restauration stock (count)", fi.id, { quantity: Math.ceil(newQty) });
         } else if (neededGrams > 0) {
-          const fiGrams = parseQty(fi.grams);
-          if (fi.quantity && fi.quantity >= 1 && fiGrams > 0) {
-            const currentTotal = getFoodItemTotalGrams(fi);
-            const newTotal = currentTotal + neededGrams;
-            const fullUnits = Math.floor(newTotal / fiGrams);
-            const remainder = Math.round((newTotal - fullUnits * fiGrams) * 10) / 10;
-            const newQty = remainder > 0 ? fullUnits + 1 : fullUnits;
-            const newGramsStr = encodeStoredGrams(fiGrams, remainder > 0 ? remainder : null);
-            const synthetic = { ...fi, quantity: newQty, grams: newGramsStr } as FoodItem;
-            const clearCtr = isFoodFullySealed(synthetic);
-            await accStockUpdate(acc, "Restauration stock (grams)", fi.id, {
-              quantity: newQty,
-              grams: newGramsStr,
-              ...(clearCtr ? { counter_start_date: null } : {}),
-            });
-          } else {
-            const currentTotal = fiGrams;
-            const newG = formatNumeric(currentTotal + neededGrams);
-            const synthetic = { ...fi, grams: newG } as FoodItem;
-            const clearCtr = isFoodFullySealed(synthetic);
-            await accStockUpdate(acc, "Restauration stock (simple)", fi.id, {
-              grams: newG,
-              ...(clearCtr ? { counter_start_date: null } : {}),
-            });
-          }
+          const liveFi = acc.working.find((item) => item.id === fi.id) ?? fi;
+          const nextState = applyGramsDeltaToFoodItem(liveFi, neededGrams);
+          if (isDeletedGramsState(nextState)) continue;
+          const synthetic = { ...liveFi, quantity: nextState.quantity, grams: nextState.grams } as FoodItem;
+          const clearCtr = isFoodFullySealed(synthetic);
+          await accStockUpdate(acc, "Restauration stock (grams)", liveFi.id, {
+            quantity: nextState.quantity,
+            grams: nextState.grams,
+            ...(clearCtr ? { counter_start_date: null } : {}),
+          });
         }
       }
     }
@@ -872,27 +896,14 @@ export function useMealTransfers(foodItems: FoodItem[]) {
     if (mealGrams > 0) {
       const nameMatch = currentFoodItems.find(fi => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch) {
-        const unit = parseQty(nameMatch.grams);
-        if (nameMatch.quantity && nameMatch.quantity >= 1 && unit > 0) {
-          const currentTotal = getFoodItemTotalGrams(nameMatch);
-          const newTotal = currentTotal + mealGrams;
-          const fullUnits = Math.floor(newTotal / unit);
-          const remainder = Math.round((newTotal - fullUnits * unit) * 10) / 10;
-          const newQty = remainder > 0 ? fullUnits + 1 : fullUnits;
-          const newGramsStr = encodeStoredGrams(unit, remainder > 0 ? remainder : null);
-          const synthetic = { ...nameMatch, quantity: newQty, grams: newGramsStr } as FoodItem;
+        const liveFi = acc.working.find((item) => item.id === nameMatch.id) ?? nameMatch;
+        const nextState = applyGramsDeltaToFoodItem(liveFi, mealGrams);
+        if (!isDeletedGramsState(nextState)) {
+          const synthetic = { ...liveFi, quantity: nextState.quantity, grams: nextState.grams } as FoodItem;
           const clearCtr = isFoodFullySealed(synthetic);
-          await accStockUpdate(acc, "Restauration nom", nameMatch.id, {
-            quantity: newQty,
-            grams: newGramsStr,
-            ...(clearCtr ? { counter_start_date: null } : {}),
-          });
-        } else {
-          const newG = formatNumeric(unit + mealGrams);
-          const synthetic = { ...nameMatch, grams: newG } as FoodItem;
-          const clearCtr = isFoodFullySealed(synthetic);
-          await accStockUpdate(acc, "Restauration nom (simple)", nameMatch.id, {
-            grams: newG,
+          await accStockUpdate(acc, "Restauration nom", liveFi.id, {
+            quantity: nextState.quantity,
+            grams: nextState.grams,
             ...(clearCtr ? { counter_start_date: null } : {}),
           });
         }

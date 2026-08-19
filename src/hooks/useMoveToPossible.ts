@@ -233,14 +233,14 @@ export function useMoveToPossible(deps: UseMoveToPossibleDeps) {
       consumedIngredientsFromDeduction = deductionResult.consumedIngredients || null;
       nameMatch = foodItems.find((fi) => strictNameMatch(fi.name, meal.name) && !fi.is_infinite);
       if (nameMatch && !snapshots.find((s) => s.id === nameMatch!.id)) {
+        // Uniquement si la recette n'a pas d'ingrédients : sinon ce snapshot sans portion
+        // ferait restaurer tout le stock de l'aliment homonyme (ex. poulet ×3).
         if (!mealForTransfer.ingredients?.trim()) {
           const portion = await deductNameMatchStock(mealForTransfer);
           snapshots.push(attachFoodDeductionSnapshot(nameMatch, {
             grams: portion.gramsDeducted,
             quantity: portion.quantityDeducted,
           }));
-        } else {
-          snapshots.push({ ...nameMatch });
         }
       }
     }
