@@ -11,6 +11,8 @@ export interface LazyFragmentImporters {
   importUnParUnSection: () => Promise<unknown>;
   importMacroIngredients: () => Promise<unknown>;
   importEnergyDrinksList: () => Promise<unknown>;
+  importNinjaCreamiSection?: () => Promise<unknown>;
+  importZeroCalorieBonusSection?: () => Promise<unknown>;
 }
 
 /**
@@ -38,6 +40,8 @@ export function useLazyFragmentsPreload(
       importers.importUnParUnSection();
       importers.importMacroIngredients();
       importers.importEnergyDrinksList();
+      importers.importNinjaCreamiSection?.();
+      importers.importZeroCalorieBonusSection?.();
     };
 
     if ("requestIdleCallback" in window) {

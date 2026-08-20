@@ -128,6 +128,12 @@ import {
   type NinjaCreamiBaseGroup,
   type NinjaCreamiCatalogLine,
 } from "@/domain/ninjaCreami/ninjaCreami";
+import {
+  BONUS_ZERO_CALORIE_GROUPS_KEY,
+  BONUS_ZERO_CALORIE_LINES_KEY,
+  flattenBonusZeroCalorieGroups,
+  normalizeBonusZeroCalorieGroups,
+} from "@/domain/bonusZeroCalorie/bonusZeroCalorie";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
 import { prioritizeNumberedPotsAmongUnplanned } from "@/domain/planning/possiblePlanningSort";
@@ -190,6 +196,9 @@ const importAvailableList = () => import("@/components/AvailableList").then((m) 
 /** Import dynamique de la section Ninja Creami (Desserts). */
 const importNinjaCreamiSection = () =>
   import("@/components/NinjaCreamiSection").then((m) => ({ default: m.NinjaCreamiSection }));
+/** Import dynamique de la section « Tous 0 calorie » (Bonus). */
+const importZeroCalorieBonusSection = () =>
+  import("@/components/ZeroCalorieBonusSection").then((m) => ({ default: m.ZeroCalorieBonusSection }));
 /** Import dynamique de la section « un par un ». */
 const importUnParUnSection = () => import("@/components/UnParUnSection").then((m) => ({ default: m.UnParUnSection }));
 /** Import dynamique du référentiel des macros d'ingrédients. */
@@ -205,6 +214,7 @@ const LazyMasterList = lazyRetry(importMasterList, "MasterList");
 const LazyPossibleList = lazyRetry(importPossibleList, "PossibleList");
 const LazyAvailableList = lazyRetry(importAvailableList, "AvailableList");
 const LazyNinjaCreamiSection = lazyRetry(importNinjaCreamiSection, "NinjaCreamiSection");
+const LazyZeroCalorieBonusSection = lazyRetry(importZeroCalorieBonusSection, "ZeroCalorieBonusSection");
 const LazyUnParUnSection = lazyRetry(importUnParUnSection, "UnParUnSection");
 const LazyMacroIngredients = lazyRetry(importMacroIngredients, "MacroIngredients");
 const LazyEnergyDrinksList = lazyRetry(importEnergyDrinksList, "EnergyDrinksList");
@@ -341,6 +351,42 @@ const Index = () => {
   const ninjaCreamiTestsGroupOrder = parseNinjaCreamiTestsGroupOrder(
     getPreference(NINJA_CREAMI_TESTS_GROUP_ORDER_KEY, null),
   );
+  const bonusZeroCalorieGroupsRaw = getPreference(BONUS_ZERO_CALORIE_GROUPS_KEY, null);
+  const bonusZeroCalorieLinesRaw = getPreference(BONUS_ZERO_CALORIE_LINES_KEY, []);
+  const bonusZeroCalorieGroups = useMemo(
+    () => normalizeBonusZeroCalorieGroups(bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw),
+    [bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw],
+  );
+
+  // Persiste la migration liste plate → sous-catégories (une fois).
+  useEffect(() => {
+    if (isPreferencesLoading) return;
+    if (Array.isArray(bonusZeroCalorieGroupsRaw) && bonusZeroCalorieGroupsRaw.length > 0) return;
+    const hasContent = bonusZeroCalorieGroups.some((g) =>
+      g.lines.some(
+        (l) =>
+          l.name.trim() ||
+          l.qty.trim() ||
+          l.count.trim() ||
+          l.cal.trim() ||
+          l.pro.trim() ||
+          l.fiber.trim(),
+      ),
+    );
+    if (!hasContent) return;
+    setPreferencesBatch.mutate([
+      { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: bonusZeroCalorieGroups },
+      {
+        key: BONUS_ZERO_CALORIE_LINES_KEY,
+        value: flattenBonusZeroCalorieGroups(bonusZeroCalorieGroups),
+      },
+    ]);
+  }, [
+    isPreferencesLoading,
+    bonusZeroCalorieGroupsRaw,
+    bonusZeroCalorieGroups,
+    setPreferencesBatch,
+  ]);
 
   // Migre / répare Base uniquement quand on a du contenu (jamais d’écriture vide qui wipe le cloud).
   useEffect(() => {
@@ -406,6 +452,7 @@ const Index = () => {
     importPossibleList,
     importAvailableList,
     importNinjaCreamiSection,
+    importZeroCalorieBonusSection,
     importUnParUnSection,
     importMacroIngredients,
     importEnergyDrinksList,
@@ -1447,6 +1494,65 @@ const Index = () => {
                           onUpdateDescription={(id, description) => updateDescription.mutate({ id, description })}
                           onReorder={(from, to) => handleReorderMeals(cat.value, from, to)}
                           ingredientMacroAutofillSources={ingredientMacroAutofillSources} />
+
+                        {cat.value === "bonus" && (
+                          <LazyZeroCalorieBonusSection
+                            groups={bonusZeroCalorieGroups}
+                            onGroupsChange={(groups) =>
+                              setPreferencesBatch.mutate([
+                                { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: groups },
+                                {
+                                  key: BONUS_ZERO_CALORIE_LINES_KEY,
+                                  value: flattenBonusZeroCalorieGroups(groups),
+                                },
+                              ])
+                            }
+                            collapsed={collapsedSections["bonus-zero-cal-tous"] ?? true}
+                            onToggleCollapse={() => toggleSectionCollapse("bonus-zero-cal-tous")}
+                            ingredientMacroAutofillSources={ingredientMacroAutofillSources}
+                            ingredientSuggestions={foodItems.map((fi) => fi.name)}
+                            onIngredientNameCommit={(line: NinjaCreamiCatalogLine) => {
+                              if (!line.name.trim()) return;
+                              const nextLib = upsertMacroLibraryFromNinjaLineName(
+                                macroLibrary,
+                                line.name,
+                                line.cal,
+                                line.pro,
+                                line.fiber,
+                                { overwrite: true },
+                              );
+                              if (nextLib !== macroLibrary) saveMacroLibrary(nextLib);
+                            }}
+                            onCreateFromSelection={({ name, ingredients, calories, protein, fiber }) => {
+                              addMealToPossibleDirectly.mutate(
+                                {
+                                  name,
+                                  category: "bonus",
+                                  ingredients,
+                                  calories,
+                                  protein,
+                                  fiber,
+                                },
+                                {
+                                  onSuccess: (data) => {
+                                    if (data?.id) {
+                                      freezePossibleBadgeCounter(
+                                        data.id,
+                                        null,
+                                        null,
+                                        null,
+                                        undefined,
+                                        foodItems,
+                                      );
+                                      // Pas de lien Master / stock → pas d’encadré jaune.
+                                    }
+                                    toast({ title: "Carte Possible créée depuis Tous 0 calorie 🍃" });
+                                  },
+                                },
+                              );
+                            }}
+                          />
+                        )}
 
                         {cat.value === "dessert" && (
                           <LazyNinjaCreamiSection

@@ -23,6 +23,9 @@ import { normalizeForMatch, normalizeKey, type IngLine } from "@/lib/ingredientU
 
 const GRID =
   "grid grid-cols-[0.75rem_1.1rem_max-content_max-content_minmax(0,1fr)_1.9rem_1.65rem_1.65rem] gap-x-1 gap-y-0 items-center";
+/** Grille sans colonnes macros (Cal / P / Fib). */
+const GRID_NO_MACROS =
+  "grid grid-cols-[0.75rem_1.1rem_max-content_max-content_minmax(0,1fr)] gap-x-1 gap-y-0 items-center";
 
 export interface NinjaCreamiSelectableIngredientListProps {
   title: string;
@@ -49,6 +52,8 @@ export interface NinjaCreamiSelectableIngredientListProps {
   frameTone?: "default" | "violet";
   /** Poignée DnD de sous-catégorie (affichée dans l’en-tête de l’encadré). */
   groupReorderHandle?: ReactNode;
+  /** Masque les colonnes Cal / P / Fib (ex. catalogue Tous 0 calorie). */
+  hideMacros?: boolean;
 }
 
 /**
@@ -160,7 +165,9 @@ export function NinjaCreamiSelectableIngredientList({
   onExternalLineDrop,
   frameTone = "default",
   groupReorderHandle,
+  hideMacros = false,
 }: NinjaCreamiSelectableIngredientListProps) {
+  const gridClass = hideMacros ? GRID_NO_MACROS : GRID;
   const [draftLines, setDraftLines] = useState<NinjaCreamiCatalogLine[]>(lines);
   const [draftTitle, setDraftTitle] = useState(title);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -486,7 +493,7 @@ export function NinjaCreamiSelectableIngredientList({
           </button>
         )}
       </div>
-      <div className={`${GRID} px-2 pb-1`}>
+      <div className={`${gridClass} px-2 pb-1`}>
         <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center" title="Réordonner" />
         <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center" title="Sélection">
           ✓
@@ -494,9 +501,13 @@ export function NinjaCreamiSelectableIngredientList({
         <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">g</span>
         <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium text-center">#</span>
         <span className="text-[9px] uppercase tracking-wide text-white/40 font-medium">Nom</span>
-        <span className="text-[9px] uppercase tracking-wide text-orange-300/80 font-medium text-center">Cal</span>
-        <span className="text-[9px] uppercase tracking-wide text-sky-300/80 font-medium text-center">P</span>
-        <span className="text-[9px] uppercase tracking-wide text-emerald-300/80 font-medium text-center">Fib</span>
+        {!hideMacros && (
+          <>
+            <span className="text-[9px] uppercase tracking-wide text-orange-300/80 font-medium text-center">Cal</span>
+            <span className="text-[9px] uppercase tracking-wide text-sky-300/80 font-medium text-center">P</span>
+            <span className="text-[9px] uppercase tracking-wide text-emerald-300/80 font-medium text-center">Fib</span>
+          </>
+        )}
       </div>
       <div className="flex flex-col gap-1.5">
       {draftLines.map((line, idx) => {
@@ -519,7 +530,7 @@ export function NinjaCreamiSelectableIngredientList({
             data-ninja-line-row
             onDragOver={(e) => handleDragOver(e, idx)}
             onDrop={(e) => handleDrop(e, idx)}
-            className={`${GRID} relative px-2 py-1 rounded-xl transition-all duration-150 ${
+            className={`${gridClass} relative px-2 py-1 rounded-xl transition-all duration-150 ${
               isCreateRow
                 ? "opacity-50 bg-white/[0.03] ring-1 ring-dashed ring-white/20"
                 : rowSelected
@@ -653,39 +664,43 @@ export function NinjaCreamiSelectableIngredientList({
                 </div>
               )}
             </div>
-            <Input
-              placeholder="—"
-              inputMode="decimal"
-              value={line.cal}
-              onFocus={() => {
-                focusedRef.current = true;
-              }}
-              onChange={(e) => updateLineLocal(idx, { cal: e.target.value })}
-              onBlur={() => handleBlurLine(idx, "cal")}
-              className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-orange-300 ${inputBg}`}
-            />
-            <Input
-              placeholder="—"
-              inputMode="decimal"
-              value={line.pro}
-              onFocus={() => {
-                focusedRef.current = true;
-              }}
-              onChange={(e) => updateLineLocal(idx, { pro: e.target.value })}
-              onBlur={() => handleBlurLine(idx, "pro")}
-              className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-blue-300 ${inputBg}`}
-            />
-            <Input
-              placeholder="—"
-              inputMode="decimal"
-              value={line.fiber}
-              onFocus={() => {
-                focusedRef.current = true;
-              }}
-              onChange={(e) => updateLineLocal(idx, { fiber: e.target.value })}
-              onBlur={() => handleBlurLine(idx, "fiber")}
-              className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-emerald-300 ${inputBg}`}
-            />
+            {!hideMacros && (
+              <>
+                <Input
+                  placeholder="—"
+                  inputMode="decimal"
+                  value={line.cal}
+                  onFocus={() => {
+                    focusedRef.current = true;
+                  }}
+                  onChange={(e) => updateLineLocal(idx, { cal: e.target.value })}
+                  onBlur={() => handleBlurLine(idx, "cal")}
+                  className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-orange-300 ${inputBg}`}
+                />
+                <Input
+                  placeholder="—"
+                  inputMode="decimal"
+                  value={line.pro}
+                  onFocus={() => {
+                    focusedRef.current = true;
+                  }}
+                  onChange={(e) => updateLineLocal(idx, { pro: e.target.value })}
+                  onBlur={() => handleBlurLine(idx, "pro")}
+                  className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-blue-300 ${inputBg}`}
+                />
+                <Input
+                  placeholder="—"
+                  inputMode="decimal"
+                  value={line.fiber}
+                  onFocus={() => {
+                    focusedRef.current = true;
+                  }}
+                  onChange={(e) => updateLineLocal(idx, { fiber: e.target.value })}
+                  onBlur={() => handleBlurLine(idx, "fiber")}
+                  className={`h-6 w-full min-w-0 text-[10px] px-0 text-center text-emerald-300 ${inputBg}`}
+                />
+              </>
+            )}
           </div>
         );
       })}
