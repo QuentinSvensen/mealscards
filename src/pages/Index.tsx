@@ -101,6 +101,7 @@ import {
   NINJA_CREAMI_MEAL_DISPLAY_NAMES_KEY,
   NINJA_CREAMI_MEAL_IDS_KEY,
   NINJA_CREAMI_TEST_PM_IDS_KEY,
+  NINJA_CREAMI_TESTED_OVERVIEW_NOTES_KEY,
   NINJA_CREAMI_TESTED_SORT_KEY,
   NINJA_CREAMI_TESTS_GROUP_ORDER_KEY,
   addNinjaCreamiMealId,
@@ -350,6 +351,10 @@ const Index = () => {
   );
   const ninjaCreamiTestsGroupOrder = parseNinjaCreamiTestsGroupOrder(
     getPreference(NINJA_CREAMI_TESTS_GROUP_ORDER_KEY, null),
+  );
+  const ninjaCreamiTestedOverviewNotes = getPreference<string>(
+    NINJA_CREAMI_TESTED_OVERVIEW_NOTES_KEY,
+    "",
   );
   const bonusZeroCalorieGroupsRaw = getPreference(BONUS_ZERO_CALORIE_GROUPS_KEY, null);
   const bonusZeroCalorieLinesRaw = getPreference(BONUS_ZERO_CALORIE_LINES_KEY, []);
@@ -1699,6 +1704,17 @@ const Index = () => {
                             onUpdateOvenMinutes={(id, m) => updateOvenMinutes.mutate({ id, oven_minutes: m })}
                             onUpdateDescription={(id, description) =>
                               updateDescription.mutate({ id, description })
+                            }
+                            testedOverviewNotes={
+                              typeof ninjaCreamiTestedOverviewNotes === "string"
+                                ? ninjaCreamiTestedOverviewNotes
+                                : ""
+                            }
+                            onTestedOverviewNotesChange={(notes) =>
+                              setPreference.mutate({
+                                key: NINJA_CREAMI_TESTED_OVERVIEW_NOTES_KEY,
+                                value: notes,
+                              })
                             }
                             createBusy={addMealToPossibleDirectly.isPending}
                             onCreateFromTests={({ name, ingredients, calories, protein, fiber }) => {

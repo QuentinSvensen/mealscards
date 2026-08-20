@@ -26,6 +26,9 @@ export const NINJA_CREAMI_TEST_PM_IDS_KEY = "ninja_creami_test_pm_ids";
 /** Clé de tri prefs pour « Recettes testées » (cycle identique à Tous / Master). */
 export const NINJA_CREAMI_TESTED_SORT_KEY = "ninja-creami-tested";
 
+/** Notes libres en bas de l’aperçu tableau Recettes testées. */
+export const NINJA_CREAMI_TESTED_OVERVIEW_NOTES_KEY = "ninja_creami_tested_overview_notes";
+
 /** MIME drag & drop pour déplacer une ligne entre sous-catégories Base. */
 export const NINJA_CREAMI_LINE_DND_MIME = "application/x-ninja-creami-line";
 

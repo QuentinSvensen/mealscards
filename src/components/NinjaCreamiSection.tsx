@@ -65,6 +65,51 @@ import {
 export { NINJA_CREAMI_TESTED_SORT_KEY } from "@/domain/ninjaCreami/ninjaCreami";
 
 /**
+ * Champ notes libres en bas de l’aperçu Recettes testées.
+ * Sauvegarde au blur pour garder le curseur fluide pendant la frappe.
+ */
+function TestedOverviewNotesField({
+  savedValue,
+  onSave,
+}: {
+  savedValue: string;
+  onSave: (notes: string) => void;
+}) {
+  const [draft, setDraft] = useState(savedValue);
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(savedValue);
+  }, [savedValue]);
+
+  /** Persiste les notes si elles ont vraiment changé. */
+  const commit = () => {
+    if (draft === savedValue) return;
+    onSave(draft);
+  };
+
+  return (
+    <AutoGrowDescriptionTextarea
+      value={draft}
+      onChange={setDraft}
+      autoFocus={false}
+      minHeightPx={72}
+      maxViewportRatio={0.35}
+      rows={3}
+      placeholder="Notes libres…"
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        commit();
+      }}
+      className="block min-h-[4.5rem] max-h-[35vh] resize-y border-transparent bg-transparent px-0 py-1 text-sm leading-normal focus-visible:ring-0"
+    />
+  );
+}
+
+/**
  * Champ description éditable dans l’aperçu Recettes testées.
  * Sauvegarde au blur pour garder le curseur fluide pendant la frappe.
  */
@@ -154,6 +199,10 @@ export interface NinjaCreamiSectionProps {
   onUpdateOvenTemp: (id: string, t: string | null) => void;
   onUpdateOvenMinutes: (id: string, m: string | null) => void;
   onUpdateDescription: (id: string, description: string | null) => void;
+  /** Notes libres de l’aperçu tableau Recettes testées. */
+  testedOverviewNotes?: string;
+  /** Persiste les notes libres de l’aperçu. */
+  onTestedOverviewNotesChange?: (notes: string) => void;
   /** Crée une carte Possible depuis la sélection Tests. */
   onCreateFromTests: (payload: {
     name: string;
@@ -202,6 +251,8 @@ export function NinjaCreamiSection({
   onUpdateOvenTemp,
   onUpdateOvenMinutes,
   onUpdateDescription,
+  testedOverviewNotes = "",
+  onTestedOverviewNotesChange,
   onCreateFromTests,
   createBusy = false,
 }: NinjaCreamiSectionProps) {
@@ -635,6 +686,18 @@ export function NinjaCreamiSection({
                     </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {onTestedOverviewNotesChange && (
+            <div className="shrink-0 rounded-2xl border border-border/50 bg-muted/25 px-3 py-2 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-0.5">
+                Notes
+              </div>
+              <TestedOverviewNotesField
+                savedValue={testedOverviewNotes}
+                onSave={onTestedOverviewNotesChange}
+              />
             </div>
           )}
         </DialogContent>
