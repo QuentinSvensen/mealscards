@@ -640,66 +640,89 @@ export function hasScalableIngredientMacroSource(
   return false;
 }
 
-// Résout les calories, protéines et fibres d'une ligne à partir du garde-manger, du référentiel Macro ou des recettes existantes.
+/**
+ * Convertit des valeurs numériques de référence en champs cal/pro/fib pour l'éditeur de lignes.
+ */
+function formatMacroTripletFromRefs(
+  calRef: number,
+  proRef: number,
+  fiberRef: number,
+): { cal: string; pro: string; fiber: string } {
+  const hasCalOrPro = hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef);
+  if (!hasCalOrPro && !hasNonZeroMacro(fiberRef)) {
+    return { cal: "", pro: "", fiber: "" };
+  }
+  return {
+    cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
+    pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
+    fiber: hasNonZeroMacro(fiberRef)
+      ? formatLineMacroValue(fiberRef)
+      : hasCalOrPro
+        ? formatLineMacroValue(0, { allowZero: true })
+        : "",
+  };
+}
+
+/** Complète les champs vides d'un triplet macro sans écraser les valeurs déjà présentes. */
+function fillEmptyMacroTriplet(
+  base: { cal: string; pro: string; fiber: string },
+  fill: { cal: string; pro: string; fiber: string },
+): { cal: string; pro: string; fiber: string } {
+  return {
+    cal: base.cal || fill.cal,
+    pro: base.pro || fill.pro,
+    fiber: base.fiber || fill.fiber,
+  };
+}
+
+/** Indique si une ligne a déjà une macro saisie (le « 0 » placeholder n'est pas considéré comme saisi). */
+function lineHasNonZeroMacroField(value: string | undefined): boolean {
+  return Boolean(value?.trim()) && hasNonZeroMacro(parseFoodMacroValue(value));
+}
+
+// Résout les calories, protéines et fibres d'une ligne à partir du référentiel Macro, du garde-manger ou des recettes existantes.
 export function resolveIngredientLineMacros(
   line: Pick<IngLine, "name" | "qty" | "count">,
   sources: IngredientMacroAutofillSources,
 ): { cal: string; pro: string; fiber: string } {
   if (!normalizeKey(line.name)) return { cal: "", pro: "", fiber: "" };
 
-  const foodItem = findFoodItemForIngredientName(sources.foodItems, line.name);
+  let result = { cal: "", pro: "", fiber: "" };
 
-  if (foodItem) {
-    const ref = getExtraMacroReferenceMacros(foodItem);
-    const calRef = parseFoodMacroValue(ref.cal);
-    const proRef = parseFoodMacroValue(ref.pro);
-    const fiberRef = parseFoodMacroValue(ref.fiber);
-    const hasCalOrPro = hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef);
-    if (hasCalOrPro || hasNonZeroMacro(fiberRef)) {
-      return {
-        cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
-        pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
-        // Fibres nulles / absentes : afficher « 0 » dès que cal ou prot sont connus.
-        fiber: hasNonZeroMacro(fiberRef)
-          ? formatLineMacroValue(fiberRef)
-          : hasCalOrPro
-            ? formatLineMacroValue(0, { allowZero: true })
-            : "",
-      };
-    }
-  }
-
+  // Référentiel Macro ingrédients en premier : source canonique /100g pour les lignes de recette.
   const libraryItem = findMacroLibraryItemForIngredientName(sources.macroLibrary, line.name);
   if (libraryItem) {
-    const calRef = parseFoodMacroValue(libraryItem.calories);
-    const proRef = parseFoodMacroValue(libraryItem.protein);
-    const fiberRef = parseFoodMacroValue(libraryItem.fiber);
-    const hasCalOrPro = hasNonZeroMacro(calRef) || hasNonZeroMacro(proRef);
-    if (hasCalOrPro || hasNonZeroMacro(fiberRef)) {
-      return {
-        cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
-        pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
-        fiber: hasNonZeroMacro(fiberRef)
-          ? formatLineMacroValue(fiberRef)
-          : hasCalOrPro
-            ? formatLineMacroValue(0, { allowZero: true })
-            : "",
-      };
-    }
+    result = formatMacroTripletFromRefs(
+      parseFoodMacroValue(libraryItem.calories),
+      parseFoodMacroValue(libraryItem.protein),
+      parseFoodMacroValue(libraryItem.fiber ?? ""),
+    );
+  }
+
+  const foodItem = findFoodItemForIngredientName(sources.foodItems, line.name);
+  if (foodItem) {
+    const ref = getExtraMacroReferenceMacros(foodItem);
+    result = fillEmptyMacroTriplet(
+      result,
+      formatMacroTripletFromRefs(
+        parseFoodMacroValue(ref.cal),
+        parseFoodMacroValue(ref.pro),
+        parseFoodMacroValue(ref.fiber),
+      ),
+    );
   }
 
   const mealMacro = findMealMacroForIngredientName(sources.mealMacros, line.name);
   if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber || mealMacro.fiber === "0")) {
     const fiberRaw = (mealMacro.fiber ?? "").trim();
-    return {
+    result = fillEmptyMacroTriplet(result, {
       cal: mealMacro.cal || "",
       pro: mealMacro.pro || "",
-      // Ligne déjà connue sans fibres : afficher 0 plutôt que le placeholder « fib ».
       fiber: fiberRaw === "" ? "0" : fiberRaw,
-    };
+    });
   }
 
-  return { cal: "", pro: "", fiber: "" };
+  return result;
 }
 
 export interface UnParUnMacroDisplay {
@@ -1061,8 +1084,8 @@ export function autofillIngredientLinesMacros(
     if (!line.name.trim()) return line;
 
     const scalable = hasScalableIngredientMacroSource(line, sources);
-    const hasCal = Boolean(line.cal?.trim());
-    const hasPro = Boolean(line.pro?.trim());
+    const hasCal = lineHasNonZeroMacroField(line.cal);
+    const hasPro = lineHasNonZeroMacroField(line.pro);
     const hasFiber = Boolean(line.fiber?.trim());
     // Source Macro / garde-manger : toujours resynchroniser (ex. « Négatif » −316/−11
     // déjà corrompu en positif dans la ligne).

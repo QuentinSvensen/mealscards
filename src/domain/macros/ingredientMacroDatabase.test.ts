@@ -304,6 +304,33 @@ describe("ingredientMacroDatabase", () => {
     });
   });
 
+  it("préfère le référentiel Macro à la fiche Aliments homonyme (ex. Lions extras vs Macro /100g)", () => {
+    const fi = makeFoodItem("lions-fi", "Lions", "204", "0", "extras", "42", 1);
+    const library = [createIngredientMacroLibraryItem("Lions", "480", "4,8", "1,3")!];
+    const line = {
+      qty: "",
+      count: "",
+      name: "Lions",
+      cal: "204",
+      pro: "0",
+      fiber: "0",
+      isOr: false,
+      isAnd: false,
+      isOptional: false,
+    };
+
+    expect(resolveIngredientLineMacros(line, { foodItems: [fi], macroLibrary: library })).toEqual({
+      cal: "480",
+      pro: "4,8",
+      fiber: "1,3",
+    });
+
+    const filled = autofillIngredientLinesMacros([line], { foodItems: [fi], macroLibrary: library });
+    expect(filled[0].cal).toBe("480");
+    expect(filled[0].pro).toBe("4,8");
+    expect(filled[0].fiber).toBe("1,3");
+  });
+
   it("calcule les macros d'une ligne depuis le référentiel Macro au 100 g", () => {
     const library = [createIngredientMacroLibraryItem("Patatoes Lidl", "131", "2,1", "4")!];
     const line = {

@@ -739,6 +739,35 @@ export function parseIngredientsToLines(raw: string | null): IngLine[] {
   return lines;
 }
 
+/** Crée une ligne d’ingrédient vide pour l’éditeur. */
+export function createEmptyIngredientLine(): IngLine {
+  return {
+    qty: "",
+    count: "",
+    name: "",
+    cal: "",
+    pro: "",
+    fiber: "",
+    isOr: false,
+    isAnd: false,
+    isOptional: false,
+  };
+}
+
+/**
+ * Garantit une ligne vide en bas de l’éditeur pour saisir un nouvel ingrédient
+ * sans clic supplémentaire (Tous / Au choix / Possible).
+ */
+export function ensureTrailingEmptyIngredientLine(lines: IngLine[]): IngLine[] {
+  if (lines.length === 0) return [createEmptyIngredientLine()];
+  const last = lines[lines.length - 1];
+  const lastHasContent = Boolean(
+    last.name.trim() || last.qty.trim() || last.count.trim() || last.cal.trim() || last.pro.trim() || last.fiber.trim(),
+  );
+  if (!lastHasContent) return lines;
+  return [...lines, createEmptyIngredientLine()];
+}
+
 /**
  * Indique si une ligne d’ingrédient est un marqueur « négatif » ou porte des macros strictement négatives,
  * auquel cas elle ne doit pas apparaître dans les listes compactes (Tous, planning, possibles, menu).

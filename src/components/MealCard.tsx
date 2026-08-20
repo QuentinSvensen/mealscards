@@ -30,6 +30,7 @@ import { autofillIngredientLinesMacros, computeHomonymFoodMealMacros, type Ingre
 import {
   type IngLine,
   parseIngredientsToLines, serializeIngredients,
+  ensureTrailingEmptyIngredientLine,
   computeIngredientCalories, computeIngredientProtein, computeIngredientFiber,
   getMealColor, computeCounterHours
 } from "@/lib/ingredientUtils";
@@ -185,11 +186,10 @@ export const MealCard = React.memo(forwardRef<HTMLDivElement, MealCardProps>(fun
 
   const openIngredients = () => {
     const parsed = parseIngredientsToLines(meal.ingredients);
-    setIngLines(
-      ingredientMacroSources
-        ? autofillIngredientLinesMacros(parsed, ingredientMacroSources)
-        : parsed,
-    );
+    const filled = ingredientMacroSources
+      ? autofillIngredientLinesMacros(parsed, ingredientMacroSources)
+      : parsed;
+    setIngLines(ensureTrailingEmptyIngredientLine(filled));
     setEditingIngredients(true);
   };
 

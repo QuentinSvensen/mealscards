@@ -51,7 +51,7 @@ import {
   hasNegativeMetric, getMealColor, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw,
   ingredientsForPossibleCardDisplay, restoreIngredientDisplayNamesFromReference,
-  getAdaptedCounterHours,
+  getAdaptedCounterHours, ensureTrailingEmptyIngredientLine,
 } from "@/lib/ingredientUtils";
 import { StructuredIngredientInline } from "@/components/StructuredIngredientInline";
 import { AutoGrowDescriptionTextarea } from "@/components/AutoGrowDescriptionTextarea";
@@ -298,6 +298,8 @@ export function PossibleMealCard({
   /**
    * Recalcule une macro depuis l’aliment homonyme + Macro
    * (fiche vide → /100 g × grammes de la portion Possible).
+   * Uniquement pour les repas sans lignes d’ingrédients : sinon un aliment
+   * portant le même nom (ex. « Confiture ») écraserait les macros de la recette.
    */
   const getFoodMealPortionMacro = (
     field: "calories" | "protein" | "fiber",
@@ -317,6 +319,8 @@ export function PossibleMealCard({
   // `ingredients_override === ""` : override volontairement vide (ne pas retomber sur la recette maître via ??).
   const displayIngredients =
     pm.ingredients_override != null ? pm.ingredients_override : meal?.ingredients;
+  /** True si la carte Possible a une vraie liste d’ingrédients (pas un aliment-repas seul). */
+  const hasRecipeIngredientLines = Boolean(displayIngredients?.trim());
   const displayIngredientsWithReferenceNames = useMemo(
     () =>
       pm.ingredients_override != null
@@ -409,46 +413,48 @@ export function PossibleMealCard({
   };
   const detectedRatio = detectScaleRatio();
 
+  /**
+   * Résout une macro carte Possible : lignes d’ingrédients d’abord (sans filtre stock),
+   * puis avec stock, puis aliment homonyme seulement si la recette n’a pas d’ingrédients.
+   */
+  const resolvePossibleCardMacro = (
+    field: "calories" | "protein" | "fiber",
+    scaleR: number,
+  ): number | null => {
+    const ratio = detectedRatio ?? undefined;
+    if (hasRecipeIngredientLines) {
+      if (field === "calories") {
+        return (
+          getDisplayedPMCalories(pm, ratio, undefined) ??
+          getDisplayedPMCalories(pm, ratio, isAvailableCb)
+        );
+      }
+      if (field === "protein") {
+        return (
+          getDisplayedPMProtein(pm, ratio, undefined, foodItems, foodMacroIndex) ??
+          getDisplayedPMProtein(pm, ratio, isAvailableCb, foodItems, foodMacroIndex)
+        );
+      }
+      return (
+        getDisplayedPMFiber(pm, ratio, undefined, foodItems, foodMacroIndex) ??
+        getDisplayedPMFiber(pm, ratio, isAvailableCb, foodItems, foodMacroIndex)
+      );
+    }
+    return getFoodMealPortionMacro(field, scaleR);
+  };
+
   /** Macros actuelles de la carte Possible (pour le total de la pop-up « Ajouter extras »). */
   const recipeMacrosForExtras = useMemo(() => {
     const scaleR = detectedRatio ?? 1;
-    const cal =
-      getFoodMealPortionMacro("calories", scaleR) ??
-      getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb) ??
-      0;
-    const pro =
-      getFoodMealPortionMacro("protein", scaleR) ??
-      getDisplayedPMProtein(
-        pm,
-        detectedRatio ?? undefined,
-        isAvailableCb,
-        foodItems,
-        foodMacroIndex,
-      ) ??
-      0;
-    const fib =
-      getFoodMealPortionMacro("fiber", scaleR) ??
-      getDisplayedPMFiber(
-        pm,
-        detectedRatio ?? undefined,
-        undefined,
-        foodItems,
-        foodMacroIndex,
-      ) ??
-      getDisplayedPMFiber(
-        pm,
-        detectedRatio ?? undefined,
-        isAvailableCb,
-        foodItems,
-        foodMacroIndex,
-      ) ??
-      0;
+    const cal = resolvePossibleCardMacro("calories", scaleR) ?? 0;
+    const pro = resolvePossibleCardMacro("protein", scaleR) ?? 0;
+    const fib = resolvePossibleCardMacro("fiber", scaleR) ?? 0;
     return {
       calories: Math.round(cal * 10) / 10,
       protein: Math.round(pro * 10) / 10,
       fiber: Math.round(fib * 10) / 10,
     };
-  }, [pm, detectedRatio, isAvailableCb, foodItems, foodMacroIndex, meal?.grams, meal?.name]);
+  }, [pm, detectedRatio, isAvailableCb, foodItems, foodMacroIndex, meal?.grams, meal?.name, hasRecipeIngredientLines, displayIngredients]);
 
   // Facteur affiché : quantité # de la carte Possible, ou ratio détecté sur les ingrédients.
   const displayMultiplier = (() => {
@@ -590,11 +596,10 @@ export function PossibleMealCard({
       const fallbackSource = pm.ingredients_override ?? meal.ingredients;
       lines = parseIngredientsToLines(fallbackSource?.trim() ? fallbackSource : null);
     }
-    setIngLines(
-      ingredientMacroSources
-        ? autofillIngredientLinesMacros(lines, ingredientMacroSources)
-        : lines,
-    );
+    const filled = ingredientMacroSources
+      ? autofillIngredientLinesMacros(lines, ingredientMacroSources)
+      : lines;
+    setIngLines(ensureTrailingEmptyIngredientLine(filled));
     setEditingIngredients(true);
   };
 
@@ -1000,15 +1005,14 @@ export function PossibleMealCard({
           {(() => {
             if (hideCalorieDisplay) return null;
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayCal = getFoodMealPortionMacro("calories", scaleR)
-              ?? getDisplayedPMCalories(pm, detectedRatio ?? undefined, isAvailableCb);
+            const rawDisplayCal = resolvePossibleCardMacro("calories", scaleR);
             const displayCal = rawDisplayCal ? Math.round(rawDisplayCal) : null;
             const isComputed = caloriesLookComputedOnPossibleCard(
               pm.ingredients_override != null,
               displayIngredients,
               meal.ingredients,
               scaleR,
-              isAvailableCb,
+              undefined,
             );
 
             return displayCal ? (
@@ -1025,15 +1029,14 @@ export function PossibleMealCard({
           })()}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            const rawDisplayPro = getFoodMealPortionMacro("protein", scaleR)
-              ?? getDisplayedPMProtein(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const rawDisplayPro = resolvePossibleCardMacro("protein", scaleR);
             const displayPro = rawDisplayPro != null ? Math.round(rawDisplayPro) : null;
             const isComputedPro = proteinLooksComputedOnPossibleCard(
               pm.ingredients_override != null,
               displayIngredients,
               meal.ingredients,
               scaleR,
-              isAvailableCb,
+              undefined,
               foodItems,
               foodMacroIndex,
             );
@@ -1051,19 +1054,13 @@ export function PossibleMealCard({
           })()}
           {(() => {
             const scaleR = detectedRatio ?? 1;
-            // Sans filtre stock d’abord (comme calories/protéines quand le stock est déjà déduit),
-            // puis avec isAvailableCb, puis repli sur meal.fiber parsé.
-            const fromLines =
-              getDisplayedPMFiber(pm, detectedRatio ?? undefined, undefined, foodItems, foodMacroIndex)
-              ?? getDisplayedPMFiber(pm, detectedRatio ?? undefined, isAvailableCb, foodItems, foodMacroIndex);
+            const fromLines = resolvePossibleCardMacro("fiber", scaleR);
             const baseFiber = parseMacroDisplay(meal.fiber);
             const scaledMealFiber =
               baseFiber != null && detectedRatio != null && !pm.ingredients_override
                 ? baseFiber * detectedRatio
                 : baseFiber;
-            const rawDisplayFiber = getFoodMealPortionMacro("fiber", scaleR)
-              ?? fromLines
-              ?? scaledMealFiber;
+            const rawDisplayFiber = fromLines ?? scaledMealFiber;
             const displayFiber = rawDisplayFiber != null ? Math.round(rawDisplayFiber) : null;
             const isComputedFiber = fiberLooksComputedOnPossibleCard(
               pm.ingredients_override != null,

@@ -8,13 +8,13 @@
  * Fonctionnalités :
  * - Drag & drop pour réordonner les lignes d'ingrédients
  * - Navigation au clavier (Enter → champ suivant, Escape → valider)
- * - Ajout automatique d'une ligne vide quand on tape dans la dernière
+ * - Ligne vide toujours disponible en bas pour ajouter un ingrédient
  * - Commit sur perte de focus (onBlur) ou bouton "✓ Valider"
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { normalizeForMatch, type IngLine } from "@/lib/ingredientUtils";
+import { normalizeForMatch, type IngLine, ensureTrailingEmptyIngredientLine } from "@/lib/ingredientUtils";
 import {
   hasScalableIngredientMacroSource,
   resolveIngredientLineMacros,
@@ -74,6 +74,18 @@ export function IngredientEditor({
     }, 50);
     return () => window.clearTimeout(t);
   }, []);
+
+  // Toujours une ligne vide en bas à l’ouverture (et si le parent oublie d’en fournir une).
+  useEffect(() => {
+    const withEmpty = ensureTrailingEmptyIngredientLine(lines);
+    if (withEmpty.length !== lines.length) onUpdate(withEmpty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync initiale / rattrapage uniquement
+  }, [lines.length]);
+
+  /** Publie les lignes en garantissant une ligne vide finale pour la saisie. */
+  const publishLines = (next: IngLine[]) => {
+    onUpdate(ensureTrailingEmptyIngredientLine(next));
+  };
 
   /** Remplace une fibre vide par « 0 » quand la ligne a déjà des macros cal/prot. */
   const withZeroFiberFallback = (source: IngLine[]): IngLine[] =>
@@ -156,9 +168,6 @@ export function IngredientEditor({
   const updateLine = (idx: number, field: "qty" | "count" | "name" | "cal" | "pro" | "fiber", value: string) => {
     const next = [...lines];
     next[idx] = { ...next[idx], [field]: value };
-    if (field === "name" && idx === next.length - 1 && value.trim()) {
-      next.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
-    }
     if (field === "name") {
       // Garde l’input monté dès la 1re lettre (sinon il devient un bouton, blur → scroll).
       setEditingNameIdx(idx);
@@ -171,17 +180,14 @@ export function IngredientEditor({
     if ((field === "qty" || field === "count") && next[idx].name.trim()) {
       next[idx] = applyMacroAutofill(next[idx], "recalculate");
     }
-    onUpdate(next);
+    publishLines(next);
   };
 
   /** Applique une suggestion d'aliment à la ligne en cours et remplit les macros si connues. */
   const selectSuggestion = (idx: number, name: string) => {
     const next = [...lines];
     next[idx] = applyMacroAutofill({ ...next[idx], name }, "recalculate");
-    if (idx === next.length - 1) {
-      next.push({ qty: "", count: "", name: "", cal: "", pro: "", fiber: "", isOr: false, isAnd: false, isOptional: false });
-    }
-    onUpdate(next);
+    publishLines(next);
     setEditingNameIdx(idx);
     setSuggestionLineIdx(null);
     setActiveSuggestionIdx(0);
@@ -193,7 +199,7 @@ export function IngredientEditor({
     const next = [...lines];
     const newIsOr = !next[idx].isOr;
     next[idx] = { ...next[idx], isOr: newIsOr, isAnd: newIsOr ? false : next[idx].isAnd };
-    onUpdate(next);
+    publishLines(next);
   };
 
   const toggleAnd = (idx: number) => {
@@ -201,13 +207,13 @@ export function IngredientEditor({
     const next = [...lines];
     const newIsAnd = !next[idx].isAnd;
     next[idx] = { ...next[idx], isAnd: newIsAnd, isOr: newIsAnd ? false : next[idx].isOr };
-    onUpdate(next);
+    publishLines(next);
   };
 
   const toggleOptional = (idx: number) => {
     const next = [...lines];
     next[idx] = { ...next[idx], isOptional: !next[idx].isOptional };
-    onUpdate(next);
+    publishLines(next);
   };
 
   const handleKeyDown = (idx: number, field: "qty" | "count" | "name", e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -270,7 +276,7 @@ export function IngredientEditor({
     const next = [...lines];
     const [moved] = next.splice(dragIdx, 1);
     next.splice(targetIdx, 0, moved);
-    onUpdate(next);
+    publishLines(next);
     setDragIdx(null);
     setDragOverIdx(null);
   };
