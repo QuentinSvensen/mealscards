@@ -19,8 +19,31 @@ export const BONUS_ZERO_CALORIE_LINES_KEY = "bonus_zero_calorie_lines";
 /** Clé de préférence : sous-catégories du catalogue Tous · 0 calorie. */
 export const BONUS_ZERO_CALORIE_GROUPS_KEY = "bonus_zero_calorie_groups";
 
+/** Clé de préférence : sous-catégories du catalogue Tous · bas en calorie. */
+export const BONUS_LOW_CALORIE_GROUPS_KEY = "bonus_low_calorie_groups";
+
 /** Id stable du groupe créé à la migration depuis la liste plate. */
 export const BONUS_ZERO_CALORIE_DEFAULT_GROUP_ID = "bonus-zero-cal-default";
+
+/** Id stable du groupe par défaut Tous · bas en calorie. */
+export const BONUS_LOW_CALORIE_DEFAULT_GROUP_ID = "bonus-low-cal-default";
+
+/** Liste initiale d’ingrédients pour Tous · bas en calorie. */
+export const BONUS_LOW_CALORIE_SEED_NAMES = [
+  "Haricots verts",
+  "Fraise",
+  "Pêche",
+  "Carottes",
+  "Nectarine",
+  "Framboise",
+  "Blanc d'oeuf",
+  "Fromage blanc",
+  "Compote",
+  "Melon",
+  "Oeuf",
+  "Sauce bolognaise",
+  "Pomme de terre",
+] as const;
 
 export type BonusZeroCalorieGroup = NinjaCreamiBaseGroup;
 
@@ -70,12 +93,57 @@ export function flattenBonusZeroCalorieGroups(
   return flattenNinjaCreamiBaseGroups(groups);
 }
 
+/** Ingrédients à garantir dans Tous · 0 calorie (ajoutés s’ils manquent). */
+export const BONUS_ZERO_CALORIE_ENSURE_NAMES = ["Glaçon"] as const;
+
+/**
+ * Ajoute des noms manquants dans la première sous-catégorie (sans doublon).
+ */
+export function ensureNamedIngredientsInBonusGroups(
+  groups: BonusZeroCalorieGroup[],
+  names: readonly string[],
+): BonusZeroCalorieGroup[] {
+  if (groups.length === 0 || names.length === 0) return groups;
+  const existing = new Set(
+    flattenBonusZeroCalorieGroups(groups)
+      .map((line) => line.name.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const missing = names.filter((name) => !existing.has(name.trim().toLowerCase()));
+  if (missing.length === 0) return groups;
+
+  const [first, ...rest] = groups;
+  const kept = first.lines.filter(catalogLineHasContent);
+  const added = missing.map((name) => ({
+    id: `bonus-zero-cal-${name
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")}`,
+    qty: "",
+    count: "",
+    name,
+    cal: "",
+    pro: "",
+    fiber: "",
+  }));
+  return [
+    {
+      ...first,
+      lines: normalizeNinjaCreamiCatalogLines([...kept, ...added]),
+    },
+    ...rest,
+  ];
+}
+
 /**
  * Normalise les sous-catégories ; migre l’ancienne liste plate si besoin.
  */
 export function normalizeBonusZeroCalorieGroups(
   rawGroups: unknown,
   legacyLines: unknown = [],
+  defaultGroupId: string = BONUS_ZERO_CALORIE_DEFAULT_GROUP_ID,
 ): BonusZeroCalorieGroup[] {
   const legacyNormalized = normalizeNinjaCreamiCatalogLines(legacyLines);
   const legacyHasContent = legacyNormalized.some(catalogLineHasContent);
@@ -98,7 +166,7 @@ export function normalizeBonusZeroCalorieGroups(
       if (!ninjaCreamiBaseGroupsHaveContent(groups) && legacyHasContent) {
         return [
           {
-            id: BONUS_ZERO_CALORIE_DEFAULT_GROUP_ID,
+            id: defaultGroupId,
             name: "Général",
             lines: legacyNormalized,
           },
@@ -111,12 +179,59 @@ export function normalizeBonusZeroCalorieGroups(
   if (legacyHasContent) {
     return [
       {
-        id: BONUS_ZERO_CALORIE_DEFAULT_GROUP_ID,
+        id: defaultGroupId,
         name: "Général",
         lines: legacyNormalized,
       },
     ];
   }
 
-  return createEmptyBonusZeroCalorieGroups();
+  return [
+    {
+      id: defaultGroupId,
+      name: "Général",
+      lines: createEmptyBonusZeroCalorieLines(),
+    },
+  ];
+}
+
+/**
+ * Construit les lignes seedées du catalogue bas en calorie (ids stables).
+ */
+export function createBonusLowCalorieSeedLines(): NinjaCreamiCatalogLine[] {
+  return normalizeNinjaCreamiCatalogLines(
+    BONUS_LOW_CALORIE_SEED_NAMES.map((name, index) => ({
+      id: `bonus-low-cal-seed-${index + 1}`,
+      qty: "",
+      count: "",
+      name,
+      cal: "",
+      pro: "",
+      fiber: "",
+    })),
+  );
+}
+
+/**
+ * Catalogue Tous · bas en calorie prérempli.
+ */
+export function createSeededBonusLowCalorieGroups(): BonusZeroCalorieGroup[] {
+  return [
+    {
+      id: BONUS_LOW_CALORIE_DEFAULT_GROUP_ID,
+      name: "Général",
+      lines: createBonusLowCalorieSeedLines(),
+    },
+  ];
+}
+
+/**
+ * Normalise le catalogue Tous · bas en calorie (seed si encore vide).
+ */
+export function normalizeBonusLowCalorieGroups(rawGroups: unknown): BonusZeroCalorieGroup[] {
+  const groups = normalizeBonusZeroCalorieGroups(rawGroups, [], BONUS_LOW_CALORIE_DEFAULT_GROUP_ID);
+  if (!ninjaCreamiBaseGroupsHaveContent(groups)) {
+    return createSeededBonusLowCalorieGroups();
+  }
+  return groups;
 }

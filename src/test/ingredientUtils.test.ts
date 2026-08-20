@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   computeIngredientCalories, computeIngredientProtein, computeIngredientMacros,
   smartFoodContains, cleanIngredientText,
+  ingredientNameMatchesFoodItem,
   parseIngredientsToLines, serializeIngredients,
   extractIngredientMacros, applyIngredientMacros,
   normalizeForMatch, normalizeKey,
@@ -151,6 +152,17 @@ describe("smartFoodContains", () => {
   it("returns false for empty strings", () => {
     expect(smartFoodContains("", "poulet")).toBe(false);
     expect(smartFoodContains("poulet", "")).toBe(false);
+  });
+});
+
+describe("ingredientNameMatchesFoodItem", () => {
+  it("ne confond pas Galette et Galettes maïs", () => {
+    expect(ingredientNameMatchesFoodItem("Galette", "Galettes maïs Bjorg")).toBe(false);
+    expect(ingredientNameMatchesFoodItem("Galettes maïs Bjorg", "Galette")).toBe(false);
+  });
+
+  it("accepte un match exact pluriel / singulier", () => {
+    expect(ingredientNameMatchesFoodItem("Galettes", "Galette")).toBe(true);
   });
 });
 

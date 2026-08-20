@@ -29,6 +29,8 @@ type ZeroCalorieGroupsEditorProps = {
   onIngredientNameCommit?: (line: NinjaCreamiCatalogLine) => void;
   ingredientMacroSources?: IngredientMacroAutofillSources;
   ingredientSuggestions?: string[];
+  /** Masque les colonnes Cal / P / Fib (défaut : oui pour 0 calorie). */
+  hideMacros?: boolean;
 };
 
 /**
@@ -50,6 +52,7 @@ export function ZeroCalorieGroupsEditor({
   onIngredientNameCommit,
   ingredientMacroSources,
   ingredientSuggestions,
+  hideMacros = true,
 }: ZeroCalorieGroupsEditorProps) {
   const [dragGroupIdx, setDragGroupIdx] = useState<number | null>(null);
   const [dragOverGroupIdx, setDragOverGroupIdx] = useState<number | null>(null);
@@ -200,7 +203,7 @@ export function ZeroCalorieGroupsEditor({
               handleExternalDrop(group.id, payload, targetIdx)
             }
             groupReorderHandle={renderGroupHandle(idx)}
-            hideMacros
+            hideMacros={hideMacros}
           />
         </div>
       ))}

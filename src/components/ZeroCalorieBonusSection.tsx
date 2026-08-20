@@ -3,7 +3,7 @@
  * sous-catégories d’ingrédients sélectionnables + création Possible.
  */
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Flame, Plus, Wheat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,6 +36,10 @@ export type ZeroCalorieCreatePayload = {
 };
 
 type ZeroCalorieBonusSectionProps = {
+  /** Titre affiché (ex. Tous · 0 calorie). */
+  title?: string;
+  /** Emoji à gauche du titre. */
+  emoji?: string;
   /** Sous-catégories du catalogue (préférence partagée). */
   groups: BonusZeroCalorieGroup[];
   /** Persiste les sous-catégories après édition. */
@@ -48,12 +52,16 @@ type ZeroCalorieBonusSectionProps = {
   onIngredientNameCommit?: (line: NinjaCreamiCatalogLine) => void;
   /** Crée une carte Possible (catégorie bonus) depuis la sélection. */
   onCreateFromSelection?: (payload: ZeroCalorieCreatePayload) => void;
+  /** Masque les colonnes Cal / P / Fib (défaut : oui). */
+  hideMacros?: boolean;
 };
 
 /**
  * Encadré collapsible avec sous-catégories + création Possible.
  */
 export function ZeroCalorieBonusSection({
+  title = "Tous · 0 calorie",
+  emoji = "🍃",
   groups,
   onGroupsChange,
   collapsed,
@@ -62,6 +70,7 @@ export function ZeroCalorieBonusSection({
   ingredientSuggestions = [],
   onIngredientNameCommit,
   onCreateFromSelection,
+  hideMacros = true,
 }: ZeroCalorieBonusSectionProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [createOpen, setCreateOpen] = useState(false);
@@ -137,14 +146,14 @@ export function ZeroCalorieBonusSection({
         type="button"
         onClick={onToggleCollapse}
         className="text-sm font-bold text-foreground flex items-center gap-2 w-full text-left hover:text-foreground/90"
-        title={collapsed ? "Afficher Tous · 0 calorie" : "Masquer Tous · 0 calorie"}
+        title={collapsed ? `Afficher ${title}` : `Masquer ${title}`}
       >
         {collapsed ? (
           <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
         ) : (
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         )}
-        <span className="text-base">🍃</span> Tous · 0 calorie
+        <span className="text-base">{emoji}</span> {title}
         <span className="text-[11px] font-semibold text-muted-foreground">
           ({selectableCount})
         </span>
@@ -160,9 +169,27 @@ export function ZeroCalorieBonusSection({
             onIngredientNameCommit={onIngredientNameCommit}
             ingredientMacroSources={ingredientMacroAutofillSources}
             ingredientSuggestions={ingredientSuggestions}
+            hideMacros={hideMacros}
           />
 
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-muted-foreground px-0.5">
+            {!hideMacros && (
+              <>
+                <span>Total</span>
+                <span className="inline-flex items-center gap-0.5 text-orange-400">
+                  <Flame className="h-3 w-3" />
+                  {selectedTotals.calories || "—"}
+                </span>
+                <span className="inline-flex items-center gap-0.5 text-blue-400">
+                  <span className="text-[10px]">🍗</span>
+                  {selectedTotals.protein || "—"}
+                </span>
+                <span className="inline-flex items-center gap-0.5 text-emerald-400">
+                  <Wheat className="h-3 w-3" />
+                  {selectedTotals.fiber || "—"}
+                </span>
+              </>
+            )}
             <span>
               {selectedCount} sélectionné{selectedCount > 1 ? "s" : ""}
             </span>

@@ -48,7 +48,7 @@ import {
   type StockInfo, type FoodItemIndex,
 } from "@/lib/stockUtils";
 import {
-  normalizeForMatch, strictNameMatch, smartFoodContains, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey, parseIngredientsToLines, serializeIngredients
+  normalizeForMatch, strictNameMatch, ingredientNameMatchesFoodItem, canonicalizeFoodName, parseQty, formatNumeric, getFoodItemTotalGrams, parseIngredientGroups, computeIngredientCalories, computeIngredientProtein, computeCounterDays, normalizeKey, parseIngredientsToLines, serializeIngredients
 } from "@/lib/ingredientUtils";
 import { getActiveCounterDaysForSort } from "@/lib/foodSortUtils";
 import { format, parseISO } from "date-fns";
@@ -210,11 +210,24 @@ interface AvailableListProps {
   onUpdateDescription: (id: string, description: string | null) => void;
   onAfterMoveToPossible?: () => void;
   ingredientMacroAutofillSources?: IngredientMacroAutofillSources;
+  /** Ids des recettes Ninja Creami (Recettes testées / Tests) à exclure des suggestions. */
+  ninjaCreamiExcludeMealIds?: ReadonlySet<string> | readonly string[];
 }
 
-export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onAfterMoveToPossible, ingredientMacroAutofillSources }: AvailableListProps) {
+export function AvailableList({ category, meals, foodItems, allMeals, stockMap, sortMode, sortAsc, onToggleSort, onToggleSortDirection, collapsed, onToggleCollapse, onMoveToPossible, onMovePartialToPossible, onMoveFoodItemToPossible, onDeleteFoodItem, onMoveNameMatchToPossible, onRename, onUpdateCalories, onUpdateGrams, onUpdateIngredients, onToggleFavorite, onUpdateOvenTemp, onUpdateOvenMinutes, onUpdateDescription, onAfterMoveToPossible, ingredientMacroAutofillSources, ninjaCreamiExcludeMealIds }: AvailableListProps) {
   const isPlat = category.value === "plat";
   const showMealItemsInAvailable = category.value === "plat" || category.value === "petit_dejeuner";
+  const ninjaExcludeMealIdSet = useMemo(() => {
+    if (!ninjaCreamiExcludeMealIds) return new Set<string>();
+    return ninjaCreamiExcludeMealIds instanceof Set
+      ? ninjaCreamiExcludeMealIds
+      : new Set(ninjaCreamiExcludeMealIds);
+  }, [ninjaCreamiExcludeMealIds]);
+  /** Recettes hors Ninja Creami pour les suggestions d’aliments à compléter. */
+  const suggestionMeals = useMemo(
+    () => allMeals.filter((meal) => !ninjaExcludeMealIdSet.has(meal.id)),
+    [allMeals, ninjaExcludeMealIdSet],
+  );
   const { getPreference: getAvailPref, setPreference: setAvailPref } = usePreferences();
   const hideCalorieDisplay = getAvailPref<boolean>(PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY, false);
   const morningMealFoodItemIds = getAvailPref<string[]>('morning_meal_food_item_ids', []);
@@ -1086,26 +1099,10 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
   // dédupliquée des ingrédients manquants de ces recettes. Sert de suggestions d'achats.
   const computeUnusedSuggestions = (items: FoodItem[]) => {
     // Proposer des compléments pour tous les aliments inutilisés (qu'ils aient une date ou non).
-    if (!items.length || !allMeals.length) return [];
-    const index = buildIngredientMealIndex(allMeals);
+    if (!items.length || !suggestionMeals.length) return [];
+    const index = buildIngredientMealIndex(suggestionMeals);
     // Normalise un nom ingrédient en version canonique pour rapprocher singulier/pluriel mot à mot.
-    const canonicalize = (name: string) =>
-      normalizeForMatch(name)
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((w) => w.replace(/s$/i, ""))
-        .join(" ");
-    const genericSingleWordIngredients = new Set(["sauce"]);
-
-    /** Vérifie qu'un ingrédient de recette correspond vraiment à l'aliment stocké sans confondre un terme trop générique. */
-    const ingredientMatchesFoodItem = (ingredientName: string, fi: FoodItem): boolean => {
-      if (strictNameMatch(ingredientName, fi.name)) return true;
-      const ingredientCanonical = canonicalize(ingredientName);
-      const foodCanonical = canonicalize(fi.name);
-      if (ingredientCanonical === foodCanonical) return true;
-      if (genericSingleWordIngredients.has(ingredientCanonical)) return false;
-      return smartFoodContains(ingredientName, fi.name);
-    };
+    const canonicalize = canonicalizeFoodName;
 
     // On ne traite que les items inutilisés AVEC une date de péremption pour suggérer des compléments.
     const candidatesToProcessByFi = items.filter(fi => !!fi.expiration_date);
@@ -1159,7 +1156,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       const mealIds = new Set<string>(index.get(unusedKey) ?? []);
       for (const [idxKey, ids] of index.entries()) {
         const isCanonicalMatch = canonicalize(idxKey) === fiCanonical;
-        const isSmartMatch = ingredientMatchesFoodItem(idxKey, fi);
+        const isSmartMatch = ingredientNameMatchesFoodItem(idxKey, fi.name);
         if (!strictNameMatch(idxKey, fi.name) && !isCanonicalMatch && !isSmartMatch) continue;
         for (const id of ids) mealIds.add(id);
       }
@@ -1172,7 +1169,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
       }> = [];
 
       for (const mealId of mealIds) {
-        const meal = allMeals.find(m => m.id === mealId);
+        const meal = suggestionMeals.find(m => m.id === mealId);
         if (!meal?.ingredients?.trim()) continue;
         const groups = parseIngredientGroups(meal.ingredients);
         const usedUnusedKeys = new Set<string>();
@@ -1247,7 +1244,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           for (const alt of group) {
             for (const item of alt) {
               const sameByCanonical = canonicalize(item.name) === fiCanonical;
-              if (!ingredientMatchesFoodItem(item.name, fi) && !sameByCanonical) continue;
+              if (!ingredientNameMatchesFoodItem(item.name, fi.name) && !sameByCanonical) continue;
               if (item.qty > 0) unusedQtyInRecipe = Math.max(unusedQtyInRecipe, item.qty);
               if (item.count > 0) unusedCountInRecipe = Math.max(unusedCountInRecipe, item.count);
             }
@@ -1296,7 +1293,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
    * stock fini (ex. 200g de lardons), seule la moins calorique est retenue.
    */
   const computeOneMissingSuggestions = (): { missingName: string; qty: number; count: number; recipes: { name: string; id: string }[] }[] => {
-    if (!allMeals.length) return [];
+    if (!suggestionMeals.length) return [];
 
     type Candidate = {
       meal: Meal;
@@ -1309,7 +1306,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
     };
     const candidates: Candidate[] = [];
 
-    for (const meal of allMeals) {
+    for (const meal of suggestionMeals) {
       if (!meal.ingredients?.trim()) continue;
       const groups = parseIngredientGroups(meal.ingredients);
       if (groups.length <= 1) continue;
@@ -1445,37 +1442,42 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-2 mb-1.5">🧩 Aliments pour compléter</p>
           <div className="flex flex-wrap gap-1.5">
             {suggestions.map((s, i) => {
-              const groupedByRecipe = new Map<string, { recipeName: string; missingAmountLabel: string; unusedLabels: string[] }>();
+              const groupedByRecipe = new Map<
+                string,
+                {
+                  recipeName: string;
+                  missingAmountLabel: string;
+                  unusedLabels: string[];
+                  alts: { missingLabel: string; recipeName: string }[];
+                }
+              >();
               for (const src of s.sources) {
                 const key = `${src.recipeId}::${src.missingAmountLabel}`;
                 const current = groupedByRecipe.get(key) ?? {
                   recipeName: src.recipeName,
                   missingAmountLabel: src.missingAmountLabel,
                   unusedLabels: [],
+                  alts: [],
                 };
                 const unusedLabel = `${src.unusedRecipeAmountLabel} ${src.unusedName}`;
                 if (!current.unusedLabels.includes(unusedLabel)) current.unusedLabels.push(unusedLabel);
+                if (src.altMissingLabel && src.altRecipeName) {
+                  const altKey = `${src.altRecipeName}\u0000${src.altMissingLabel}`;
+                  if (!current.alts.some((a) => `${a.recipeName}\u0000${a.missingLabel}` === altKey)) {
+                    current.alts.push({
+                      missingLabel: src.altMissingLabel,
+                      recipeName: src.altRecipeName,
+                    });
+                  }
+                }
                 groupedByRecipe.set(key, current);
               }
               const groups = Array.from(groupedByRecipe.values());
-              // Suggestions d’autres recettes (dédoublonnées) pour la ligne en italique sous le tooltip.
-              const dedupedAltSuggestions = Array.from(
-                new Map(
-                  s.sources
-                    .filter((src): src is (typeof src & { altMissingLabel: string; altRecipeName: string }) =>
-                      Boolean(src.altMissingLabel && src.altRecipeName),
-                    )
-                    .map((src) => [
-                      `${src.altRecipeName}\u0000${src.altMissingLabel}`,
-                      { missingLabel: src.altMissingLabel, recipeName: src.altRecipeName },
-                    ] as const)
-                ).values(),
-              );
               const chipKey = `unused-suggestion-${i}-${s.missingName}-${s.qty}-${s.count}`;
               const chipClassName =
                 "text-[11px] px-2.5 py-1.5 rounded-full font-medium inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30 touch-manipulation";
               const panelShellClass =
-                "relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md shadow-black/15 ring-1 ring-border/50 dark:shadow-black/30";
+                "z-[200] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md shadow-black/15 ring-1 ring-border/50 dark:shadow-black/30";
               const panelShellPopoverClass = `${panelShellClass} w-[min(100vw-2rem,24rem)] sm:w-auto sm:max-w-sm`;
               const panelBody = (
                 <>
@@ -1497,8 +1499,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                             <span className="font-normal text-muted-foreground"> pour la recette : </span>
                             <span className={SUGGESTION_STYLE_PLAT}>&quot;{group.recipeName}&quot;</span>
                           </p>
-                          {group.unusedLabels.length > 0 &&
-                            dedupedAltSuggestions.map((alt) => (
+                          {group.alts.map((alt) => (
                               <div
                                 key={`${alt.recipeName}-${alt.missingLabel}`}
                                 className={UNUSED_ALT_SUGGESTION_SHELL}
@@ -1608,7 +1609,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                       </button>
                     </PopoverTrigger>
                     <PopoverContent side="bottom" align="center" sideOffset={12}
-                      className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md w-[min(100vw-2rem,24rem)]"
+                      className="z-[200] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md w-[min(100vw-2rem,24rem)]"
                       onOpenAutoFocus={(e) => e.preventDefault()}>
                       {tooltipContent}
                     </PopoverContent>
@@ -1625,7 +1626,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="center" sideOffset={12}
-                    className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md">
+                    className="z-[200] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md">
                     {tooltipContent}
                   </TooltipContent>
                 </Tooltip>
@@ -1666,7 +1667,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                       </button>
                     </PopoverTrigger>
                     <PopoverContent side="bottom" align="center" sideOffset={12}
-                      className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md w-[min(100vw-2rem,24rem)]"
+                      className="z-[200] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md w-[min(100vw-2rem,24rem)]"
                       onOpenAutoFocus={(e) => e.preventDefault()}>
                       {tooltipContent}
                     </PopoverContent>
@@ -1683,7 +1684,7 @@ export function AvailableList({ category, meals, foodItems, allMeals, stockMap, 
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="center" sideOffset={12}
-                    className="relative z-[80] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md">
+                    className="z-[200] max-w-sm overflow-hidden rounded-2xl border border-border bg-card p-0 text-[11px] leading-relaxed text-foreground shadow-md">
                     {tooltipContent}
                   </TooltipContent>
                 </Tooltip>

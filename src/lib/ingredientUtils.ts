@@ -477,6 +477,65 @@ export function strictNameMatch(a: string, b: string): boolean {
   return true;
 }
 
+/**
+ * Termes trop génériques : un seul mot ne doit pas matcher un produit plus spécifique
+ * (ex. « Galette » ≠ « Galettes maïs Bjorg », « Sauce » ≠ « Sauce bolognaise »).
+ */
+const GENERIC_SINGLE_WORD_FOOD_ROOTS = new Set([
+  "sauce",
+  "galette",
+  "pain",
+  "riz",
+  "pate",
+  "fromage",
+  "yaourt",
+  "compote",
+]);
+
+/**
+ * Canonise un nom aliment (singulier/pluriel mot à mot) pour comparaisons souples.
+ */
+export function canonicalizeFoodName(name: string): string {
+  return normalizeForMatch(name)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.replace(/s$/i, ""))
+    .join(" ");
+}
+
+/**
+ * Indique si un nom d’ingrédient de recette correspond à un aliment stocké,
+ * sans confondre un terme trop générique avec un produit composé.
+ */
+export function ingredientNameMatchesFoodItem(
+  ingredientName: string,
+  foodName: string,
+): boolean {
+  if (strictNameMatch(ingredientName, foodName)) return true;
+  const ingredientCanonical = canonicalizeFoodName(ingredientName);
+  const foodCanonical = canonicalizeFoodName(foodName);
+  if (ingredientCanonical === foodCanonical) return true;
+
+  const ingWords = ingredientCanonical.split(/\s+/).filter(Boolean);
+  const foodWords = foodCanonical.split(/\s+/).filter(Boolean);
+  if (
+    ingWords.length === 1 &&
+    GENERIC_SINGLE_WORD_FOOD_ROOTS.has(ingWords[0]) &&
+    foodWords.length > 1
+  ) {
+    return false;
+  }
+  if (
+    foodWords.length === 1 &&
+    GENERIC_SINGLE_WORD_FOOD_ROOTS.has(foodWords[0]) &&
+    ingWords.length > 1
+  ) {
+    return false;
+  }
+
+  return smartFoodContains(ingredientName, foodName);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 4 : Parsing numérique
 // ═══════════════════════════════════════════════════════════════════════════════
