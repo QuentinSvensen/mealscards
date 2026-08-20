@@ -131,15 +131,21 @@ import {
 } from "@/domain/ninjaCreami/ninjaCreami";
 import {
   BONUS_LOW_CALORIE_GROUPS_KEY,
+  BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY,
   BONUS_ZERO_CALORIE_ENSURE_NAMES,
   BONUS_ZERO_CALORIE_GROUPS_KEY,
   BONUS_ZERO_CALORIE_LINES_KEY,
+  BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY,
   BONUS_ZERO_CALORIE_RECOVERY_NAMES,
   countBonusCatalogMeaningfulLines,
   ensureNamedIngredientsInBonusGroups,
   flattenBonusZeroCalorieGroups,
+  loadBonusCatalogLocalBackup,
   normalizeBonusLowCalorieGroups,
   normalizeBonusZeroCalorieGroups,
+  saveBonusCatalogLocalBackup,
+  shouldRestoreBonusCatalogFromLocalBackup,
+  markBonusCatalogSynced,
 } from "@/domain/bonusZeroCalorie/bonusZeroCalorie";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
 import { PLANNING_HIDE_DAY_CALORIE_TOTALS_PREF_KEY } from "@/lib/planningDisplayPrefs";
@@ -451,6 +457,7 @@ const Index = () => {
   ]);
 
   // Persiste le seed Tous · bas en calorie tant que le catalogue prefs est vide.
+  // Ne jamais écraser un backup local plus riche (édition récente non sync).
   useEffect(() => {
     if (isPreferencesLoading) return;
     const rawHasContent =
@@ -459,6 +466,8 @@ const Index = () => {
         normalizeBonusZeroCalorieGroups(bonusLowCalorieGroupsRaw, [], "tmp"),
       );
     if (rawHasContent) return;
+    const localBackup = loadBonusCatalogLocalBackup(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY);
+    if (localBackup && ninjaCreamiBaseGroupsHaveContent(localBackup.groups)) return;
     if (!ninjaCreamiBaseGroupsHaveContent(bonusLowCalorieGroups)) return;
     setPreference.mutate({
       key: BONUS_LOW_CALORIE_GROUPS_KEY,
@@ -469,6 +478,59 @@ const Index = () => {
     bonusLowCalorieGroupsRaw,
     bonusLowCalorieGroups,
     setPreference,
+  ]);
+
+  // Restaure les catalogues Bonus depuis le backup local si le cloud/cache est périmé.
+  const bonusCatalogRestoredRef = useRef(false);
+  useEffect(() => {
+    if (isPreferencesLoading || bonusCatalogRestoredRef.current) return;
+
+    const zeroBackup = loadBonusCatalogLocalBackup(BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY);
+    if (
+      shouldRestoreBonusCatalogFromLocalBackup(
+        bonusZeroCalorieGroups,
+        zeroBackup,
+        BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY,
+      ) &&
+      zeroBackup
+    ) {
+      bonusCatalogRestoredRef.current = true;
+      setPreferencesBatch.mutate([
+        { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: zeroBackup.groups },
+        {
+          key: BONUS_ZERO_CALORIE_LINES_KEY,
+          value: flattenBonusZeroCalorieGroups(zeroBackup.groups),
+        },
+      ]);
+      markBonusCatalogSynced(BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY, zeroBackup.savedAt);
+      return;
+    }
+
+    const lowBackup = loadBonusCatalogLocalBackup(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY);
+    if (
+      shouldRestoreBonusCatalogFromLocalBackup(
+        bonusLowCalorieGroups,
+        lowBackup,
+        BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY,
+      ) &&
+      lowBackup
+    ) {
+      bonusCatalogRestoredRef.current = true;
+      setPreference.mutate({
+        key: BONUS_LOW_CALORIE_GROUPS_KEY,
+        value: lowBackup.groups,
+      });
+      markBonusCatalogSynced(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY, lowBackup.savedAt);
+      return;
+    }
+
+    bonusCatalogRestoredRef.current = true;
+  }, [
+    isPreferencesLoading,
+    bonusZeroCalorieGroups,
+    bonusLowCalorieGroups,
+    setPreference,
+    setPreferencesBatch,
   ]);
 
   // Migre / répare Base uniquement quand on a du contenu (jamais d’écriture vide qui wipe le cloud).
@@ -1596,15 +1658,22 @@ const Index = () => {
                           <LazyZeroCalorieBonusSection
                             title="Tous · 0 calorie"
                             groups={bonusZeroCalorieGroups}
-                            onGroupsChange={(groups) =>
-                              setPreferencesBatch.mutate([
-                                { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: groups },
+                            onGroupsChange={(groups) => {
+                              saveBonusCatalogLocalBackup(BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY, groups);
+                              setPreferencesBatch.mutate(
+                                [
+                                  { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: groups },
+                                  {
+                                    key: BONUS_ZERO_CALORIE_LINES_KEY,
+                                    value: flattenBonusZeroCalorieGroups(groups),
+                                  },
+                                ],
                                 {
-                                  key: BONUS_ZERO_CALORIE_LINES_KEY,
-                                  value: flattenBonusZeroCalorieGroups(groups),
+                                  onSuccess: () =>
+                                    markBonusCatalogSynced(BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY),
                                 },
-                              ])
-                            }
+                              );
+                            }}
                             collapsed={collapsedSections["bonus-zero-cal-tous"] ?? true}
                             onToggleCollapse={() => toggleSectionCollapse("bonus-zero-cal-tous")}
                             ingredientMacroAutofillSources={ingredientMacroAutofillSources}
@@ -1653,12 +1722,19 @@ const Index = () => {
                           <LazyZeroCalorieBonusSection
                             title="Tous · bas en calorie"
                             groups={bonusLowCalorieGroups}
-                            onGroupsChange={(groups) =>
-                              setPreference.mutate({
-                                key: BONUS_LOW_CALORIE_GROUPS_KEY,
-                                value: groups,
-                              })
-                            }
+                            onGroupsChange={(groups) => {
+                              saveBonusCatalogLocalBackup(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY, groups);
+                              setPreference.mutate(
+                                {
+                                  key: BONUS_LOW_CALORIE_GROUPS_KEY,
+                                  value: groups,
+                                },
+                                {
+                                  onSuccess: () =>
+                                    markBonusCatalogSynced(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY),
+                                },
+                              );
+                            }}
                             collapsed={collapsedSections["bonus-low-cal-tous"] ?? true}
                             onToggleCollapse={() => toggleSectionCollapse("bonus-low-cal-tous")}
                             hideMacros={false}

@@ -340,9 +340,10 @@ export function NinjaCreamiSelectableIngredientList({
     }, 250);
   };
 
-  // Flush à la destruction (changement d’onglet / page) pour ne pas perdre le texte non bluré.
+  // Flush à la destruction / fermeture onglet / refresh (F5 tue les setTimeout).
   useEffect(() => {
-    return () => {
+    /** Pousse le brouillon vers le parent (prefs + backup sync via onGroupsChange). */
+    const flushDraftToParent = () => {
       if (persistTimerRef.current) {
         clearTimeout(persistTimerRef.current);
         persistTimerRef.current = null;
@@ -351,7 +352,19 @@ export function NinjaCreamiSelectableIngredientList({
       if (!draftDiffersFromProps(draft)) return;
       onLinesChangeRef.current(ensureTrailingEmpty(draft));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- flush unmount uniquement
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushDraftToParent();
+    };
+
+    window.addEventListener("beforeunload", flushDraftToParent);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", flushDraftToParent);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flushDraftToParent();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flush cycle de vie uniquement
   }, []);
 
   /** Met à jour un champ en local (ref sync immédiate) + persistance différée. */

@@ -348,3 +348,119 @@ export function autofillBonusLowCalorieGroupsMacros(
   });
   return changed ? next : groups;
 }
+
+/** Clé localStorage : backup catalogue Tous · 0 calorie. */
+export const BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY = "bonus_zero_calorie_groups_local_backup";
+
+/** Clé localStorage : backup catalogue Tous · bas en calorie. */
+export const BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY = "bonus_low_calorie_groups_local_backup";
+
+export type BonusCatalogLocalBackup = {
+  savedAt: number;
+  groups: BonusZeroCalorieGroup[];
+};
+
+/**
+ * Sauvegarde locale versionnée d’un catalogue Bonus (anti perte au refresh / multi-session).
+ */
+export function saveBonusCatalogLocalBackup(
+  storageKey: string,
+  groups: BonusZeroCalorieGroup[],
+): void {
+  if (typeof localStorage === "undefined") return;
+  if (!ninjaCreamiBaseGroupsHaveContent(groups)) return;
+  const payload: BonusCatalogLocalBackup = {
+    savedAt: Date.now(),
+    groups,
+  };
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+/**
+ * Charge le backup local d’un catalogue Bonus, ou null.
+ */
+export function loadBonusCatalogLocalBackup(
+  storageKey: string,
+): BonusCatalogLocalBackup | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<BonusCatalogLocalBackup>;
+    if (!parsed || !Array.isArray(parsed.groups) || typeof parsed.savedAt !== "number") {
+      return null;
+    }
+    if (!ninjaCreamiBaseGroupsHaveContent(parsed.groups as BonusZeroCalorieGroup[])) {
+      return null;
+    }
+    return {
+      savedAt: parsed.savedAt,
+      groups: parsed.groups as BonusZeroCalorieGroup[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Empreinte stable du contenu utile d’un catalogue (détecte renommages / réordonnancements).
+ */
+export function bonusCatalogContentSignature(groups: BonusZeroCalorieGroup[]): string {
+  return flattenBonusZeroCalorieGroups(groups)
+    .filter(catalogLineHasContent)
+    .map(
+      (l) =>
+        `${l.id}\t${l.name.trim()}\t${l.qty.trim()}\t${l.count.trim()}\t${l.cal.trim()}\t${l.pro.trim()}\t${l.fiber.trim()}`,
+    )
+    .join("\n");
+}
+
+/**
+ * Indique si le backup local doit remplacer le catalogue cloud/cache (édition plus récente perdue).
+ * Compare avec l’horodatage de dernière sync réussie — ne réécrit pas un cloud plus récent.
+ */
+export function shouldRestoreBonusCatalogFromLocalBackup(
+  cloudGroups: BonusZeroCalorieGroup[],
+  backup: BonusCatalogLocalBackup | null,
+  storageKey: string,
+): boolean {
+  if (!backup) return false;
+  const cloudCount = countBonusCatalogMeaningfulLines(cloudGroups);
+  const backupCount = countBonusCatalogMeaningfulLines(backup.groups);
+  if (backupCount === 0) return false;
+  if (cloudCount === 0) return true;
+  if (bonusCatalogContentSignature(cloudGroups) === bonusCatalogContentSignature(backup.groups)) {
+    return false;
+  }
+  if (backupCount > cloudCount) return true;
+  const syncedAt = getBonusCatalogSyncedAt(storageKey);
+  return backup.savedAt > syncedAt;
+}
+
+/**
+ * Mémorise l’horodatage de dernière écriture cloud réussie pour un catalogue Bonus.
+ */
+export function markBonusCatalogSynced(storageKey: string, savedAt: number = Date.now()): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(`${storageKey}:synced`, String(savedAt));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Lit l’horodatage de dernière sync cloud réussie.
+ */
+export function getBonusCatalogSyncedAt(storageKey: string): number {
+  if (typeof localStorage === "undefined") return 0;
+  try {
+    return Number(localStorage.getItem(`${storageKey}:synced`) || 0);
+  } catch {
+    return 0;
+  }
+}

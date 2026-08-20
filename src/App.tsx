@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, defaultShouldDehydrateQuery } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -45,7 +45,21 @@ const persister = createSyncStoragePersister({
 
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-    <PersistQueryClientProvider client={queryClient} persistOptions={{ persister, maxAge: 1000 * 60 * 60 * 24 }}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister,
+        maxAge: 1000 * 60 * 60 * 24,
+        // Ne pas persister user_preferences : au refresh on doit relire Supabase
+        // (sinon l’UI réaffiche une version locale périmée de « il y a 5 min »).
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) => {
+            if (query.queryKey[0] === "user_preferences") return false;
+            return defaultShouldDehydrateQuery(query);
+          },
+        },
+      }}
+    >
       <TooltipProvider>
         <Toaster />
         <Sonner />
