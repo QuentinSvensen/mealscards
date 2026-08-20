@@ -244,7 +244,11 @@ export function normalizeBonusZeroCalorieGroups(
           },
         ];
       }
-      // Toujours réinjecter les noms legacy absents (évite un wipe partiel groupes vs lignes).
+      // Groupes déjà remplis = source de vérité (ne pas réinjecter d’anciennes lignes
+      // depuis l’autre onglet / une pref lines périmée — cause d’écrasement multi-session).
+      if (ninjaCreamiBaseGroupsHaveContent(groups)) {
+        return groups;
+      }
       return mergeLegacyLinesIntoBonusGroups(groups, legacyNormalized, defaultGroupId);
     }
   }

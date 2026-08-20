@@ -33,7 +33,7 @@ describe("normalizeBonusZeroCalorieGroups", () => {
     expect(groups[0].lines.map((l) => l.name).filter(Boolean)).toEqual(["Eau", "Glaçon"]);
   });
 
-  it("fusionne les lignes legacy manquantes sans écraser les groupes", () => {
+  it("ne réinjecte pas les lignes legacy si les groupes ont déjà du contenu", () => {
     const groups = normalizeBonusZeroCalorieGroups(
       [
         {
@@ -48,7 +48,6 @@ describe("normalizeBonusZeroCalorieGroups", () => {
       ],
     );
     const names = groups[0].lines.map((l) => l.name).filter(Boolean);
-    expect(names).toContain("Glaçon");
-    expect(names).toContain("Soda");
+    expect(names).toEqual(["Glaçon"]);
   });
 });

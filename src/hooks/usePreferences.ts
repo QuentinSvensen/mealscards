@@ -23,6 +23,69 @@ type PreferenceEntry = { key: string; value: any };
 /** Canal BroadcastChannel pour synchroniser les prefs entre onglets sans refetch serveur. */
 const PREFS_SYNC_CHANNEL = "mealcards-user-preferences-sync";
 
+/** Clés catalogue Bonus : écritures coalescées (dernier état gagne, anti course multi-onglet locale). */
+const BONUS_CATALOG_PREF_KEYS = new Set([
+  "bonus_zero_calorie_groups",
+  "bonus_zero_calorie_lines",
+  "bonus_low_calorie_groups",
+]);
+
+/** File d’attente par clé : une seule upsert à la fois, toujours avec la dernière valeur. */
+const bonusCatalogWriteState = new Map<
+  string,
+  { pending: unknown | undefined; running: boolean }
+>();
+
+/**
+ * Enfile une écriture catalogue Bonus : si une upsert est en cours, remplace seulement
+ * la valeur en attente (évite qu’une vieille mutation finisse après une plus récente).
+ */
+async function enqueueBonusCatalogUpsert(
+  key: string,
+  value: unknown,
+  userId?: string,
+): Promise<void> {
+  if (!BONUS_CATALOG_PREF_KEYS.has(key)) {
+    await upsertPreferenceValue(key, value, userId);
+    return;
+  }
+  let state = bonusCatalogWriteState.get(key);
+  if (!state) {
+    state = { pending: undefined, running: false };
+    bonusCatalogWriteState.set(key, state);
+  }
+  state.pending = value;
+  if (state.running) return;
+  state.running = true;
+  try {
+    while (state.pending !== undefined) {
+      const nextValue = state.pending;
+      state.pending = undefined;
+      // Epoch partagé entre onglets : une écriture plus récente annule celle-ci.
+      const epoch = Date.now();
+      try {
+        localStorage.setItem(`mealcards-pref-epoch:${key}`, String(epoch));
+      } catch {
+        /* ignore */
+      }
+      await new Promise<void>((r) => setTimeout(r, 0));
+      let currentEpoch = epoch;
+      try {
+        currentEpoch = Number(localStorage.getItem(`mealcards-pref-epoch:${key}`) || epoch);
+      } catch {
+        /* ignore */
+      }
+      if (currentEpoch > epoch) continue;
+      await upsertPreferenceValue(key, nextValue, userId);
+    }
+  } finally {
+    state.running = false;
+    if (state.pending !== undefined) {
+      void enqueueBonusCatalogUpsert(key, state.pending, userId);
+    }
+  }
+}
+
 /** Cache prefs : 10 min — réduit fortement les re-téléchargements de user_preferences. */
 const PREFERENCES_STALE_TIME_MS = 10 * 60 * 1000;
 
@@ -188,7 +251,7 @@ export function usePreferences(options?: { enabled?: boolean }) {
 
   const setPreference = useMutation({
     mutationFn: async ({ key, value }: PreferenceEntry) => {
-      await upsertPreferenceValue(key, value);
+      await enqueueBonusCatalogUpsert(key, value);
     },
     onMutate: async ({ key, value }) => {
       await qc.cancelQueries({ queryKey: ["user_preferences"] });
@@ -213,7 +276,7 @@ export function usePreferences(options?: { enabled?: boolean }) {
     mutationFn: async (entries: PreferenceEntry[]) => {
       const userId = await resolveCurrentUserId();
       for (const { key, value } of entries) {
-        await upsertPreferenceValue(key, value, userId);
+        await enqueueBonusCatalogUpsert(key, value, userId);
       }
     },
     onMutate: async (entries) => {

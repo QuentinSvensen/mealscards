@@ -270,12 +270,10 @@ export function NinjaCreamiSelectableIngredientList({
         setDraftLines(ensureTrailingEmpty(incoming));
         return;
       }
+      // Autofill macros en local uniquement — ne pas réécrire les prefs
+      // (un 2ᵉ onglet avec un vieux cache écraserait sinon le catalogue).
       const filled = autofillCatalogLinesMacros(incoming, ingredientMacroSources);
-      const normalized = ensureTrailingEmpty(filled);
-      setDraftLines(normalized);
-      if (filled !== incoming) {
-        onLinesChangeRef.current(normalized);
-      }
+      setDraftLines(ensureTrailingEmpty(filled));
     };
 
     const incomingIds = new Set(lines.map((l) => l.id));

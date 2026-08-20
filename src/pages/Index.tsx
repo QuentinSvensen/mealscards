@@ -93,11 +93,7 @@ import {
   wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
-import {
-  resolveIngredientLineMacros,
-  type IngredientMacroAutofillSources,
-  type IngredientMacroLibraryItem,
-} from "@/domain/macros/ingredientMacroDatabase";
+import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
 import {
   NINJA_CREAMI_BASE_GROUPS_KEY,
   NINJA_CREAMI_BASE_LINES_KEY,
@@ -139,7 +135,6 @@ import {
   BONUS_ZERO_CALORIE_GROUPS_KEY,
   BONUS_ZERO_CALORIE_LINES_KEY,
   BONUS_ZERO_CALORIE_RECOVERY_NAMES,
-  autofillBonusLowCalorieGroupsMacros,
   countBonusCatalogMeaningfulLines,
   ensureNamedIngredientsInBonusGroups,
   flattenBonusZeroCalorieGroups,
@@ -418,11 +413,14 @@ const Index = () => {
     setPreferencesBatch,
   ]);
 
-  // Persiste une récupération / ajout (Glaçon, noms connus) sans jamais réduire le catalogue.
+  // Persiste une récupération / ajout (Glaçon) une seule fois par montage — jamais en boucle.
+  const bonusZeroEnsureWroteRef = useRef(false);
   useEffect(() => {
     if (isPreferencesLoading) return;
+    if (bonusZeroEnsureWroteRef.current) return;
     const base = normalizeBonusZeroCalorieGroups(bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw);
     const baseCount = countBonusCatalogMeaningfulLines(base);
+    // Ne pas reconstruire tout le catalogue « recovery » si déjà riche (multi-onglet).
     const next =
       baseCount <= 1
         ? ensureNamedIngredientsInBonusGroups(base, BONUS_ZERO_CALORIE_RECOVERY_NAMES)
@@ -430,11 +428,14 @@ const Index = () => {
     const ensured = ensureNamedIngredientsInBonusGroups(next, BONUS_ZERO_CALORIE_ENSURE_NAMES);
     const nextCount = countBonusCatalogMeaningfulLines(ensured);
     if (nextCount < baseCount) return;
-    if (ensured === base) return;
+    if (ensured === base) {
+      bonusZeroEnsureWroteRef.current = true;
+      return;
+    }
     const legacyOnly = normalizeBonusZeroCalorieGroups(null, bonusZeroCalorieLinesRaw);
     const legacyCount = countBonusCatalogMeaningfulLines(legacyOnly);
-    // Sécurité : ne pas écraser des lignes legacy plus riches par un catalogue plus pauvre.
     if (nextCount < legacyCount) return;
+    bonusZeroEnsureWroteRef.current = true;
     setPreferencesBatch.mutate([
       { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: ensured },
       {
@@ -699,32 +700,8 @@ const Index = () => {
     [foodItems, macroLibrary, macroLookup, macroUnitGramsByKey, meals],
   );
 
-  // Remplit les macros vides du catalogue Tous · bas en calorie dès que Macro / Aliments sont dispo.
-  useEffect(() => {
-    if (isPreferencesLoading) return;
-    if (!ninjaCreamiBaseGroupsHaveContent(bonusLowCalorieGroups)) return;
-    const hasSources =
-      (foodItems?.length ?? 0) > 0 ||
-      (macroLibrary?.length ?? 0) > 0 ||
-      (macroLookup?.size ?? 0) > 0;
-    if (!hasSources) return;
-    const filled = autofillBonusLowCalorieGroupsMacros(bonusLowCalorieGroups, {
-      resolve: (line) => resolveIngredientLineMacros(line, ingredientMacroAutofillSources),
-    });
-    if (filled === bonusLowCalorieGroups) return;
-    setPreference.mutate({
-      key: BONUS_LOW_CALORIE_GROUPS_KEY,
-      value: filled,
-    });
-  }, [
-    isPreferencesLoading,
-    bonusLowCalorieGroups,
-    foodItems,
-    macroLibrary,
-    macroLookup,
-    ingredientMacroAutofillSources,
-    setPreference,
-  ]);
+  // Macros bas en calorie : affichage via autofill local dans la liste (pas d’écriture
+  // auto des prefs — évite qu’un 2ᵉ onglet périmé réécrase le catalogue).
 
   useEffect(() => {
     if (!unlocked) return;
