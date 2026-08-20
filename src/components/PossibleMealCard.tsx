@@ -121,6 +121,8 @@ interface PossibleMealCardProps {
   ninjaCreamiBaseGroups?: NinjaCreamiBaseGroup[];
   /** Catalogue Extras de Ninja Creami → Tests pour « Ajouter extras ». */
   ninjaCreamiExtrasLines?: NinjaCreamiCatalogLine[];
+  /** Ordre des sous-catégories Tests (identique à l’encadré Tests). */
+  ninjaCreamiTestsGroupOrder?: string[] | null;
 }
 
 const DAY_LABELS: Record<string, string> = {
@@ -253,6 +255,7 @@ export function PossibleMealCard({
   onSaveToNinjaTested,
   ninjaCreamiBaseGroups,
   ninjaCreamiExtrasLines,
+  ninjaCreamiTestsGroupOrder = null,
 }: PossibleMealCardProps) {
   const parseIngredientLine = parseIngredientLineDisplay;
   const formatQty = formatQtyDisplay;
@@ -1215,6 +1218,7 @@ export function PossibleMealCard({
         onOpenChange={setExtrasDialogOpen}
         baseGroups={ninjaCreamiBaseGroups!}
         extrasLines={ninjaCreamiExtrasLines!}
+        testsGroupOrder={ninjaCreamiTestsGroupOrder}
         recipeMacros={recipeMacrosForExtras}
         onConfirm={handleConfirmNinjaExtras}
       />

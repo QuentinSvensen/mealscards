@@ -1813,6 +1813,9 @@ const Index = () => {
                           ninjaCreamiExtrasLines={
                             cat.value === "dessert" ? ninjaCreamiExtrasLines : undefined
                           }
+                          ninjaCreamiTestsGroupOrder={
+                            cat.value === "dessert" ? ninjaCreamiTestsGroupOrder : undefined
+                          }
                           onSaveToNinjaTested={(pmId) => {
                             const pm = possibleMeals.find((p) => p.id === pmId);
                             if (!pm?.meal_id) return;

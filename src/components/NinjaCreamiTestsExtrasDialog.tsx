@@ -17,6 +17,8 @@ import {
 import {
   catalogLineHasContent,
   isNinjaCreamiLineSelectable,
+  NINJA_CREAMI_EXTRAS_GROUP_ID,
+  normalizeNinjaCreamiTestsGroupOrder,
   previewNinjaCreamiLineMacros,
   sumSelectedNinjaCreamiMacros,
   type NinjaCreamiBaseGroup,
@@ -30,6 +32,8 @@ export interface NinjaCreamiTestsExtrasDialogProps {
   onOpenChange: (open: boolean) => void;
   baseGroups: NinjaCreamiBaseGroup[];
   extrasLines: NinjaCreamiCatalogLine[];
+  /** Ordre d’affichage des sous-catégories (même préférence que Tests). */
+  testsGroupOrder?: readonly string[] | null;
   /** Macros déjà présentes sur la carte Possible (avant ajout). */
   recipeMacros?: NinjaCreamiMacroTotals;
   /** Appelé avec les lignes sélectionnées (grammes éventuellement modifiés). */
@@ -112,6 +116,7 @@ export function NinjaCreamiTestsExtrasDialog({
   onOpenChange,
   baseGroups,
   extrasLines,
+  testsGroupOrder = null,
   recipeMacros = { calories: 0, protein: 0, fiber: 0 },
   onConfirm,
 }: NinjaCreamiTestsExtrasDialogProps) {
@@ -132,10 +137,29 @@ export function NinjaCreamiTestsExtrasDialog({
     [extrasLines],
   );
 
-  const allSelectable = useMemo(
-    () => [...selectableBase.flatMap((g) => g.lines), ...selectableExtras],
-    [selectableBase, selectableExtras],
+  /** Même ordre de sections que l’encadré Tests (Base + Extras). */
+  const displayOrder = useMemo(
+    () =>
+      normalizeNinjaCreamiTestsGroupOrder(
+        selectableBase.map((g) => g.id),
+        testsGroupOrder,
+      ),
+    [selectableBase, testsGroupOrder],
   );
+
+  const allSelectable = useMemo(() => {
+    const byId = new Map(selectableBase.map((g) => [g.id, g]));
+    const lines: NinjaCreamiCatalogLine[] = [];
+    for (const sectionId of displayOrder) {
+      if (sectionId === NINJA_CREAMI_EXTRAS_GROUP_ID) {
+        lines.push(...selectableExtras);
+        continue;
+      }
+      const group = byId.get(sectionId);
+      if (group) lines.push(...group.lines);
+    }
+    return lines;
+  }, [displayOrder, selectableBase, selectableExtras]);
 
   useEffect(() => {
     if (!open) return;
@@ -276,31 +300,34 @@ export function NinjaCreamiTestsExtrasDialog({
             </p>
           )}
 
-          {selectableBase.some((g) => g.lines.length > 0) && (
-            <div className="space-y-2">
-              <div className="text-[11px] font-bold text-foreground/90 px-0.5">Base</div>
-              {selectableBase.map((group) =>
-                group.lines.length === 0 ? null : (
-                  <div
-                    key={group.id}
-                    className="rounded-xl bg-black/25 border border-white/10 p-2 space-y-1.5"
-                  >
-                    <div className="text-[11px] font-bold text-foreground/80 px-0.5">
-                      {group.name}
-                    </div>
-                    {group.lines.map(renderLine)}
-                  </div>
-                ),
-              )}
-            </div>
-          )}
+          {displayOrder.map((sectionId) => {
+            if (sectionId === NINJA_CREAMI_EXTRAS_GROUP_ID) {
+              if (selectableExtras.length === 0) return null;
+              return (
+                <div
+                  key={sectionId}
+                  className="rounded-xl bg-violet-950/25 ring-1 ring-violet-500/30 shadow-sm shadow-black/20 p-2 space-y-1.5"
+                >
+                  <div className="text-[11px] font-bold text-foreground/90 px-0.5">Extras</div>
+                  {selectableExtras.map(renderLine)}
+                </div>
+              );
+            }
 
-          {selectableExtras.length > 0 && (
-            <div className="rounded-xl bg-violet-950/25 ring-1 ring-violet-500/30 shadow-sm shadow-black/20 p-2 space-y-1.5">
-              <div className="text-[11px] font-bold text-foreground/90 px-0.5">Extras</div>
-              {selectableExtras.map(renderLine)}
-            </div>
-          )}
+            const group = selectableBase.find((g) => g.id === sectionId);
+            if (!group || group.lines.length === 0) return null;
+            return (
+              <div
+                key={sectionId}
+                className="rounded-xl bg-black/25 border border-white/10 p-2 space-y-1.5"
+              >
+                <div className="text-[11px] font-bold text-foreground/80 px-0.5">
+                  {group.name}
+                </div>
+                {group.lines.map(renderLine)}
+              </div>
+            );
+          })}
         </div>
 
         <div className="space-y-1 border-t border-white/10 pt-2">

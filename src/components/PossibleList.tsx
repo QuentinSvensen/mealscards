@@ -74,6 +74,7 @@ const MemoizedPossibleMealCard = React.memo(
       !!prevProps.onSaveToNinjaTested === !!nextProps.onSaveToNinjaTested &&
       prevProps.ninjaCreamiBaseGroups === nextProps.ninjaCreamiBaseGroups &&
       prevProps.ninjaCreamiExtrasLines === nextProps.ninjaCreamiExtrasLines &&
+      prevProps.ninjaCreamiTestsGroupOrder === nextProps.ninjaCreamiTestsGroupOrder &&
       (prevProps.expiredIngredientNames?.size ?? 0) === (nextProps.expiredIngredientNames?.size ?? 0) &&
       (prevProps.expiringSoonIngredientNames?.size ?? 0) === (nextProps.expiringSoonIngredientNames?.size ?? 0)
     );
@@ -137,6 +138,8 @@ interface PossibleListProps {
   ninjaCreamiBaseGroups?: NinjaCreamiBaseGroup[];
   /** Catalogue Extras Tests pour l’option « Ajouter extras ». */
   ninjaCreamiExtrasLines?: NinjaCreamiCatalogLine[];
+  /** Ordre des sous-catégories Tests pour « Ajouter extras ». */
+  ninjaCreamiTestsGroupOrder?: string[] | null;
 }
 
 /** Liste des repas « possibles » pour une catégorie : tri, glisser-déposer, actions et détail en popup. */
@@ -157,6 +160,7 @@ export function PossibleList({
   ninjaCreamiMealIds,
   ninjaCreamiBaseGroups,
   ninjaCreamiExtrasLines,
+  ninjaCreamiTestsGroupOrder,
 }: PossibleListProps) {
   /** Liste de siblings utilisée pour décider de l’affichage du badge compteur (toutes catégories si fourni). */
   const badgeSiblings = allPossibleMeals ?? items;
@@ -339,6 +343,7 @@ export function PossibleList({
                   }
                   ninjaCreamiBaseGroups={ninjaCreamiBaseGroups}
                   ninjaCreamiExtrasLines={ninjaCreamiExtrasLines}
+                  ninjaCreamiTestsGroupOrder={ninjaCreamiTestsGroupOrder}
                   onDelete={() => onDelete(pm.id)}
                   onDuplicate={() => onDuplicate(pm.id)}
                   onUpdateExpiration={(d) => onUpdateExpiration(pm.id, d)}
