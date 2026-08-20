@@ -32,4 +32,23 @@ describe("normalizeBonusZeroCalorieGroups", () => {
     );
     expect(groups[0].lines.map((l) => l.name).filter(Boolean)).toEqual(["Eau", "Glaçon"]);
   });
+
+  it("fusionne les lignes legacy manquantes sans écraser les groupes", () => {
+    const groups = normalizeBonusZeroCalorieGroups(
+      [
+        {
+          id: "g1",
+          name: "Général",
+          lines: [{ id: "a", qty: "", count: "", name: "Glaçon", cal: "", pro: "", fiber: "" }],
+        },
+      ],
+      [
+        { id: "b", qty: "", count: "", name: "Soda", cal: "", pro: "", fiber: "" },
+        { id: "a", qty: "", count: "", name: "Glaçon", cal: "", pro: "", fiber: "" },
+      ],
+    );
+    const names = groups[0].lines.map((l) => l.name).filter(Boolean);
+    expect(names).toContain("Glaçon");
+    expect(names).toContain("Soda");
+  });
 });

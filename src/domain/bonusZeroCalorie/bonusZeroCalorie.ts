@@ -97,7 +97,35 @@ export function flattenBonusZeroCalorieGroups(
 export const BONUS_ZERO_CALORIE_ENSURE_NAMES = ["Glaçon"] as const;
 
 /**
- * Ajoute des noms manquants dans la première sous-catégorie (sans doublon).
+ * Noms connus du catalogue utilisateur (récupération après écrasement accidentel).
+ * Fusionnés s’ils manquent — ne remplacent jamais le contenu existant.
+ */
+export const BONUS_ZERO_CALORIE_RECOVERY_NAMES = [
+  "Soda",
+  "Glace sirop",
+  "Eau",
+  "Coulis Prozis",
+  "Sirop",
+  "Glaçon",
+] as const;
+
+/**
+ * Compte les lignes avec un vrai contenu (hors ligne vide de fin).
+ */
+export function countBonusCatalogMeaningfulLines(
+  groupsOrLines: BonusZeroCalorieGroup[] | NinjaCreamiCatalogLine[],
+): number {
+  if (groupsOrLines.length === 0) return 0;
+  const first = groupsOrLines[0] as BonusZeroCalorieGroup | NinjaCreamiCatalogLine;
+  const lines =
+    first && typeof first === "object" && "lines" in first && Array.isArray(first.lines)
+      ? flattenBonusZeroCalorieGroups(groupsOrLines as BonusZeroCalorieGroup[])
+      : (groupsOrLines as NinjaCreamiCatalogLine[]);
+  return lines.filter(catalogLineHasContent).length;
+}
+
+/**
+ * Ajoute des noms manquants dans la première sous-catégorie (sans doublon, sans supprimer).
  */
 export function ensureNamedIngredientsInBonusGroups(
   groups: BonusZeroCalorieGroup[],
@@ -138,7 +166,51 @@ export function ensureNamedIngredientsInBonusGroups(
 }
 
 /**
- * Normalise les sous-catégories ; migre l’ancienne liste plate si besoin.
+ * Ajoute des noms manquants dans la première sous-catégorie (sans doublon, sans supprimer).
+ * Ignore les lignes legacy dont l’id est déjà présent (ex. renommage Sirop → Sucre).
+ */
+export function mergeLegacyLinesIntoBonusGroups(
+  groups: BonusZeroCalorieGroup[],
+  legacyLines: NinjaCreamiCatalogLine[],
+  defaultGroupId: string = BONUS_ZERO_CALORIE_DEFAULT_GROUP_ID,
+): BonusZeroCalorieGroup[] {
+  const legacyContent = legacyLines.filter(catalogLineHasContent);
+  if (legacyContent.length === 0) return groups;
+
+  if (groups.length === 0) {
+    return [
+      {
+        id: defaultGroupId,
+        name: "Général",
+        lines: normalizeNinjaCreamiCatalogLines(legacyContent),
+      },
+    ];
+  }
+
+  const flat = flattenBonusZeroCalorieGroups(groups);
+  const existingNames = new Set(
+    flat.map((line) => line.name.trim().toLowerCase()).filter(Boolean),
+  );
+  const existingIds = new Set(flat.map((line) => line.id).filter(Boolean));
+  const missing = legacyContent.filter((line) => {
+    if (existingIds.has(line.id)) return false;
+    return !existingNames.has(line.name.trim().toLowerCase());
+  });
+  if (missing.length === 0) return groups;
+
+  const [first, ...rest] = groups;
+  const kept = first.lines.filter(catalogLineHasContent);
+  return [
+    {
+      ...first,
+      lines: normalizeNinjaCreamiCatalogLines([...kept, ...missing]),
+    },
+    ...rest,
+  ];
+}
+
+/**
+ * Normalise les sous-catégories ; migre / fusionne l’ancienne liste plate si besoin.
  */
 export function normalizeBonusZeroCalorieGroups(
   rawGroups: unknown,
@@ -172,7 +244,8 @@ export function normalizeBonusZeroCalorieGroups(
           },
         ];
       }
-      return groups;
+      // Toujours réinjecter les noms legacy absents (évite un wipe partiel groupes vs lignes).
+      return mergeLegacyLinesIntoBonusGroups(groups, legacyNormalized, defaultGroupId);
     }
   }
 
@@ -234,4 +307,40 @@ export function normalizeBonusLowCalorieGroups(rawGroups: unknown): BonusZeroCal
     return createSeededBonusLowCalorieGroups();
   }
   return groups;
+}
+
+/**
+ * Remplit les macros vides des lignes nommées du catalogue bas en calorie
+ * depuis Macro / Aliments / recettes (sans écraser une saisie existante).
+ */
+export function autofillBonusLowCalorieGroupsMacros(
+  groups: BonusZeroCalorieGroup[],
+  sources: {
+    resolve: (line: Pick<NinjaCreamiCatalogLine, "name" | "qty" | "count">) => {
+      cal: string;
+      pro: string;
+      fiber: string;
+    };
+  },
+): BonusZeroCalorieGroup[] {
+  let changed = false;
+  const next = groups.map((group) => {
+    let groupChanged = false;
+    const lines = group.lines.map((line) => {
+      if (!line.name.trim()) return line;
+      if (line.cal.trim() || line.pro.trim() || line.fiber.trim()) return line;
+      const resolved = sources.resolve(line);
+      if (!resolved.cal && !resolved.pro && !resolved.fiber) return line;
+      groupChanged = true;
+      changed = true;
+      return {
+        ...line,
+        cal: resolved.cal || line.cal,
+        pro: resolved.pro || line.pro,
+        fiber: resolved.fiber || line.fiber,
+      };
+    });
+    return groupChanged ? { ...group, lines } : group;
+  });
+  return changed ? next : groups;
 }

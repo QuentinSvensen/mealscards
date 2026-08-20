@@ -67,6 +67,8 @@ export function NinjaCreamiBaseGroupsEditor({
   const [dragGroupIdx, setDragGroupIdx] = useState<number | null>(null);
   const [dragOverGroupIdx, setDragOverGroupIdx] = useState<number | null>(null);
   const dragGroupIdxRef = useRef<number | null>(null);
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
 
   /** Ordre visuel : sous-catégories Base + Extras. */
   const displayOrder = useMemo(
@@ -244,14 +246,16 @@ export function NinjaCreamiBaseGroupsEditor({
               lines={group.lines}
               selectedIds={selectedIds}
               onLinesChange={(lines) =>
-                onGroupsChange(updateNinjaCreamiBaseGroupLines(groups, group.id, lines))
+                onGroupsChange(
+                  updateNinjaCreamiBaseGroupLines(groupsRef.current, group.id, lines),
+                )
               }
               onSelectedIdsChange={onSelectedIdsChange}
               onIngredientNameCommit={onIngredientNameCommit}
               ingredientMacroSources={ingredientMacroSources}
               ingredientSuggestions={ingredientSuggestions}
               onTitleChange={(name) =>
-                onGroupsChange(renameNinjaCreamiBaseGroup(groups, group.id, name))
+                onGroupsChange(renameNinjaCreamiBaseGroup(groupsRef.current, group.id, name))
               }
               onDeleteGroup={
                 groups.length > 1

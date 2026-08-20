@@ -93,7 +93,11 @@ import {
   wasDessertFoodSnapshot,
   wasMorningMealSnapshot,
 } from "@/lib/stockDeductionSnapshot";
-import type { IngredientMacroAutofillSources, IngredientMacroLibraryItem } from "@/domain/macros/ingredientMacroDatabase";
+import {
+  resolveIngredientLineMacros,
+  type IngredientMacroAutofillSources,
+  type IngredientMacroLibraryItem,
+} from "@/domain/macros/ingredientMacroDatabase";
 import {
   NINJA_CREAMI_BASE_GROUPS_KEY,
   NINJA_CREAMI_BASE_LINES_KEY,
@@ -134,6 +138,9 @@ import {
   BONUS_ZERO_CALORIE_ENSURE_NAMES,
   BONUS_ZERO_CALORIE_GROUPS_KEY,
   BONUS_ZERO_CALORIE_LINES_KEY,
+  BONUS_ZERO_CALORIE_RECOVERY_NAMES,
+  autofillBonusLowCalorieGroupsMacros,
+  countBonusCatalogMeaningfulLines,
   ensureNamedIngredientsInBonusGroups,
   flattenBonusZeroCalorieGroups,
   normalizeBonusLowCalorieGroups,
@@ -362,14 +369,19 @@ const Index = () => {
   );
   const bonusZeroCalorieGroupsRaw = getPreference(BONUS_ZERO_CALORIE_GROUPS_KEY, null);
   const bonusZeroCalorieLinesRaw = getPreference(BONUS_ZERO_CALORIE_LINES_KEY, []);
-  const bonusZeroCalorieGroups = useMemo(
-    () =>
-      ensureNamedIngredientsInBonusGroups(
-        normalizeBonusZeroCalorieGroups(bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw),
-        BONUS_ZERO_CALORIE_ENSURE_NAMES,
-      ),
-    [bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw],
-  );
+  const bonusZeroCalorieGroups = useMemo(() => {
+    const normalized = normalizeBonusZeroCalorieGroups(
+      bonusZeroCalorieGroupsRaw,
+      bonusZeroCalorieLinesRaw,
+    );
+    // Récupération douce si le catalogue a été réduit à quasi rien (ex. wipe Glaçon).
+    const meaningful = countBonusCatalogMeaningfulLines(normalized);
+    const withRecovery =
+      meaningful <= 1
+        ? ensureNamedIngredientsInBonusGroups(normalized, BONUS_ZERO_CALORIE_RECOVERY_NAMES)
+        : normalized;
+    return ensureNamedIngredientsInBonusGroups(withRecovery, BONUS_ZERO_CALORIE_ENSURE_NAMES);
+  }, [bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw]);
   const bonusLowCalorieGroupsRaw = getPreference(BONUS_LOW_CALORIE_GROUPS_KEY, null);
   const bonusLowCalorieGroups = useMemo(
     () => normalizeBonusLowCalorieGroups(bonusLowCalorieGroupsRaw),
@@ -406,12 +418,23 @@ const Index = () => {
     setPreferencesBatch,
   ]);
 
-  // Persiste les ingrédients garantis (ex. Glaçon) s’ils manquaient dans les prefs.
+  // Persiste une récupération / ajout (Glaçon, noms connus) sans jamais réduire le catalogue.
   useEffect(() => {
     if (isPreferencesLoading) return;
     const base = normalizeBonusZeroCalorieGroups(bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw);
-    const ensured = ensureNamedIngredientsInBonusGroups(base, BONUS_ZERO_CALORIE_ENSURE_NAMES);
+    const baseCount = countBonusCatalogMeaningfulLines(base);
+    const next =
+      baseCount <= 1
+        ? ensureNamedIngredientsInBonusGroups(base, BONUS_ZERO_CALORIE_RECOVERY_NAMES)
+        : base;
+    const ensured = ensureNamedIngredientsInBonusGroups(next, BONUS_ZERO_CALORIE_ENSURE_NAMES);
+    const nextCount = countBonusCatalogMeaningfulLines(ensured);
+    if (nextCount < baseCount) return;
     if (ensured === base) return;
+    const legacyOnly = normalizeBonusZeroCalorieGroups(null, bonusZeroCalorieLinesRaw);
+    const legacyCount = countBonusCatalogMeaningfulLines(legacyOnly);
+    // Sécurité : ne pas écraser des lignes legacy plus riches par un catalogue plus pauvre.
+    if (nextCount < legacyCount) return;
     setPreferencesBatch.mutate([
       { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: ensured },
       {
@@ -675,6 +698,33 @@ const Index = () => {
     }),
     [foodItems, macroLibrary, macroLookup, macroUnitGramsByKey, meals],
   );
+
+  // Remplit les macros vides du catalogue Tous · bas en calorie dès que Macro / Aliments sont dispo.
+  useEffect(() => {
+    if (isPreferencesLoading) return;
+    if (!ninjaCreamiBaseGroupsHaveContent(bonusLowCalorieGroups)) return;
+    const hasSources =
+      (foodItems?.length ?? 0) > 0 ||
+      (macroLibrary?.length ?? 0) > 0 ||
+      (macroLookup?.size ?? 0) > 0;
+    if (!hasSources) return;
+    const filled = autofillBonusLowCalorieGroupsMacros(bonusLowCalorieGroups, {
+      resolve: (line) => resolveIngredientLineMacros(line, ingredientMacroAutofillSources),
+    });
+    if (filled === bonusLowCalorieGroups) return;
+    setPreference.mutate({
+      key: BONUS_LOW_CALORIE_GROUPS_KEY,
+      value: filled,
+    });
+  }, [
+    isPreferencesLoading,
+    bonusLowCalorieGroups,
+    foodItems,
+    macroLibrary,
+    macroLookup,
+    ingredientMacroAutofillSources,
+    setPreference,
+  ]);
 
   useEffect(() => {
     if (!unlocked) return;

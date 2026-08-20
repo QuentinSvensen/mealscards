@@ -1,7 +1,8 @@
 /**
  * Liste d’ingrédients sélectionnables pour l’encadré Tests (Base / Extras).
  * Édition en local pendant la frappe (évite le curseur qui saute) ;
- * autofill macros uniquement au blur, et seulement si match exact + champs vides ;
+ * persistance différée + flush au blur / démontage ;
+ * autofill macros au chargement et au blur si champs vides ;
  * tri manuel par drag & drop (poignée), y compris entre sous-catégories Base.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -9,6 +10,8 @@ import { GripVertical, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ClickToEditText } from "@/components/ClickToEditText";
 import {
+  findFoodItemForIngredientName,
+  hasScalableIngredientMacroSource,
   resolveIngredientLineMacros,
   type IngredientMacroAutofillSources,
 } from "@/domain/macros/ingredientMacroDatabase";
@@ -65,21 +68,19 @@ function toIngLine(line: NinjaCreamiCatalogLine): IngLine {
 }
 
 /**
- * Indique s’il existe une source macros à correspondance exacte (pas de fuzzy).
+ * Indique s’il existe une source macros exploitable (exacte ou match tolérant pluriel).
  */
 function hasExactMacroSource(
   name: string,
   sources: IngredientMacroAutofillSources | undefined,
 ): boolean {
+  if (!name.trim() || !sources) return false;
+  if (hasScalableIngredientMacroSource({ name }, sources)) return true;
+  // Meal macros : clé exacte ou via résolution (find Meal côté resolve).
   const key = normalizeKey(name);
-  if (!key || !sources) return false;
-  if (sources.macroLibrary?.some((e) => e.key === key || normalizeKey(e.displayName) === key)) {
-    return true;
-  }
-  if (sources.foodItems?.some((item) => normalizeKey(item.name) === key)) {
-    return true;
-  }
-  if (sources.mealMacros?.has(key)) return true;
+  if (key && sources.mealMacros?.has(key)) return true;
+  // Aliments même si macros à 0 (hasScalable exige non-zéro).
+  if (findFoodItemForIngredientName(sources.foodItems, name)) return true;
   return false;
 }
 
@@ -107,22 +108,45 @@ function ensureTrailingEmpty(lines: NinjaCreamiCatalogLine[]): NinjaCreamiCatalo
 }
 
 /**
- * Remplit les macros vides depuis une source exacte (sans écraser une saisie manuelle).
+ * Remplit les macros vides depuis Macro / Aliments (sans écraser une saisie manuelle).
  */
 function autofillEmptyMacrosExact(
   line: NinjaCreamiCatalogLine,
   sources: IngredientMacroAutofillSources | undefined,
 ): NinjaCreamiCatalogLine {
-  if (!sources || !line.name.trim() || !hasExactMacroSource(line.name, sources)) {
-    return line;
-  }
+  if (!sources || !line.name.trim()) return line;
+  if (!hasExactMacroSource(line.name, sources)) return line;
   const resolved = resolveIngredientLineMacros(toIngLine(line), sources);
+  if (!resolved.cal && !resolved.pro && !resolved.fiber) return line;
   return {
     ...line,
     cal: line.cal.trim() ? line.cal : resolved.cal || line.cal,
     pro: line.pro.trim() ? line.pro : resolved.pro || line.pro,
     fiber: line.fiber.trim() ? line.fiber : resolved.fiber || line.fiber,
   };
+}
+
+/**
+ * Autofill macros vides sur toutes les lignes nommées.
+ */
+function autofillCatalogLinesMacros(
+  lines: NinjaCreamiCatalogLine[],
+  sources: IngredientMacroAutofillSources | undefined,
+): NinjaCreamiCatalogLine[] {
+  if (!sources) return lines;
+  let changed = false;
+  const next = lines.map((line) => {
+    const filled = autofillEmptyMacrosExact(line, sources);
+    if (
+      filled.cal !== line.cal ||
+      filled.pro !== line.pro ||
+      filled.fiber !== line.fiber
+    ) {
+      changed = true;
+    }
+    return filled;
+  });
+  return changed ? next : lines;
 }
 
 /**
@@ -182,8 +206,11 @@ export function NinjaCreamiSelectableIngredientList({
   const titleFocusedRef = useRef(false);
   const dragIdxRef = useRef<number | null>(null);
   const draftRef = useRef(draftLines);
+  const linesPropRef = useRef(lines);
   const onLinesChangeRef = useRef(onLinesChange);
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   draftRef.current = draftLines;
+  linesPropRef.current = lines;
   onLinesChangeRef.current = onLinesChange;
 
   const normalizedSuggestions = useMemo(() => {
@@ -234,44 +261,111 @@ export function NinjaCreamiSelectableIngredientList({
   // Resync depuis les prefs seulement hors édition (évite le reset curseur).
   // Ignore un passage à vide si le brouillon a encore des lignes (anti-wipe),
   // sauf si des ids ont quitté le parent (déplacement vers une autre liste).
+  // Autofill macros au chargement (ex. catalogue seedé bas en calorie) — pas seulement au blur.
   useEffect(() => {
-    if (!focusedRef.current && dragIdx === null) {
-      const incomingIds = new Set(lines.map((l) => l.id));
-      const draftLostLines = draftRef.current.filter(
-        (l) => isLineMeaningful(l) && !incomingIds.has(l.id),
-      );
-      if (draftLostLines.length > 0) {
-        setDraftLines(ensureTrailingEmpty(lines));
+    if (focusedRef.current || dragIdx !== null) return;
+
+    const applyIncoming = (incoming: NinjaCreamiCatalogLine[]) => {
+      if (hideMacros || !ingredientMacroSources) {
+        setDraftLines(ensureTrailingEmpty(incoming));
         return;
       }
-      const incomingHas = lines.some(isLineMeaningful);
-      const draftHas = draftRef.current.some(isLineMeaningful);
-      if (!incomingHas && draftHas) {
-        onLinesChangeRef.current(ensureTrailingEmpty(draftRef.current));
-        return;
+      const filled = autofillCatalogLinesMacros(incoming, ingredientMacroSources);
+      const normalized = ensureTrailingEmpty(filled);
+      setDraftLines(normalized);
+      if (filled !== incoming) {
+        onLinesChangeRef.current(normalized);
       }
-      setDraftLines(lines);
+    };
+
+    const incomingIds = new Set(lines.map((l) => l.id));
+    const draftLostLines = draftRef.current.filter(
+      (l) => isLineMeaningful(l) && !incomingIds.has(l.id),
+    );
+    if (draftLostLines.length > 0) {
+      applyIncoming(lines);
+      return;
     }
-  }, [lines, dragIdx]);
+    const incomingHas = lines.some(isLineMeaningful);
+    const draftHas = draftRef.current.some(isLineMeaningful);
+    if (!incomingHas && draftHas) {
+      onLinesChangeRef.current(ensureTrailingEmpty(draftRef.current));
+      return;
+    }
+    applyIncoming(lines);
+  }, [lines, dragIdx, hideMacros, ingredientMacroSources]);
 
   useEffect(() => {
     if (!titleFocusedRef.current) setDraftTitle(title);
   }, [title]);
 
+  /**
+   * Indique si le brouillon diffère des lignes parent (à persister).
+   */
+  const draftDiffersFromProps = (draft: NinjaCreamiCatalogLine[]): boolean => {
+    const incoming = linesPropRef.current;
+    if (draft.length !== incoming.length) return true;
+    return draft.some((line, i) => {
+      const other = incoming[i];
+      if (!other || line.id !== other.id) return true;
+      return (
+        line.name !== other.name ||
+        line.qty !== other.qty ||
+        line.count !== other.count ||
+        line.cal !== other.cal ||
+        line.pro !== other.pro ||
+        line.fiber !== other.fiber
+      );
+    });
+  };
+
   /** Persiste le brouillon vers le parent (prefs). */
   const commitDraft = (next: NinjaCreamiCatalogLine[]) => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
     const normalized = ensureTrailingEmpty(next);
     setDraftLines(normalized);
     draftRef.current = normalized;
-    onLinesChange(normalized);
+    onLinesChangeRef.current(normalized);
   };
 
-  /** Met à jour un champ en local uniquement (frappe fluide). */
+  /** Planifie une persistance courte (évite de perdre la frappe si blur / changement d’onglet). */
+  const schedulePersistDraft = () => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null;
+      const draft = draftRef.current;
+      if (!draftDiffersFromProps(draft)) return;
+      onLinesChangeRef.current(ensureTrailingEmpty(draft));
+    }, 250);
+  };
+
+  // Flush à la destruction (changement d’onglet / page) pour ne pas perdre le texte non bluré.
+  useEffect(() => {
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+      const draft = draftRef.current;
+      if (!draftDiffersFromProps(draft)) return;
+      onLinesChangeRef.current(ensureTrailingEmpty(draft));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flush unmount uniquement
+  }, []);
+
+  /** Met à jour un champ en local (ref sync immédiate) + persistance différée. */
   const updateLineLocal = (idx: number, patch: Partial<NinjaCreamiCatalogLine>) => {
     setDraftLines((prev) => {
-      const next = prev.map((l, i) => (i === idx ? { ...l, ...patch } : l));
-      return ensureTrailingEmpty(next);
+      const next = ensureTrailingEmpty(
+        prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)),
+      );
+      draftRef.current = next;
+      return next;
     });
+    schedulePersistDraft();
     if (patch.name !== undefined) {
       setEditingNameIdx(idx);
       setSuggestionLineIdx(patch.name.trim() ? idx : null);
@@ -613,17 +707,25 @@ export function NinjaCreamiSelectableIngredientList({
                   onKeyDown={(e) => {
                     handleNameKeyDown(idx, e);
                     if (e.key === "Enter" && !(suggestionLineIdx === idx && getSuggestions(idx).length > 0)) {
+                      e.preventDefault();
+                      handleBlurLine(idx, "name");
                       setEditingNameIdx(null);
                       setSuggestionLineIdx(null);
                     }
                   }}
                   onBlur={() => {
-                    setTimeout(() => {
+                    // Commit immédiat (le délai ne sert qu’à laisser le clic suggestion passer).
+                    const doBlur = () => {
                       if (nameEditGuardRef.current) return;
                       setSuggestionLineIdx(null);
                       handleBlurLine(idx, "name");
                       if (draftRef.current[idx]?.name.trim()) setEditingNameIdx(null);
-                    }, 120);
+                    };
+                    if (nameEditGuardRef.current) {
+                      setTimeout(doBlur, 120);
+                      return;
+                    }
+                    doBlur();
                   }}
                   className={`h-6 min-w-0 w-full text-xs px-1 ${inputBg}`}
                 />
