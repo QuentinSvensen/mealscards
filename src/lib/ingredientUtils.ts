@@ -930,13 +930,144 @@ export function serializeIngredients(lines: IngLine[]): string | null {
 }
 
 /**
+ * Recopie les quantités / macros d’une ligne override sur une ligne master (même nom).
+ */
+function overlayIngredientLineFromPool(
+  line: IngLine,
+  pool: Map<string, IngLine[]>,
+): IngLine {
+  const key = normalizeKey(line.name);
+  const matching = key ? pool.get(key)?.shift() : undefined;
+  if (!matching) return { ...line };
+  return {
+    ...line,
+    qty: matching.qty,
+    count: matching.count,
+    name: matching.name || line.name,
+    cal: matching.cal || line.cal,
+    pro: matching.pro || line.pro,
+    fiber: matching.fiber || line.fiber,
+  };
+}
+
+/**
+ * Score une alternative « ou » selon sa présence dans l’override Possible.
+ */
+function scoreOrAlternativeAgainstOverride(
+  alt: IngLine[],
+  overrideKeys: Set<string>,
+  overrideOrder: Map<string, number>,
+): { hits: number; earliest: number } {
+  const linesInAlt = alt.filter((l) => l.name.trim());
+  let hits = 0;
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const line of linesInAlt) {
+    const key = normalizeKey(line.name);
+    if (!key || !overrideKeys.has(key)) continue;
+    hits += 1;
+    const idx = overrideOrder.get(key);
+    if (idx !== undefined) earliest = Math.min(earliest, idx);
+  }
+  return { hits, earliest };
+}
+
+/**
+ * Réordonne les groupes « ou » du master pour coller au choix Possible :
+ * l’alternative présente dans l’override (souvent aplati, sans « | ») passe en premier.
+ * Sert à ne pas réafficher le 1er aliment du « ou » après Valider.
+ */
+export function applyOverrideSelectionToMasterOrGroups(
+  masterLines: IngLine[],
+  overrideLines: IngLine[],
+): IngLine[] {
+  const groups = groupParsedIngredientLinesForDisplay(masterLines);
+  if (groups.length === 0) return overrideLines;
+
+  const overrideKeys = new Set<string>();
+  const overrideOrder = new Map<string, number>();
+  const pool = new Map<string, IngLine[]>();
+  overrideLines.forEach((line, index) => {
+    if (!ingredientLineHasContent(line)) return;
+    const key = normalizeKey(line.name);
+    if (!key) return;
+    overrideKeys.add(key);
+    if (!overrideOrder.has(key)) overrideOrder.set(key, index);
+    const matches = pool.get(key) ?? [];
+    matches.push(line);
+    pool.set(key, matches);
+  });
+
+  const result: IngLine[] = [];
+  for (const group of groups) {
+    let orderedAlts = group;
+    if (group.length > 1 && overrideKeys.size > 0) {
+      let bestIdx = 0;
+      let bestHits = -1;
+      let bestEarliest = Number.POSITIVE_INFINITY;
+      group.forEach((alt, idx) => {
+        const { hits, earliest } = scoreOrAlternativeAgainstOverride(alt, overrideKeys, overrideOrder);
+        if (hits > bestHits || (hits === bestHits && earliest < bestEarliest)) {
+          bestHits = hits;
+          bestEarliest = earliest;
+          bestIdx = idx;
+        }
+      });
+      if (bestHits > 0) {
+        orderedAlts = [group[bestIdx], ...group.filter((_, idx) => idx !== bestIdx)];
+      }
+    }
+
+    orderedAlts.forEach((alt, altIdx) => {
+      alt.forEach((line, itemIdx) => {
+        const overlaid = overlayIngredientLineFromPool(line, pool);
+        result.push({
+          ...overlaid,
+          isOr: altIdx > 0 && itemIdx === 0,
+          isAnd: itemIdx > 0,
+        });
+      });
+    });
+  }
+
+  for (const leftover of overrideLines) {
+    if (!ingredientLineHasContent(leftover)) continue;
+    const key = normalizeKey(leftover.name);
+    const remaining = key ? pool.get(key) : undefined;
+    if (!remaining || remaining.length === 0) continue;
+    const extra = remaining.shift();
+    if (!extra) continue;
+    result.push({ ...extra, isOr: false, isAnd: false });
+  }
+
+  return result;
+}
+
+/**
  * Réduit une recette pour l'affichage compact d'une carte Possible :
- * garde le premier choix de chaque groupe « ou » et retire les ingrédients optionnels (?).
+ * garde le premier choix de chaque groupe « ou » (en incluant tous ses sous-éléments liés « et »)
+ * et retire les ingrédients optionnels (?).
  */
 export function ingredientsForPossibleCardDisplay(ingredients: string | null | undefined): string | null {
   if (!ingredients?.trim()) return ingredients ?? null;
   const lines = parseIngredientsToLines(ingredients);
-  const displayLines = lines.filter((l) => !l.isOr && !l.isOptional);
+  const groups = groupParsedIngredientLinesForDisplay(lines);
+  if (groups.length === 0) return serializeIngredients(lines.filter((l) => !l.isOr && !l.isOptional)) ?? ingredients;
+
+  const displayLines: IngLine[] = [];
+  for (const group of groups) {
+    const headAlt = group[0];
+    if (headAlt) {
+      headAlt.forEach((item, itemIdx) => {
+        if (!item.isOptional) {
+          displayLines.push({
+            ...item,
+            isOr: false,
+            isAnd: itemIdx > 0,
+          });
+        }
+      });
+    }
+  }
   return serializeIngredients(displayLines) ?? ingredients;
 }
 
@@ -1246,32 +1377,91 @@ export function buildIngredientsOverrideFromSelection(
 ): string | null {
   if (!ingredients?.trim()) return ingredients ?? null;
   const lines = parseIngredientsToLines(ingredients);
-  const contentFlags = lines.map((line) => ingredientLineHasContent(line) && !!line.name.trim());
-  const keptFlags = lines.map((line, index) => {
-    if (!contentFlags[index]) return false;
-    const key = optionalIngredientKey(line);
-    return !!key && includeKeys.has(key);
-  });
+  const groups = groupParsedIngredientLinesForDisplay(lines);
+
+  if (groups.length === 0) {
+    const contentFlags = lines.map((line) => ingredientLineHasContent(line) && !!line.name.trim());
+    const keptFlags = lines.map((line, index) => {
+      if (!contentFlags[index]) return false;
+      const key = optionalIngredientKey(line);
+      return !!key && includeKeys.has(key);
+    });
+
+    const out: IngLine[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!keptFlags[i]) continue;
+      const key = optionalIngredientKey(lines[i]);
+      const edit = qtyEdits?.[key];
+      const renamed = edit?.name?.trim();
+      const line: IngLine = {
+        ...lines[i],
+        isOptional: false,
+        qty: edit ? edit.qty : lines[i].qty,
+        count: edit ? edit.count : lines[i].count,
+        name: renamed || lines[i].name,
+      };
+      if (out.length === 0 || i === 0 || !keptFlags[i - 1]) {
+        line.isAnd = false;
+        line.isOr = false;
+      }
+      out.push(line);
+    }
+    return serializeIngredients(out);
+  }
 
   const out: IngLine[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!keptFlags[i]) continue;
-    const key = optionalIngredientKey(lines[i]);
-    const edit = qtyEdits?.[key];
-    const renamed = edit?.name?.trim();
-    const line: IngLine = {
-      ...lines[i],
-      isOptional: false,
-      qty: edit ? edit.qty : lines[i].qty,
-      count: edit ? edit.count : lines[i].count,
-      name: renamed || lines[i].name,
-    };
-    if (out.length === 0 || i === 0 || !keptFlags[i - 1]) {
-      line.isAnd = false;
-      line.isOr = false;
-    }
-    out.push(line);
+
+  for (const group of groups) {
+    let bestAltIdx = 0;
+    let maxHits = -1;
+
+    group.forEach((alt, altIdx) => {
+      let hits = 0;
+      alt.forEach((item) => {
+        const key = optionalIngredientKey(item);
+        if (key && includeKeys.has(key)) {
+          hits++;
+        }
+      });
+      if (hits > maxHits) {
+        maxHits = hits;
+        bestAltIdx = altIdx;
+      }
+    });
+
+    const orderedAlts = group.length > 1 && maxHits > 0
+      ? [group[bestAltIdx], ...group.filter((_, idx) => idx !== bestAltIdx)]
+      : group;
+
+    let groupKeptAltCount = 0;
+
+    orderedAlts.forEach((alt) => {
+      const keptItems = alt.filter((item) => {
+        const key = optionalIngredientKey(item);
+        return !!key && includeKeys.has(key);
+      });
+
+      if (keptItems.length > 0) {
+        keptItems.forEach((item, itemIdx) => {
+          const key = optionalIngredientKey(item);
+          const edit = qtyEdits?.[key];
+          const renamed = edit?.name?.trim();
+          const line: IngLine = {
+            ...item,
+            isOptional: false,
+            qty: edit ? edit.qty : item.qty,
+            count: edit ? edit.count : item.count,
+            name: renamed || item.name,
+            isOr: groupKeptAltCount > 0 && itemIdx === 0,
+            isAnd: itemIdx > 0,
+          };
+          out.push(line);
+        });
+        groupKeptAltCount++;
+      }
+    });
   }
+
   return serializeIngredients(out);
 }
 

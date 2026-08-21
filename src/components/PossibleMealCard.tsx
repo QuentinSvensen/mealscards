@@ -46,7 +46,7 @@ const MEAL_TIME_SELECT_LABELS: Record<string, string> = {
 };
 import {
   type IngLine, parseIngredientLineDisplay, formatQtyDisplay,
-  parseIngredientsToLines, serializeIngredients, computeIngredientCalories,
+  parseIngredientsToLines, serializeIngredients, applyOverrideSelectionToMasterOrGroups, computeIngredientCalories,
   computeIngredientProtein, computeIngredientFiber, cleanIngredientText, normalizeKey,
   hasNegativeMetric, getMealColor, getDateForDayKey,
   extractMetrics, parseIngredientLineRaw,
@@ -214,30 +214,8 @@ function buildPossibleEditorLines(
     return !hasOverride && ratio !== null ? scaleLines(parseIngredientsToLines(source), ratio) : parseIngredientsToLines(source);
   }
 
-  const overrideByName = new Map<string, IngLine[]>();
-  for (const line of overrideLines) {
-    const key = normalizeKey(line.name);
-    if (!key) continue;
-    const matches = overrideByName.get(key) ?? [];
-    matches.push(line);
-    overrideByName.set(key, matches);
-  }
-
   const scaledMasterLines = ratio !== null ? scaleLines(masterLines, ratio) : masterLines;
-  return scaledMasterLines.map((line) => {
-    const key = normalizeKey(line.name);
-    const matching = key ? overrideByName.get(key)?.shift() : undefined;
-    if (!matching) return line;
-    return {
-      ...line,
-      qty: matching.qty,
-      count: matching.count,
-      name: matching.name || line.name,
-      cal: matching.cal || line.cal,
-      pro: matching.pro || line.pro,
-      fiber: matching.fiber || line.fiber,
-    };
-  });
+  return applyOverrideSelectionToMasterOrGroups(scaledMasterLines, overrideLines);
 }
 
 /** Carte d’un repas « possible » : dates, macros, édition, drag & drop (voir en-tête de module). */

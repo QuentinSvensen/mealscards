@@ -94,7 +94,7 @@ export function useOptionalIngredientsMoveDialog() {
           for (const item of alt.items) next.delete(item.key);
         }
         for (const item of chosenAlt.items) {
-          if (!item.isOptional || item.key === key) next.add(item.key);
+          next.add(item.key);
         }
         return next;
       }

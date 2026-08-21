@@ -4,6 +4,8 @@ import {
   smartFoodContains, cleanIngredientText,
   ingredientNameMatchesFoodItem,
   parseIngredientsToLines, serializeIngredients,
+  applyOverrideSelectionToMasterOrGroups,
+  ingredientsForPossibleCardDisplay,
   extractIngredientMacros, applyIngredientMacros,
   normalizeForMatch, normalizeKey,
   formatPlannedCounterOpenFr,
@@ -236,6 +238,35 @@ describe("parseIngredientsToLines / serializeIngredients roundtrip", () => {
     expect(serialized).toBe("100g Pain | 100g Baguette, 2 Oeufs");
   });
 
+  it("place l’alternative Possible choisie en premier du groupe ou", () => {
+    const master = parseIngredientsToLines(
+      "46,3g Farine d'avoine + 13,7g Whey | 60g Farine d'avoine protéinée",
+    );
+    const override = parseIngredientsToLines("60g Farine d'avoine protéinée");
+    const merged = applyOverrideSelectionToMasterOrGroups(master, override);
+    expect(serializeIngredients(merged)).toBe(
+      "60g Farine d'avoine protéinée | 46,3g Farine d'avoine + 13,7g Whey",
+    );
+  });
+
+  it("déplace l’alternative choisie ET ses éléments liés (+) en tête du groupe ou", () => {
+    const master = parseIngredientsToLines(
+      "60g Farine d'avoine protéinée | 46,3g Farine d'avoine + 13,7g Whey",
+    );
+    const override = parseIngredientsToLines("46,3g Farine d'avoine + 13,7g Whey");
+    const merged = applyOverrideSelectionToMasterOrGroups(master, override);
+    expect(serializeIngredients(merged)).toBe(
+      "46,3g Farine d'avoine + 13,7g Whey | 60g Farine d'avoine protéinée",
+    );
+  });
+
+  it("conserve le premier ou si l’override n’en contient aucun", () => {
+    const master = parseIngredientsToLines("100g Pain | 100g Baguette, 2 Oeufs");
+    const override = parseIngredientsToLines("2 Oeufs");
+    const merged = applyOverrideSelectionToMasterOrGroups(master, override);
+    expect(serializeIngredients(merged)).toBe("100g Pain | 100g Baguette, 2 Oeufs");
+  });
+
   it("preserves optional markers", () => {
     const raw = "200g Poulet, ?50g Parmesan";
     const lines = parseIngredientsToLines(raw);
@@ -249,6 +280,20 @@ describe("parseIngredientsToLines / serializeIngredients roundtrip", () => {
     const serialized = serializeIngredients(lines);
     expect(serialized).toContain("{165}");
     expect(serialized).toContain("[31]");
+  });
+});
+
+describe("ingredientsForPossibleCardDisplay", () => {
+  it("garde tous les éléments (+) de l'alternative de tête et exclut les alternatives (ou)", () => {
+    const raw = "46,3g Farine d'avoine + 13,7g Whey | 60g Farine d'avoine protéinée";
+    const res = ingredientsForPossibleCardDisplay(raw);
+    expect(res).toBe("46,3g Farine d'avoine + 13,7g Whey");
+  });
+
+  it("ne garde pas d'élément (+) orphelin d'une seconde alternative (ou)", () => {
+    const raw = "60g Farine d'avoine protéinée | 46,3g Farine d'avoine + 13,7g Whey";
+    const res = ingredientsForPossibleCardDisplay(raw);
+    expect(res).toBe("60g Farine d'avoine protéinée");
   });
 });
 
