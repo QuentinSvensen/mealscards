@@ -781,6 +781,9 @@ const Index = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'possible_meals' }, () => {
         debounceInvalidateQueries(qc, ["possible_meals"], 5000);
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_preferences' }, () => {
+        debounceInvalidateQueries(qc, ["user_preferences"], 2000);
+      })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR') {
           console.warn('Sync temps réel : La connexion a échoué. Assurez-vous que le Realtime est activé dans votre tableau de bord Supabase.');

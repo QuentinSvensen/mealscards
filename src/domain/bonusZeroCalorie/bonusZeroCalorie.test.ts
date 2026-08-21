@@ -6,6 +6,7 @@ import {
   ensureNamedIngredientsInBonusGroups,
   normalizeBonusLowCalorieGroups,
   normalizeBonusZeroCalorieGroups,
+  shouldRestoreBonusCatalogFromLocalBackup,
 } from "@/domain/bonusZeroCalorie/bonusZeroCalorie";
 
 describe("normalizeBonusZeroCalorieGroups", () => {
@@ -49,5 +50,45 @@ describe("normalizeBonusZeroCalorieGroups", () => {
     );
     const names = groups[0].lines.map((l) => l.name).filter(Boolean);
     expect(names).toEqual(["Glaçon"]);
+  });
+});
+
+describe("shouldRestoreBonusCatalogFromLocalBackup", () => {
+  it("refuse d'écraser les données cloud si Supabase contient déjà du contenu", () => {
+    const cloudGroups = [
+      {
+        id: "g1",
+        name: "Boissons",
+        lines: [{ id: "a", qty: "", count: "", name: "Eau", cal: "", pro: "", fiber: "" }],
+      },
+    ];
+    const backup = {
+      savedAt: Date.now(),
+      groups: [
+        {
+          id: "g1",
+          name: "Boissons",
+          lines: [
+            { id: "a", qty: "", count: "", name: "Eau", cal: "", pro: "", fiber: "" },
+            { id: "b", qty: "", count: "", name: "Soda", cal: "", pro: "", fiber: "" },
+          ],
+        },
+      ],
+    };
+    expect(shouldRestoreBonusCatalogFromLocalBackup(cloudGroups, backup, "key")).toBe(false);
+  });
+
+  it("autorise la restauration si le cloud est totalement vide", () => {
+    const backup = {
+      savedAt: Date.now(),
+      groups: [
+        {
+          id: "g1",
+          name: "Boissons",
+          lines: [{ id: "a", qty: "", count: "", name: "Eau", cal: "", pro: "", fiber: "" }],
+        },
+      ],
+    };
+    expect(shouldRestoreBonusCatalogFromLocalBackup([], backup, "key")).toBe(true);
   });
 });

@@ -426,19 +426,15 @@ export function bonusCatalogContentSignature(groups: BonusZeroCalorieGroup[]): s
 export function shouldRestoreBonusCatalogFromLocalBackup(
   cloudGroups: BonusZeroCalorieGroup[],
   backup: BonusCatalogLocalBackup | null,
-  storageKey: string,
+  _storageKey: string,
 ): boolean {
   if (!backup) return false;
   const cloudCount = countBonusCatalogMeaningfulLines(cloudGroups);
   const backupCount = countBonusCatalogMeaningfulLines(backup.groups);
   if (backupCount === 0) return false;
-  if (cloudCount === 0) return true;
-  if (bonusCatalogContentSignature(cloudGroups) === bonusCatalogContentSignature(backup.groups)) {
-    return false;
-  }
-  if (backupCount > cloudCount) return true;
-  const syncedAt = getBonusCatalogSyncedAt(storageKey);
-  return backup.savedAt > syncedAt;
+  // Supabase est la source de vérité partagée entre sessions/appareils.
+  // Ne restaurer depuis le backup local que si les données cloud sont totalement vides (0 ligne).
+  return cloudCount === 0;
 }
 
 /**
