@@ -87,18 +87,8 @@ export function IngredientEditor({
     onUpdate(ensureTrailingEmptyIngredientLine(next));
   };
 
-  /** Remplace une fibre vide par « 0 » quand la ligne a déjà des macros cal/prot. */
-  const withZeroFiberFallback = (source: IngLine[]): IngLine[] =>
-    source.map((line) => {
-      if (line.fiber?.trim()) return line;
-      if (line.name.trim() && (line.cal?.trim() || line.pro?.trim())) {
-        return { ...line, fiber: "0" };
-      }
-      return line;
-    });
-
   /** Valide avec la dernière version des lignes (synchrone ou via ref après blur mobile). */
-  const commitCurrentLines = () => onCommit(withZeroFiberFallback(linesRef.current));
+  const commitCurrentLines = () => onCommit(linesRef.current);
 
   const normalizedIngredientSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -158,10 +148,7 @@ export function IngredientEditor({
     };
   };
 
-  /** Affiche « 0 » pour les fibres quand cal/prot sont déjà connus mais le champ fibre est vide. */
   const fiberInputValue = (line: IngLine): string => {
-    if (line.fiber?.trim()) return line.fiber;
-    if (line.name.trim() && (line.cal?.trim() || line.pro?.trim())) return "0";
     return line.fiber ?? "";
   };
 

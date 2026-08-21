@@ -655,11 +655,7 @@ function formatMacroTripletFromRefs(
   return {
     cal: hasNonZeroMacro(calRef) ? formatLineMacroValue(calRef) : "",
     pro: hasNonZeroMacro(proRef) ? formatLineMacroValue(proRef) : "",
-    fiber: hasNonZeroMacro(fiberRef)
-      ? formatLineMacroValue(fiberRef)
-      : hasCalOrPro
-        ? formatLineMacroValue(0, { allowZero: true })
-        : "",
+    fiber: hasNonZeroMacro(fiberRef) ? formatLineMacroValue(fiberRef) : "",
   };
 }
 
@@ -713,12 +709,12 @@ export function resolveIngredientLineMacros(
   }
 
   const mealMacro = findMealMacroForIngredientName(sources.mealMacros, line.name);
-  if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber || mealMacro.fiber === "0")) {
+  if (mealMacro && (mealMacro.cal || mealMacro.pro || mealMacro.fiber)) {
     const fiberRaw = (mealMacro.fiber ?? "").trim();
     result = fillEmptyMacroTriplet(result, {
       cal: mealMacro.cal || "",
       pro: mealMacro.pro || "",
-      fiber: fiberRaw === "" ? "0" : fiberRaw,
+      fiber: fiberRaw,
     });
   }
 

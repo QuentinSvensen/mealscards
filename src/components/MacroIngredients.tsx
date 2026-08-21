@@ -482,9 +482,7 @@ export function MacroIngredients({
     const draft = getDraftValue(entry, drafts);
     const calories = draft.calories.trim();
     const protein = draft.protein.trim();
-    // Fibres vides → "0" si kcal/prot sont saisis (le placeholder « 0 » n’était pas persisté).
-    const fiber =
-      draft.fiber.trim() || (calories || protein ? "0" : "");
+    const fiber = draft.fiber.trim();
     const nextItem = createIngredientMacroLibraryItem(draft.displayName, calories, protein, fiber);
     if (!nextItem) {
       toast({
