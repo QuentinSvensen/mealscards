@@ -131,20 +131,13 @@ import {
 } from "@/domain/ninjaCreami/ninjaCreami";
 import {
   BONUS_LOW_CALORIE_GROUPS_KEY,
-  BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY,
-  BONUS_ZERO_CALORIE_ENSURE_NAMES,
   BONUS_ZERO_CALORIE_GROUPS_KEY,
   BONUS_ZERO_CALORIE_LINES_KEY,
   BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY,
-  BONUS_ZERO_CALORIE_RECOVERY_NAMES,
-  countBonusCatalogMeaningfulLines,
-  ensureNamedIngredientsInBonusGroups,
   flattenBonusZeroCalorieGroups,
-  loadBonusCatalogLocalBackup,
   normalizeBonusLowCalorieGroups,
   normalizeBonusZeroCalorieGroups,
   saveBonusCatalogLocalBackup,
-  shouldRestoreBonusCatalogFromLocalBackup,
   markBonusCatalogSynced,
 } from "@/domain/bonusZeroCalorie/bonusZeroCalorie";
 import { DESSERT_FOOD_PREF_KEY, DESSERT_FOOD_NAME_KEYS_PREF_KEY, addDessertFoodNameKey } from "@/lib/foodDessertUtils";
@@ -371,167 +364,16 @@ const Index = () => {
   const bonusZeroCalorieGroupsRaw = getPreference(BONUS_ZERO_CALORIE_GROUPS_KEY, null);
   const bonusZeroCalorieLinesRaw = getPreference(BONUS_ZERO_CALORIE_LINES_KEY, []);
   const bonusZeroCalorieGroups = useMemo(() => {
-    const normalized = normalizeBonusZeroCalorieGroups(
+    return normalizeBonusZeroCalorieGroups(
       bonusZeroCalorieGroupsRaw,
       bonusZeroCalorieLinesRaw,
     );
-    // Récupération douce si le catalogue a été réduit à quasi rien (ex. wipe Glaçon).
-    const meaningful = countBonusCatalogMeaningfulLines(normalized);
-    const withRecovery =
-      meaningful <= 1
-        ? ensureNamedIngredientsInBonusGroups(normalized, BONUS_ZERO_CALORIE_RECOVERY_NAMES)
-        : normalized;
-    return ensureNamedIngredientsInBonusGroups(withRecovery, BONUS_ZERO_CALORIE_ENSURE_NAMES);
   }, [bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw]);
   const bonusLowCalorieGroupsRaw = getPreference(BONUS_LOW_CALORIE_GROUPS_KEY, null);
   const bonusLowCalorieGroups = useMemo(
     () => normalizeBonusLowCalorieGroups(bonusLowCalorieGroupsRaw),
     [bonusLowCalorieGroupsRaw],
   );
-
-  // Persiste la migration liste plate → sous-catégories (une fois).
-  useEffect(() => {
-    if (isPreferencesLoading) return;
-    if (Array.isArray(bonusZeroCalorieGroupsRaw) && bonusZeroCalorieGroupsRaw.length > 0) return;
-    const hasContent = bonusZeroCalorieGroups.some((g) =>
-      g.lines.some(
-        (l) =>
-          l.name.trim() ||
-          l.qty.trim() ||
-          l.count.trim() ||
-          l.cal.trim() ||
-          l.pro.trim() ||
-          l.fiber.trim(),
-      ),
-    );
-    if (!hasContent) return;
-    setPreferencesBatch.mutate([
-      { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: bonusZeroCalorieGroups },
-      {
-        key: BONUS_ZERO_CALORIE_LINES_KEY,
-        value: flattenBonusZeroCalorieGroups(bonusZeroCalorieGroups),
-      },
-    ]);
-  }, [
-    isPreferencesLoading,
-    bonusZeroCalorieGroupsRaw,
-    bonusZeroCalorieGroups,
-    setPreferencesBatch,
-  ]);
-
-  // Persiste une récupération / ajout (Glaçon) une seule fois par montage — jamais en boucle.
-  const bonusZeroEnsureWroteRef = useRef(false);
-  useEffect(() => {
-    if (isPreferencesLoading) return;
-    if (bonusZeroEnsureWroteRef.current) return;
-    const base = normalizeBonusZeroCalorieGroups(bonusZeroCalorieGroupsRaw, bonusZeroCalorieLinesRaw);
-    const baseCount = countBonusCatalogMeaningfulLines(base);
-    // Ne pas reconstruire tout le catalogue « recovery » si déjà riche (multi-onglet).
-    const next =
-      baseCount <= 1
-        ? ensureNamedIngredientsInBonusGroups(base, BONUS_ZERO_CALORIE_RECOVERY_NAMES)
-        : base;
-    const ensured = ensureNamedIngredientsInBonusGroups(next, BONUS_ZERO_CALORIE_ENSURE_NAMES);
-    const nextCount = countBonusCatalogMeaningfulLines(ensured);
-    if (nextCount < baseCount) return;
-    if (ensured === base) {
-      bonusZeroEnsureWroteRef.current = true;
-      return;
-    }
-    const legacyOnly = normalizeBonusZeroCalorieGroups(null, bonusZeroCalorieLinesRaw);
-    const legacyCount = countBonusCatalogMeaningfulLines(legacyOnly);
-    if (nextCount < legacyCount) return;
-    bonusZeroEnsureWroteRef.current = true;
-    setPreferencesBatch.mutate([
-      { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: ensured },
-      {
-        key: BONUS_ZERO_CALORIE_LINES_KEY,
-        value: flattenBonusZeroCalorieGroups(ensured),
-      },
-    ]);
-  }, [
-    isPreferencesLoading,
-    bonusZeroCalorieGroupsRaw,
-    bonusZeroCalorieLinesRaw,
-    setPreferencesBatch,
-  ]);
-
-  // Persiste le seed Tous · bas en calorie tant que le catalogue prefs est vide.
-  // Ne jamais écraser un backup local plus riche (édition récente non sync).
-  useEffect(() => {
-    if (isPreferencesLoading) return;
-    const rawHasContent =
-      Array.isArray(bonusLowCalorieGroupsRaw) &&
-      ninjaCreamiBaseGroupsHaveContent(
-        normalizeBonusZeroCalorieGroups(bonusLowCalorieGroupsRaw, [], "tmp"),
-      );
-    if (rawHasContent) return;
-    const localBackup = loadBonusCatalogLocalBackup(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY);
-    if (localBackup && ninjaCreamiBaseGroupsHaveContent(localBackup.groups)) return;
-    if (!ninjaCreamiBaseGroupsHaveContent(bonusLowCalorieGroups)) return;
-    setPreference.mutate({
-      key: BONUS_LOW_CALORIE_GROUPS_KEY,
-      value: bonusLowCalorieGroups,
-    });
-  }, [
-    isPreferencesLoading,
-    bonusLowCalorieGroupsRaw,
-    bonusLowCalorieGroups,
-    setPreference,
-  ]);
-
-  // Restaure les catalogues Bonus depuis le backup local si le cloud/cache est périmé.
-  const bonusCatalogRestoredRef = useRef(false);
-  useEffect(() => {
-    if (isPreferencesLoading || bonusCatalogRestoredRef.current) return;
-
-    const zeroBackup = loadBonusCatalogLocalBackup(BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY);
-    if (
-      shouldRestoreBonusCatalogFromLocalBackup(
-        bonusZeroCalorieGroups,
-        zeroBackup,
-        BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY,
-      ) &&
-      zeroBackup
-    ) {
-      bonusCatalogRestoredRef.current = true;
-      setPreferencesBatch.mutate([
-        { key: BONUS_ZERO_CALORIE_GROUPS_KEY, value: zeroBackup.groups },
-        {
-          key: BONUS_ZERO_CALORIE_LINES_KEY,
-          value: flattenBonusZeroCalorieGroups(zeroBackup.groups),
-        },
-      ]);
-      markBonusCatalogSynced(BONUS_ZERO_CALORIE_LOCAL_BACKUP_KEY, zeroBackup.savedAt);
-      return;
-    }
-
-    const lowBackup = loadBonusCatalogLocalBackup(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY);
-    if (
-      shouldRestoreBonusCatalogFromLocalBackup(
-        bonusLowCalorieGroups,
-        lowBackup,
-        BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY,
-      ) &&
-      lowBackup
-    ) {
-      bonusCatalogRestoredRef.current = true;
-      setPreference.mutate({
-        key: BONUS_LOW_CALORIE_GROUPS_KEY,
-        value: lowBackup.groups,
-      });
-      markBonusCatalogSynced(BONUS_LOW_CALORIE_LOCAL_BACKUP_KEY, lowBackup.savedAt);
-      return;
-    }
-
-    bonusCatalogRestoredRef.current = true;
-  }, [
-    isPreferencesLoading,
-    bonusZeroCalorieGroups,
-    bonusLowCalorieGroups,
-    setPreference,
-    setPreferencesBatch,
-  ]);
 
   // Migre / répare Base uniquement quand on a du contenu (jamais d’écriture vide qui wipe le cloud).
   useEffect(() => {

@@ -1,0 +1,10 @@
+---
+description: Ne pas proposer ni lancer de build (déjà fait)
+alwaysApply: true
+---
+
+# Pas de build
+
+- Ne propose pas `npm run build`, `vite build`, ni de vérification « build prod ».
+- Ne lance pas de build sauf demande explicite de l’utilisateur.
+- Le build a déjà été fait ; inutile de le rappeler après des changements.

@@ -6,10 +6,12 @@ export function BreakfastBreakdownList({
   items,
   totalCal,
   totalPro,
+  totalFiber,
 }: {
   items: BreakfastBreakdownItem[];
   totalCal?: number;
   totalPro?: number;
+  totalFiber?: number;
 }) {
   if (items.length === 0) {
     return <p className="text-[10px] text-muted-foreground italic px-1">Aucun petit déjeuner</p>;
@@ -35,10 +37,13 @@ export function BreakfastBreakdownList({
             )}
             {item.cal > 0 && item.pro > 0 && <span className="opacity-40">·</span>}
             {item.pro > 0 && <span>🍗{Math.round(item.pro)}</span>}
+            {item.pro > 0 && item.fiber > 0 && <span className="opacity-40">·</span>}
+            {item.cal > 0 && item.pro === 0 && item.fiber > 0 && <span className="opacity-40">·</span>}
+            {item.fiber > 0 && <span>🌾{Math.round(item.fiber)}</span>}
           </span>
         </div>
       ))}
-      {items.length > 1 && (totalCal != null || totalPro != null) && (
+      {items.length > 1 && (totalCal != null || totalPro != null || totalFiber != null) && (
         <div className="flex items-center justify-between gap-2 text-[10px] font-bold px-2 pt-1.5 mt-0.5 border-t border-border/40">
           <span>Total petit déj</span>
           <span className="text-muted-foreground flex items-center gap-1">
@@ -52,6 +57,12 @@ export function BreakfastBreakdownList({
               <span className="opacity-40">·</span>
             )}
             {totalPro != null && totalPro > 0 && <span>🍗{Math.round(totalPro)}</span>}
+            {((totalPro != null && totalPro > 0) || (totalCal != null && totalCal > 0)) && totalFiber != null && totalFiber > 0 && (
+              <span className="opacity-40">·</span>
+            )}
+            {totalFiber != null && totalFiber > 0 && (
+              <span>🌾{Math.round(totalFiber)}</span>
+            )}
           </span>
         </div>
       )}

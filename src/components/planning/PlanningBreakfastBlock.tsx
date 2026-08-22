@@ -239,6 +239,7 @@ export function PlanningBreakfastBlock({
                             items={liveBreakfastBreakdown}
                             totalCal={breakfastTotalCals}
                             totalPro={breakfastTotalPro}
+                            totalFiber={breakfastTotalFiber}
                           />
                           <Separator className="my-2" />
                         </>

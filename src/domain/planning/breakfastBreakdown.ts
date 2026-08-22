@@ -1,6 +1,6 @@
 import type { Meal, PossibleMeal } from "@/types/meals";
 import type { FoodItem } from "@/types/food";
-import { getCardDisplayCalories, getCardDisplayProtein } from "@/hooks/useCalorieBalance";
+import { getCardDisplayCalories, getCardDisplayProtein, getCardDisplayFiber } from "@/hooks/useCalorieBalance";
 import type { FoodItemMacroIndex } from "@/lib/ingredientUtils";
 import { getExtraPortionMacros } from "@/lib/extraMacroUtils";
 import { parsePlanningCustomExtraId } from "@/lib/planningExtraMacros";
@@ -12,6 +12,7 @@ export interface BreakfastBreakdownItem {
   name: string;
   cal: number;
   pro: number;
+  fiber: number;
 }
 
 /** Indique si une ligne du détail est un extra assigné au matin (déjà affiché à part). */
@@ -88,6 +89,7 @@ function appendMatinExtrasToBreakdown(
         name: count > 1 ? `${custom.name} ×${count}` : custom.name,
         cal: custom.cal * count,
         pro: custom.prot * count,
+        fiber: (custom.fiber ?? 0) * count,
       });
       continue;
     }
@@ -99,6 +101,7 @@ function appendMatinExtrasToBreakdown(
         name: count > 1 ? `${fi.name} ×${count}` : fi.name,
         cal: macros.cal * count,
         pro: macros.pro * count,
+        fiber: (macros.fiber ?? 0) * count,
       });
     }
   }
@@ -117,14 +120,17 @@ export function buildLiveBreakfastBreakdownItems(params: {
   possibleMeals: PossibleMeal[];
   calOverrides: Record<string, string>;
   proOverrides: Record<string, string>;
+  fiberOverrides?: Record<string, string>;
   breakfastManualCalories: Record<string, number>;
   breakfastManualProteins: Record<string, number>;
+  breakfastManualFibers?: Record<string, number>;
   breakfastAssignedIds: string[];
   foodItems: FoodItem[];
   isAvailable?: (name: string) => boolean;
   foodMacroIndex?: FoodItemMacroIndex;
   getMealCal: (meal: Meal) => number;
   getMealPro: (meal: Meal) => number;
+  getMealFiber?: (meal: Meal) => number;
 }): BreakfastBreakdownItem[] {
   const {
     key,
@@ -135,14 +141,17 @@ export function buildLiveBreakfastBreakdownItems(params: {
     possibleMeals,
     calOverrides,
     proOverrides,
+    fiberOverrides = {},
     breakfastManualCalories,
     breakfastManualProteins,
+    breakfastManualFibers = {},
     breakfastAssignedIds,
     foodItems,
     isAvailable,
     foodMacroIndex,
     getMealCal,
     getMealPro,
+    getMealFiber,
   } = params;
 
   const items: BreakfastBreakdownItem[] = [];
@@ -154,6 +163,7 @@ export function buildLiveBreakfastBreakdownItems(params: {
       name: pm.meals?.name || "Repas",
       cal: getCardDisplayCalories(pm, calOverrides[pm.id], isAvailable),
       pro: getCardDisplayProtein(pm, proOverrides[pm.id], isAvailable, foodItems, foodMacroIndex),
+      fiber: getCardDisplayFiber(pm, fiberOverrides[pm.id], isAvailable, foodItems, foodMacroIndex),
     });
   }
 
@@ -172,6 +182,9 @@ export function buildLiveBreakfastBreakdownItems(params: {
           pro: possiblePdj
             ? getCardDisplayProtein(possiblePdj, proOverrides[possiblePdj.id], isAvailable, foodItems, foodMacroIndex)
             : parseMealProtein(breakfast.protein),
+          fiber: possiblePdj
+            ? getCardDisplayFiber(possiblePdj, fiberOverrides[possiblePdj.id], isAvailable, foodItems, foodMacroIndex)
+            : (getMealFiber ? getMealFiber(breakfast) : 0),
         });
       }
     } else {
@@ -180,17 +193,20 @@ export function buildLiveBreakfastBreakdownItems(params: {
         name: breakfast.name,
         cal: getMealCal(breakfast),
         pro: getMealPro(breakfast),
+        fiber: getMealFiber ? getMealFiber(breakfast) : 0,
       });
     }
   } else if (!breakfast && matinMeals.length === 0) {
     const manualCal = (iso && breakfastManualCalories[iso]) || 0;
     const manualPro = (iso && breakfastManualProteins[iso]) || 0;
-    if (manualCal > 0 || manualPro > 0) {
+    const manualFiber = (iso && breakfastManualFibers[iso]) || 0;
+    if (manualCal > 0 || manualPro > 0 || manualFiber > 0) {
       items.push({
         id: "manual",
         name: "Saisie manuelle",
         cal: manualCal,
         pro: manualPro,
+        fiber: manualFiber,
       });
     }
   }
@@ -247,6 +263,7 @@ export function buildBackupBreakfastBreakdownItems(params: {
       name: m.name,
       cal: getCardDisplayCalories(fullPm, calOverrides[c.id], isAvailable),
       pro: getCardDisplayProtein(fullPm, proOverrides[c.id], isAvailable, foodItems, foodMacroIndex),
+      fiber: getCardDisplayFiber(fullPm, undefined, isAvailable, foodItems, foodMacroIndex),
     });
   }
 
@@ -258,6 +275,7 @@ export function buildBackupBreakfastBreakdownItems(params: {
         name: m.name,
         cal: parseMealCalories(m.calories),
         pro: parseMealProtein(m.protein),
+        fiber: 0,
       });
     }
   } else if (bfSel?.startsWith("pm:")) {
@@ -271,6 +289,7 @@ export function buildBackupBreakfastBreakdownItems(params: {
           name: m.name,
           cal: getCardDisplayCalories(fullPm, calOverrides[pm.id], isAvailable),
           pro: getCardDisplayProtein(fullPm, proOverrides[pm.id], isAvailable, foodItems, foodMacroIndex),
+          fiber: getCardDisplayFiber(fullPm, undefined, isAvailable, foodItems, foodMacroIndex),
         });
       }
     }
@@ -278,7 +297,7 @@ export function buildBackupBreakfastBreakdownItems(params: {
     const manualCal = breakfastManualCalories[iso] || breakfastManualCalories[key] || 0;
     const manualPro = breakfastManualProteins[iso] || breakfastManualProteins[key] || 0;
     if (manualCal > 0 || manualPro > 0) {
-      items.push({ id: "manual", name: "Saisie manuelle", cal: manualCal, pro: manualPro });
+      items.push({ id: "manual", name: "Saisie manuelle", cal: manualCal, pro: manualPro, fiber: 0 });
     }
   }
 

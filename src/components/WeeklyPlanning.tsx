@@ -920,6 +920,7 @@ export function WeeklyPlanning({
 
   const calOverrides = getPreference<Record<string, string>>('planning_cal_overrides', {});
   const proOverrides = getPreference<Record<string, string>>('planning_pro_overrides', {});
+  const fiberOverrides = getPreference<Record<string, string>>('planning_fiber_overrides', {});
 
   const { manualResetBusy, restoreBusy, handleManualReset, handleRestoreBackup } = usePlanningResetRestore({
     qc,
@@ -1075,6 +1076,7 @@ export function WeeklyPlanning({
   const [editingFiberGoal, setEditingFiberGoal] = useState(false);
   const [fiberGoalInput, setFiberGoalInput] = useState("");
   const breakfastManualCalories = getPreference<Record<string, number>>('planning_breakfast_manual_calories', {});
+  const breakfastManualFibers = getPreference<Record<string, number>>('planning_breakfast_manual_fibers', {});
   const autoConsumeBreakfast = getPreference<Record<string, boolean>>('planning_auto_consume_breakfast', {});
 
   // Préférences pour la semaine prochaine (persistent au reset)
@@ -2445,14 +2447,17 @@ export function WeeklyPlanning({
             possibleMeals,
             calOverrides,
             proOverrides,
+            fiberOverrides,
             breakfastManualCalories,
             breakfastManualProteins,
+            breakfastManualFibers,
             breakfastAssignedIds: breakfastAssignedSlotIds,
             foodItems,
             isAvailable: isAvailableCb,
             foodMacroIndex,
             getMealCal,
             getMealPro,
+            getMealFiber: (meal) => getMealFiber(meal, undefined, undefined, undefined, foodItems, foodMacroIndex) ?? 0,
           });
           return (
             <PlanningDayColumn
