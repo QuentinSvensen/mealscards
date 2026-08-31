@@ -649,19 +649,41 @@ function FoodItemCard({ item, possibleMeals, baselineTotalGrams, baselineQuantit
           </PopoverContent>
         </Popover>
 
-        {/* Bascule du compteur (alignée sur l'affichage effectif) */}
-        <button
-          onClick={toggleManualCounter}
-          className="text-[10px] text-white/40 bg-white/10 hover:bg-white/20 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
-          title={effectiveCounterStart
-            ? (isFuture
-              ? counterBadgeTitle
-              : `Arrêter compteur${counterHours !== null ? ` (${counterHours}h)` : ''}`)
-            : 'Démarrer compteur'}
-        >
-          <Timer className="h-2.5 w-2.5" />
-          {effectiveCounterStart ? (isFuture ? 'Prog.' : 'Stop') : 'Compteur'}
-        </button>
+        {/* Contrôles manuels du compteur : forcer lancement ou arrêt */}
+        {effectiveCounterStart ? (
+          <div className="inline-flex items-center gap-0.5">
+            {isFuture && (
+              <button
+                type="button"
+                onClick={startManualCounter}
+                className="text-[10px] text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-medium transition-colors"
+                title="Forcer le lancement immédiat du compteur (ouvert maintenant)"
+              >
+                <Timer className="h-2.5 w-2.5" />
+                Lancer
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={stopDisplayedCounter}
+              className="text-[10px] text-rose-300 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-medium transition-colors"
+              title={isFuture ? "Annuler le compteur programmé" : `Forcer l'arrêt du compteur${counterHours !== null ? ` (${counterHours}h écoulées)` : ''}`}
+            >
+              <Timer className="h-2.5 w-2.5" />
+              Stop
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={startManualCounter}
+            className="text-[10px] text-white/50 bg-white/10 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40 border border-white/10 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-colors"
+            title="Forcer le lancement du compteur (démarrer maintenant)"
+          >
+            <Timer className="h-2.5 w-2.5" />
+            Compteur
+          </button>
+        )}
 
         {/* Bascule No-counter (logique de compteur automatique) */}
         {(() => {

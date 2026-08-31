@@ -134,8 +134,7 @@ describe("dailyCalorieHistory", () => {
       calOverrides: {},
       proOverrides: {},
       daily_goal: null,
-      protein_goal: null,
-      weekStartISO: "2026-07-12",
+      weekStartISO: "2026-07-06",
       weekEndISO: "2026-07-12",
     };
 

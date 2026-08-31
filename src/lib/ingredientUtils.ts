@@ -947,6 +947,7 @@ function overlayIngredientLineFromPool(
     cal: matching.cal || line.cal,
     pro: matching.pro || line.pro,
     fiber: matching.fiber || line.fiber,
+    isOptional: matching.isOptional ?? false,
   };
 }
 

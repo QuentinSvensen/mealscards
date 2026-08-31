@@ -17,7 +17,7 @@ import {
   captureLiveWeekTotalsForHistory,
   PLANNING_DAILY_CALORIE_HISTORY_KEY,
 } from "@/domain/planning/dailyCalorieHistory";
-import { asNumberRecord } from "@/domain/planning/jsonCoerce";
+import { asNumberRecord, asStringArrayRecord } from "@/domain/planning/jsonCoerce";
 import type { PossibleMealsFullBackup, PlanningSnapshotEntry } from "@/domain/planning/types";
 import { shouldReplaceBackup } from "@/domain/planning/backupSafety";
 import {
@@ -35,6 +35,8 @@ import {
 } from "@/domain/planning/embedPlanningSnapshotsInBackup";
 import { getPossibleMealIdsToDeleteOnManualReset } from "@/domain/planning/mealsToClear";
 import { mergeSnapshotsIntoLivePrefMap } from "@/domain/planning/mergePlanningSnapshots";
+import { applyNextWeekPromotionOnTop } from "@/domain/planning/applyNextWeekPromotion";
+import { remapPlanningRecordToTargetWeek } from "@/domain/planning/remapPlanningKeys";
 import { resolvePostResetGoals } from "@/domain/planning/postResetGoals";
 import { upsertPossibleMealsFullBackup, deletePossibleMealsByIds } from "@/services/planning/weeklyResetPersistence";
 import { pushWeeklyResetClientPreferences } from "@/services/planning/pushWeeklyResetClientPreferences";
@@ -269,21 +271,26 @@ export function usePlanningResetRestore({
       await deletePossibleMealsByIds(ids);
 
       const prunedSnapshots = pruneStaleIsoSnapshotsForTargetWeek(snapshots, weekDates);
-      setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
-
       const merged = mergeSnapshotsIntoLivePrefMap(prefMap, prunedSnapshots, weekDates);
+      const promoted = applyNextWeekPromotionOnTop(merged, prefMap, snapshots, weekDates);
       const goals = resolvePostResetGoals(prefMap);
       pushWeeklyResetClientPreferences(
         setPreference,
-        merged,
+        promoted,
         goals,
         new Date().toISOString(),
         "manual_button"
       );
+      const promotedExtraSlots = remapPlanningRecordToTargetWeek(
+        asStringArrayRecord(prefMap["next_week_extra_slot_assignments"]),
+        weekDates,
+      );
+      setPreference.mutate({ key: "planning_extra_slot_assignments", value: promotedExtraSlots });
+      setPreference.mutate({ key: "planning_saved_snapshots", value: prunedSnapshots });
 
       await qc.invalidateQueries({ queryKey: ["possible_meals"] });
       await qc.invalidateQueries({ queryKey: ["user_preferences"] });
-      toast({ title: "Planning réinitialisé", description: "Les cartes ont été supprimées ; l’état 💾 a été réappliqué." });
+      toast({ title: "Planning réinitialisé", description: "Les cartes ont été supprimées et les valeurs promues/restaurées." });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       toast({ title: "Échec du reset", description: msg, variant: "destructive" });

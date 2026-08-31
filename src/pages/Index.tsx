@@ -58,6 +58,7 @@ import { useIndexStockMoveHandlers } from "@/hooks/useIndexStockMoveHandlers";
 import { useStickyChromeHeight } from "@/hooks/useStickyChromeHeight";
 import { useWeeklyAutoReset } from "@/hooks/useWeeklyAutoReset";
 import { useLazyFragmentsPreload } from "@/hooks/useLazyFragmentsPreload";
+import { useSyncPlanningQueriesOnResume } from "@/hooks/useSyncPlanningQueriesOnResume";
 import {
   buildStockMap, buildFoodItemIndex, findStockKey, pickBestAlternative,
   getMealMultiple, getMealFractionalRatio,
@@ -885,6 +886,8 @@ const Index = () => {
       isPossibleMealStockExempt({ id: pmId, meal_id: mealId }, masterSourcePmIds, ninjaStockExemptIds),
     [masterSourcePmIds, ninjaStockExemptIds],
   );
+
+  useSyncPlanningQueriesOnResume(qc, unlocked);
 
   useProgCounterReconcile({
     enabled: unlocked,

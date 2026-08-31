@@ -54,9 +54,12 @@ export function mergeDailyCalorieHistory(
 export function pruneDailyCalorieHistory(
   history: Record<string, number>,
   refDate: Date = new Date(),
-  keepDays = 30,
+  keepDays = 60,
 ): Record<string, number> {
-  const cutoff = format(subDays(refDate, keepDays), "yyyy-MM-dd");
+  const keys = Object.keys(history).filter(isIsoDateString).sort();
+  const latestIso = keys[keys.length - 1];
+  const effectiveRef = latestIso && new Date(latestIso) > refDate ? new Date(latestIso) : refDate;
+  const cutoff = format(subDays(effectiveRef, keepDays), "yyyy-MM-dd");
   const next: Record<string, number> = {};
   for (const [iso, cal] of Object.entries(history)) {
     if (iso >= cutoff && cal > 0) next[iso] = cal;

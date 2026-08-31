@@ -26,6 +26,29 @@ export function PlanningInput({
   /** Empêche le resync props→state pendant la saisie (sinon un clear est écrasé au re-render). */
   const focusedRef = useRef(false);
 
+  const prevKeyRef = useRef(storageKey);
+  const editValRef = useRef(editVal);
+  const tempValRef = useRef(tempVal);
+  const addModeRef = useRef(addMode);
+  const currentValueRef = useRef(currentValue);
+  const onSaveRef = useRef(onSave);
+
+  useEffect(() => {
+    editValRef.current = editVal;
+  }, [editVal]);
+  useEffect(() => {
+    tempValRef.current = tempVal;
+  }, [tempVal]);
+  useEffect(() => {
+    addModeRef.current = addMode;
+  }, [addMode]);
+  useEffect(() => {
+    currentValueRef.current = currentValue;
+  }, [currentValue]);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
+
   // Resync depuis la valeur résolue seulement hors édition (et hors mode +).
   useEffect(() => {
     if (!addMode && !focusedRef.current) {
@@ -33,15 +56,28 @@ export function PlanningInput({
     }
   }, [currentValue, addMode]);
 
-  // Changement de créneau / semaine : repart d’une saisie propre liée à la nouvelle clé.
+  // Changement de créneau / semaine : commit l'ancienne saisie si modifiée, puis reset pour la nouvelle clé.
   useEffect(() => {
+    if (prevKeyRef.current !== storageKey) {
+      if (addModeRef.current) {
+        const rawAdd = parseInt(tempValRef.current, 10) || 0;
+        if (rawAdd !== 0) {
+          onSaveRef.current(currentValueRef.current + rawAdd);
+        }
+      } else {
+        const raw = parseInt(editValRef.current, 10) || 0;
+        if (raw !== currentValueRef.current) {
+          onSaveRef.current(raw);
+        }
+      }
+      prevKeyRef.current = storageKey;
+    }
+
     focusedRef.current = false;
     setAddMode(false);
     setTempVal("");
     setEditVal(String(currentValue || ""));
-    // currentValue lu au moment du changement de clé uniquement
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset guidé par storageKey
-  }, [storageKey]);
+  }, [storageKey, currentValue]);
 
   /** Valide l'ajout relatif (+N) et quitte le mode addition. */
   const commitAdd = () => {
