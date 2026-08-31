@@ -20,8 +20,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       gcTime: 1000 * 60 * 60 * 24, // 24h — keep cache for offline
-      staleTime: 1000 * 60 * 5, // 5 min — limite les refetch (egress Free Plan)
-      refetchOnWindowFocus: false,
+      staleTime: 0, // Stale-while-revalidate : affiche le cache instantanément et synchronise aussitôt
+      refetchOnWindowFocus: true,
+      refetchOnMount: true,
       retry: (failureCount, error) => {
         // Don't retry on auth errors (expired session)
         if (error && typeof error === 'object' && 'code' in error) {

@@ -613,19 +613,17 @@ const Index = () => {
     const channel = supabase
       .channel('global-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'food_items' }, () => {
-        // Les updates locaux appliquent déjà un optimistic update. On debounce le refetch
-        // Realtime pour éviter une salve de select(*) (egress Free Plan).
         if (shouldSuppressStockRealtime()) return;
-        debounceInvalidateQueries(qc, ["food_items"], 5000);
+        debounceInvalidateQueries(qc, ["food_items"], 300);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'meals' }, () => {
-        debounceInvalidateQueries(qc, ["meals"], 5000);
+        debounceInvalidateQueries(qc, ["meals"], 300);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'possible_meals' }, () => {
-        debounceInvalidateQueries(qc, ["possible_meals"], 5000);
+        debounceInvalidateQueries(qc, ["possible_meals"], 300);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_preferences' }, () => {
-        debounceInvalidateQueries(qc, ["user_preferences"], 2000);
+        debounceInvalidateQueries(qc, ["user_preferences"], 300);
       })
       .subscribe((status) => {
         if (status === 'CHANNEL_ERROR') {

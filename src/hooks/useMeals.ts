@@ -116,7 +116,9 @@ export function useMeals(options?: { enabled?: boolean }) {
     },
     retry: 3,
     retryDelay: 500,
-    staleTime: 2 * 60 * 1000, // 2 min — évite de recharger à chaque montage du composant
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     enabled,
   });
 
@@ -132,7 +134,9 @@ export function useMeals(options?: { enabled?: boolean }) {
     },
     retry: 3,
     retryDelay: 500,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     enabled,
   });
 

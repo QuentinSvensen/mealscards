@@ -223,10 +223,10 @@ export function usePreferences(options?: { enabled?: boolean }) {
       return failureCount < 3;
     },
     retryDelay: 500,
-    staleTime: PREFERENCES_STALE_TIME_MS,
-    // Toujours relire Supabase au montage : évite de figer une vieille version Persist.
+    staleTime: 0,
+    // Toujours relire Supabase au montage et au focus : synchronisation instantanée.
     refetchOnMount: "always",
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     enabled,
   });
 

@@ -86,7 +86,9 @@ export function useFoodItems(options?: { enabled?: boolean }) {
     },
     retry: 3,
     retryDelay: 500,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     enabled,
   });
 
