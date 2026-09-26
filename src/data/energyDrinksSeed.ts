@@ -93,6 +93,7 @@ const monster = buildBrand("Monster", [
   { taste: "Reserve: Melon d'eau", tested: false },
   { taste: "Reserve: Orange dreamsicle", tested: false },
   { taste: "Reserve: Pêche et crème", tested: false },
+  { taste: "Strawberry Shot (shot 150 ml)", tested: false },
 ]);
 
 const redBull = buildBrand("Red Bull", [
@@ -148,4 +149,4 @@ export const ENERGY_DRINKS_SEED_REVIEWS: EnergyDrinksReviewsMap = parts.reduce(
 );
 
 /** Version du seed : incrémenter pour réappliquer une mise à jour du catalogue. */
-export const ENERGY_DRINKS_SEED_VERSION = 2;
+export const ENERGY_DRINKS_SEED_VERSION = 3;

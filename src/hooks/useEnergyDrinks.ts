@@ -56,6 +56,87 @@ const ENERGY_DRINKS_IMAGES_VERSION = 2;
 /** Réinitialise les rognages obsolètes puis active l'auto-rognage portrait. */
 const ENERGY_DRINKS_CROP_VERSION = 4;
 
+/** Clé localStorage pour le backup local des boissons (protection contre écrasement Supabase). */
+const LOCAL_BACKUP_KEY = "mealcards_energy_drinks_local_backup";
+
+/**
+ * Sauvegarde une copie locale des marques dans localStorage.
+ * Appelée après chaque écriture utilisateur — protège contre les écrasements Supabase accidentels.
+ */
+function saveEnergyDrinksLocalBackup(brands: EnergyDrinkBrand[]): void {
+  try {
+    if (!brands || brands.length === 0) return;
+    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({ brands, savedAt: new Date().toISOString() }));
+  } catch { /* ignore (quota ou indisponible) */ }
+}
+
+/** Lit le backup local des marques (null si absent ou invalide). */
+function loadEnergyDrinksLocalBackup(): { brands: EnergyDrinkBrand[]; savedAt: string } | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_BACKUP_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.brands)) return null;
+    return parsed as { brands: EnergyDrinkBrand[]; savedAt: string };
+  } catch { return null; }
+}
+
+/**
+ * Fusionne le seed dans la liste courante de façon NON-DESTRUCTIVE :
+ * - Les marques existantes (même id) sont conservées telles quelles.
+ * - Les marques du seed absentes sont ajoutées en fin de liste.
+ * - Pour chaque marque existante, les goûts du seed absents sont ajoutés.
+ * - Les avis existants sont conservés ; les avis du seed pour les nouveaux goûts sont ajoutés.
+ * Aucun goût ni aucune marque déjà présents ne sont modifiés ou supprimés.
+ */
+function mergeSeedNonDestructive(
+  currentBrands: EnergyDrinkBrand[],
+  currentReviews: EnergyDrinksReviewsMap,
+  seedBrands: EnergyDrinkBrand[],
+  seedReviews: EnergyDrinksReviewsMap,
+): { brands: EnergyDrinkBrand[]; reviews: EnergyDrinksReviewsMap; changed: boolean } {
+  let changed = false;
+  const brandMap = new Map(currentBrands.map((b) => [b.id, b]));
+  const nextBrands = [...currentBrands];
+  const nextReviews = { ...currentReviews };
+
+  for (const seedBrand of seedBrands) {
+    const existing = brandMap.get(seedBrand.id);
+    if (!existing) {
+      // Marque entièrement nouvelle → on l'ajoute
+      nextBrands.push(seedBrand);
+      brandMap.set(seedBrand.id, seedBrand);
+      for (const f of seedBrand.flavors) {
+        if (!(f.id in nextReviews) && seedReviews[f.id]) {
+          nextReviews[f.id] = seedReviews[f.id];
+        }
+      }
+      changed = true;
+    } else {
+      // Marque existante → on complète uniquement les goûts manquants
+      const existingFlavorIds = new Set(existing.flavors.map((f) => f.id));
+      const newFlavors: EnergyDrinkFlavor[] = [];
+      for (const sf of seedBrand.flavors) {
+        if (!existingFlavorIds.has(sf.id)) {
+          newFlavors.push(sf);
+          if (!(sf.id in nextReviews) && seedReviews[sf.id]) {
+            nextReviews[sf.id] = seedReviews[sf.id];
+          }
+          changed = true;
+        }
+      }
+      if (newFlavors.length > 0) {
+        const idx = nextBrands.findIndex((b) => b.id === existing.id);
+        const updated = { ...existing, flavors: [...existing.flavors, ...newFlavors] };
+        nextBrands[idx] = updated;
+        brandMap.set(existing.id, updated);
+      }
+    }
+  }
+
+  return { brands: nextBrands, reviews: nextReviews, changed };
+}
+
 /** Aplatit marques + goûts en entrées pour filtrage et statistiques. */
 function flattenFlavors(brands: EnergyDrinkBrand[]) {
   return brands.flatMap((brand) =>
@@ -128,18 +209,49 @@ export function useEnergyDrinks() {
     [imageBlobs],
   );
 
-  /** Applique le seed catalogue une fois (ou après bump de version). */
+  /**
+   * Applique le seed de façon NON-DESTRUCTIVE : fusionne uniquement les marques/goûts
+   * absents de la liste courante. Ne supprime et n'écrase jamais les données utilisateur.
+   */
   useEffect(() => {
     if (isLoading || seedAppliedRef.current) return;
     const appliedVersion = getPreference<number>(PREF_SEED_VERSION, 0);
     if (appliedVersion >= ENERGY_DRINKS_SEED_VERSION) return;
 
     seedAppliedRef.current = true;
-    setPreferencesBatch.mutate([
-      { key: PREF_BRANDS, value: ENERGY_DRINKS_SEED_BRANDS },
-      { key: PREF_REVIEWS, value: ENERGY_DRINKS_SEED_REVIEWS },
-      { key: PREF_SEED_VERSION, value: ENERGY_DRINKS_SEED_VERSION },
-    ]);
+
+    const currentBrands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, []);
+    const currentReviews = getPreference<EnergyDrinksReviewsMap>(PREF_REVIEWS, {});
+
+    // Premier lancement (liste vide) → injection directe du seed complet
+    if (!currentBrands || currentBrands.length === 0) {
+      setPreferencesBatch.mutate([
+        { key: PREF_BRANDS, value: ENERGY_DRINKS_SEED_BRANDS },
+        { key: PREF_REVIEWS, value: ENERGY_DRINKS_SEED_REVIEWS },
+        { key: PREF_SEED_VERSION, value: ENERGY_DRINKS_SEED_VERSION },
+      ]);
+      return;
+    }
+
+    // Liste existante → fusion non-destructive
+    const { brands: merged, reviews: mergedReviews, changed } = mergeSeedNonDestructive(
+      currentBrands,
+      currentReviews,
+      ENERGY_DRINKS_SEED_BRANDS,
+      ENERGY_DRINKS_SEED_REVIEWS,
+    );
+
+    if (changed) {
+      setPreferencesBatch.mutate([
+        { key: PREF_BRANDS, value: merged },
+        { key: PREF_REVIEWS, value: mergedReviews },
+        { key: PREF_SEED_VERSION, value: ENERGY_DRINKS_SEED_VERSION },
+      ]);
+    } else {
+      setPreferencesBatch.mutate([
+        { key: PREF_SEED_VERSION, value: ENERGY_DRINKS_SEED_VERSION },
+      ]);
+    }
   }, [isLoading, getPreference, setPreferencesBatch]);
 
   /** Complète les images manquantes sans écraser celles modifiées par l'utilisateur. */
@@ -251,6 +363,13 @@ export function useEnergyDrinks() {
     () => brands.map((b) => ({ ...b, flavors: [...b.flavors] })),
     [brands],
   );
+
+  // Backup local automatique après chaque changement de liste
+  useEffect(() => {
+    if (!isLoading && brands && brands.length > 0) {
+      saveEnergyDrinksLocalBackup(brands);
+    }
+  }, [brands, isLoading]);
 
   const allFlavors = useMemo(() => flattenFlavors(orderedBrands), [orderedBrands]);
 
@@ -548,6 +667,73 @@ export function useEnergyDrinks() {
     };
   }, [allFlavors, orderedBrands.length, getReview]);
 
+  /**
+   * Exporte la liste complète des marques + avis en JSON téléchargeable.
+   */
+  const exportBrands = useCallback(() => {
+    const payload = { brands: orderedBrands, reviews, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `boissons_${new Date().toISOString().split("T")[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [orderedBrands, reviews]);
+
+  /**
+   * Importe une liste depuis un fichier JSON exporté précédemment.
+   * Mode « fusion » : ne supprime aucune donnée existante, ajoute uniquement ce qui manque.
+   */
+  const importBrands = useCallback(
+    async (file: File): Promise<{ added: number; error?: string }> => {
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text) as {
+          brands?: EnergyDrinkBrand[];
+          reviews?: EnergyDrinksReviewsMap;
+        };
+        if (!Array.isArray(parsed?.brands)) {
+          return { added: 0, error: "Fichier invalide (brands manquant)" };
+        }
+        const importedBrands: EnergyDrinkBrand[] = parsed.brands;
+        const importedReviews: EnergyDrinksReviewsMap = parsed.reviews ?? {};
+        const currentBrands = getPreference<EnergyDrinkBrand[]>(PREF_BRANDS, []);
+        const currentReviews = getPreference<EnergyDrinksReviewsMap>(PREF_REVIEWS, {});
+        const { brands: merged, reviews: mergedReviews, changed } = mergeSeedNonDestructive(
+          currentBrands,
+          currentReviews,
+          importedBrands,
+          importedReviews,
+        );
+        const added = merged.flatMap((b) => b.flavors).length -
+          currentBrands.flatMap((b) => b.flavors).length;
+        if (changed) {
+          setPreferencesBatch.mutate([
+            { key: PREF_BRANDS, value: merged },
+            { key: PREF_REVIEWS, value: mergedReviews },
+          ]);
+        }
+        return { added };
+      } catch (e) {
+        return { added: 0, error: `Erreur lecture fichier : ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    [getPreference, setPreferencesBatch],
+  );
+
+  /**
+   * Restaure depuis le backup local (localStorage) si Supabase a écrasé la liste.
+   */
+  const restoreFromLocalBackup = useCallback((): boolean => {
+    const backup = loadEnergyDrinksLocalBackup();
+    if (!backup || backup.brands.length === 0) return false;
+    setPreference.mutate({ key: PREF_BRANDS, value: backup.brands });
+    return true;
+  }, [setPreference]);
+
+  const localBackup = useMemo(() => loadEnergyDrinksLocalBackup(), []);
+
   return {
     brands: orderedBrands,
     allFlavors,
@@ -564,5 +750,9 @@ export function useEnergyDrinks() {
     resolveImageUrl,
     moveBrand,
     stats,
+    exportBrands,
+    importBrands,
+    restoreFromLocalBackup,
+    localBackup,
   };
 }

@@ -5,7 +5,7 @@
  * puis coche les goûts testés et leur attribue une note sur 10.
  */
 import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
-import { Search, Zap, Plus, ChevronDown, ChevronRight, ChevronUp, Trash2, ImageIcon } from "lucide-react";
+import { Search, Zap, Plus, ChevronDown, ChevronRight, ChevronUp, Trash2, ImageIcon, Download, Upload } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -856,7 +856,11 @@ export function EnergyDrinksList() {
     deleteFlavor,
     moveBrand,
     stats,
+    exportBrands,
+    importBrands,
   } = useEnergyDrinks();
+
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterMode>("all");
@@ -932,35 +936,82 @@ export function EnergyDrinksList() {
           {stats.brands} marque{stats.brands > 1 ? "s" : ""} · {stats.tested} testé
           {stats.tested > 1 ? "s" : ""} sur {stats.total}
         </p>
-        <Dialog open={addBrandOpen} onOpenChange={setAddBrandOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 text-xs gap-1 mx-auto sm:mx-0">
-              <Plus className="h-3 w-3" />
-              Nouvelle marque
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Créer une marque</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2 pt-1">
-              <Input
-                placeholder="Marque (ex. Monster, Red Bull…)"
-                value={newBrandName}
-                onChange={(e) => setNewBrandName(e.target.value)}
-                autoFocus
-              />
-              <Input
-                placeholder="URL image de la marque (optionnel)"
-                value={newBrandImageUrl}
-                onChange={(e) => setNewBrandImageUrl(e.target.value)}
-              />
-              <Button className="w-full" onClick={handleAddBrand}>
-                Créer la marque
+        <div className="flex items-center gap-1.5 mx-auto sm:mx-0">
+          {/* Bouton Export JSON */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            onClick={exportBrands}
+            title="Exporter la liste en JSON"
+          >
+            <Download className="h-3 w-3" />
+            Exporter
+          </Button>
+          {/* Bouton Import JSON (fusion non-destructive) */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            onClick={() => importInputRef.current?.click()}
+            title="Importer depuis un fichier JSON (fusion, sans perte)"
+          >
+            <Upload className="h-3 w-3" />
+            Importer
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              const result = await importBrands(file);
+              if (result.error) {
+                toast({ title: "Erreur d'import", description: result.error, variant: "destructive" });
+              } else {
+                toast({
+                  title: "Import réussi",
+                  description: result.added > 0
+                    ? `${result.added} goût(s) ajouté(s) par fusion.`
+                    : "Aucun nouveau goût à ajouter (tout était déjà présent).",
+                });
+              }
+              // Vide le input pour permettre re-import du même fichier
+              e.target.value = "";
+            }}
+          />
+          <Dialog open={addBrandOpen} onOpenChange={setAddBrandOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
+                <Plus className="h-3 w-3" />
+                Nouvelle marque
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Créer une marque</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2 pt-1">
+                <Input
+                  placeholder="Marque (ex. Monster, Red Bull…)"
+                  value={newBrandName}
+                  onChange={(e) => setNewBrandName(e.target.value)}
+                  autoFocus
+                />
+                <Input
+                  placeholder="URL image de la marque (optionnel)"
+                  value={newBrandImageUrl}
+                  onChange={(e) => setNewBrandImageUrl(e.target.value)}
+                />
+                <Button className="w-full" onClick={handleAddBrand}>
+                  Créer la marque
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="relative">
