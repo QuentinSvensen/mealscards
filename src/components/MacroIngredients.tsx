@@ -13,6 +13,7 @@ import {
 import type { Meal, PossibleMeal } from "@/hooks/useMeals";
 import type { FoodItem } from "@/hooks/useFoodItems";
 import { toast } from "@/hooks/use-toast";
+import { construireExportEatcards } from "@/domain/macros/exportEatcards";
 import {
   applyIngredientMacroToText,
   applyIngredientRenameToText,
@@ -780,6 +781,37 @@ export function MacroIngredients({
     closeUnitGramsDialog();
   };
 
+  /**
+   * Télécharge toute la liste Macro au format de la page Ingrédients d'Eatcards.
+   * Sert à la reprise. N'écrit rien dans l'ancienne base, et n'emporte pas les fibres.
+   */
+  const exporterPourEatcards = () => {
+    const lignes = construireExportEatcards(
+      entries.map((entry) => {
+        const brouillon = getDraftValue(entry, drafts);
+        const poids = unitGramsByKey[entry.key];
+        const type = foodTypeByKey[entry.key];
+        return {
+          nom: brouillon.displayName,
+          basisLabel: entry.basisLabel,
+          calories: brouillon.calories,
+          protein: brouillon.protein,
+          poidsUniteG: poids != null && poids > 0 ? poids : null,
+          typeAliment: type === "feculent" || type === "viande" ? type : null,
+        };
+      }),
+    );
+    const blob = new Blob([JSON.stringify({ ingredients: lignes }, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const lien = document.createElement("a");
+    lien.href = url;
+    lien.download = "ingredients-eatcards.json";
+    lien.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-3 sm:space-y-4">
       <div className="rounded-2xl border bg-card/80 p-3 sm:p-4 shadow-sm">
@@ -792,6 +824,9 @@ export function MacroIngredients({
             <p className="text-xs sm:text-sm text-muted-foreground">
               Référentiel des calories, protéines et fibres précisées dans les onglets Repas et Aliments. Une sauvegarde propage la macro à toutes les occurrences.
             </p>
+            <Button type="button" variant="outline" onClick={exporterPourEatcards} className="mt-3 rounded-xl">
+              Exporter pour Eatcards
+            </Button>
           </div>
         </div>
 
